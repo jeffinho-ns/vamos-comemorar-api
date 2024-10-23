@@ -3,20 +3,17 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
-const multer = require('multer'); // Importa o multer
-const sharp = require('sharp');
+const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-
 const jwt = require('jsonwebtoken');
-
+const router = express.Router();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-
 // Middleware
 app.use(cors({
-    origin: 'http://localhost:3000',
+    origin: '*',
     credentials: true,
 }));
 app.use(express.json({ limit: '100mb' }));
@@ -24,18 +21,45 @@ app.use(bodyParser.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
 // Diretório de uploads
-const uploadDir = path.join(__dirname, 'uploads');
+const uploadDir = path.join(__dirname, 'uploads'); // Define o caminho correto para a pasta de uploads
+
+const upload = multer({
+    storage: multer.diskStorage({
+      destination: function (req, file, cb) {
+        cb(null, uploadDir); // Define o diretório de destino dos uploads
+      },
+      filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname)); // Nomeia o arquivo com data atual + extensão original
+      },
+    }),
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+        if (!allowedTypes.includes(file.mimetype)) {
+            const error = new Error('Tipo de arquivo não suportado');
+            error.code = 'LIMIT_FILE_TYPES';
+            return cb(error, false);
+        }
+        cb(null, true);
+    },
+    limits: { fileSize: 10000000 }, // Limite de 10MB
+});
 
 // Verifica se a pasta de upload existe, se não, cria
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configuração do multer
-const storage = multer.memoryStorage(); // Armazena os arquivos na memória
-const upload = multer({ 
-    storage: storage, 
-    limits: { fileSize: 100 * 1024 * 1024 } // Limite de 100 MB
+// Serve o diretório de uploads como arquivos estáticos
+app.use('/uploads', express.static(uploadDir));
+
+// Rota de upload
+app.post('/api/upload', upload.single('image'), (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+    // Corrigido o caminho da URL para não duplicar "/uploads"
+    const imageUrl = `uploads/${req.file.filename}`;
+    res.json({ imageUrl });
 });
 
 // Criação do pool de conexões
@@ -48,47 +72,20 @@ const pool = mysql.createPool({
 
 // Middleware para autenticação do token
 const authenticateToken = (req, res, next) => {
-    const token = req.headers['authorization']?.split(' ')[1]; // Captura o token do cabeçalho
+    const token = req.headers['authorization']?.split(' ')[1];
 
     if (!token) {
-        return res.sendStatus(401); // Não autorizado
+        return res.sendStatus(401);
     }
 
     jwt.verify(token, 'SEU_SEGREDO', (err, user) => {
         if (err) {
-            return res.sendStatus(403); // Proibido
+            return res.sendStatus(403);
         }
-        req.user = user; // Anexa o usuário decodificado à requisição
-        next(); // Chama o próximo middleware
+        req.user = user;
+        next();
     });
 };
-
-// Endpoint para upload de imagem e retornar a URL da imagem
-app.post('/api/upload', upload.single('image'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).send('Nenhuma imagem foi enviada.');
-        }
-
-        const outputPath = path.join(uploadDir, `profile_${Date.now()}.jpg`);
-
-        // Redimensiona a imagem usando sharp e salva no diretório de uploads
-        await sharp(req.file.buffer)
-            .resize(300, 300)
-            .toFormat('jpeg')
-            .jpeg({ quality: 80 })
-            .toFile(outputPath);
-
-        const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${path.basename(outputPath)}`;
-        res.status(200).json({ message: 'Imagem enviada com sucesso', imageUrl });
-    } catch (err) {
-        console.error('Erro ao processar a imagem:', err);
-        return res.status(500).json({ error: 'Erro ao processar a imagem' });
-    }
-});
-
-// Serve o diretório de uploads como arquivos estáticos
-app.use('/uploads', express.static(uploadDir));
 
 // Endpoint para cadastrar usuários com a URL da imagem de perfil
 app.post('/api/users', async (req, res) => {
@@ -98,8 +95,11 @@ app.post('/api/users', async (req, res) => {
         // Hash da senha
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Insere os dados do usuário no banco de dados
-        const [result] = await pool.promise().query('INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)', [name, email, hashedPassword, profileImageUrl]);
+        // Insere os dados do usuário no banco de dados, incluindo a URL da imagem
+        const [result] = await pool.promise().query(
+            'INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)', 
+            [name, email, hashedPassword, profileImageUrl]
+        );
         
         res.status(201).json({ id: result.insertId, name, email, profileImageUrl });
     } catch (error) {
@@ -108,29 +108,46 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
+
 // Endpoint para listar usuários
 app.get('/api/users', async (req, res) => {
     try {
-        const [results] = await pool.promise().query('SELECT * FROM users');
-        res.json(results);
+        const [results] = await pool.promise().query(`
+            SELECT 
+                id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
+                cpf, endereco, numero, bairro, cidade, estado, complemento 
+            FROM users
+        `);
+        
+        // Remove a senha de cada usuário
+        const sanitizedResults = results.map(({ password, ...user }) => user);
+        
+        res.json(sanitizedResults);
     } catch (err) {
         console.error('Erro ao listar usuários:', err);
         return res.status(500).json(err);
     }
 });
 
-
 // Endpoint para obter dados do usuário logado
+
 app.get('/api/users/me', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id; // Captura o ID do usuário do token
-        const [results] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [userId]);
+        const [results] = await pool.promise().query(`
+            SELECT 
+                id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
+                cpf, endereco, numero, bairro, cidade, estado, complemento 
+            FROM users 
+            WHERE id = ?`, 
+            [userId]
+        );
 
         if (results.length === 0) {
             return res.sendStatus(404); // Usuário não encontrado
         }
 
-        const user = results[0];
+        const { password, ...user } = results[0]; // Remove a senha
         res.json(user); // Retorna os dados do usuário
     } catch (error) {
         console.error('Erro ao buscar dados do usuário:', error);
@@ -139,75 +156,73 @@ app.get('/api/users/me', authenticateToken, async (req, res) => {
 });
 
 
+
+// Endpoint para atualizar os dados do usuário logado
+app.patch('/api/users/me', authenticateToken, async (req, res) => {
+    const userId = req.user.id; // Captura o ID do usuário do token
+    const { name, email, password, foto_perfil } = req.body;
+
+    let updates = [];
+    let query = 'UPDATE users SET';
+
+    if (name) {
+        updates.push(` name = ?`);
+    }
+    if (email) {
+        updates.push(` email = ?`);
+    }
+    if (password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        updates.push(` password = ?`);
+        updates.push(hashedPassword);
+    }
+    if (foto_perfil) {
+        updates.push(` foto_perfil = ?`);
+    }
+
+    if (updates.length === 0) {
+        return res.status(400).json({ error: 'Nenhum campo para atualizar.' });
+    }
+
+    query += updates.join(',') + ' WHERE id = ?';
+    updates.push(userId);
+
+    try {
+        const [result] = await pool.promise().query(query, updates);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Usuário não encontrado.' });
+        }
+
+        res.json({ message: 'Dados do usuário atualizados com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao atualizar dados do usuário:', error);
+        return res.status(500).json({ error: 'Erro ao atualizar dados do usuário.' });
+    }
+});
+
+
+
+
 // Endpoint para atualizar usuários com imagem de perfil
 app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
-    const {
-        foto_perfil,
-        name,
-        email,
-        telefone,
-        sexo,
-        data_nascimento,
-        cep,
-        cpf,
-        endereco,
-        numero,
-        bairro,
-        cidade,
-        estado,
-        complemento,
-        password
-    } = req.body;
+    const { foto_perfil, name, email, password } = req.body;
 
-    // Lista de campos que serão atualizados
-    const updates = [
-        foto_perfil,
-        name,
-        email,
-        telefone,
-        sexo,
-        data_nascimento,
-        cep,
-        cpf,
-        endereco,
-        numero,
-        bairro,
-        cidade,
-        estado,
-        complemento
-    ];
-
-    let query = `
-        UPDATE users SET
-            foto_perfil = ?, 
-            name = ?, 
-            email = ?, 
-            telefone = ?, 
-            sexo = ?, 
-            data_nascimento = ?, 
-            cep = ?, 
-            cpf = ?,
-            endereco = ?, 
-            numero = ?, 
-            bairro = ?, 
-            cidade = ?, 
-            estado = ?, 
-            complemento = ?
-    `;
+    let query = `UPDATE users SET foto_perfil = ?, name = ?, email = ?`;
+    const updates = [foto_perfil, name, email];
 
     try {
         // Se a senha foi fornecida, faz o hash e adiciona ao conjunto de atualizações
         if (password) {
             const hashedPassword = await bcrypt.hash(password, 10);
-            query += `, password = ?`; // Adiciona a senha na query de atualização
-            updates.push(hashedPassword); // Adiciona o hash da senha à lista de atualizações
+            query += `, password = ?`;
+            updates.push(hashedPassword);
         }
 
-        query += ` WHERE id = ?`; // Finaliza a query
-        updates.push(id); // Adiciona o ID do usuário no final para a cláusula WHERE
+        query += ` WHERE id = ?`;
+        updates.push(id);
 
-        // Executa a query no banco de dados
         const [result] = await pool.promise().query(query, updates);
         
         if (result.affectedRows === 0) {
@@ -232,22 +247,19 @@ app.post('/api/users/login', async (req, res) => {
         );
 
         if (results.length === 0) {
-            console.log(`Usuário não encontrado: ${access}`);
             return res.status(404).json({ error: 'Usuário não encontrado' });
         }
 
         const user = results[0];
-        console.log(`Usuário encontrado: ${user.email || user.cpf}`);
 
         // Comparar a senha usando bcrypt
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (isMatch) {
             // Se a senha estiver correta, gera um token JWT
-            const token = jwt.sign({ id: user.id, email: user.email }, 'SEU_SEGREDO', { expiresIn: '1h' }); // Ajuste o tempo de expiração conforme necessário
+            const token = jwt.sign({ id: user.id, email: user.email }, 'SEU_SEGREDO', { expiresIn: '1h' });
             res.status(200).json({ message: 'Login bem-sucedido', user, token });
         } else {
-            console.log('Senha incorreta fornecida.');
             res.status(401).json({ error: 'Senha incorreta.' });
         }
     } catch (error) {
@@ -257,6 +269,8 @@ app.post('/api/users/login', async (req, res) => {
 });
 
 // Iniciar o servidor
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = router;
