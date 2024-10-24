@@ -53,12 +53,12 @@ if (!fs.existsSync(uploadDir)) {
 app.use('/uploads', express.static(uploadDir));
 
 // Rota de upload
-app.post('/api/upload', upload.single('image'), (req, res) => {
+app.post('/api/uploads', upload.single('image'), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }
     // Corrigido o caminho da URL para não duplicar "/uploads"
-    const imageUrl = `uploads/${req.file.filename}`;
+    const imageUrl = `${req.file.filename}`;
     res.json({ imageUrl });
 });
 
@@ -207,10 +207,10 @@ app.patch('/api/users/me', authenticateToken, async (req, res) => {
 // Endpoint para atualizar usuários com imagem de perfil
 app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
-    const { foto_perfil, name, email, password } = req.body;
+    const { foto_perfil, name, email, telefone, sexo, cep, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
 
-    let query = `UPDATE users SET foto_perfil = ?, name = ?, email = ?`;
-    const updates = [foto_perfil, name, email];
+    let query = `UPDATE users SET foto_perfil = ?, name = ?, email = ?, telefone = ?, sexo = ?, cep = ?, cpf = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, complemento = ?, password = ?`;
+    const updates = [foto_perfil, name, email, telefone, sexo, cep, cpf, endereco, numero, bairro, cidade, estado, complemento, password];
 
     try {
         // Se a senha foi fornecida, faz o hash e adiciona ao conjunto de atualizações
