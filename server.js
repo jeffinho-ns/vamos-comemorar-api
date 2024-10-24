@@ -1,7 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
+const bcryptjs = require('bcryptjs');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const fs = require('fs');
@@ -93,7 +93,7 @@ app.post('/api/users', async (req, res) => {
 
     try {
         // Hash da senha
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcryptjs.hash(password, 10);
 
         // Insere os dados do usuário no banco de dados, incluindo a URL da imagem
         const [result] = await pool.promise().query(
@@ -172,7 +172,7 @@ app.patch('/api/users/me', authenticateToken, async (req, res) => {
         updates.push(` email = ?`);
     }
     if (password) {
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcryptjs.hash(password, 10);
         updates.push(` password = ?`);
         updates.push(hashedPassword);
     }
@@ -215,7 +215,7 @@ app.put('/api/users/:id', async (req, res) => {
     try {
         // Se a senha foi fornecida, faz o hash e adiciona ao conjunto de atualizações
         if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
+            const hashedPassword = await bcryptjs.hash(password, 10);
             query += `, password = ?`;
             updates.push(hashedPassword);
         }
@@ -252,8 +252,8 @@ app.post('/api/users/login', async (req, res) => {
 
         const user = results[0];
 
-        // Comparar a senha usando bcrypt
-        const isMatch = await bcrypt.compare(password, user.password);
+        // Comparar a senha usando bcryptjs
+        const isMatch = await bcryptjs.compare(password, user.password);
 
         if (isMatch) {
             // Se a senha estiver correta, gera um token JWT
