@@ -1,8 +1,6 @@
-// Importando o dotenv para carregar variáveis de ambiente
 require('dotenv').config();
-
 const jwt = require('jsonwebtoken');
-const SECRET_KEY = process.env.JWT_SECRET || 'SEU_SEGREDO'; // Usando JWT_SECRET do .env
+const SECRET_KEY = process.env.JWT_SECRET || 'chave_secreta';
 
 function auth(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -14,6 +12,7 @@ function auth(req, res, next) {
 
     jwt.verify(token, SECRET_KEY, (err, user) => {
         if (err) {
+            console.error('Erro de verificação do token:', err.message);
             return res.status(403).json({ message: 'Token inválido' });
         }
         req.user = user;
