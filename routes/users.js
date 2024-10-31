@@ -1,5 +1,6 @@
 const express = require('express');
 const bcryptjs = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require("multer");
 const path = require("path");
@@ -9,15 +10,23 @@ const rootPath = path.resolve(__dirname, '..');
 const upload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, path.join(rootPath, 'uploads')),
-        filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname),
+        filename: (req, file, cb) => {
+            const timestamp = Date.now();
+            const ext = path.extname(file.originalname);
+            const filename = `${timestamp}${ext}`; // Nomeia o arquivo como "timestamp.extensão"
+            cb(null, filename);
+        },
     }),
     limits: { fileSize: 20 * 1024 * 1024 },
 });
+
+
 
 const router = express.Router();
 const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
 module.exports = (pool) => {
+    
     // Cadastro de usuário
     router.post('/', async (req, res) => {
         const { name, email, password, profileImageUrl } = req.body;
@@ -35,7 +44,7 @@ module.exports = (pool) => {
         }
     });
 
-    // Atualizar dados do usuário logado (PATCH)
+    
     // Atualizar dados do usuário logado (PATCH)
     router.patch('/me', authenticateToken, async (req, res) => {
         const userId = req.user.id; 
@@ -125,106 +134,12 @@ module.exports = (pool) => {
         }
     });
 
-    // Atualizar dados de um usuário específico
-    router.put('/:id', async (req, res) => {
-        const userId = req.params.id;
-        const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento } = req.body;
 
-        try {
-            const [result] = await pool.promise().query(`
-                UPDATE users 
-                SET name = ?, email = ?, telefone = ?, sexo = ?, data_nascimento = ?, 
-                    cpf = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, complemento = ? 
-                WHERE id = ?`,
-                [name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, userId]
-            );
 
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
 
-            res.json({ message: 'Dados do usuário atualizados com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao atualizar dados do usuário:', error);
-            res.status(500).json({ error: 'Erro ao atualizar dados do usuário.' });
-        }
-    });
+   
 
-    // Atualizar a senha de um usuário específico
-    router.put('/:id/senha', async (req, res) => {
-        const userId = req.params.id;
-        const { newPassword, currentPassword } = req.body;
 
-        try {
-            const [userResults] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [userId]);
-
-            if (userResults.length === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-
-            const user = userResults[0];
-            const isPasswordValid = await bcryptjs.compare(currentPassword, user.password);
-
-            if (!isPasswordValid) {
-                return res.status(401).json({ error: 'Senha atual inválida.' });
-            }
-
-            const hashedNewPassword = await bcryptjs.hash(newPassword, 10);
-            await pool.promise().query('UPDATE users SET password = ? WHERE id = ?', [hashedNewPassword, userId]);
-
-            res.json({ message: 'Senha atualizada com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao atualizar a senha do usuário:', error);
-            res.status(500).json({ error: 'Erro ao atualizar a senha do usuário.' });
-        }
-    });
-
-    // Atualizar a senha do usuário logado
-    router.put('/me/senha', authenticateToken, async (req, res) => {
-        const userId = req.user.id; 
-        const { newPassword, currentPassword } = req.body;
-
-        try {
-            const [userResults] = await pool.promise().query('SELECT * FROM users WHERE id = ?', [userId]);
-
-            if (userResults.length === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-
-            const user = userResults[0];
-            const isPasswordValid = await bcryptjs.compare(currentPassword, user.password);
-
-            if (!isPasswordValid) {
-                return res.status(401).json({ error: 'Senha atual inválida.' });
-            }
-
-            const hashedNewPassword = await bcryptjs.hash(newPassword, 10);
-            await pool.promise().query('UPDATE users SET password = ? WHERE id = ?', [hashedNewPassword, userId]);
-
-            res.json({ message: 'Senha atualizada com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao atualizar a senha do usuário logado:', error);
-            res.status(500).json({ error: 'Erro ao atualizar a senha do usuário logado.' });
-        }
-    });
-
-    // Atualizar foto de perfil
-    router.put('/me/foto', authenticateToken, upload.single('foto_perfil'), async (req, res) => {
-        const userId = req.user.id;
-        const foto_perfil = req.file ? req.file.filename : null;
-
-        if (!foto_perfil) {
-            return res.status(400).json({ error: 'Nenhuma imagem foi enviada.' });
-        }
-
-        try {
-            await pool.promise().query('UPDATE users SET foto_perfil = ? WHERE id = ?', [foto_perfil, userId]);
-            res.json({ message: 'Foto de perfil atualizada com sucesso.', foto_perfil });
-        } catch (error) {
-            console.error('Erro ao atualizar foto de perfil:', error);
-            res.status(500).json({ error: 'Erro ao atualizar foto de perfil.' });
-        }
-    });
 
     // Deletar usuário
     router.delete('/:id', async (req, res) => {
@@ -284,6 +199,138 @@ module.exports = (pool) => {
     });
     
     
+
+
+
+
+
+
+
+
+
+// Atualizar dados e foto de perfil do usuário logado (PUT)
+router.put('/me', authenticateToken, upload.single('foto_perfil'), async (req, res) => {
+    const userId = req.user.id;
+    const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
+    const foto_perfil = req.file ? req.file.filename : null;
+
+    try {
+        const updates = [];
+        const params = [];
+
+        if (name) { updates.push('name = ?'); params.push(name); }
+        if (email) { updates.push('email = ?'); params.push(email); }
+        if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
+        if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
+        if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
+        if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
+        if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
+        if (numero) { updates.push('numero = ?'); params.push(numero); }
+        if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
+        if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
+        if (estado) { updates.push('estado = ?'); params.push(estado); }
+        if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+        if (foto_perfil) { updates.push('foto_perfil = ?'); params.push(foto_perfil); }
+
+        // Atualiza a senha se fornecida
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
+        }
+
+        params.push(userId);
+
+        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        await pool.promise().query(query, params);
+
+        res.json({ message: 'Dados e foto de perfil do usuário logado atualizados com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao atualizar dados do usuário logado:', error);
+        res.status(500).json({ error: 'Erro ao atualizar dados do usuário logado.' });
+    }
+});
+
+
+// Atualizar dados e foto de perfil de um usuário específico (PUT)
+router.put('/:id', upload.single('foto_perfil'), async (req, res) => {
+    const userId = req.params.id;
+    const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
+    const foto_perfil = req.file ? req.file.filename : null;
+
+    console.log("Dados recebidos:", req.body); // Log dos dados recebidos
+
+    try {
+        const updates = [];
+        const params = [];
+
+        if (name) { updates.push('name = ?'); params.push(name); }
+        if (email) { updates.push('email = ?'); params.push(email); }
+        if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
+        if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
+        if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
+        if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
+        if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
+        if (numero) { updates.push('numero = ?'); params.push(numero); }
+        if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
+        if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
+        if (estado) { updates.push('estado = ?'); params.push(estado); }
+        if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+        if (foto_perfil) { updates.push('foto_perfil = ?'); params.push(foto_perfil); }
+
+        // Atualiza a senha se fornecida
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
+        }
+
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updates.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        params.push(userId);
+
+        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        const [result] = await pool.promise().query(query, params);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Usuário não encontrado.' });
+        }
+
+        res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao atualizar dados do usuário:', error);
+        res.status(500).json({ error: 'Erro ao atualizar dados do usuário.' });
+    }
+});
+
+
+
+
+
+
+
+
+
+
+
 
     return router;
 };
