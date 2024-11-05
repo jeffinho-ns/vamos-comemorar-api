@@ -1,10 +1,13 @@
+const fs = require('fs');
 const express = require('express');
-const bcryptjs = require('bcryptjs');
 const bcrypt = require('bcryptjs');
+const bcryptjs = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require("multer");
 const path = require("path");
 const authenticateToken = require('../middleware/auth');
+
+
 
 const rootPath = path.resolve(__dirname, '..');
 const upload = multer({
@@ -33,7 +36,7 @@ module.exports = (pool) => {
 
         try {
             const hashedPassword = await bcryptjs.hash(password, 10);
-            const [result] = await pool.promise().query(
+            const [result] = await pool.query(
                 'INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)',
                 [name, email, hashedPassword, profileImageUrl]
             );
@@ -85,7 +88,7 @@ module.exports = (pool) => {
             }
     
             const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-            const [result] = await pool.promise().query(query, params);
+            const [result] = await pool.query(query, params);
     
             if (result.affectedRows === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
@@ -146,7 +149,7 @@ module.exports = (pool) => {
         const userId = req.params.id;
 
         try {
-            const [result] = await pool.promise().query('DELETE FROM users WHERE id = ?', [userId]);
+            const [result] = await pool.query('DELETE FROM users WHERE id = ?', [userId]);
             if (result.affectedRows === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
             }
@@ -239,11 +242,6 @@ router.put('/me', authenticateToken, upload.single('foto_perfil'), async (req, r
             params.push(hashedPassword);
         }
 
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            updates.push('password = ?');
-            params.push(hashedPassword);
-        }
 
         if (updates.length === 0) {
             return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
@@ -299,16 +297,11 @@ router.put('/:id', upload.single('foto_perfil'), async (req, res) => {
             return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
         }
 
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            updates.push('password = ?');
-            params.push(hashedPassword);
-        }
 
         params.push(userId);
 
         const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-        const [result] = await pool.promise().query(query, params);
+        const [result] = await pool.query(query, params);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Usuário não encontrado.' });
