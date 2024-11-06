@@ -6,7 +6,7 @@ const authenticateToken = require('../middleware/auth');
 const router = express.Router();
 
 const rootPath = path.resolve(__dirname, '..');
-const uploadDir = path.join(rootPath, 'uploads');
+const uploadDir = path.join(rootPath, 'uploads/events');
 
 // Configuração do Multer para upload de imagens
 const upload = multer({
