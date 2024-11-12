@@ -88,11 +88,13 @@ const pool = mysql.createPool({
 const userRoutes = require('./routes/users')(pool, upload); // Passando o upload para as rotas
 const placeRoutes = require('./routes/places')(pool, upload);
 const eventsRoutes = require('./routes/events')(pool, upload);
+const reservasRoutes = require('./routes/reservas')(pool, upload);
 
 // Usando as rotas
 app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/reservas', reservasRoutes);
 
 // Iniciando o servidor
 app.listen(PORT, '0.0.0.0', () => {
