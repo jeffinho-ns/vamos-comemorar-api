@@ -78,6 +78,29 @@ module.exports = (pool, upload) => {
         }
     });
 
+
+    // Rota para obter um evento específico pelo ID
+router.get('/:id', async (req, res) => {
+    const eventId = req.params.id;
+
+    try {
+        const [rows] = await pool.promise().query(
+            `SELECT * FROM eventos WHERE id = ?`, [eventId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Evento não encontrado' });
+        }
+
+        res.status(200).json(rows[0]); // Retorna o primeiro item, já que o ID é único
+    } catch (error) {
+        console.error('Erro ao buscar evento:', error);
+        res.status(500).json({ error: 'Erro ao buscar evento' });
+    }
+});
+
+
+
     // Rota para excluir um evento pelo ID
     router.delete('/:id', async (req, res) => {
         const eventId = req.params.id;

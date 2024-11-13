@@ -164,43 +164,45 @@ module.exports = (pool, upload) => {
 
     
     // Rota para login
-    router.post('/login', async (req, res) => {
-        const { access, password } = req.body;
-        console.log('Acesso:', access);
-        console.log('Password:', password);
-    
-        try {
-            const [results] = await pool.promise().query(
-                'SELECT * FROM users WHERE email = ? OR cpf = ?',
-                [access, access]
-            );
-            console.log('Resultados da consulta:', results);
-    
-            if (results.length === 0) {
-                console.log('Usuário não encontrado');
-                return res.status(404).json({ error: 'Usuário não encontrado' });
-            }
-    
-            const user = results[0];
-            const isPasswordValid = await bcryptjs.compare(password, user.password);
-            console.log('Senha válida:', isPasswordValid);
-    
-            if (!isPasswordValid) {
-                return res.status(401).json({ error: 'Credenciais inválidas' });
-            }
-    
-            const token = jwt.sign(
-                { id: user.id, email: user.email },
-                process.env.JWT_SECRET || 'chave_secreta',
-                { expiresIn: '1h' }
-            );
-    
-            res.json({ token });
-        } catch (error) {
-            console.error('Erro ao realizar login:', error);
-            res.status(500).json({ error: 'Erro ao realizar login' });
+router.post('/login', async (req, res) => {
+    const { access, password } = req.body;
+    console.log('Acesso:', access);
+    console.log('Password:', password);
+
+    try {
+        const [results] = await pool.promise().query(
+            'SELECT * FROM users WHERE email = ? OR cpf = ?',
+            [access, access]
+        );
+        console.log('Resultados da consulta:', results);
+
+        if (results.length === 0) {
+            console.log('Usuário não encontrado');
+            return res.status(404).json({ error: 'Usuário não encontrado' });
         }
-    });
+
+        const user = results[0];
+        const isPasswordValid = await bcryptjs.compare(password, user.password);
+        console.log('Senha válida:', isPasswordValid);
+
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Credenciais inválidas' });
+        }
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET || 'chave_secreta',
+            { expiresIn: '1h' }
+        );
+
+        // Incluindo o userId na resposta
+        res.json({ token, userId: user.id });
+    } catch (error) {
+        console.error('Erro ao realizar login:', error);
+        res.status(500).json({ error: 'Erro ao realizar login' });
+    }
+});
+
     
     
 

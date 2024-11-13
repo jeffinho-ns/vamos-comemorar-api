@@ -332,47 +332,92 @@ async (req, res) => {
 
 
     // Rota para listar todos os lugares
-  router.get('/', async (req, res) => {
+// Rota para listar todos os lugares
+router.get('/', async (req, res) => {
     try {
-        // Recupera todos os lugares
-        const [places] = await pool.promise().query(`
-            SELECT 
-                id, slug, name, email, description, logo, street, number, 
-                latitude, longitude, status, visible 
-            FROM places
-        `);
-
-        // Recupera commodities e fotos
-        const [commodities] = await pool.promise().query(`
-            SELECT 
-                place_id, id, icon, color, name, description 
-            FROM commodities
-        `);
-
-        const [photos] = await pool.promise().query(`
-            SELECT 
-                place_id, id, photo, type, url 
-            FROM photos
-        `);
-
-        // Formata os lugares com suas commodities e fotos
-        const formattedPlaces = places.map(place => {
-            const placeCommodities = commodities.filter(c => c.place_id === place.id);
-            const placePhotos = photos.filter(p => p.place_id === place.id);
-
-            return {
-                ...place,
-                commodities: placeCommodities,
-                photos: placePhotos
-            };
-        });
-
-        res.json({ data: formattedPlaces });
+      // Realiza as queries de forma paralela
+      const [places, commodities, photos] = await Promise.all([
+        pool.promise().query(`
+          SELECT 
+            id, slug, name, email, description, logo, street, number, 
+            latitude, longitude, status, visible 
+          FROM places
+        `),
+        pool.promise().query(`
+          SELECT 
+            place_id, id, icon, color, name, description 
+          FROM commodities
+        `),
+        pool.promise().query(`
+          SELECT 
+            place_id, id, photo, type, url 
+          FROM photos
+        `)
+      ]);
+  
+      // Formata os lugares com suas commodities e fotos
+      const formattedPlaces = places[0].map(place => {
+        const placeCommodities = commodities[0].filter(c => c.place_id === place.id);
+        const placePhotos = photos[0].filter(p => p.place_id === place.id);
+  
+        return {
+          ...place,
+          commodities: placeCommodities,
+          photos: placePhotos
+        };
+      });
+  
+      res.json({ data: formattedPlaces });
     } catch (error) {
-        console.error('Erro ao listar locais:', error);
-        res.status(500).json({ error: 'Erro ao listar locais' });
+      console.error('Erro ao listar locais:', error);
+      res.status(500).json({ error: 'Erro ao listar locais' });
     }
   });
+
+  
+// Rota para buscar um lugar por ID
+router.get('/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [place] = await pool.promise().query(`
+        SELECT 
+          id, slug, name, email, description, logo, street, number, 
+          latitude, longitude, status, visible 
+        FROM places
+        WHERE id = ?
+      `, [id]);
+  
+      if (place.length === 0) {
+        return res.status(404).json({ error: 'Lugar não encontrado' });
+      }
+  
+      // Recupera as commodities e fotos associadas a este lugar
+      const [commodities] = await pool.promise().query(`
+        SELECT 
+          place_id, id, icon, color, name, description 
+        FROM commodities
+        WHERE place_id = ?
+      `, [id]);
+  
+      const [photos] = await pool.promise().query(`
+        SELECT 
+          place_id, id, photo, type, url 
+        FROM photos
+        WHERE place_id = ?
+      `, [id]);
+  
+      res.json({
+        place: place[0], // Retorna o lugar com suas commodities e fotos
+        commodities,
+        photos
+      });
+    } catch (error) {
+      console.error('Erro ao buscar lugar:', error);
+      res.status(500).json({ error: 'Erro ao buscar lugar' });
+    }
+  });
+  
+
 
 
 // Endpoint para excluir um 'place' e seus dados relacionados (logo, commodities, fotos)
