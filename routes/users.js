@@ -9,6 +9,7 @@ const authenticateToken = require('../middleware/auth');
 
 
 
+
 const rootPath = path.resolve(__dirname, '..');
 const upload = multer({
     storage: multer.diskStorage({
@@ -28,7 +29,7 @@ const upload = multer({
 const router = express.Router();
 const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
-module.exports = (pool) => {
+module.exports = (pool, upload) => {
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {

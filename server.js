@@ -8,6 +8,7 @@ const multer = require('multer');
 const fs = require('fs');
 const bcryptjs = require('bcryptjs');
 const path = require('path');
+const pool = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -77,12 +78,12 @@ const logoUpload = multer({
 
 
 // Pool de conexões do MySQL
-const pool = mysql.createPool({
-    host: '193.203.175.55',
-    user: 'u621081794_vamos',
-    password: '@123Mudar!@',
-    database: 'u621081794_vamos',
-});
+// const pool = mysql.createPool({
+//     host: '193.203.175.55',
+//     user: 'u621081794_vamos',
+//     password: '@123Mudar!@',
+//     database: 'u621081794_vamos',
+// });
 
 // Importando as rotas
 const userRoutes = require('./routes/users')(pool, upload); // Passando o upload para as rotas

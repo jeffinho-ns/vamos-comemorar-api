@@ -5,6 +5,8 @@ const path = require('path');
 const authenticateToken = require('../middleware/auth');
 const router = express.Router();
 
+
+
 const rootPath = path.resolve(__dirname, '..');
 const uploadDir = path.join(rootPath, 'uploads/events');
 
@@ -23,7 +25,7 @@ const upload = multer({
 });
 
 // Exporta uma função que aceita 'pool'
-module.exports = (pool) => {
+module.exports = (pool, upload) => {
 
     // Rota para criar um novo evento
     router.post('/', upload.fields([

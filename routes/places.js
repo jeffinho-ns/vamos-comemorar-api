@@ -27,7 +27,7 @@ const upload = multer({
 const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
 // Exporta uma função que aceita 'pool'
-module.exports = (pool) => {
+module.exports = (pool, upload) => {
     // Endpoint para criar um novo 'place' com logo e fotos
  // Endpoint para criar um novo 'place' com logo e fotos
 router.post('/',upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), // Configura 'logo' e 'photos'
