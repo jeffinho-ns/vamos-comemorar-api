@@ -1,6 +1,5 @@
-// routes/reservas.js
-
 const express = require('express');
+const generateQRCode = require('../middleware/qrcode');
 
 module.exports = (pool) => {
     const router = express.Router();
@@ -36,6 +35,7 @@ module.exports = (pool) => {
                     local_do_evento, brinde, imagem_do_evento,
                     quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+
                 [
                     userId, eventId, user.name, user.email, user.telefone, user.foto_perfil,
                     event.nome_do_evento, event.casa_do_evento, event.data_do_evento, event.hora_do_evento, 
@@ -62,6 +62,51 @@ module.exports = (pool) => {
         }
     });
 
+    // Rota para atualizar uma reserva específica pelo ID
+    router.put('/:id', async (req, res) => {
+        const { id } = req.params;
+        const {
+            quantidade_pessoas,
+            mesas,
+            data_da_reserva,
+            casa_da_reserva,
+            status
+        } = req.body;
+
+        try {
+            // Verifica se a reserva existe
+            const [reservaExistente] = await pool.promise().query(
+                'SELECT * FROM reservas WHERE id = ?',
+                [id]
+            );
+            if (!reservaExistente.length) return res.status(404).json({ error: "Reserva não encontrada" });
+
+            // Atualiza a reserva com os dados fornecidos
+            await pool.promise().query(
+                `UPDATE reservas SET 
+                    quantidade_pessoas = ?, 
+                    mesas = ?, 
+                    data_da_reserva = ?, 
+                    casa_da_reserva = ?, 
+                    status = ?
+                 WHERE id = ?`,
+                [
+                    quantidade_pessoas,
+                    mesas,
+                    data_da_reserva,
+                    casa_da_reserva,
+                    status,
+                    id
+                ]
+            );
+
+            res.status(200).json({ message: "Reserva atualizada com sucesso" });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: "Erro ao atualizar reserva" });
+        }
+    });
+
     // Rota para obter uma reserva específica pelo ID
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
@@ -74,6 +119,29 @@ module.exports = (pool) => {
         } catch (error) {
             console.error(error);
             res.status(500).json({ error: "Erro ao buscar reserva" });
+        }
+    });
+
+    // Rota para atualizar o status da reserva e gerar o QR code se aprovado
+    router.put('/update-status/:id', async (req, res) => {
+        const { id } = req.params;
+        const { status } = req.body;
+    
+        try {
+            await pool.promise().query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
+    
+            if (status === 'Aprovado') {
+                const [reservas] = await pool.promise().query('SELECT nome_do_evento FROM reservas WHERE id = ?', [id]);
+                if (reservas.length > 0) {
+                    const nomeDoEvento = reservas[0].nome_do_evento;
+                    await generateQRCode(id, nomeDoEvento); // Gera o QR code e o armazena no banco
+                }
+            }
+    
+            res.status(200).json({ message: 'Status atualizado com sucesso!' });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Erro ao atualizar o status da reserva' });
         }
     });
 
