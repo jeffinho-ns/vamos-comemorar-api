@@ -5,11 +5,9 @@ const path = require('path');
 const authenticateToken = require('../middleware/auth');
 const router = express.Router();
 
-
-
 const rootPath = path.resolve(__dirname, '..');
 const uploadDir = path.join(rootPath, 'uploads/events');
-
+ 
 // Configuração do Multer para upload de imagens
 const upload = multer({
     storage: multer.diskStorage({
@@ -25,7 +23,7 @@ const upload = multer({
 });
 
 // Exporta uma função que aceita 'pool'
-module.exports = (pool, upload) => {
+module.exports = (pool) => {
 
     // Rota para criar um novo evento
     router.post('/', upload.fields([
@@ -39,7 +37,7 @@ module.exports = (pool, upload) => {
         } = req.body;
     
         const imagemDoEvento = req.files['imagem_do_evento'] ? req.files['imagem_do_evento'][0].filename : null;
-        const imagemDoCombo = req.files['imagem_do_combo'] ? req.files['imagem_do_combo'][0].filename : null;
+        const imagemDoCombo = req.files['imagem_do_combo'] ? req.files['imagem_do_combo'][0].filename : null;        
     
         try {
             const [result] = await pool.promise().query(
