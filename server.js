@@ -90,12 +90,14 @@ const userRoutes = require('./routes/users')(pool, upload); // Passando o upload
 const placeRoutes = require('./routes/places')(pool, upload);
 const eventsRoutes = require('./routes/events')(pool, upload);
 const reservasRoutes = require('./routes/reservas')(pool, upload);
+const { generateQRCode, router: qrCodeRoutes } = require('./middleware/qrcode');
 
 // Usando as rotas
 app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/reservas', reservasRoutes);
+app.use('/api/qrcode', qrCodeRoutes);
 
 // Iniciando o servidor
 app.listen(PORT, '0.0.0.0', () => {
