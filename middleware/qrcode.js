@@ -1,19 +1,17 @@
-// middleware/qrcode.js
-
 const QRCode = require('qrcode');
-const db = require('../config/database'); // Ou pool, dependendo do que você usa
+const db = require('../config/database');
 
-async function generateQRCode(id, nomeDoEvento) {
+async function generateQRCode(id) {
     try {
-        // Gerar o QR code no formato base64
-        const qrCodeDataURL = await QRCode.toDataURL(nomeDoEvento);
+        // Usa o próprio ID da reserva como o conteúdo do QR Code
+        const qrCodeText = `reserva-${id}`;
 
-        // Atualizar a reserva com o QR code gerado
-        await db.promise().query('UPDATE reservas SET qrcode = ? WHERE id = ?', [qrCodeDataURL, id]);
+        // Atualiza o banco de dados com o texto do QR Code
+        await db.promise().query('UPDATE reservas SET qrcode = ? WHERE id = ?', [qrCodeText, id]);
 
-        console.log(`QR code gerado e inserido para a reserva ID: ${id}`);
+        console.log(`QR Code gerado e salvo para a reserva ID: ${id}`);
     } catch (error) {
-        console.error('Erro ao gerar o QR code:', error);
+        console.error('Erro ao gerar o QR Code:', error);
     }
 }
 
