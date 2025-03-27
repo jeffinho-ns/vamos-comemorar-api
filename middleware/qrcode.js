@@ -1,7 +1,5 @@
 const express = require('express');
 const multer = require('multer');
-const QRCodeReader = require('qrcode-reader');
-const Jimp = require('jimp');
 const QRCode = require('qrcode');
 const db = require('../config/database'); // Ou pool, dependendo do que você usa
 
@@ -13,6 +11,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  */
 async function generateQRCode(id, nomeDoEvento) {
     try {
+        if (!nomeDoEvento) {
+            console.error('Nome do evento é inválido.');
+            return;
+        }
+
         // Gerar o QR code no formato base64
         const qrCodeDataURL = await QRCode.toDataURL(nomeDoEvento);
 
