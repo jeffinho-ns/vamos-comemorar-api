@@ -26,39 +26,34 @@ async function generateQRCode(id, nomeDoEvento) {
 }
 
 /**
- * Rota para escanear QR Code e validar a reserva
+ * Rota para validar QR Code escaneado
  */
-router.post('/scan', upload.single('qrcode'), async (req, res) => {
+router.post('/validar', async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'Nenhuma imagem enviada' });
+        const { qrCode } = req.body; // O frontend enviará o texto do QR Code
+
+        if (!qrCode) {
+            return res.status(400).json({ message: 'QR Code não enviado' });
         }
-
-        // Ler a imagem do QR Code
-        const image = await Jimp.read(req.file.buffer);
-        const qr = new QRCodeReader();
-
-        const value = await new Promise((resolve, reject) => {
-            qr.callback = (err, result) => {
-                if (err || !result) {
-                    return reject('QR Code inválido ou não detectado');
-                }
-                resolve(result.result);
-            };
-            qr.decode(image.bitmap);
-        });
 
         // Buscar a reserva no banco de dados
-        const [rows] = await db.promise().query('SELECT * FROM reservas WHERE qrcode = ?', [value]);
+        const [rows] = await db.promise().query('SELECT * FROM reservas WHERE qrcode = ?', [qrCode]);
 
         if (rows.length === 0) {
-            return res.status(404).json({ message: 'Reserva não encontrada' });
+            return res.status(404).json({ success: false, message: 'Reserva não encontrada' });
         }
 
-        res.json({ message: 'QR Code válido', reserva: rows[0] });
+        const reserva = rows[0];
+
+        // Verificar se a reserva está aprovada
+        if (reserva.status !== 'Aprovado') {
+            return res.status(403).json({ success: false, message: 'Reserva não aprovada' });
+        }
+
+        res.json({ success: true, nome_do_evento: reserva.nome_do_evento, data_do_evento: reserva.data_do_evento });
     } catch (error) {
-        console.error('Erro ao ler o QR Code:', error);
-        res.status(500).json({ message: 'Erro ao processar o QR Code' });
+        console.error('Erro ao validar QR Code:', error);
+        res.status(500).json({ success: false, message: 'Erro interno do servidor' });
     }
 });
 
