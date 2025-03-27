@@ -11,11 +11,6 @@ const upload = multer({ storage: multer.memoryStorage() });
  */
 async function generateQRCode(id, nomeDoEvento) {
     try {
-        if (!nomeDoEvento) {
-            console.error('Nome do evento é inválido.');
-            return;
-        }
-
         // Gerar o QR code no formato base64
         const qrCodeDataURL = await QRCode.toDataURL(nomeDoEvento);
 
