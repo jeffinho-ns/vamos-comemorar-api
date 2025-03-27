@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const QRCode = require('qrcode');
-const db = require('../config/database'); // Ou pool, dependendo do que você usa
+const db = require('../config/database'); // Conexão com o banco de dados
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -11,17 +11,49 @@ const upload = multer({ storage: multer.memoryStorage() });
  */
 async function generateQRCode(id, nomeDoEvento) {
     try {
-        // Gerar o QR code no formato base64
-        const qrCodeDataURL = await QRCode.toDataURL(nomeDoEvento);
+        console.log(`Gerando QR Code para reserva ID: ${id}, Evento: ${nomeDoEvento}`);
 
-        // Atualizar a reserva com o QR code gerado
+        // Gerar o QR Code no formato base64
+        const qrCodeDataURL = await QRCode.toDataURL(nomeDoEvento);
+        console.log(`QR Code gerado com sucesso!`);
+
+        // Atualizar a reserva no banco de dados com o QR Code
         await db.promise().query('UPDATE reservas SET qrcode = ? WHERE id = ?', [qrCodeDataURL, id]);
 
-        console.log(`QR code gerado e inserido para a reserva ID: ${id}`);
+        console.log(`QR Code salvo no banco para a reserva ID: ${id}`);
     } catch (error) {
         console.error('Erro ao gerar o QR code:', error);
     }
 }
+
+/**
+ * Rota para atualizar o status da reserva e gerar QR Code se aprovado
+ */
+router.put('/reservas/update-status/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        console.log(`Atualizando status da reserva ID: ${id} para ${status}`);
+
+        // Atualizar o status no banco de dados
+        await db.promise().query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
+
+        // Se a reserva for aprovada, gerar o QR Code
+        if (status === 'Aprovado') {
+            const [reserva] = await db.promise().query('SELECT nome_do_evento FROM reservas WHERE id = ?', [id]);
+            
+            if (reserva.length > 0) {
+                await generateQRCode(id, reserva[0].nome_do_evento);
+            }
+        }
+
+        res.json({ success: true, message: 'Status atualizado com sucesso' });
+    } catch (error) {
+        console.error('Erro ao atualizar status:', error);
+        res.status(500).json({ success: false, message: 'Erro ao atualizar status' });
+    }
+});
 
 /**
  * Rota para validar QR Code escaneado
@@ -55,5 +87,4 @@ router.post('/validar', async (req, res) => {
     }
 });
 
-// Exportar tanto a função de gerar QR Code quanto a rota
 module.exports = { generateQRCode, router };
