@@ -1,8 +1,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
-
-const users = []; // Simulando um banco de dados (substitua pelo MySQL)
+const db = require("../config/database");
 
 // Função para gerar JWT
 const generateToken = (user) => {
@@ -22,18 +21,20 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Credenciais inválidas!" });
     }
 
-    let user = users.find((u) => u.email === email);
+    // Verifica se o usuário já existe no banco de dados
+    const [existingUser] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
 
-    if (!user) {
-      // Criando um novo usuário se não existir
-      user = {
-        id: users.length + 1,
-        name,
-        email,
-        provider,
-        createdAt: new Date(),
-      };
-      users.push(user);
+    let user;
+    if (existingUser.length > 0) {
+      user = existingUser[0];
+    } else {
+      // Criando novo usuário no banco de dados
+      const [result] = await db.query(
+        "INSERT INTO users (name, email, provider, createdAt) VALUES (?, ?, ?, NOW())",
+        [name, email, provider]
+      );
+
+      user = { id: result.insertId, name, email, provider };
     }
 
     const token = generateToken(user);
