@@ -9,6 +9,7 @@ const fs = require('fs');
 const bcryptjs = require('bcryptjs');
 const path = require('path');
 const pool = require('./config/database');
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -91,6 +92,7 @@ const placeRoutes = require('./routes/places')(pool, upload);
 const eventsRoutes = require('./routes/events')(pool, upload);
 const reservasRoutes = require('./routes/reservas')(pool, upload);
 const qrcodeRoutes = require("./routes/qrcode");
+const authRoutes = require("./routes/auth");
 
 // Usando as rotas
 app.use('/api/users', userRoutes);
@@ -98,6 +100,7 @@ app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/reservas', reservasRoutes);
 app.use("/api/qrcode", qrcodeRoutes);
+app.use("/api/auth", authRoutes);
 
 
 // Iniciando o servidor
