@@ -139,12 +139,6 @@ module.exports = (pool, upload) => {
     });
 
 
-
-
-   
-
-
-
     // Deletar usuário
     router.delete('/:id', async (req, res) => {
         const userId = req.params.id;

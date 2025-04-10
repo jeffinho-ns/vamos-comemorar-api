@@ -7,4 +7,7 @@ const pool = mysql.createPool({
     database: 'u621081794_vamos',
 });
 
-module.exports = pool;
+// aqui você transforma o pool em uma versão que suporta Promises
+const promisePool = pool.promise();
+
+module.exports = promisePool;

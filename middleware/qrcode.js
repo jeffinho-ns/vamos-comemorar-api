@@ -1,6 +1,7 @@
 const QRCode = require('qrcode');
 const db = require('../config/database');
 
+
 async function generateQRCode(id) {
     try {
         // Usa o próprio ID da reserva como o conteúdo do QR Code
