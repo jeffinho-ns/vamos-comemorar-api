@@ -34,16 +34,31 @@ module.exports = (pool, upload) => {
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
-        const connection = pool.promise(); // <- Interface baseada em Promises
+        const connection = pool.promise();
         const { name, email, password, profileImageUrl } = req.body;
-
+    
         try {
             const hashedPassword = await bcryptjs.hash(password, 10);
-            const [result] = await connection.query( // <- Aqui você usa connection
+    
+            const [result] = await connection.query(
                 'INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)',
                 [name, email, hashedPassword, profileImageUrl]
             );
-            res.status(201).json({ id: result.insertId, name, email, profileImageUrl });
+    
+            const userId = result.insertId;
+    
+            // Gera o token JWT
+            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+                expiresIn: '7d',
+            });
+    
+            res.status(201).json({
+                token,
+                userId,
+                name,
+                email,
+                profileImageUrl,
+            });
         } catch (error) {
             console.error('Erro ao cadastrar usuário:', error);
             res.status(500).json({ error: 'Erro ao cadastrar usuário' });
