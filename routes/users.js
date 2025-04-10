@@ -30,15 +30,16 @@ const router = express.Router();
 const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
 module.exports = (pool, upload) => {
-    const connection = pool.promise();
+    
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
+        const connection = pool.promise(); // <- Interface baseada em Promises
         const { name, email, password, profileImageUrl } = req.body;
 
         try {
             const hashedPassword = await bcryptjs.hash(password, 10);
-            const [result] = await pool.query(
+            const [result] = await connection.query( // <- Aqui você usa connection
                 'INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)',
                 [name, email, hashedPassword, profileImageUrl]
             );
