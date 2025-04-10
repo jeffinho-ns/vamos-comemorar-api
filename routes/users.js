@@ -35,14 +35,14 @@ module.exports = (pool, upload) => {
     // Cadastro de usuário
     router.post('/', async (req, res) => {
         const connection = pool.promise();
-        const { name, email, password, profileImageUrl } = req.body;
+        const { name, email, cpf, password, profileImageUrl } = req.body;
     
         try {
             const hashedPassword = await bcryptjs.hash(password, 10);
     
             const [result] = await connection.query(
-                'INSERT INTO users (name, email, password, foto_perfil) VALUES (?, ?, ?, ?)',
-                [name, email, hashedPassword, profileImageUrl]
+                'INSERT INTO users (name, email, cpf, password, foto_perfil) VALUES (?, ?, ?, ?)',
+                [name, email, cpf, hashedPassword, profileImageUrl]
             );
     
             const userId = result.insertId;
@@ -59,6 +59,7 @@ module.exports = (pool, upload) => {
                 userId,
                 name,
                 email,
+                cpf,
                 profileImageUrl,
             });
         } catch (error) {
