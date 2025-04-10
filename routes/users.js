@@ -30,6 +30,7 @@ const router = express.Router();
 const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
 module.exports = (pool, upload) => {
+    const connection = pool.promise();
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
