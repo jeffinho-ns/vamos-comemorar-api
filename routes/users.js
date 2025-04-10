@@ -46,11 +46,13 @@ module.exports = (pool, upload) => {
             );
     
             const userId = result.insertId;
-    
+            console.log('JWT_SECRET:', process.env.JWT_SECRET);
             // Gera o token JWT
-            const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-                expiresIn: '7d',
-            });
+            const token = jwt.sign(
+                { id: userId, email },
+                process.env.JWT_SECRET || 'chave_secreta',
+                { expiresIn: '1h' }
+              );
     
             res.status(201).json({
                 token,
