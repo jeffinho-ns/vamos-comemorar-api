@@ -16,20 +16,26 @@ const upload = multer({ dest: 'uploads/' });
 
 // Adicionar convidado
 router.post('/', auth, async (req, res) => {
-  const { event_id, nome, documento, lista } = req.body;
-  const adicionado_por = req.user.id; // assumindo que você pega o userId com o middleware auth
-
-  try {
-    const [result] = await pool.query(
-      'INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por) VALUES (?, ?, ?, ?, ?)',
-      [event_id, nome, documento, lista || 'Geral', adicionado_por]
-    );
-    res.status(201).json({ id: result.insertId, message: 'Convidado adicionado com sucesso!' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Erro ao adicionar convidado' });
-  }
-});
+    const { eventId, nomes } = req.body;
+    const adicionado_por = req.user.id;
+  
+    if (!eventId || !Array.isArray(nomes) || nomes.length === 0) {
+      return res.status(400).json({ message: 'Dados inválidos' });
+    }
+  
+    const values = nomes.map((nome) => [eventId, nome, null, 'Geral', adicionado_por]);
+  
+    try {
+      await pool.query(
+        `INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por) VALUES ?`,
+        [values]
+      );
+      res.status(201).json({ message: 'Convidados adicionados com sucesso!' });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: 'Erro ao adicionar convidados.' });
+    }
+  });
 
 // Listar convidados por evento
 router.get('/:event_id', auth, async (req, res) => {
