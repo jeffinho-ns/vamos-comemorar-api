@@ -16,14 +16,14 @@ const upload = multer({ dest: 'uploads/' });
 
 // Adicionar convidado
 router.post('/', auth, async (req, res) => {
-    const { eventId: event_id, nomes } = req.body;
+    const { eventId, nomes } = req.body;
 
     const adicionado_por = req.user.id;
-  
+    
     if (!eventId || !Array.isArray(nomes) || nomes.length === 0) {
       return res.status(400).json({ message: 'Dados inválidos' });
     }
-  
+    
     const values = nomes.map((nome) => [eventId, nome, null, 'Geral', adicionado_por]);
   
     try {

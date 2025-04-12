@@ -18,7 +18,12 @@ const PORT = process.env.PORT || 5001;
 
 
 // Middleware
-app.use(cors({ origin: '*', credentials: true }));
+const corsOptions = {
+    origin: ['http://localhost:3000', 'https://vamos-comemorar-next-n8loh6zvn-jeffinhons-projects.vercel.app/'],
+    credentials: true,
+  };
+  
+  app.use(cors(corsOptions));
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
