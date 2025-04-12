@@ -26,16 +26,22 @@ router.post('/', auth, async (req, res) => {
     const values = nomes.map((nome) => [eventId, nome, null, 'Geral', adicionado_por]);
   
     try {
-      await pool.query(
-        `INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por) VALUES ?`,
-        [values]
-      );
+      const placeholders = values.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const flatValues = values.flat();
+  
+      const query = `
+        INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por)
+        VALUES ${placeholders}
+      `;
+  
+      await pool.query(query, flatValues);
       res.status(201).json({ message: 'Convidados adicionados com sucesso!' });
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: 'Erro ao adicionar convidados.' });
     }
   });
+  
 
 // Listar convidados por evento
 router.get('/:event_id', auth, async (req, res) => {
