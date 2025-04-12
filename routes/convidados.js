@@ -16,7 +16,8 @@ const upload = multer({ dest: 'uploads/' });
 
 // Adicionar convidado
 router.post('/', auth, async (req, res) => {
-    const { eventId, nomes } = req.body;
+    const { eventId: event_id, nomes } = req.body;
+
     const adicionado_por = req.user.id;
   
     if (!eventId || !Array.isArray(nomes) || nomes.length === 0) {
