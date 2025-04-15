@@ -21,6 +21,7 @@ const PORT = process.env.PORT || 5001;
 const corsOptions = {
     origin: ['http://localhost:3000', 'https://vamos-comemorar-next.vercel.app', 'https://vamos-comemorar-mobile.vercel.app'],
     credentials: true,
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
   };
   
   app.use(cors(corsOptions));
