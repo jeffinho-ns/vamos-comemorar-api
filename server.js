@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 5001;
 
 // Middleware
 const corsOptions = {
-    origin: ['http://localhost:3000', 'https://vamos-comemorar-next-n8loh6zvn-jeffinhons-projects.vercel.app'],
+    origin: ['http://localhost:3000', 'https://vamos-comemorar-next.vercel.app', 'https://vamos-comemorar-mobile.vercel.app'],
     credentials: true,
   };
   
