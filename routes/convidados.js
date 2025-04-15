@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/database').promise(); // importante usar .promise()
+const pool = require('../config/database').promise(); // usa .promise() apenas aqui
 const auth = require('../middleware/auth');
 const multer = require('multer');
 const csv = require('csv-parser');
@@ -11,7 +11,7 @@ const { Parser } = require('json2csv');
 // Configurar o multer para uploads
 const upload = multer({ dest: 'uploads/' });
 
-// Adicionar convidados
+// Adicionar convidado
 router.post('/', auth, async (req, res) => {
   const { eventId, nomes } = req.body;
   const adicionado_por = req.user.id;
@@ -79,7 +79,7 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-// Atualizar dados de um convidado
+// Atualizar dados do convidado
 router.put('/:id', auth, async (req, res) => {
   const { id } = req.params;
   const { nome, documento, lista } = req.body;
@@ -113,7 +113,7 @@ router.get('/search/:event_id', auth, async (req, res) => {
   }
 });
 
-// Contar convidados por lista
+// Contagem por lista
 router.get('/contagem/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
 
@@ -132,7 +132,7 @@ router.get('/contagem/:event_id', auth, async (req, res) => {
   }
 });
 
-// Upload de CSV para adicionar convidados
+// Importar CSV
 router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, res) => {
   const { event_id } = req.params;
   const adicionado_por = req.user.id;
@@ -172,14 +172,13 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
           res.status(500).json({ message: 'Erro ao salvar convidados.' });
         }
       });
-
   } catch (err) {
     console.error('Erro no upload:', err);
     res.status(500).json({ message: 'Erro no processamento do arquivo.' });
   }
 });
 
-// Exportar convidados para CSV
+// Exportar CSV
 router.get('/exportar/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
 

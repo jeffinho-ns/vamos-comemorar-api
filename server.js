@@ -8,7 +8,7 @@ const multer = require('multer');
 const fs = require('fs');
 const bcryptjs = require('bcryptjs');
 const path = require('path');
-const pool = require('./config/database').promise(); 
+const pool = require('./config/database'); 
 require("dotenv").config();
 
 
