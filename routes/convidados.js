@@ -44,8 +44,21 @@ router.post('/', auth, async (req, res) => {
   });
   
 
+// Listar todos os convidados de todos os eventos
+router.get('/todos', auth, async (req, res) => {
+  try {
+    const [convidados] = await pool.query('SELECT * FROM convidados');
+    res.json(convidados);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao buscar todos os convidados' });
+  }
+});
+
+
 // Listar convidados por evento
 router.get('/:event_id', auth, async (req, res) => {
+
   const { event_id } = req.params;
 
   try {
