@@ -177,7 +177,7 @@ module.exports = (pool, upload) => {
 
 
     
-    // Rota para login
+  // Rota para login
 router.post('/login', async (req, res) => {
     const { access, password } = req.body;
     console.log('Acesso:', access);
@@ -203,14 +203,20 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Credenciais inválidas' });
         }
 
+        // 🔒 Geração do token com role incluído
         const token = jwt.sign(
-            { id: user.id, email: user.email },
+            { id: user.id, email: user.email, role: user.role },
             process.env.JWT_SECRET || 'chave_secreta',
-            { expiresIn: '1h' }
+            { expiresIn: '7d' }
         );
 
-        // Incluindo o userId na resposta
-        res.json({ token, userId: user.id });
+        // 📤 Retornar também o tipo de usuário (role) na resposta
+        res.json({
+            token,
+            userId: user.id,
+            role: user.role,
+            nome: user.nome
+        });
     } catch (error) {
         console.error('Erro ao realizar login:', error);
         res.status(500).json({ error: 'Erro ao realizar login' });

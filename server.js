@@ -103,6 +103,8 @@ const reservasRoutes = require('./routes/reservas')(pool, upload);
 const qrcodeRoutes = require("./routes/qrcode");
 const authRoutes = require("./routes/auth");
 const convidadosRoutes = require('./routes/convidados');
+const rotasProtegidas = require('./routes/protegidas');
+const protectedRoutes = require('./routes/protectedRoutes');
 
 // Usando as rotas
 app.use('/api/users', userRoutes);
@@ -112,7 +114,8 @@ app.use('/api/reservas', reservasRoutes);
 app.use("/api/qrcode", qrcodeRoutes);
 app.use("/api/auth", authRoutes);
 app.use('/api/convidados', convidadosRoutes);
-
+app.use('/api/protegidas', rotasProtegidas);
+app.use('/api/protected', protectedRoutes);
 
 // Iniciando o servidor
 app.listen(PORT, '0.0.0.0', () => {
