@@ -112,31 +112,29 @@ app.use(passport.session());
 
 
 
-// Importando as rotas
-const userRoutes = require('./routes/users')(pool, upload); // Passando o upload para as rotas
-const placeRoutes = require('./routes/places')(pool, upload);
-const eventsRoutes = require('./routes/events')(pool, upload);
-const reservasRoutes = require('./routes/reservas')(pool, upload);
-const qrcodeRoutes = require("./routes/qrcode");
-const authRoutes = require("./routes/auth");
+const userRoutes = require('./routes/users')(pool, generalUpload);
+const placeRoutes = require('./routes/places')(pool, generalUpload);
+const eventsRoutes = require('./routes/events')(pool, generalUpload);
+const reservasRoutes = require('./routes/reservas')(pool, generalUpload);
+const qrcodeRoutes = require('./routes/qrcode');
 const convidadosRoutes = require('./routes/convidados');
 const rotasProtegidas = require('./routes/protegidas');
 const protectedRoutes = require('./routes/protectedRoutes');
+const authRoutes = require('./routes/auth'); // social login + login POST
+
 
 
 // Usando as rotas
-app.use('/auth', authRoutes);       // para login com Google
-app.use("/api/auth", authRoutes); 
+// Usar as rotas
+app.use('/auth', authRoutes); // Login com Google
 app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/reservas', reservasRoutes);
-app.use("/api/qrcode", qrcodeRoutes);
-app.use("/api/auth", authRoutes);
+app.use('/api/qrcode', qrcodeRoutes);
 app.use('/api/convidados', convidadosRoutes);
 app.use('/api/protegidas', rotasProtegidas);
 app.use('/api/protected', protectedRoutes);
-
 
 // Iniciando o servidor
 app.listen(PORT, '0.0.0.0', () => {

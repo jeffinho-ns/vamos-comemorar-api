@@ -3,7 +3,6 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { clientID, clientSecret, callbackURL } = require('../config/google');
 const pool = require('../config/database');
 
-// ✅ Protege o código contra ausência das variáveis
 if (!clientID || !clientSecret || !callbackURL) {
   console.warn('⚠️ Variáveis do Google OAuth não definidas. Estratégia não será inicializada.');
 } else {
@@ -11,25 +10,38 @@ if (!clientID || !clientSecret || !callbackURL) {
     new GoogleStrategy(
       { clientID, clientSecret, callbackURL },
       async (accessToken, refreshToken, profile, done) => {
-        const email = profile.emails[0].value;
-        const nome = profile.displayName;
-        const foto_perfil = profile.photos[0]?.value;
-
         try {
-          const [user] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+          const email = profile.emails?.[0]?.value;
+          const nome = profile.displayName;
+          const foto_perfil = profile.photos?.[0]?.value;
 
-          if (user.length > 0) {
-            return done(null, user[0]);
+          if (!email) {
+            return done(new Error('Email não fornecido pelo Google'), null);
           }
 
-          const [result] = await pool.query(
-            'INSERT INTO users (nome, email, foto_perfil, role) VALUES (?, ?, ?, ?)',
-            [nome, email, foto_perfil, 'Cliente']
+          const [userResult] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+
+          if (userResult.length > 0) {
+            return done(null, userResult[0]);
+          }
+
+          const [insertResult] = await pool.query(
+            'INSERT INTO users (nome, email, foto_perfil, role, createdAt, provider) VALUES (?, ?, ?, ?, NOW(), ?)',
+            [nome, email, foto_perfil, 'Cliente', 'google']
           );
 
-          const newUser = { id: result.insertId, nome, email, foto_perfil, role: 'Cliente' };
+          const newUser = {
+            id: insertResult.insertId,
+            nome,
+            email,
+            foto_perfil,
+            role: 'Cliente',
+            provider: 'google',
+          };
+
           return done(null, newUser);
         } catch (err) {
+          console.error('Erro no login com Google:', err);
           return done(err, null);
         }
       }
@@ -38,7 +50,14 @@ if (!clientID || !clientSecret || !callbackURL) {
 }
 
 passport.serializeUser((user, done) => {
-  done(null, user);
+  // Serializa apenas o necessário
+  done(null, {
+    id: user.id,
+    email: user.email,
+    nome: user.nome,
+    role: user.role,
+    foto_perfil: user.foto_perfil,
+  });
 });
 
 passport.deserializeUser((user, done) => {

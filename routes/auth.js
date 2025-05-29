@@ -20,14 +20,11 @@ const generateToken = (user) => {
 };
 
 // Rota para iniciar login com Google
-router.get(
-  "/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
-);
 
-// Callback do Google
+router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
 router.get(
-  "/auth/google/callback",
+  "/google/callback",
   passport.authenticate("google", { session: false, failureRedirect: "/login" }),
   (req, res) => {
     const token = generateToken(req.user);
@@ -36,6 +33,7 @@ router.get(
     );
   }
 );
+
 
 // Rota para login social via POST (opcional)
 router.post("/login", async (req, res) => {
