@@ -1,2 +1,3 @@
 JWT_SECRET=seu_segredo_aqui
 SECRET_KEY=seu_segredo_aqui
+

@@ -10,6 +10,9 @@ const bcryptjs = require('bcryptjs');
 const path = require('path');
 const pool = require('./config/database'); 
 require("dotenv").config();
+require('./middleware/passport');
+const passport = require('passport');
+const cookieSession = require('cookie-session');
 
 
 const app = express();
@@ -95,6 +98,20 @@ const logoUpload = multer({
 //     database: 'u621081794_vamos',
 // });
 
+// Sessão (necessária pro passport)
+app.use(
+  cookieSession({
+    name: 'session',
+    keys: [process.env.COOKIE_KEY || 'default-key'],
+    maxAge: 24 * 60 * 60 * 1000,
+  })
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+
+
 // Importando as rotas
 const userRoutes = require('./routes/users')(pool, upload); // Passando o upload para as rotas
 const placeRoutes = require('./routes/places')(pool, upload);
@@ -106,7 +123,10 @@ const convidadosRoutes = require('./routes/convidados');
 const rotasProtegidas = require('./routes/protegidas');
 const protectedRoutes = require('./routes/protectedRoutes');
 
+
 // Usando as rotas
+app.use('/auth', authRoutes);       // para login com Google
+app.use("/api/auth", authRoutes); 
 app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
@@ -116,6 +136,7 @@ app.use("/api/auth", authRoutes);
 app.use('/api/convidados', convidadosRoutes);
 app.use('/api/protegidas', rotasProtegidas);
 app.use('/api/protected', protectedRoutes);
+
 
 // Iniciando o servidor
 app.listen(PORT, '0.0.0.0', () => {
