@@ -26,7 +26,7 @@ if (!clientID || !clientSecret || !callbackURL) {
           }
 
           const [insertResult] = await pool.query(
-            'INSERT INTO users (name, email, foto_perfil, role, createdAt, provider) VALUES (?, ?, ?, ?, NOW(), ?)',
+            'INSERT INTO users (name, email, foto_perfil, role, created_at, provider) VALUES (?, ?, ?, ?, NOW(), ?)',
             [nome, email, foto_perfil, 'Cliente', 'google']
           );
 
