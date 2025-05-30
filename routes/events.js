@@ -23,7 +23,7 @@ const upload = multer({
 });
 
 // Exporta uma função que aceita 'pool'
-module.exports = (pool) => {
+module.exports = (pool) => { // Este 'pool' já é promise-based!
 
     // Rota para criar um novo evento
     router.post('/', upload.fields([
@@ -40,7 +40,8 @@ module.exports = (pool) => {
         const imagemDoCombo = req.files['imagem_do_combo'] ? req.files['imagem_do_combo'][0].filename : null;        
     
         try {
-            const [result] = await pool.promise().query(
+            // REMOVA O .promise() AQUI:
+            const [result] = await pool.query( // <-- ANTES: await pool.promise().query
                 `INSERT INTO eventos (
                     casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
@@ -65,7 +66,8 @@ module.exports = (pool) => {
     // Rota para listar todos os eventos
     router.get('/', async (req, res) => {
         try {
-            const [rows] = await pool.promise().query(`SELECT * FROM eventos`);
+            // REMOVA O .promise() AQUI:
+            const [rows] = await pool.query(`SELECT * FROM eventos`); // <-- ANTES: await pool.promise().query
             if (rows.length === 0) {
                 return res.status(404).json({ message: 'Nenhum evento encontrado' });
             }
@@ -82,7 +84,8 @@ router.get('/:id', async (req, res) => {
     const eventId = req.params.id;
 
     try {
-        const [rows] = await pool.promise().query(
+        // REMOVA O .promise() AQUI:
+        const [rows] = await pool.query( // <-- ANTES: await pool.promise().query
             `SELECT * FROM eventos WHERE id = ?`, [eventId]
         );
 
@@ -104,8 +107,8 @@ router.get('/:id', async (req, res) => {
         const eventId = req.params.id;
 
         try {
-            // Verifica se o evento existe e obtém os nomes das imagens associadas
-            const [rows] = await pool.promise().query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
+            // REMOVA O .promise() AQUI:
+            const [rows] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]); // <-- ANTES: await pool.promise().query
 
             if (rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
@@ -127,8 +130,8 @@ router.get('/:id', async (req, res) => {
                 }
             }
 
-            // Exclui o evento do banco de dados
-            await pool.promise().query(`DELETE FROM eventos WHERE id = ?`, [eventId]);
+            // REMOVA O .promise() AQUI:
+            await pool.query(`DELETE FROM eventos WHERE id = ?`, [eventId]); // <-- ANTES: await pool.promise().query
 
             res.status(200).json({ message: 'Evento excluído com sucesso' });
         } catch (error) {

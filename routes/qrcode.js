@@ -12,7 +12,7 @@ router.post("/validar", async (req, res) => {
 
     try {
         // Consulta no banco para encontrar a reserva com esse QR Code
-        const [rows] = await pool.promise().query(
+        const [rows] = await pool.query(
             "SELECT id, nome_do_evento, data_do_evento, status FROM reservas WHERE qrcode = ?",
             [qrCode]
         );

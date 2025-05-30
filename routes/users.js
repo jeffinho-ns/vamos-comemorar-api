@@ -126,7 +126,7 @@ module.exports = (pool, upload) => {
     // Listar usuários
     router.get('/', async (req, res) => {
         try {
-            const [results] = await pool.promise().query(`
+            const [results] = await pool.query(`
                 SELECT id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
                 cpf, endereco, numero, bairro, cidade, estado, complemento 
                 FROM users
@@ -143,7 +143,7 @@ module.exports = (pool, upload) => {
     router.get('/me', authenticateToken, async (req, res) => {
         try {
             const userId = req.user.id;
-            const [results] = await pool.promise().query(`
+            const [results] = await pool.query(`
                 SELECT id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
                 cpf, endereco, numero, bairro, cidade, estado, complemento 
                 FROM users 
@@ -184,7 +184,7 @@ router.post('/login', async (req, res) => {
     console.log('Password:', password);
 
     try {
-        const [results] = await pool.promise().query(
+        const [results] = await pool.query(
             'SELECT * FROM users WHERE email = ? OR cpf = ?',
             [access, access]
         );
@@ -273,7 +273,7 @@ router.put('/me', authenticateToken, upload.single('foto_perfil'), async (req, r
         params.push(userId);
 
         const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-        await pool.promise().query(query, params);
+        await pool.query(query, params);
 
         res.json({ message: 'Dados e foto de perfil do usuário logado atualizados com sucesso.' });
     } catch (error) {

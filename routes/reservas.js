@@ -10,7 +10,7 @@ module.exports = (pool) => {
 
         try {
             // Buscar dados do usuário
-            const [userResult] = await pool.promise().query(
+            const [userResult] = await pool.query(
                 'SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', 
                 [userId]
             );
@@ -18,7 +18,7 @@ module.exports = (pool) => {
             if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
 
             // Buscar dados do evento
-            const [eventResult] = await pool.promise().query(
+            const [eventResult] = await pool.query(
                 `SELECT nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, 
                         local_do_evento, brinde, imagem_do_evento 
                  FROM eventos WHERE id = ?`, 
@@ -28,7 +28,7 @@ module.exports = (pool) => {
             if (!event) return res.status(404).json({ error: "Evento não encontrado" });
 
             // Inserir dados na tabela reservas
-            await pool.promise().query(
+            await pool.query(
                 `INSERT INTO reservas (
                     user_id, event_id, name, email, telefone, foto_perfil,
                     nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, 
@@ -54,7 +54,7 @@ module.exports = (pool) => {
     // Rota para listar todas as reservas
     router.get('/', async (req, res) => {
         try {
-            const [reservas] = await pool.promise().query('SELECT * FROM reservas');
+            const [reservas] = await pool.query('SELECT * FROM reservas');
             res.status(200).json(reservas);
         } catch (error) {
             console.error(error);
@@ -75,14 +75,14 @@ module.exports = (pool) => {
 
         try {
             // Verifica se a reserva existe
-            const [reservaExistente] = await pool.promise().query(
+            const [reservaExistente] = await pool.query(
                 'SELECT * FROM reservas WHERE id = ?',
                 [id]
             );
             if (!reservaExistente.length) return res.status(404).json({ error: "Reserva não encontrada" });
 
             // Atualiza a reserva com os dados fornecidos
-            await pool.promise().query(
+            await pool.query(
                 `UPDATE reservas SET 
                     quantidade_pessoas = ?, 
                     mesas = ?, 
@@ -112,7 +112,7 @@ module.exports = (pool) => {
         const { id } = req.params;
 
         try {
-            const [reserva] = await pool.promise().query('SELECT * FROM reservas WHERE id = ?', [id]);
+            const [reserva] = await pool.query('SELECT * FROM reservas WHERE id = ?', [id]);
             if (!reserva.length) return res.status(404).json({ error: "Reserva não encontrada" });
 
             res.status(200).json(reserva[0]);
@@ -128,10 +128,10 @@ module.exports = (pool) => {
         const { status } = req.body;
     
         try {
-            await pool.promise().query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
+            await pool.query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
     
             if (status === 'Aprovado') {
-                const [reservas] = await pool.promise().query('SELECT nome_do_evento FROM reservas WHERE id = ?', [id]);
+                const [reservas] = await pool.query('SELECT nome_do_evento FROM reservas WHERE id = ?', [id]);
                 if (reservas.length > 0) {
                     const nomeDoEvento = reservas[0].nome_do_evento;
                     await generateQRCode(id, nomeDoEvento); // Gera o QR code e o armazena no banco

@@ -284,7 +284,7 @@ async (req, res) => {
                         }
 
                         // Recuperar todos os dados atualizados para retornar
-                        const [updatedPlace] = await pool.promise().query(`
+                        const [updatedPlace] = await pool.query(`
                             SELECT 
                                 p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
                                 p.latitude, p.longitude, p.status, p.visible 
@@ -292,14 +292,14 @@ async (req, res) => {
                             WHERE p.id = ?
                         `, [placeId]);
 
-                        const [updatedCommodities] = await pool.promise().query(`
+                        const [updatedCommodities] = await pool.query(`
                             SELECT 
                                 place_id, id, icon, color, name, description 
                             FROM commodities 
                             WHERE place_id = ?
                         `, [placeId]);
 
-                        const [updatedPhotos] = await pool.promise().query(`
+                        const [updatedPhotos] = await pool.query(`
                             SELECT 
                                 place_id, id, photo, type, url 
                             FROM photos 
@@ -337,18 +337,18 @@ router.get('/', async (req, res) => {
     try {
       // Realiza as queries de forma paralela
       const [places, commodities, photos] = await Promise.all([
-        pool.promise().query(`
+        poolquery(`
           SELECT 
             id, slug, name, email, description, logo, street, number, 
             latitude, longitude, status, visible 
           FROM places
         `),
-        pool.promise().query(`
+        pool.query(`
           SELECT 
             place_id, id, icon, color, name, description 
           FROM commodities
         `),
-        pool.promise().query(`
+        pool.query(`
           SELECT 
             place_id, id, photo, type, url 
           FROM photos
@@ -379,7 +379,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      const [place] = await pool.promise().query(`
+      const [place] = await pool.query(`
         SELECT 
           id, slug, name, email, description, logo, street, number, 
           latitude, longitude, status, visible 
@@ -392,14 +392,14 @@ router.get('/:id', async (req, res) => {
       }
   
       // Recupera as commodities e fotos associadas a este lugar
-      const [commodities] = await pool.promise().query(`
+      const [commodities] = await pool.query(`
         SELECT 
           place_id, id, icon, color, name, description 
         FROM commodities
         WHERE place_id = ?
       `, [id]);
   
-      const [photos] = await pool.promise().query(`
+      const [photos] = await pool.query(`
         SELECT 
           place_id, id, photo, type, url 
         FROM photos
