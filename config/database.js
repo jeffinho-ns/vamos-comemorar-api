@@ -7,4 +7,4 @@ const pool = mysql.createPool({
   database: 'u621081794_vamos',
 });
 
-module.exports = pool; // exporta o pool SEM .promise()
+module.exports = pool; 
