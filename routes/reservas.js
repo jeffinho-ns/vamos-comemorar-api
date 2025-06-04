@@ -34,13 +34,13 @@ module.exports = (pool) => {
                     nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, 
                     local_do_evento, brinde, imagem_do_evento,
                     quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
                 [
                     userId, eventId, user.name, user.email, user.telefone, user.foto_perfil,
                     event.nome_do_evento, event.casa_do_evento, event.data_do_evento, event.hora_do_evento, 
                     event.local_do_evento, event.brinde, event.imagem_do_evento,
-                    quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva
+                    quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando' 
                 ]
             );
 
@@ -55,56 +55,47 @@ module.exports = (pool) => {
     // NOVA ROTA GENÉRICA: Criar uma reserva para um LOCAL
     // Esta rota recebe o nome da casa diretamente do frontend.
     // ====================================================================
-    router.post('/place-reservation', async (req, res) => {
-        const { userId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
+ router.post('/place-reservation', async (req, res) => {
+    const { userId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
 
-        // Definir valores padrão/nulos para campos de evento específicos, pois é uma reserva de local
-        const nome_do_evento_padrao = `Reserva para ${casa_da_reserva}`; // Nome descritivo dinâmico
-        const event_id_padrao = null; // Não associado a um evento específico na tabela 'eventos'
-        const data_do_evento_padrao = null; // A data específica do evento pode não se aplicar aqui
-        const hora_do_evento_padrao = null;
-        const brinde_padrao = "Não aplicável";
-        const imagem_do_evento_padrao = null; // Ou um URL de imagem padrão para reservas de local
+    const nome_do_evento_padrao = `Reserva para ${casa_da_reserva}`;
+    const event_id_padrao = null;
+    const data_do_evento_padrao = null;
+    const hora_do_evento_padrao = null;
+    const brinde_padrao = "Não aplicável";
+    const imagem_do_evento_padrao = null;
+    const local_do_evento_padrao = "Endereço não especificado (Reserva de Local)";
 
-        // ATENÇÃO: local_do_evento_padrao. Se cada casa tiver um endereço fixo, você pode
-        // mapear aqui no backend ou passar do frontend. Por simplicidade,
-        // vou assumir que você pode querer um padrão ou que o frontend pode enviar.
-        // Se cada casa tiver seu próprio endereço, você precisaria de uma tabela 'places'
-        // e buscar o endereço aqui, ou o frontend envia 'local_do_evento_padrao' também.
-        const local_do_evento_padrao = "Endereço não especificado (Reserva de Local)"; // Ajuste isso!
+    try {
+        const [userResult] = await pool.query(
+            'SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?',
+            [userId]
+        );
+        const user = userResult[0];
+        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
 
-        try {
-            // 1. Buscar dados do usuário
-            const [userResult] = await pool.query(
-                'SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?',
-                [userId]
-            );
-            const user = userResult[0];
-            if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+        await pool.query(
+            `INSERT INTO reservas (
+                user_id, event_id, name, email, telefone, foto_perfil,
+                nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento,
+                local_do_evento, brinde, imagem_do_evento,
+                quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // <-- AQUI! Adicionei um ? a mais para o status
 
-            // 2. Inserir dados na tabela reservas
-            await pool.query(
-                `INSERT INTO reservas (
-                    user_id, event_id, name, email, telefone, foto_perfil,
-                    nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento,
-                    local_do_evento, brinde, imagem_do_evento,
-                    quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                userId, event_id_padrao, user.name, user.email, user.telefone, user.foto_perfil,
+                nome_do_evento_padrao, casa_da_reserva, data_do_evento_padrao, hora_do_evento_padrao,
+                local_do_evento_padrao, brinde_padrao, imagem_do_evento_padrao,
+                quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando' // <-- AQUI! Adicionei o valor 'Aguardando'
+            ]
+        );
 
-                [
-                    userId, event_id_padrao, user.name, user.email, user.telefone, user.foto_perfil,
-                    nome_do_evento_padrao, casa_da_reserva, data_do_evento_padrao, hora_do_evento_padrao,
-                    local_do_evento_padrao, brinde_padrao, imagem_do_evento_padrao,
-                    quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando'
-                ]
-            );
-
-            res.status(201).json({ message: `Reserva para ${casa_da_reserva} criada com sucesso` });
-        } catch (error) {
-            console.error(`Erro ao criar reserva para ${casa_da_reserva}:`, error);
-            res.status(500).json({ error: `Erro ao criar reserva para ${casa_da_reserva}` });
-        }
-    });
+        res.status(201).json({ message: `Reserva para ${casa_da_reserva} criada com sucesso` });
+    } catch (error) {
+        console.error(`Erro ao criar reserva para ${casa_da_reserva}:`, error);
+        res.status(500).json({ error: `Erro ao criar reserva para ${casa_da_reserva}` });
+    }
+});
 
     // Rota para listar todas as reservas
     router.get('/', async (req, res) => {
