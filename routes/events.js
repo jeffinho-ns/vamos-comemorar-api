@@ -2,7 +2,7 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const authenticateToken = require('../middleware/auth');
+// const authenticateToken = require('../middleware/auth'); // Descomente se for usar autenticação
 const router = express.Router();
 
 const rootPath = path.resolve(__dirname, '..');
@@ -15,7 +15,7 @@ const upload = multer({
         filename: (req, file, cb) => {
             const timestamp = Date.now();
             const ext = path.extname(file.originalname);
-            const filename = `${timestamp}${ext}`; // Nomeia o arquivo como "timestamp.extensão"
+            const filename = `${timestamp}${ext}`;
             cb(null, filename);
         },
     }),
@@ -33,7 +33,8 @@ module.exports = (pool) => {
         const {
             casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
             local_do_evento, categoria, mesas, valor_da_mesa, brinde,
-            numero_de_convidados, descricao, valor_da_entrada, observacao
+            numero_de_convidados, descricao, valor_da_entrada, observacao,
+            tipo_evento, dia_da_semana // Novos campos
         } = req.body;
     
         const imagemDoEvento = req.files['imagem_do_evento'] ? req.files['imagem_do_evento'][0].filename : null;
@@ -45,29 +46,54 @@ module.exports = (pool) => {
                     casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
-                    imagem_do_evento, imagem_do_combo, observacao
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    imagem_do_evento, imagem_do_combo, observacao,
+                    tipo_evento, dia_da_semana
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
-                    local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                    casa_do_evento, nome_do_evento, 
+                    tipo_evento === 'unico' ? data_do_evento : null, // Salva data apenas se for 'unico'
+                    hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
-                    imagemDoEvento, imagemDoCombo, observacao
+                    imagemDoEvento, imagemDoCombo, observacao,
+                    tipo_evento,
+                    tipo_evento === 'semanal' ? dia_da_semana : null // Salva dia da semana apenas se for 'semanal'
                 ]
             );
             res.status(201).json({ message: 'Evento criado com sucesso!', eventId: result.insertId });
         } catch (error) {
-            console.error('Erro ao criar evento:', error.message);
-            console.error(error);
+            console.error('Erro ao criar evento:', error);
             res.status(500).json({ error: 'Erro ao criar evento' });
         }
     });
     
-    // Rota para listar todos os eventos
+    // Rota para listar eventos com filtro por tipo
     router.get('/', async (req, res) => {
+        const { tipo } = req.query; // Pega o parâmetro 'tipo' da URL (ex: /api/events?tipo=unico)
+
+        let query = 'SELECT * FROM eventos';
+        const params = [];
+
+        if (tipo === 'unico') {
+            // Para eventos únicos, filtramos e mostramos apenas os que ainda não aconteceram
+            query += ' WHERE tipo_evento = ? AND data_do_evento >= CURDATE() ORDER BY data_do_evento ASC';
+            params.push('unico');
+
+        } else if (tipo === 'semanal') {
+            // Para eventos semanais, filtramos e ordenamos pelo dia da semana
+            query += ' WHERE tipo_evento = ? ORDER BY dia_da_semana ASC, casa_do_evento';
+            params.push('semanal');
+
+        } else if (tipo) {
+            // Se um tipo inválido for passado
+            return res.status(400).json({ message: 'Tipo de evento inválido. Use "unico" ou "semanal".' });
+        }
+        // Se nenhum 'tipo' for passado, a query busca todos os eventos (comportamento padrão)
+
         try {
-            const [rows] = await pool.query(`SELECT * FROM eventos`);
+            const [rows] = await pool.query(query, params);
             if (rows.length === 0) {
-                return res.status(404).json({ message: 'Nenhum evento encontrado' });
+                // É normal não encontrar eventos, então retornamos um array vazio com status 200
+                return res.status(200).json([]);
             }
             res.status(200).json(rows);
         } catch (error) {
@@ -85,15 +111,14 @@ module.exports = (pool) => {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
             res.status(200).json(rows[0]);
-        } catch (error) {
+        } catch (error)
+         {
             console.error('Erro ao buscar evento:', error);
             res.status(500).json({ error: 'Erro ao buscar evento' });
         }
     });
 
-    // ================================================================
-    // NOVA ROTA PARA EDITAR UM EVENTO (PUT)
-    // ================================================================
+    // Rota para editar um evento
     router.put('/:id', upload.fields([
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
@@ -102,59 +127,50 @@ module.exports = (pool) => {
         const {
             casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
             local_do_evento, categoria, mesas, valor_da_mesa, brinde,
-            numero_de_convidados, descricao, valor_da_entrada, observacao
+            numero_de_convidados, descricao, valor_da_entrada, observacao,
+            tipo_evento, dia_da_semana // Novos campos
         } = req.body;
 
         try {
-            // 1. Buscar o evento atual para pegar os nomes das imagens antigas
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
-
             if (eventosAtuais.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado para atualização.' });
             }
             const eventoAntigo = eventosAtuais[0];
 
-            // 2. Determinar os nomes das imagens a serem salvas
             let imagemDoEventoFinal = eventoAntigo.imagem_do_evento;
-            let imagemDoComboFinal = eventoAntigo.imagem_do_combo;
-
-            // Se uma nova imagem de evento foi enviada
             if (req.files['imagem_do_evento']) {
                 imagemDoEventoFinal = req.files['imagem_do_evento'][0].filename;
-                // Deleta a imagem antiga, se existir
                 if (eventoAntigo.imagem_do_evento) {
                     const oldImagePath = path.join(uploadDir, eventoAntigo.imagem_do_evento);
-                    if (fs.existsSync(oldImagePath)) {
-                        fs.unlinkSync(oldImagePath);
-                    }
+                    if (fs.existsSync(oldImagePath)) fs.unlinkSync(oldImagePath);
                 }
             }
 
-            // Se uma nova imagem de combo foi enviada
+            let imagemDoComboFinal = eventoAntigo.imagem_do_combo;
             if (req.files['imagem_do_combo']) {
                 imagemDoComboFinal = req.files['imagem_do_combo'][0].filename;
-                // Deleta a imagem antiga, se existir
                 if (eventoAntigo.imagem_do_combo) {
                     const oldComboPath = path.join(uploadDir, eventoAntigo.imagem_do_combo);
-                    if (fs.existsSync(oldComboPath)) {
-                        fs.unlinkSync(oldComboPath);
-                    }
+                    if (fs.existsSync(oldComboPath)) fs.unlinkSync(oldComboPath);
                 }
             }
 
-            // 3. Atualizar o evento no banco de dados com os novos dados
             await pool.query(
                 `UPDATE eventos SET
                     casa_do_evento = ?, nome_do_evento = ?, data_do_evento = ?, hora_do_evento = ?,
                     local_do_evento = ?, categoria = ?, mesas = ?, valor_da_mesa = ?, brinde = ?,
                     numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?, observacao = ?,
-                    imagem_do_evento = ?, imagem_do_combo = ?
+                    imagem_do_evento = ?, imagem_do_combo = ?, tipo_evento = ?, dia_da_semana = ?
                 WHERE id = ?`,
                 [
-                    casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
-                    local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                    casa_do_evento, nome_do_evento, 
+                    tipo_evento === 'unico' ? data_do_evento : null, // Lógica condicional
+                    hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada, observacao,
                     imagemDoEventoFinal, imagemDoComboFinal,
+                    tipo_evento,
+                    tipo_evento === 'semanal' ? dia_da_semana : null, // Lógica condicional
                     eventId
                 ]
             );
@@ -177,18 +193,13 @@ module.exports = (pool) => {
             }
             const { imagem_do_evento, imagem_do_combo } = rows[0];
 
-            // Remove os arquivos de imagem associados, se existirem
             if (imagem_do_evento) {
                 const imagePath = path.join(uploadDir, imagem_do_evento);
-                if (fs.existsSync(imagePath)) {
-                    fs.unlinkSync(imagePath);
-                }
+                if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
             }
             if (imagem_do_combo) {
                 const comboImagePath = path.join(uploadDir, imagem_do_combo);
-                if (fs.existsSync(comboImagePath)) {
-                    fs.unlinkSync(comboImagePath);
-                }
+                if (fs.existsSync(comboImagePath)) fs.unlinkSync(comboImagePath);
             }
             await pool.query(`DELETE FROM eventos WHERE id = ?`, [eventId]);
             res.status(200).json({ message: 'Evento excluído com sucesso' });
