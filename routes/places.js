@@ -337,7 +337,7 @@ router.get('/', async (req, res) => {
     try {
       // Realiza as queries de forma paralela
       const [places, commodities, photos] = await Promise.all([
-        poolquery(`
+        pool.query(`
           SELECT 
             id, slug, name, email, description, logo, street, number, 
             latitude, longitude, status, visible 
