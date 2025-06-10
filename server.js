@@ -115,6 +115,7 @@ app.use(passport.session());
 const userRoutes = require('./routes/users')(pool, generalUpload);
 const placeRoutes = require('./routes/places')(pool, generalUpload);
 const eventsRoutes = require('./routes/events')(pool);
+
 const reservasRoutes = require('./routes/reservas')(pool, generalUpload);
 const qrcodeRoutes = require('./routes/qrcode');
 const convidadosRoutes = require('./routes/convidados');
