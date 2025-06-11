@@ -39,49 +39,69 @@ const upload = multer({
 module.exports = (pool) => {
 
     // Rota para criar um novo evento
-    router.post('/', upload.fields([
-        { name: 'imagem_do_evento', maxCount: 1 },
-        { name: 'imagem_do_combo', maxCount: 1 }
-    ]), async (req, res) => {
+   router.post('/', upload.fields([
+    { name: 'imagem_do_evento', maxCount: 1 },
+    { name: 'imagem_do_combo', maxCount: 1 }
+]), async (req, res) => {
+    console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
+    
+    try {
+        console.log('ARQUIVOS RECEBIDOS PELA ROTA (req.files):', JSON.stringify(req.files, null, 2));
+        console.log('DADOS DO FORMULÁRIO (req.body):', JSON.stringify(req.body, null, 2));
 
-         console.log('ARQUIVOS RECEBIDOS PELA ROTA:', req.files);
-        console.log('CORPO DA REQUISIÇÃO:', req.body);
+        // Verificação segura dos arquivos
+        const imagemDoEventoFile = req.files?.['imagem_do_evento']?.[0];
+        const imagemDoComboFile = req.files?.['imagem_do_combo']?.[0];
 
+        const imagemDoEvento = imagemDoEventoFile ? imagemDoEventoFile.filename : null;
+        const imagemDoCombo = imagemDoComboFile ? imagemDoComboFile.filename : null;
+
+        console.log('Nome do arquivo do evento extraído:', imagemDoEvento);
+        console.log('Nome do arquivo do combo extraído:', imagemDoCombo);
+        
         const {
             casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
             local_do_evento, categoria, mesas, valor_da_mesa, brinde,
             numero_de_convidados, descricao, valor_da_entrada, observacao,
-            tipo_evento, dia_da_semana // Novos campos
+            tipo_evento, dia_da_semana
         } = req.body;
-    
-        const imagemDoEvento = req.files['imagem_do_evento'] ? req.files['imagem_do_evento'][0].filename : null;
-        const imagemDoCombo = req.files['imagem_do_combo'] ? req.files['imagem_do_combo'][0].filename : null;        
-    
-        try {
-            const [result] = await pool.query(
-                `INSERT INTO eventos (
-                    casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
-                    local_do_evento, categoria, mesas, valor_da_mesa, brinde,
-                    numero_de_convidados, descricao, valor_da_entrada,
-                    imagem_do_evento, imagem_do_combo, observacao,
-                    tipo_evento, dia_da_semana
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    casa_do_evento, nome_do_evento, 
-                    tipo_evento === 'unico' ? data_do_evento : null, // Salva data apenas se for 'unico'
-                    hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
-                    numero_de_convidados, descricao, valor_da_entrada,
-                    imagemDoEvento, imagemDoCombo, observacao,
-                    tipo_evento,
-                    tipo_evento === 'semanal' ? dia_da_semana : null // Salva dia da semana apenas se for 'semanal'
-                ]
-            );
-            res.status(201).json({ message: 'Evento criado com sucesso!', eventId: result.insertId });
-        } catch (error) {
-            console.error('Erro ao criar evento:', error);
-            res.status(500).json({ error: 'Erro ao criar evento' });
-        }
-    });
+
+        // Montando os dados para o banco
+        const params = [
+            casa_do_evento, nome_do_evento, 
+            tipo_evento === 'unico' ? data_do_evento : null,
+            hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+            numero_de_convidados, descricao, valor_da_entrada,
+            imagemDoEvento, // Usando a variável segura
+            imagemDoCombo,   // Usando a variável segura
+            observacao,
+            tipo_evento,
+            tipo_evento === 'semanal' ? dia_da_semana : null
+        ];
+
+        console.log('DADOS A SEREM INSERIDOS NO BANCO:', JSON.stringify(params, null, 2));
+
+        const query = `INSERT INTO eventos (
+                casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+                local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                numero_de_convidados, descricao, valor_da_entrada,
+                imagem_do_evento, imagem_do_combo, observacao,
+                tipo_evento, dia_da_semana
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        const [result] = await pool.query(query, params);
+
+        console.log('EVENTO CRIADO COM SUCESSO NO BANCO! ID:', result.insertId);
+        res.status(201).json({ message: 'Evento criado com sucesso!', eventId: result.insertId });
+
+    } catch (error) {
+        console.error('!!! ERRO DETALHADO AO CRIAR EVENTO !!!:', error);
+        res.status(500).json({ 
+            error: 'Erro ao criar evento. Verifique os logs do servidor.',
+            details: error.message 
+        });
+    }
+});
     
     // Rota para listar eventos com filtro por tipo
     router.get('/', async (req, res) => {
