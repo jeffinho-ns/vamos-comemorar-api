@@ -5,17 +5,30 @@ const path = require('path');
 // const authenticateToken = require('../middleware/auth'); // Descomente se for usar autenticação
 const router = express.Router();
 
+// 4 - Back-end arquivo event.js
+
 const rootPath = path.resolve(__dirname, '..');
 const uploadDir = path.join(rootPath, 'uploads/events');
+
+// Garante que o diretório de upload exista
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
  
 // Configuração do Multer para upload de imagens
 const upload = multer({
     storage: multer.diskStorage({
-        destination: (req, file, cb) => cb(null, uploadDir),
+        destination: (req, file, cb) => {
+            // ---- ADICIONE ESTE CONSOLE.LOG PARA DEBUG ----
+            console.log('DESTINO DO UPLOAD:', uploadDir); 
+            cb(null, uploadDir);
+        },
         filename: (req, file, cb) => {
             const timestamp = Date.now();
             const ext = path.extname(file.originalname);
             const filename = `${timestamp}${ext}`;
+            // ---- E ADICIONE ESTE TAMBÉM ----
+            console.log('NOME DO ARQUIVO GERADO:', filename);
             cb(null, filename);
         },
     }),
@@ -30,6 +43,10 @@ module.exports = (pool) => {
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
     ]), async (req, res) => {
+
+         console.log('ARQUIVOS RECEBIDOS PELA ROTA:', req.files);
+        console.log('CORPO DA REQUISIÇÃO:', req.body);
+
         const {
             casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
             local_do_evento, categoria, mesas, valor_da_mesa, brinde,
