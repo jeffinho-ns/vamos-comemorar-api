@@ -105,18 +105,17 @@ module.exports = (pool) => {
             await pool.query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
             console.log(`Status da reserva ID: ${id} atualizado para "${status}" no banco.`);
     
-            // 2. Se o status for 'Aprovado', tenta gerar o QR Code
             if (status === 'Aprovado') {
                 console.log(`Status é 'Aprovado'. Tentando gerar QR Code para a reserva ID: ${id}.`);
     
                 try {
-                    // 3. Chama a função de QR Code (versão correta, apenas com o ID)
-                    await generateQRCode(id);
+                    // ---- CORREÇÃO FINAL AQUI ----
+                    // Passe o 'pool' que esta rota já tem acesso como primeiro argumento
+                    await generateQRCode(pool, id); 
+                    
                     console.log(`QR Code gerado com SUCESSO para a reserva ID: ${id}.`);
                 } catch (qrError) {
-                    // Se a geração do QR Code falhar, loga o erro específico
                     console.error(`!!! ERRO AO GERAR O QRCODE para a reserva ID: ${id} !!!`, qrError);
-                    // Avisa o frontend que o status foi atualizado, mas o QR Code falhou
                     return res.status(500).json({ message: 'Status atualizado, mas falha ao gerar QR Code.', error: qrError.message });
                 }
             }
