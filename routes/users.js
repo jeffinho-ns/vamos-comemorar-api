@@ -40,7 +40,7 @@ module.exports = (pool, upload) => {
         try {
             const hashedPassword = await bcryptjs.hash(password, 10);
     
-            const [result] = await connection.query(
+            const [result] = await pool.query(
                 'INSERT INTO users (name, email, cpf, password, foto_perfil) VALUES (?, ?, ?, ?, ?)',
                 [name, email, cpf, hashedPassword, profileImageUrl]
             );
