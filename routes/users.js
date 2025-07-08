@@ -34,7 +34,7 @@ module.exports = (pool, upload) => {
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
-        const connection = pool.promise();
+        const connection = pool.query();
         const { name, email, cpf, password, profileImageUrl } = req.body;
     
         try {
