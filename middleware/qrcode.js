@@ -1,38 +1,59 @@
 const QRCode = require('qrcode');
 
-// A função agora recebe o 'pool' como o primeiro argumento
-function generateQRCode(pool, id) {
-  // Retornamos uma Promise para que possamos usar 'await' na rota que chama esta função
+function generateQRCode(pool, reservationId) {
   return new Promise(async (resolve, reject) => {
     try {
-      // 1. Define o CONTEÚDO que o QR Code deve representar.
-      // Esta é a string que será scaneada pelo leitor de QR Code.
-      const qrCodeText = `https://vamos-comemorar.com/validar-reserva/${id}`;
+      // 1. Buscar os dados completos da reserva do banco de dados
+      const [reservaRows] = await pool.query('SELECT * FROM reservas WHERE id = ?', [reservationId]);
+      const reserva = reservaRows[0];
+
+      if (!reserva) {
+        console.error(`Erro: Reserva com ID ${reservationId} não encontrada para gerar QR Code.`);
+        return reject(new Error('Reserva não encontrada.'));
+      }
+
+      // 2. Definir o CONTEÚDO JSON que o QR Code deve representar.
+      // Use os dados buscados da reserva.
+      const qrCodeData = {
+        reservaId: reserva.id,
+        userId: reserva.user_id,
+        eventId: reserva.event_id, // Pode ser null
+        nomeDoEvento: reserva.nome_do_evento,
+        dataDoEvento: reserva.data_do_evento,
+        horaDoEvento: reserva.hora_do_evento,
+        localDoEvento: reserva.local_do_evento,
+        casaDaReserva: reserva.casa_da_reserva,
+        quantidadePessoas: reserva.quantidade_pessoas,
+        mesas: reserva.mesas,
+        status: reserva.status,
+        userName: reserva.name, // 'name' do usuário copiado para a reserva
+        userEmail: reserva.email, // 'email' do usuário copiado para a reserva
+        // Adicione outros campos que você copiou para a tabela 'reservas' e que são relevantes
+      };
+
+      // 3. Converter o objeto JSON em uma string.
+      const qrCodeText = JSON.stringify(qrCodeData);
       
-      // >>> REMOVIDO: const qrCodeBase64 = await QRCode.toDataURL(qrCodeText); <<<
-      // Você não precisa gerar a imagem Base64 AQUI e salvar no banco.
-      // O Flutter QrImageView vai gerar a imagem a partir de qrCodeText.
+      // Opcional: Para visualização em DEBUG, você pode querer ver a imagem
+      // const qrCodeBase64 = await QRCode.toDataURL(qrCodeText);
+      // console.log("QR Code Base64 (para debug visual, não salvar no banco):", qrCodeBase64.substring(0, 100) + "...");
 
+      // 4. Salvar esta STRING JSON na coluna 'qrcode' do banco de dados.
       const sql = 'UPDATE reservas SET qrcode = ? WHERE id = ?';
-      // 2. Salva o CONTEÚDO (qrCodeText) na coluna 'qrcode' do banco de dados.
-      const params = [qrCodeText, id]; // <<< ALTERADO AQUI: Passa qrCodeText, não qrCodeBase64
+      const params = [qrCodeText, reservationId]; // Salva o JSON como string
 
-      // 3. Executa a query usando o padrão de callback, que é compatível com seu 'pool'
+      // 5. Executar a query
       pool.query(sql, params, (error, results) => {
         if (error) {
-          // Se o banco de dados retornar um erro, nós rejeitamos a Promise
-          console.error('Erro ao salvar o CONTEÚDO do QR Code no banco:', error);
+          console.error('Erro ao salvar o CONTEÚDO JSON do QR Code no banco:', error);
           return reject(error);
         }
-        
-        // Se a query for bem-sucedida, nós resolvemos a Promise
-        console.log(`CONTEÚDO do QR Code salvo com sucesso no banco para reserva ID: ${id}`);
+        console.log(`CONTEÚDO JSON do QR Code salvo com sucesso no banco para reserva ID: ${reservationId}`);
         resolve(results);
       });
 
     } catch (error) {
-      // Captura erros gerais (ex: problemas no pool.query se não forem específicos)
-      console.error('Erro ao processar a geração/salvamento do QR Code:', error);
+      console.error('Erro ao gerar/salvar o CONTEÚDO JSON do QR Code:', error);
       reject(error);
     }
   });
