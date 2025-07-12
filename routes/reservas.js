@@ -5,50 +5,67 @@ module.exports = (pool) => {
     const router = express.Router();
 
     // Rota para criar uma nova reserva para um Evento
-    router.post('/', async (req, res) => {
-        const { userId, eventId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
-        try {
-            const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
-            const user = userResult[0];
-            if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+router.post('/', async (req, res) => {
+    const { userId, eventId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
+    try {
+        const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
+        const user = userResult[0];
+        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
 
-            const [eventResult] = await pool.query(
-                `SELECT nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento FROM eventos WHERE id = ?`, 
-                [eventId]
-            );
-            const event = eventResult[0];
-            if (!event) return res.status(404).json({ error: "Evento não encontrado" });
+        const [eventResult] = await pool.query(
+            `SELECT nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento FROM eventos WHERE id = ?`, 
+            [eventId]
+        );
+        const event = eventResult[0];
+        if (!event) return res.status(404).json({ error: "Evento não encontrado" });
 
-            await pool.query(
-                `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [userId, eventId, user.name, user.email, user.telefone, user.foto_perfil, event.nome_do_evento, event.casa_do_evento, event.data_do_evento, event.hora_do_evento, event.local_do_evento, event.brinde, event.imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
-            );
-            res.status(201).json({ message: "Reserva criada com sucesso" });
-        } catch (error) {
-            console.error("Erro ao criar reserva de evento:", error);
-            res.status(500).json({ error: "Erro ao criar reserva" });
-        }
-    });
+        // Executa a inserção e captura o resultado
+        const [insertResult] = await pool.query(
+            `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, eventId, user.name, user.email, user.telefone, user.foto_perfil, event.nome_do_evento, event.casa_do_evento, event.data_do_evento, event.hora_do_evento, event.local_do_evento, event.brinde, event.imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
+        );
+
+        const newReservationId = insertResult.insertId; // Captura o ID gerado
+
+        // Agora, busque a reserva recém-criada para retornar todos os seus dados
+        const [newReservationRows] = await pool.query('SELECT * FROM reservas WHERE id = ?', [newReservationId]);
+        const newReservation = newReservationRows[0]; // Pega o primeiro (e único) resultado
+
+        // Retorna a reserva completa criada
+        res.status(201).json(newReservation);
+
+    } catch (error) {
+        console.error("Erro ao criar reserva de evento:", error);
+        res.status(500).json({ error: "Erro ao criar reserva" });
+    }
+});
 
     // Rota para criar uma nova reserva para um Local (sem evento específico)
-    router.post('/place-reservation', async (req, res) => {
-        const { userId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
-        const nome_do_evento_padrao = `Reserva para ${casa_da_reserva}`;
-        try {
-            const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
-            const user = userResult[0];
-            if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+router.post('/place-reservation', async (req, res) => {
+    const { userId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
+    const nome_do_evento_padrao = `Reserva para ${casa_da_reserva}`;
+    try {
+        const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
+        const user = userResult[0];
+        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
 
-            await pool.query(
-                `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [userId, null, user.name, user.email, user.telefone, user.foto_perfil, nome_do_evento_padrao, casa_da_reserva, null, null, "Endereço não especificado (Reserva de Local)", "Não aplicável", null, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
-            );
-            res.status(201).json({ message: `Reserva para ${casa_da_reserva} criada com sucesso` });
-        } catch (error) {
-            console.error(`Erro ao criar reserva de local:`, error);
-            res.status(500).json({ error: `Erro ao criar reserva para ${casa_da_reserva}` });
-        }
-    });
+        const [insertResult] = await pool.query( // Captura o resultado da inserção
+            `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [userId, null, user.name, user.email, user.telefone, user.foto_perfil, nome_do_evento_padrao, casa_da_reserva, null, null, "Endereço não especificado (Reserva de Local)", "Não aplicável", null, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
+        );
+
+        const newReservationId = insertResult.insertId; // Captura o ID gerado
+
+        // Busque a reserva recém-criada para retornar todos os seus dados
+        const [newReservationRows] = await pool.query('SELECT * FROM reservas WHERE id = ?', [newReservationId]);
+        const newReservation = newReservationRows[0];
+
+        res.status(201).json(newReservation);
+    } catch (error) {
+        console.error(`Erro ao criar reserva de local:`, error);
+        res.status(500).json({ error: `Erro ao criar reserva para ${casa_da_reserva}` });
+    }
+});
 
     // Rota para listar todas as reservas
     router.get('/', async (req, res) => {
