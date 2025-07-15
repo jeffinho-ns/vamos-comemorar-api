@@ -1,47 +1,73 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const auth = require('../middleware/auth');
+const auth = require('../middleware/auth'); // Middleware de autenticação
 const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
 const { Parser } = require('json2csv');
 
-// Configurar o multer para uploads
+// Configurar o multer para uploads (usado apenas na rota de importar CSV)
 const upload = multer({ dest: 'uploads/' });
 
-// Adicionar convidado
-router.post('/', auth, async (req, res) => {
-  const { eventId, nomes, documento, lista } = req.body; // Adicione 'documento' e 'lista' aqui
-  const adicionado_por = req.user.id;
-  
+// IMPORTANTE: Antes de usar esta API, certifique-se de que sua tabela `convidados`
+// no banco de dados tem as seguintes colunas:
+// - event_id (INT)
+// - nome (VARCHAR)
+// - documento (VARCHAR, nullable)
+// - lista (VARCHAR) - para 'Geral', 'VIP', 'Pista', 'Camarote', etc.
+// - adicionado_por (INT) - ID do promotor
+// - usuario_cliente_id (INT, nullable) - NOVO: ID do usuário (cliente) que se inscreveu
+// - combos_selecionados (JSON ou TEXT, nullable) - NOVO: JSON string dos combos
 
-  if (!eventId || !Array.isArray(nomes) || nomes.length === 0) {
-    return res.status(400).json({ message: 'Dados inválidos' });
+// --- Rota ÚNICA para Adicionar Convidado/Participante ---
+// Esta rota agora é mais flexível:
+// Se vier 'promoterIdDaLista', é um cliente se inscrevendo para um promotor.
+// Se não vier, e o usuário for promotor, é o promotor adicionando para si.
+router.post('/', auth, async (req, res) => {
+  const { eventId, nome, documento, lista, promoterIdDaLista, combosSelecionados } = req.body;
+  
+  // O 'adicionado_por' na tabela será o ID do promotor responsável pela lista.
+  // Se 'promoterIdDaLista' for fornecido (cliente se inscrevendo para um promotor), use-o.
+  // Caso contrário (promotor logado adicionando para sua própria lista), use req.user.id.
+  const promoterIdFinal = promoterIdDaLista || req.user.id;
+
+  // O 'usuario_cliente_id' será o ID do usuário (cliente) logado que está fazendo a requisição.
+  // Isso nos permite rastrear quem se inscreveu.
+  const userIdLogado = req.user.id; 
+
+  if (!eventId || !nome || !promoterIdFinal) { // 'lista' pode ter um default no DB, 'documento' e 'combos' são opcionais.
+    return res.status(400).json({ message: 'Dados essenciais (Evento, Nome, Promotor) são obrigatórios.' });
   }
 
-const values = nomes.map((nome) => [eventId, nome, documento || null, lista || 'Geral', adicionado_por]);
-
   try {
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?)').join(', ');
-    const flatValues = values.flat();
-
     const query = `
-      INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por)
-      VALUES ${placeholders}
+      INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por, usuario_cliente_id, combos_selecionados)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `;
+    
+    await pool.query(query, [
+      eventId,
+      nome,
+      documento || null,         // Usa o documento fornecido ou null
+      lista || 'Geral',           // Usa a lista fornecida ou 'Geral'
+      promoterIdFinal,            // O ID do promotor (da lista)
+      userIdLogado,               // O ID do cliente que está se adicionando
+      JSON.stringify(combosSelecionados || []) // Converte o array de objetos em JSON string
+    ]);
 
-    await pool.query(query, flatValues);
-    res.status(201).json({ message: 'Convidados adicionados com sucesso!' });
+    res.status(201).json({ message: 'Convidado adicionado/participação registrada com sucesso!' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Erro ao adicionar convidados.' });
+    console.error('Erro detalhado ao adicionar convidado:', err);
+    res.status(500).json({ message: 'Erro ao adicionar convidado.' });
   }
 });
 
-// Listar todos os convidados
-router.get('/todos', auth, async (req, res) => {
+
+// Listar todos os convidados (para uso administrativo/geral)
+// Mudei para '/todos-convidados' para evitar conflito com '/:event_id'
+router.get('/todos-convidados', auth, async (req, res) => {
   try {
     const [convidados] = await pool.query('SELECT * FROM convidados');
     res.json(convidados);
@@ -51,7 +77,7 @@ router.get('/todos', auth, async (req, res) => {
   }
 });
 
-// Listar convidados por evento
+// Listar convidados por evento (para um promotor ver TODOS os convidados de UM evento)
 router.get('/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
 
@@ -63,15 +89,48 @@ router.get('/:event_id', auth, async (req, res) => {
     res.json(convidados);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Erro ao buscar convidados' });
+    res.status(500).json({ message: 'Erro ao buscar convidados por evento' });
   }
 });
+
+// Listar convidados por evento E promotor (para um promotor ver APENAS seus convidados de UM evento)
+// NOVO ENDPOINT: Útil para o painel do promotor
+router.get('/evento/:event_id/promotor/:promotor_id', auth, async (req, res) => {
+  const { event_id, promotor_id } = req.params;
+  // Opcional: verifique se req.user.id (promotor logado) corresponde a promotor_id
+  // Ou se o req.user.role é 'admin' para permitir ver outros promotores
+  if (req.user.id !== parseInt(promotor_id) && req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Não autorizado a ver esta lista.' });
+  }
+
+  try {
+    const [convidados] = await pool.query(
+      'SELECT * FROM convidados WHERE event_id = ? AND adicionado_por = ?',
+      [event_id, promotor_id]
+    );
+    res.json(convidados);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erro ao buscar convidados por promotor no evento' });
+  }
+});
+
 
 // Deletar convidado
 router.delete('/:id', auth, async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id; // O usuário logado que está tentando deletar
 
   try {
+    // Adiciona uma verificação para que apenas o promotor que adicionou (ou um admin) possa deletar
+    const [convidado] = await pool.query('SELECT adicionado_por FROM convidados WHERE id = ?', [id]);
+    if (convidado.length === 0) {
+      return res.status(404).json({ message: 'Convidado não encontrado.' });
+    }
+    if (convidado[0].adicionado_por !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Você não tem permissão para remover este convidado.' });
+    }
+
     await pool.query('DELETE FROM convidados WHERE id = ?', [id]);
     res.json({ message: 'Convidado removido com sucesso' });
   } catch (err) {
@@ -83,12 +142,21 @@ router.delete('/:id', auth, async (req, res) => {
 // Atualizar dados do convidado
 router.put('/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { nome, documento, lista } = req.body;
+  const { nome, documento, lista, combos_selecionados } = req.body; // Adicionado combos_selecionados
+  const userId = req.user.id;
 
   try {
+    const [convidado] = await pool.query('SELECT adicionado_por FROM convidados WHERE id = ?', [id]);
+    if (convidado.length === 0) {
+      return res.status(404).json({ message: 'Convidado não encontrado.' });
+    }
+    if (convidado[0].adicionado_por !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Você não tem permissão para atualizar este convidado.' });
+    }
+
     await pool.query(
-      'UPDATE convidados SET nome = ?, documento = ?, lista = ? WHERE id = ?',
-      [nome, documento, lista, id]
+      'UPDATE convidados SET nome = ?, documento = ?, lista = ?, combos_selecionados = ? WHERE id = ?',
+      [nome, documento, lista, JSON.stringify(combos_selecionados || []), id] // Converte para JSON string
     );
     res.json({ message: 'Convidado atualizado com sucesso' });
   } catch (err) {
@@ -100,13 +168,22 @@ router.put('/:id', auth, async (req, res) => {
 // Buscar convidados com filtro por nome
 router.get('/search/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
-  const { nome } = req.query;
+  const { nome, promotorId } = req.query; // Adicionei promotorId para filtrar se necessário
+
+  let query = 'SELECT * FROM convidados WHERE event_id = ?';
+  const params = [event_id];
+
+  if (nome) {
+    query += ' AND nome LIKE ?';
+    params.push(`%${nome}%`);
+  }
+  if (promotorId) { // Filtra por promotor se o ID for passado
+    query += ' AND adicionado_por = ?';
+    params.push(promotorId);
+  }
 
   try {
-    const [result] = await pool.query(
-      'SELECT * FROM convidados WHERE event_id = ? AND nome LIKE ?',
-      [event_id, `%${nome}%`]
-    );
+    const [result] = await pool.query(query, params);
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -117,15 +194,24 @@ router.get('/search/:event_id', auth, async (req, res) => {
 // Contagem por lista
 router.get('/contagem/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
+  const { promotorId } = req.query; // Adicionei promotorId para filtrar por promotor
+
+  let query = `
+    SELECT lista, COUNT(*) as total 
+    FROM convidados 
+    WHERE event_id = ?
+  `;
+  const params = [event_id];
+
+  if (promotorId) { // Filtra por promotor se o ID for passado
+    query += ' AND adicionado_por = ?';
+    params.push(promotorId);
+  }
+
+  query += ' GROUP BY lista';
 
   try {
-    const [result] = await pool.query(`
-      SELECT lista, COUNT(*) as total 
-      FROM convidados 
-      WHERE event_id = ? 
-      GROUP BY lista
-    `, [event_id]);
-
+    const [result] = await pool.query(query, params);
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -136,7 +222,7 @@ router.get('/contagem/:event_id', auth, async (req, res) => {
 // Importar CSV
 router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, res) => {
   const { event_id } = req.params;
-  const adicionado_por = req.user.id;
+  const adicionado_por = req.user.id; // Assume que o promotor logado está importando
   const convidados = [];
 
   try {
@@ -145,36 +231,37 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
     fs.createReadStream(filePath)
       .pipe(csv())
       .on('data', (row) => {
-        if (row.nome) {
-          convidados.push([
-            event_id,
-            row.nome,
-            row.documento || null,
-            row.lista || 'Geral',
-            adicionado_por
-          ]);
-        }
+        // Assume que o CSV tem colunas 'nome', 'documento', 'lista', 'combos' (opcional)
+        convidados.push([
+          event_id,
+          row.nome,
+          row.documento || null,
+          row.lista || 'Geral',
+          adicionado_por, // Quem adicionou é o promotor logado
+          null, // usuario_cliente_id (pois foi adicionado pelo promotor via CSV)
+          JSON.stringify(row.combos ? JSON.parse(row.combos) : []), // Parse do JSON se existir
+        ]);
       })
       .on('end', async () => {
         if (convidados.length === 0) {
-          return res.status(400).json({ message: 'Arquivo vazio ou inválido.' });
+          return res.status(400).json({ message: 'Arquivo CSV vazio ou inválido.' });
         }
 
         try {
           await pool.query(`
-            INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por) 
+            INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por, usuario_cliente_id, combos_selecionados) 
             VALUES ?
           `, [convidados]);
 
           fs.unlinkSync(filePath);
           res.json({ message: 'Convidados importados com sucesso.' });
         } catch (err) {
-          console.error('Erro ao salvar convidados:', err);
-          res.status(500).json({ message: 'Erro ao salvar convidados.' });
+          console.error('Erro ao salvar convidados importados:', err);
+          res.status(500).json({ message: 'Erro ao salvar convidados importados.' });
         }
       });
   } catch (err) {
-    console.error('Erro no upload:', err);
+    console.error('Erro no upload ou processamento do arquivo:', err);
     res.status(500).json({ message: 'Erro no processamento do arquivo.' });
   }
 });
@@ -182,23 +269,33 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
 // Exportar CSV
 router.get('/exportar/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
+  const { promotorId } = req.query; // Para exportar apenas a lista de um promotor
+
+  let query = `
+    SELECT nome, documento, lista, combos_selecionados
+    FROM convidados
+    WHERE event_id = ?
+  `;
+  const params = [event_id];
+
+  if (promotorId) {
+    query += ' AND adicionado_por = ?';
+    params.push(promotorId);
+  }
 
   try {
-    const [rows] = await pool.query(`
-      SELECT nome, documento, lista
-      FROM convidados
-      WHERE event_id = ?
-    `, [event_id]);
+    const [rows] = await pool.query(query, params);
 
     if (rows.length === 0) {
-      return res.status(404).json({ message: 'Nenhum convidado encontrado para esse evento.' });
+      return res.status(404).json({ message: 'Nenhum convidado encontrado para esse evento/promotor.' });
     }
 
-    const json2csv = new Parser({ fields: ['nome', 'documento', 'lista'] });
+    const fields = ['nome', 'documento', 'lista', 'combos_selecionados'];
+    const json2csv = new Parser({ fields });
     const csvData = json2csv.parse(rows);
 
     res.header('Content-Type', 'text/csv');
-    res.attachment(`convidados_evento_${event_id}.csv`);
+    res.attachment(`convidados_evento_${event_id}${promotorId ? `_promotor_${promotorId}` : ''}.csv`);
     return res.send(csvData);
   } catch (error) {
     console.error('Erro ao exportar convidados:', error);
