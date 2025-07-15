@@ -25,43 +25,41 @@ const upload = multer({ dest: 'uploads/' });
 // Esta rota agora é mais flexível:
 // Se vier 'promoterIdDaLista', é um cliente se inscrevendo para um promotor.
 // Se não vier, e o usuário for promotor, é o promotor adicionando para si.
-router.post('/', auth, async (req, res) => {
-  const { eventId, nome, documento, lista, promoterIdDaLista, combosSelecionados } = req.body;
-  
-  // O 'adicionado_por' na tabela será o ID do promotor responsável pela lista.
-  // Se 'promoterIdDaLista' for fornecido (cliente se inscrevendo para um promotor), use-o.
-  // Caso contrário (promotor logado adicionando para sua própria lista), use req.user.id.
-  const promoterIdFinal = promoterIdDaLista || req.user.id;
+router.post('/', upload.fields([
+    { name: 'imagem_do_evento', maxCount: 1 },
+    { name: 'imagem_do_combo', maxCount: 1 }
+]), async (req, res) => {
+    console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
+    try {
+        // ... (obtenção de files e body) ...
 
-  // O 'usuario_cliente_id' será o ID do usuário (cliente) logado que está fazendo a requisição.
-  // Isso nos permite rastrear quem se inscreveu.
-  const userIdLogado = req.user.id; 
+        // Certifique-se que req.user.id está disponível e sendo salvo!
+        const adicionadoPor = req.user.id; // <<< ESTA LINHA É CRÍTICA
 
-  if (!eventId || !nome || !promoterIdFinal) { // 'lista' pode ter um default no DB, 'documento' e 'combos' são opcionais.
-    return res.status(400).json({ message: 'Dados essenciais (Evento, Nome, Promotor) são obrigatórios.' });
-  }
+        const params = [
+            req.body.casa_do_evento, req.body.nome_do_evento,
+            req.body.tipo_evento === 'unico' ? req.body.data_do_evento : null,
+            req.body.hora_do_evento, req.body.local_do_evento, req.body.categoria, req.body.mesas, req.body.valor_da_mesa, req.body.brinde,
+            req.body.numero_de_convidados, req.body.descricao, req.body.valor_da_entrada,
+            imagemDoEvento, imagemDoCombo, req.body.observacao,
+            req.body.tipo_evento, req.body.tipo_evento === 'semanal' ? req.body.dia_da_semana : null,
+            adicionadoPor // <<< Adicione aqui o ID do usuário/promotor logado
+        ];
 
-  try {
-    const query = `
-      INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por, usuario_cliente_id, combos_selecionados)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    
-    await pool.query(query, [
-      eventId,
-      nome,
-      documento || null,         // Usa o documento fornecido ou null
-      lista || 'Geral',           // Usa a lista fornecida ou 'Geral'
-      promoterIdFinal,            // O ID do promotor (da lista)
-      userIdLogado,               // O ID do cliente que está se adicionando
-      JSON.stringify(combosSelecionados || []) // Converte o array de objetos em JSON string
-    ]);
+        const query = `INSERT INTO eventos (
+            casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+            local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+            numero_de_convidados, descricao, valor_da_entrada,
+            imagem_do_evento, imagem_do_combo, observacao,
+            tipo_evento, dia_da_semana, adicionado_por ) // <<< A COLUNA DEVE ESTAR AQUI
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const [result] = await pool.query(query, params);
 
-    res.status(201).json({ message: 'Convidado adicionado/participação registrada com sucesso!' });
-  } catch (err) {
-    console.error('Erro detalhado ao adicionar convidado:', err);
-    res.status(500).json({ message: 'Erro ao adicionar convidado.' });
-  }
+        // ... (busca do evento recém-criado e retorno) ...
+    } catch (error) {
+        console.error('!!! ERRO DETALHADO AO CRIAR EVENTO !!!:', error);
+        res.status(500).json({ error: 'Erro ao criar evento.' });
+    }
 });
 
 
