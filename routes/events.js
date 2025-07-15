@@ -44,11 +44,10 @@ module.exports = (pool) => {
 
     // ---- ROTA POST OTIMIZADA ----
     // Agora retorna o objeto completo do evento criado, já com as URLs das imagens.
-    router.post('/', upload.fields([
+     router.post('/', auth, upload.fields([ // 'auth' middleware garante req.user.id
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
     ]), async (req, res) => {
-        // Seus console.log de depuração estão aqui. Mantenha-os por enquanto.
         console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
         try {
             const imagemDoEventoFile = req.files?.['imagem_do_evento']?.[0];
@@ -64,19 +63,32 @@ module.exports = (pool) => {
                 tipo_evento, dia_da_semana
             } = req.body;
 
+            // OBTENDO O ID DO USUÁRIO AUTENTICADO A PARTIR DO TOKEN (req.user.id)
+            // Certifique-se que seu middleware 'auth' está anexando 'req.user.id'
+            const adicionadoPor = req.user.id; 
+            console.log('DEBUG BACKEND: Evento sendo criado por userId:', adicionadoPor); // DEBUG BACKEND
+
             const params = [
                 casa_do_evento, nome_do_evento, 
                 tipo_evento === 'unico' ? data_do_evento : null,
                 hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
-                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null
+                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
+                adicionadoPor // <<< IMPORTANTE: SALVANDO O ID DO CRIADOR
             ];
 
-            const query = `INSERT INTO eventos (...) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            const query = `INSERT INTO eventos (
+                casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+                local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                numero_de_convidados, descricao, valor_da_entrada,
+                imagem_do_evento, imagem_do_combo, observacao,
+                tipo_evento, dia_da_semana, adicionado_por ) // <<< COLUNA 'adicionado_por'
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
             const [result] = await pool.query(query, params);
 
-            // Busca o evento recém-criado para retorná-lo completo.
+            // Buscar o evento recém-criado para retornar ele completo e com a URL
+            // Garantir que adicionado_por está no SELECT aqui. SELECT * geralmente inclui.
             const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [result.insertId]);
             const newEventWithUrls = addFullImageUrls(rows[0]);
 
@@ -90,8 +102,8 @@ module.exports = (pool) => {
     
     // ---- ROTA GET (LISTA) CORRIGIDA ----
     router.get('/', async (req, res) => {
-        const { tipo } = req.query;
-        let query = 'SELECT * FROM eventos';
+        const { tipo } = req.query; // Para filtros de tipo (único, semanal)
+        let query = 'SELECT * FROM eventos'; // 'SELECT *' DEVE INCLUIR 'adicionado_por' se existe no DB
         const params = [];
 
         if (tipo === 'unico') {
@@ -101,13 +113,15 @@ module.exports = (pool) => {
             query += ' WHERE tipo_evento = ? ORDER BY dia_da_semana ASC, casa_do_evento';
             params.push('semanal');
         } else if (req.query.page) { // Mantém a compatibilidade com sua paginação inicial
-            // Lógica de paginação pode ser adicionada aqui se necessário
+            // Lógica de paginação pode ser adicionada aqui
         } else if (tipo) {
             return res.status(400).json({ message: 'Tipo de evento inválido.' });
         }
 
         try {
             const [rows] = await pool.query(query, params);
+            console.log('DEBUG BACKEND: Eventos listados - Exemplo de um evento (se existir):', rows.length > 0 ? rows[0] : 'Nenhum evento'); // DEBUG BACKEND
+            
             if (rows.length === 0) {
                 return res.status(200).json([]);
             }
@@ -117,7 +131,7 @@ module.exports = (pool) => {
             
             res.status(200).json(eventsWithUrls);
         } catch (error) {
-            console.error(error);
+            console.error('DEBUG BACKEND: Erro ao listar eventos:', error);
             res.status(500).json({ error: 'Erro ao listar eventos' });
         }
     });
@@ -126,12 +140,11 @@ module.exports = (pool) => {
     router.get('/:id', async (req, res) => {
         const eventId = req.params.id;
         try {
-            const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]);
+            const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]); // 'SELECT *' DEVE INCLUIR 'adicionado_por'
             if (rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
 
-            // Adiciona as URLs completas ao evento encontrado
             const eventWithUrls = addFullImageUrls(rows[0]);
 
             res.status(200).json(eventWithUrls);
