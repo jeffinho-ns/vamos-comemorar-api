@@ -13,14 +13,15 @@ const upload = multer({ dest: 'uploads/' });
 
 // Adicionar convidado
 router.post('/', auth, async (req, res) => {
-  const { eventId, nomes } = req.body;
+  const { eventId, nomes, documento, lista } = req.body; // Adicione 'documento' e 'lista' aqui
   const adicionado_por = req.user.id;
+  
 
   if (!eventId || !Array.isArray(nomes) || nomes.length === 0) {
     return res.status(400).json({ message: 'Dados inválidos' });
   }
 
-  const values = nomes.map((nome) => [eventId, nome, null, 'Geral', adicionado_por]);
+const values = nomes.map((nome) => [eventId, nome, documento || null, lista || 'Geral', adicionado_por]);
 
   try {
     const placeholders = values.map(() => '(?, ?, ?, ?, ?)').join(', ');
