@@ -18,12 +18,13 @@ const upload = multer({ dest: 'uploads/' });
 // - documento (VARCHAR, nullable)
 // - lista (VARCHAR) - para 'Geral', 'VIP', 'Pista', 'Camarote', etc.
 // - adicionado_por (INT) - ID do promotor (quem criou a lista/entrada)
-// - usuario_cliente_id (INT, nullable) - ID do usuário (cliente) que se inscreveu
-// - combos_selecionados (JSON ou TEXT, nullable) - JSON string dos combos
+// - usuario_cliente_id (INT, nullable) - NOVO: ID do usuário (cliente) que se inscreveu
+// - combos_selecionados (JSON ou TEXT, nullable) - NOVO: JSON string dos combos
 
 // --- Rota ÚNICA e CORRETA para Adicionar Convidado/Participante ---
 // Esta é a rota que o frontend do Flutter vai chamar para o cliente se inscrever
 // ou para o promotor adicionar convidados.
+// Não precisa de `upload.fields` aqui, pois não está recebendo arquivos diretamente.
 router.post('/', auth, async (req, res) => {
   const { eventId, nome, documento, lista, promoterIdDaLista, combosSelecionados } = req.body;
   
@@ -66,6 +67,7 @@ router.post('/', auth, async (req, res) => {
 
 
 // Listar todos os convidados (para uso administrativo/geral)
+// Mudei para '/todos-convidados' para evitar conflito com '/:event_id'
 router.get('/todos-convidados', auth, async (req, res) => {
   try {
     const [convidados] = await pool.query('SELECT * FROM convidados');
@@ -93,6 +95,7 @@ router.get('/:event_id', auth, async (req, res) => {
 });
 
 // Listar convidados por evento E promotor (para um promotor ver APENAS seus convidados de UM evento)
+// NOVO ENDPOINT: Útil para o painel do promotor
 router.get('/evento/:event_id/promotor/:promotor_id', auth, async (req, res) => {
   const { event_id, promotor_id } = req.params;
   
@@ -234,7 +237,7 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
           row.lista || 'Geral',
           adicionado_por,
           null, // usuario_cliente_id (pois foi adicionado pelo promotor via CSV)
-          JSON.stringify(row.combos ? JSON.parse(row.combos) : []), // Parse do JSON se existir
+          JSON.stringify(row.combos ? JSON.parse(row.combos) : []),
         ]);
       })
       .on('end', async () => {
