@@ -3,6 +3,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const router = express.Router();
+// Adicione o import para o middleware de autenticação se não estiver presente
+const auth = require('../middleware/auth'); // <<< CERTIFIQUE-SE DESTE IMPORT
 
 const rootPath = path.resolve(__dirname, '..');
 const uploadDir = path.join(rootPath, 'uploads/events');
@@ -26,10 +28,8 @@ const upload = multer({
 
 module.exports = (pool) => {
 
-    // ---- NOVA FUNÇÃO AUXILIAR ----
-    // Esta função centraliza a lógica de adicionar as URLs completas a um objeto de evento.
+    // ---- FUNÇÃO AUXILIAR ----
     const addFullImageUrls = (event) => {
-        // Use uma variável de ambiente para a URL base em produção.
         const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
         return {
             ...event,
@@ -42,9 +42,8 @@ module.exports = (pool) => {
         };
     };
 
-    // ---- ROTA POST OTIMIZADA ----
-    // Agora retorna o objeto completo do evento criado, já com as URLs das imagens.
-     router.post('/', auth, upload.fields([ // 'auth' middleware garante req.user.id
+    // ---- ROTA POST para CRIAR EVENTO ----
+    router.post('/', auth, upload.fields([ // 'auth' middleware já está aqui
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
     ]), async (req, res) => {
@@ -63,10 +62,7 @@ module.exports = (pool) => {
                 tipo_evento, dia_da_semana
             } = req.body;
 
-            // OBTENDO O ID DO USUÁRIO AUTENTICADO A PARTIR DO TOKEN (req.user.id)
-            // Certifique-se que seu middleware 'auth' está anexando 'req.user.id'
-            const adicionadoPor = req.user.id; 
-            console.log('DEBUG BACKEND: Evento sendo criado por userId:', adicionadoPor); // DEBUG BACKEND
+            const adicionadoPor = req.user.id; // Garante que o ID do usuário logado é pego
 
             const params = [
                 casa_do_evento, nome_do_evento, 
@@ -75,7 +71,7 @@ module.exports = (pool) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                adicionadoPor // <<< IMPORTANTE: SALVANDO O ID DO CRIADOR
+                adicionadoPor // <<< SALVANDO 'adicionado_por'
             ];
 
             const query = `INSERT INTO eventos (
@@ -83,12 +79,10 @@ module.exports = (pool) => {
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagem_do_evento, imagem_do_combo, observacao,
-                tipo_evento, dia_da_semana, adicionado_por ) // <<< COLUNA 'adicionado_por'
+                tipo_evento, dia_da_semana, adicionado_por ) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
             const [result] = await pool.query(query, params);
 
-            // Buscar o evento recém-criado para retornar ele completo e com a URL
-            // Garantir que adicionado_por está no SELECT aqui. SELECT * geralmente inclui.
             const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [result.insertId]);
             const newEventWithUrls = addFullImageUrls(rows[0]);
 
@@ -100,10 +94,11 @@ module.exports = (pool) => {
         }
     });
     
-    // ---- ROTA GET (LISTA) CORRIGIDA ----
-    router.get('/', async (req, res) => {
-        const { tipo } = req.query; // Para filtros de tipo (único, semanal)
-        let query = 'SELECT * FROM eventos'; // 'SELECT *' DEVE INCLUIR 'adicionado_por' se existe no DB
+    // ---- ROTA GET (LISTA) ----
+    // ADICIONADO 'auth' middleware aqui
+    router.get('/', auth, async (req, res) => { // <<< CORRIGIDO
+        const { tipo } = req.query;
+        let query = 'SELECT * FROM eventos'; // 'SELECT *' deve incluir 'adicionado_por' se a coluna existe
         const params = [];
 
         if (tipo === 'unico') {
@@ -112,7 +107,7 @@ module.exports = (pool) => {
         } else if (tipo === 'semanal') {
             query += ' WHERE tipo_evento = ? ORDER BY dia_da_semana ASC, casa_do_evento';
             params.push('semanal');
-        } else if (req.query.page) { // Mantém a compatibilidade com sua paginação inicial
+        } else if (req.query.page) {
             // Lógica de paginação pode ser adicionada aqui
         } else if (tipo) {
             return res.status(400).json({ message: 'Tipo de evento inválido.' });
@@ -126,7 +121,6 @@ module.exports = (pool) => {
                 return res.status(200).json([]);
             }
             
-            // Mapeia TODOS os resultados para adicionar as URLs completas
             const eventsWithUrls = rows.map(addFullImageUrls);
             
             res.status(200).json(eventsWithUrls);
@@ -136,11 +130,12 @@ module.exports = (pool) => {
         }
     });
 
-    // ---- ROTA GET (ID ÚNICO) CORRIGIDA ----
-    router.get('/:id', async (req, res) => {
+    // ---- ROTA GET (ID ÚNICO) ----
+    // ADICIONADO 'auth' middleware aqui
+    router.get('/:id', auth, async (req, res) => { // <<< CORRIGIDO
         const eventId = req.params.id;
         try {
-            const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]); // 'SELECT *' DEVE INCLUIR 'adicionado_por'
+            const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]); // 'SELECT *' deve incluir 'adicionado_por'
             if (rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
@@ -154,13 +149,25 @@ module.exports = (pool) => {
         }
     });
 
-    // ---- ROTA PUT (EDITAR) CORRIGIDA E OTIMIZADA ----
-    router.put('/:id', upload.fields([
+    // ---- ROTA PUT (EDITAR) ----
+    router.put('/:id', auth, upload.fields([ // 'auth' middleware já está aqui
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
     ]), async (req, res) => {
         const eventId = req.params.id;
+        // Obtenha o adicionado_por do usuário logado para verificar permissão
+        const adicionadoPor = req.user.id; 
+
         try {
+            // Primeiro, verifique se o evento existe e se o usuário logado é o criador
+            const [existingEvent] = await pool.query('SELECT adicionado_por FROM eventos WHERE id = ?', [eventId]);
+            if (existingEvent.length === 0) {
+                return res.status(404).json({ message: 'Evento não encontrado.' });
+            }
+            if (existingEvent[0].adicionado_por !== adicionadoPor && req.user.role !== 'admin') { // Permite admin editar
+                return res.status(403).json({ message: 'Você não tem permissão para editar este evento.' });
+            }
+
             // ... (sua lógica para buscar evento antigo e apagar imagens antigas se necessário)
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
             if (eventosAtuais.length === 0) {
@@ -168,9 +175,45 @@ module.exports = (pool) => {
             }
             const eventoAntigo = eventosAtuais[0];
             let imagemDoEventoFinal = eventoAntigo.imagem_do_evento;
-            // ... (sua lógica de `if (req.files...` continua aqui)
+            let imagemDoComboFinal = eventoAntigo.imagem_do_combo; // Certifique-se de pegar o combo também
 
-            // ...
+            const imagemDoEventoFile = req.files?.['imagem_do_evento']?.[0];
+            const imagemDoComboFile = req.files?.['imagem_do_combo']?.[0];
+
+            if (imagemDoEventoFile) {
+                imagemDoEventoFinal = imagemDoEventoFile.filename;
+            }
+            if (imagemDoComboFile) {
+                imagemDoComboFinal = imagemDoComboFile.filename;
+            }
+            
+            // Re-montar os parâmetros para o UPDATE
+            const {
+                casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+                local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                numero_de_convidados, descricao, valor_da_entrada, observacao,
+                tipo_evento, dia_da_semana
+            } = req.body;
+
+            const updateParams = [
+                casa_do_evento, nome_do_evento, 
+                tipo_evento === 'unico' ? data_do_evento : null,
+                hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
+                numero_de_convidados, descricao, valor_da_entrada,
+                imagemDoEventoFinal, imagemDoComboFinal, observacao,
+                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
+                eventId // WHERE clause parameter
+            ];
+
+            const updateQuery = `UPDATE eventos SET
+                casa_do_evento = ?, nome_do_evento = ?, data_do_evento = ?, hora_do_evento = ?,
+                local_do_evento = ?, categoria = ?, mesas = ?, valor_da_mesa = ?, brinde = ?,
+                numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?,
+                imagem_do_evento = ?, imagem_do_combo = ?, observacao = ?,
+                tipo_evento = ?, dia_da_semana = ?
+                WHERE id = ?`;
+
+            await pool.query(updateQuery, updateParams);
 
             // Após o UPDATE, busca o evento atualizado para retorná-lo
             const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [eventId]);
@@ -184,12 +227,23 @@ module.exports = (pool) => {
         }
     });
 
-    // ---- ROTA DELETE (SEM ALTERAÇÕES NECESSÁRIAS) ----
-    router.delete('/:id', async (req, res) => {
+    // ---- ROTA DELETE ----
+    router.delete('/:id', auth, async (req, res) => { // 'auth' middleware aqui também
         const eventId = req.params.id;
+        const userId = req.user.id; // O usuário logado que está tentando deletar
+
         try {
-            // ... (sua lógica de delete continua a mesma)
-            // ...
+            // Verifique se o evento existe e se o usuário logado é o criador
+            const [existingEvent] = await pool.query('SELECT adicionado_por FROM eventos WHERE id = ?', [eventId]);
+            if (existingEvent.length === 0) {
+                return res.status(404).json({ message: 'Evento não encontrado.' });
+            }
+            if (existingEvent[0].adicionado_por !== userId && req.user.role !== 'admin') { // Permite admin deletar
+                return res.status(403).json({ message: 'Você não tem permissão para excluir este evento.' });
+            }
+
+            // TODO: (Opcional) Adicionar lógica para deletar arquivos de imagem do servidor
+
             await pool.query(`DELETE FROM eventos WHERE id = ?`, [eventId]);
             res.status(200).json({ message: 'Evento excluído com sucesso' });
         } catch (error) {
