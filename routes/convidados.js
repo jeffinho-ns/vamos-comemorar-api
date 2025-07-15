@@ -8,63 +8,64 @@ const fs = require('fs');
 const path = require('path');
 const { Parser } = require('json2csv');
 
-// Configurar o multer para uploads (usado apenas na rota de importar CSV)
+// Configurar o multer para uploads (usado APENAS na rota de importar CSV)
 const upload = multer({ dest: 'uploads/' });
 
 // IMPORTANTE: Antes de usar esta API, certifique-se de que sua tabela `convidados`
-// no banco de dados tem as seguintes colunas:
+// no banco de dados tem as seguintes colunas (já conversamos sobre isso):
 // - event_id (INT)
 // - nome (VARCHAR)
 // - documento (VARCHAR, nullable)
 // - lista (VARCHAR) - para 'Geral', 'VIP', 'Pista', 'Camarote', etc.
-// - adicionado_por (INT) - ID do promotor
-// - usuario_cliente_id (INT, nullable) - NOVO: ID do usuário (cliente) que se inscreveu
-// - combos_selecionados (JSON ou TEXT, nullable) - NOVO: JSON string dos combos
+// - adicionado_por (INT) - ID do promotor (quem criou a lista/entrada)
+// - usuario_cliente_id (INT, nullable) - ID do usuário (cliente) que se inscreveu
+// - combos_selecionados (JSON ou TEXT, nullable) - JSON string dos combos
 
-// --- Rota ÚNICA para Adicionar Convidado/Participante ---
-// Esta rota agora é mais flexível:
-// Se vier 'promoterIdDaLista', é um cliente se inscrevendo para um promotor.
-// Se não vier, e o usuário for promotor, é o promotor adicionando para si.
-router.post('/', upload.fields([
-    { name: 'imagem_do_evento', maxCount: 1 },
-    { name: 'imagem_do_combo', maxCount: 1 }
-]), async (req, res) => {
-    console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
-    try {
-        // ... (obtenção de files e body) ...
+// --- Rota ÚNICA e CORRETA para Adicionar Convidado/Participante ---
+// Esta é a rota que o frontend do Flutter vai chamar para o cliente se inscrever
+// ou para o promotor adicionar convidados.
+router.post('/', auth, async (req, res) => {
+  const { eventId, nome, documento, lista, promoterIdDaLista, combosSelecionados } = req.body;
+  
+  // O 'adicionado_por' na tabela será o ID do promotor responsável pela lista.
+  // Se 'promoterIdDaLista' for fornecido (cliente se inscrevendo para um promotor), use-o.
+  // Caso contrário (promotor logado adicionando para sua própria lista), use req.user.id.
+  const promoterIdFinal = promoterIdDaLista || req.user.id;
 
-        // Certifique-se que req.user.id está disponível e sendo salvo!
-        const adicionadoPor = req.user.id; // <<< ESTA LINHA É CRÍTICA
+  // O 'usuario_cliente_id' será o ID do usuário (cliente) logado que está fazendo a requisição.
+  // Isso nos permite rastrear quem se inscreveu.
+  const userIdLogado = req.user.id; 
 
-        const params = [
-            req.body.casa_do_evento, req.body.nome_do_evento,
-            req.body.tipo_evento === 'unico' ? req.body.data_do_evento : null,
-            req.body.hora_do_evento, req.body.local_do_evento, req.body.categoria, req.body.mesas, req.body.valor_da_mesa, req.body.brinde,
-            req.body.numero_de_convidados, req.body.descricao, req.body.valor_da_entrada,
-            imagemDoEvento, imagemDoCombo, req.body.observacao,
-            req.body.tipo_evento, req.body.tipo_evento === 'semanal' ? req.body.dia_da_semana : null,
-            adicionadoPor // <<< Adicione aqui o ID do usuário/promotor logado
-        ];
+  // Validação dos dados essenciais
+  if (!eventId || !nome || !promoterIdFinal) {
+    return res.status(400).json({ message: 'Dados essenciais (Evento, Nome, Promotor) são obrigatórios.' });
+  }
 
-        const query = `INSERT INTO eventos (
-            casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
-            local_do_evento, categoria, mesas, valor_da_mesa, brinde,
-            numero_de_convidados, descricao, valor_da_entrada,
-            imagem_do_evento, imagem_do_combo, observacao,
-            tipo_evento, dia_da_semana, adicionado_por ) // <<< A COLUNA DEVE ESTAR AQUI
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        const [result] = await pool.query(query, params);
+  try {
+    const query = `
+      INSERT INTO convidados (event_id, nome, documento, lista, adicionado_por, usuario_cliente_id, combos_selecionados)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    await pool.query(query, [
+      eventId,
+      nome,
+      documento || null,         // Usa o documento fornecido ou null
+      lista || 'Geral',           // Usa a lista fornecida ou 'Geral' se não especificado
+      promoterIdFinal,            // O ID do promotor (da lista)
+      userIdLogado,               // O ID do cliente que está se adicionando
+      JSON.stringify(combosSelecionados || []) // Converte o array de objetos em JSON string
+    ]);
 
-        // ... (busca do evento recém-criado e retorno) ...
-    } catch (error) {
-        console.error('!!! ERRO DETALHADO AO CRIAR EVENTO !!!:', error);
-        res.status(500).json({ error: 'Erro ao criar evento.' });
-    }
+    res.status(201).json({ message: 'Convidado adicionado/participação registrada com sucesso!' });
+  } catch (err) {
+    console.error('Erro detalhado ao adicionar convidado:', err);
+    res.status(500).json({ message: 'Erro ao adicionar convidado.' });
+  }
 });
 
 
 // Listar todos os convidados (para uso administrativo/geral)
-// Mudei para '/todos-convidados' para evitar conflito com '/:event_id'
 router.get('/todos-convidados', auth, async (req, res) => {
   try {
     const [convidados] = await pool.query('SELECT * FROM convidados');
@@ -92,11 +93,9 @@ router.get('/:event_id', auth, async (req, res) => {
 });
 
 // Listar convidados por evento E promotor (para um promotor ver APENAS seus convidados de UM evento)
-// NOVO ENDPOINT: Útil para o painel do promotor
 router.get('/evento/:event_id/promotor/:promotor_id', auth, async (req, res) => {
   const { event_id, promotor_id } = req.params;
-  // Opcional: verifique se req.user.id (promotor logado) corresponde a promotor_id
-  // Ou se o req.user.role é 'admin' para permitir ver outros promotores
+  
   if (req.user.id !== parseInt(promotor_id) && req.user.role !== 'admin') {
     return res.status(403).json({ message: 'Não autorizado a ver esta lista.' });
   }
@@ -120,7 +119,6 @@ router.delete('/:id', auth, async (req, res) => {
   const userId = req.user.id; // O usuário logado que está tentando deletar
 
   try {
-    // Adiciona uma verificação para que apenas o promotor que adicionou (ou um admin) possa deletar
     const [convidado] = await pool.query('SELECT adicionado_por FROM convidados WHERE id = ?', [id]);
     if (convidado.length === 0) {
       return res.status(404).json({ message: 'Convidado não encontrado.' });
@@ -140,7 +138,7 @@ router.delete('/:id', auth, async (req, res) => {
 // Atualizar dados do convidado
 router.put('/:id', auth, async (req, res) => {
   const { id } = req.params;
-  const { nome, documento, lista, combos_selecionados } = req.body; // Adicionado combos_selecionados
+  const { nome, documento, lista, combos_selecionados } = req.body;
   const userId = req.user.id;
 
   try {
@@ -154,7 +152,7 @@ router.put('/:id', auth, async (req, res) => {
 
     await pool.query(
       'UPDATE convidados SET nome = ?, documento = ?, lista = ?, combos_selecionados = ? WHERE id = ?',
-      [nome, documento, lista, JSON.stringify(combos_selecionados || []), id] // Converte para JSON string
+      [nome, documento, lista, JSON.stringify(combos_selecionados || []), id]
     );
     res.json({ message: 'Convidado atualizado com sucesso' });
   } catch (err) {
@@ -166,7 +164,7 @@ router.put('/:id', auth, async (req, res) => {
 // Buscar convidados com filtro por nome
 router.get('/search/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
-  const { nome, promotorId } = req.query; // Adicionei promotorId para filtrar se necessário
+  const { nome, promotorId } = req.query;
 
   let query = 'SELECT * FROM convidados WHERE event_id = ?';
   const params = [event_id];
@@ -175,7 +173,7 @@ router.get('/search/:event_id', auth, async (req, res) => {
     query += ' AND nome LIKE ?';
     params.push(`%${nome}%`);
   }
-  if (promotorId) { // Filtra por promotor se o ID for passado
+  if (promotorId) {
     query += ' AND adicionado_por = ?';
     params.push(promotorId);
   }
@@ -192,7 +190,7 @@ router.get('/search/:event_id', auth, async (req, res) => {
 // Contagem por lista
 router.get('/contagem/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
-  const { promotorId } = req.query; // Adicionei promotorId para filtrar por promotor
+  const { promotorId } = req.query;
 
   let query = `
     SELECT lista, COUNT(*) as total 
@@ -201,7 +199,7 @@ router.get('/contagem/:event_id', auth, async (req, res) => {
   `;
   const params = [event_id];
 
-  if (promotorId) { // Filtra por promotor se o ID for passado
+  if (promotorId) {
     query += ' AND adicionado_por = ?';
     params.push(promotorId);
   }
@@ -220,7 +218,7 @@ router.get('/contagem/:event_id', auth, async (req, res) => {
 // Importar CSV
 router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, res) => {
   const { event_id } = req.params;
-  const adicionado_por = req.user.id; // Assume que o promotor logado está importando
+  const adicionado_por = req.user.id;
   const convidados = [];
 
   try {
@@ -229,13 +227,12 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
     fs.createReadStream(filePath)
       .pipe(csv())
       .on('data', (row) => {
-        // Assume que o CSV tem colunas 'nome', 'documento', 'lista', 'combos' (opcional)
         convidados.push([
           event_id,
           row.nome,
           row.documento || null,
           row.lista || 'Geral',
-          adicionado_por, // Quem adicionou é o promotor logado
+          adicionado_por,
           null, // usuario_cliente_id (pois foi adicionado pelo promotor via CSV)
           JSON.stringify(row.combos ? JSON.parse(row.combos) : []), // Parse do JSON se existir
         ]);
@@ -267,7 +264,7 @@ router.post('/importar/:event_id', auth, upload.single('arquivo'), async (req, r
 // Exportar CSV
 router.get('/exportar/:event_id', auth, async (req, res) => {
   const { event_id } = req.params;
-  const { promotorId } = req.query; // Para exportar apenas a lista de um promotor
+  const { promotorId } = req.query;
 
   let query = `
     SELECT nome, documento, lista, combos_selecionados
