@@ -61,13 +61,22 @@ const generalUpload = multer({
         filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
     }),
     fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-        if (!allowedTypes.includes(file.mimetype)) {
-            const error = new Error('Tipo de arquivo não suportado');
-            error.code = 'LIMIT_FILE_TYPES';
-            return cb(error, false);
-        }
-        cb(null, true);
+const allowedTypes = [
+    'image/jpeg', 
+    'image/jpg', 
+    'image/png', 
+    'image/gif', 
+    'image/webp',
+    'image/heic', // Exemplo: se o Flutter estiver enviando HEIC de iOS
+    'image/heif', // Outro exemplo
+];
+if (!allowedTypes.includes(file.mimetype)) {
+    console.error('Tipo de arquivo não permitido:', file.mimetype); // Adicione este log para ver o tipo real!
+    const error = new Error('Tipo de arquivo não suportado');
+    error.code = 'LIMIT_FILE_TYPES';
+    return cb(error, false);
+}
+cb(null, true);
     },
     limits: { fileSize: 10 * 1024 * 1024 },
 });
