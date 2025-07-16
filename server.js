@@ -1,10 +1,8 @@
-
-
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const multer = require('multer');
+const multer = require('multer'); // Mantenha este import
 const fs = require('fs');
 const bcryptjs = require('bcryptjs');
 const path = require('path');
@@ -18,33 +16,32 @@ const cookieSession = require('cookie-session');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-
-
 // Middleware
 const corsOptions = {
     origin: ['http://localhost:3000', 'https://vamos-comemorar-next.vercel.app', 'https://vamos-comemorar-mobile.vercel.app'],
     credentials: true,
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
-  };
-  
-  app.use(cors(corsOptions));
+};
+ 
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
-const upload = multer({
-    dest: 'uploads/', // Pasta onde os arquivos serão armazenados
-    limits: { fileSize: 50 * 1024 * 1024 }, // Limite de tamanho do arquivo (5 MB)
-    fileFilter: (req, file, cb) => {
-        // Verifica se o arquivo é do tipo desejado (ex: jpeg, png)
-        const filetypes = /jpeg|jpg|png|gif/;
-        const mimetype = filetypes.test(file.mimetype);
-        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-        if (mimetype && extname) {
-            return cb(null, true);
-        }
-        cb('Erro: Tipo de arquivo não suportado!');
-    }
-});
+// --- REMOVA OU COMENTE TODA ESTA INSTÂNCIA 'upload' ---
+// const upload = multer({
+//     dest: 'uploads/', // Pasta onde os arquivos serão armazenados
+//     limits: { fileSize: 50 * 1024 * 1024 }, // Limite de tamanho do arquivo (5 MB)
+//     fileFilter: (req, file, cb) => {
+//         const filetypes = /jpeg|jpg|png|gif/;
+//         const mimetype = filetypes.test(file.mimetype);
+//         const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+//         if (mimetype && extname) {
+//             return cb(null, true);
+//         }
+//         cb('Erro: Tipo de arquivo não suportado!');
+//     }
+// });
+// ----------------------------------------------------
 
 // Diretório de uploads
 const uploadDir = path.join(__dirname, 'uploads');
@@ -54,29 +51,31 @@ if (!fs.existsSync(uploadDir)) {
 
 app.use('/uploads', express.static(uploadDir));
 
-// Configuração para upload geral
+// Configuração para upload geral (ESTA É A INSTÂNCIA QUE SUAS ROTAS DE USUÁRIO USAM!)
 const generalUpload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadDir),
         filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
     }),
     fileFilter: (req, file, cb) => {
-const allowedTypes = [
-    'image/jpeg', 
-    'image/jpg', 
-    'image/png', 
-    'image/gif', 
-    'image/webp',
-    'image/heic', // Exemplo: se o Flutter estiver enviando HEIC de iOS
-    'image/heif', // Outro exemplo
-];
-if (!allowedTypes.includes(file.mimetype)) {
-    console.error('Tipo de arquivo não permitido:', file.mimetype); // Adicione este log para ver o tipo real!
-    const error = new Error('Tipo de arquivo não suportado');
-    error.code = 'LIMIT_FILE_TYPES';
-    return cb(error, false);
-}
-cb(null, true);
+        const allowedTypes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+            'image/heic', // Manter esses adicionados
+            'image/heif', // Manter esses adicionados
+            'image/bmp',
+            'image/tiff'
+        ];
+        // console.error('Mimetype recebido (generalUpload):', file.mimetype); // Você pode ativar este log para ver
+        if (!allowedTypes.includes(file.mimetype)) {
+            const error = new Error(`Tipo de arquivo não suportado: ${file.mimetype}`);
+            error.code = 'LIMIT_FILE_TYPES';
+            return cb(error, false);
+        }
+        cb(null, true);
     },
     limits: { fileSize: 10 * 1024 * 1024 },
 });
@@ -90,12 +89,13 @@ app.post('/api/uploads', generalUpload.single('image'), (req, res) => {
 });
 
 // Configuração específica para o logo na rota PUT /api/places/:id
+// Mantenha logoUpload se for usado apenas para 'places' e não conflitar.
 const logoUpload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadDir),
         filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname),
     }),
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 }, // Este tem um limite de 50MB
 });
 
 
