@@ -67,7 +67,8 @@ const generalUpload = multer({
             'image/heic', // Manter esses adicionados
             'image/heif', // Manter esses adicionados
             'image/bmp',
-            'image/tiff'
+            'image/tiff',
+            'application/octet-stream'
         ];
         // console.error('Mimetype recebido (generalUpload):', file.mimetype); // Você pode ativar este log para ver
         if (!allowedTypes.includes(file.mimetype)) {
