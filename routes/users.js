@@ -1,44 +1,41 @@
 const fs = require('fs');
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const bcryptjs = require('bcryptjs');
+const bcrypt = require('bcryptjs'); // Usar apenas bcrypt.hash, não bcryptjs duplicado
 const jwt = require('jsonwebtoken');
-const multer = require("multer");
+// const multer = require("multer"); // REMOVA esta linha, Multer já é passado como parâmetro
 const path = require("path");
 const authenticateToken = require('../middleware/auth');
 
 
-
-
-const rootPath = path.resolve(__dirname, '..');
-const upload = multer({
-    storage: multer.diskStorage({
-        destination: (req, file, cb) => cb(null, path.join(rootPath, 'uploads')),
-        filename: (req, file, cb) => {
-            const timestamp = Date.now();
-            const ext = path.extname(file.originalname);
-            const filename = `${timestamp}${ext}`; // Nomeia o arquivo como "timestamp.extensão"
-            cb(null, filename);
-        },
-    }),
-    limits: { fileSize: 20 * 1024 * 1024 },
-});
-
-
+// --- REMOVA TODAS ESTAS LINHAS DUPLICADAS E DESNECESSÁRIAS ---
+// const rootPath = path.resolve(__dirname, '..');
+// const upload = multer({
+//     storage: multer.diskStorage({
+//         destination: (req, file, cb) => cb(null, path.join(rootPath, 'uploads')),
+//         filename: (req, file, cb) => {
+//             const timestamp = Date.now();
+//             const ext = path.extname(file.originalname);
+//             const filename = `${timestamp}${ext}`;
+//             cb(null, filename);
+//         },
+//     }),
+//     limits: { fileSize: 20 * 1024 * 1024 },
+// });
+// -----------------------------------------------------------------
 
 const router = express.Router();
-const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
+// --- REMOVA ESTA LINHA TAMBÉM ---
+// const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
+// ------------------------------
 
-module.exports = (pool, upload) => {
-    
+module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUpload' DO server.js
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
-        
         const { name, email, cpf, password, profileImageUrl } = req.body;
     
         try {
-            const hashedPassword = await bcryptjs.hash(password, 10);
+            const hashedPassword = await bcrypt.hash(password, 10);
     
             const [result] = await pool.query(
                 'INSERT INTO users (name, email, cpf, password, foto_perfil) VALUES (?, ?, ?, ?, ?)',
@@ -52,7 +49,7 @@ module.exports = (pool, upload) => {
                 { id: userId, email },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '1h' }
-              );
+            );
     
             res.status(201).json({
                 token,
@@ -70,6 +67,8 @@ module.exports = (pool, upload) => {
 
     
     // Atualizar dados do usuário logado (PATCH)
+    // Se o Flutter usa PUT com Multer, esta rota PATCH não será usada para upload de imagem.
+    // Sugestão: Se não usa Base64 em nenhum lugar, remova a lógica 'if (foto_perfil) { ... }' daqui.
     router.patch('/me', authenticateToken, async (req, res) => {
         const userId = req.user.id; 
         const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, foto_perfil } = req.body;
@@ -91,15 +90,14 @@ module.exports = (pool, upload) => {
             if (estado) { updates.push('estado = ?'); params.push(estado); }
             if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
     
-            // Se houver imagem em Base64, faça o upload e armazene o nome
-            if (foto_perfil) {
+            if (foto_perfil) { // Esta é a lógica para Base64. CUIDADO se o Flutter não enviar assim!
                 const base64Data = foto_perfil.replace(/^data:image\/\w+;base64,/, "");
                 const buffer = Buffer.from(base64Data, 'base64');
-                const filename = `${Date.now()}.jpg`; // Nomeia o arquivo com o timestamp em milissegundos
-    
-                fs.writeFileSync(path.join(IMAGE_DIRECTORY, filename), buffer);
+                const filename = `${Date.now()}.jpg`;
+                // path.join(__dirname, '..', 'uploads') seria mais consistente para o diretório de uploads.
+                fs.writeFileSync(path.join(path.resolve(__dirname, '..', 'uploads'), filename), buffer); // Salvando no diretório 'uploads' na raiz do projeto
                 updates.push('foto_perfil = ?');
-                params.push(filename); // Armazena apenas o nome do arquivo
+                params.push(filename);
             }
     
             params.push(userId);
@@ -117,7 +115,7 @@ module.exports = (pool, upload) => {
     
             res.json({ message: 'Dados do usuário logado atualizados com sucesso.' });
         } catch (error) {
-            console.error('Erro ao atualizar dados do usuário logado:', error);
+            console.error('Erro ao atualizar dados do usuário logado (PATCH):', error);
             res.status(500).json({ error: 'Erro ao atualizar dados do usuário logado.' });
         }
     });
@@ -154,7 +152,7 @@ module.exports = (pool, upload) => {
             res.json(user);
         } catch (error) {
             console.error('Erro ao buscar dados do usuário:', error);
-            res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
+            res.status(500).json({ error: 'Erro ao buscar dados do usuário.' });
         }
     });
 
@@ -176,177 +174,205 @@ module.exports = (pool, upload) => {
     });
 
 
+    // Rota para login
+    router.post('/login', async (req, res) => {
+        const { access, password } = req.body;
+        console.log('Login - Acesso:', access);
+        console.log('Login - Password:', password);
+
+        try {
+            const [results] = await pool.query(
+                'SELECT * FROM users WHERE email = ? OR cpf = ?',
+                [access, access]
+            );
+            console.log('Login - Resultados da consulta:', results);
+
+            if (results.length === 0) {
+                console.log('Login - Usuário não encontrado');
+                return res.status(404).json({ error: 'Usuário não encontrado' });
+            }
+
+            const user = results[0];
+            const isPasswordValid = await bcrypt.compare(password, user.password);
+            console.log('Login - Senha válida:', isPasswordValid);
+
+            if (!isPasswordValid) {
+                return res.status(401).json({ error: 'Credenciais inválidas' });
+            }
+
+            // Geração do token com role incluído
+            const token = jwt.sign(
+                { id: user.id, email: user.email, role: user.role },
+                process.env.JWT_SECRET || 'chave_secreta',
+                { expiresIn: '7d' }
+            );
+
+            // Retornar também o tipo de usuário (role) na resposta
+            res.json({
+                token,
+                userId: user.id,
+                role: user.role,
+                nome: user.name // Assumindo que o campo é 'name' no DB
+            });
+        } catch (error) {
+            console.error('Erro ao realizar login:', error);
+            res.status(500).json({ error: 'Erro ao realizar login' });
+        }
+    });
     
-  // Rota para login
-router.post('/login', async (req, res) => {
-    const { access, password } = req.body;
-    console.log('Acesso:', access);
-    console.log('Password:', password);
+    // Atualizar dados e foto de perfil do usuário logado (PUT)
+    // ESTA É A ROTA QUE SEU APLICATIVO FLUTTER ESTÁ USANDO PARA UPLOAD DE IMAGEM!
+    router.put('/me', authenticateToken, upload.single('foto_perfil'), async (req, res) => {
+        const userId = req.user.id;
+        const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
+        const foto_perfil = req.file ? req.file.filename : null; // Acessa o nome do arquivo via req.file
 
-    try {
-        const [results] = await pool.query(
-            'SELECT * FROM users WHERE email = ? OR cpf = ?',
-            [access, access]
-        );
-        console.log('Resultados da consulta:', results);
+        console.log("PUT /me - Dados recebidos (req.body):", req.body);
+        console.log("PUT /me - Arquivo de foto recebido (req.file):", req.file);
 
-        if (results.length === 0) {
-            console.log('Usuário não encontrado');
-            return res.status(404).json({ error: 'Usuário não encontrado' });
+        try {
+            const updates = [];
+            const params = [];
+
+            if (name) { updates.push('name = ?'); params.push(name); }
+            if (email) { updates.push('email = ?'); params.push(email); }
+            if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
+            if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
+            if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
+            if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
+            if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
+            if (numero) { updates.push('numero = ?'); params.push(numero); }
+            if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
+            if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
+            if (estado) { updates.push('estado = ?'); params.push(estado); }
+            if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+            
+            if (foto_perfil) { 
+                updates.push('foto_perfil = ?'); 
+                params.push(foto_perfil);
+                console.log("PUT /me - Nome do arquivo de perfil a ser salvo no DB (Multer):", foto_perfil);
+            }
+
+            // Atualiza a senha se fornecida
+            if (password) {
+                const hashedPassword = await bcrypt.hash(password, 10);
+                updates.push('password = ?');
+                params.push(hashedPassword);
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
+            }
+
+            params.push(userId);
+
+            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+            console.log("PUT /me - Query SQL executada:", query);
+            console.log("PUT /me - Parâmetros SQL:", params);
+
+            const [result] = await pool.query(query, params);
+            
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ message: 'Usuário não encontrado.' });
+            }
+
+            // Adicionado: Busca os dados atualizados do usuário para retornar uma resposta completa.
+            const [updatedUserResults] = await pool.query(`
+                SELECT id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
+                cpf, endereco, numero, bairro, cidade, estado, complemento 
+                FROM users 
+                WHERE id = ?
+            `, [userId]);
+
+            if (updatedUserResults.length === 0) {
+                return res.status(500).json({ error: 'Erro ao buscar usuário atualizado após o update.' });
+            }
+            const { password: _, ...updatedUser } = updatedUserResults[0]; // Remove a senha antes de enviar
+
+            res.json({ message: 'Dados e foto de perfil do usuário logado atualizados com sucesso.', user: updatedUser });
+
+        } catch (error) {
+            console.error('ERRO CRÍTICO ao atualizar dados do usuário logado (PUT /me):', error);
+            // Melhora a mensagem de erro para o cliente em caso de erro de Multer
+            if (error.code === 'LIMIT_FILE_SIZE') {
+                res.status(400).json({ error: 'O arquivo de foto é muito grande. Tamanho máximo permitido é 20MB.' });
+            } else {
+                res.status(500).json({ error: 'Erro interno do servidor ao atualizar perfil.' });
+            }
         }
+    });
 
-        const user = results[0];
-        const isPasswordValid = await bcryptjs.compare(password, user.password);
-        console.log('Senha válida:', isPasswordValid);
 
-        if (!isPasswordValid) {
-            return res.status(401).json({ error: 'Credenciais inválidas' });
+    // Atualizar dados e foto de perfil de um usuário específico (PUT) - Geralmente para admin
+    router.put('/:id', authenticateToken, upload.single('foto_perfil'), async (req, res) => { // Adicionado authenticateToken aqui também
+        const userId = req.params.id; // ID do usuário a ser atualizado
+        const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
+        const foto_perfil = req.file ? req.file.filename : null;
+
+        console.log("PUT /:id - Dados recebidos:", req.body);
+        console.log("PUT /:id - Arquivo recebido (req.file):", req.file);
+
+        try {
+            // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários
+            // if (req.user.role !== 'admin' && req.user.id !== userId) { // Exemplo de verificação de permissão
+            //     return res.status(403).json({ message: 'Acesso negado. Você só pode atualizar seu próprio perfil.' });
+            // }
+
+            const updates = [];
+            const params = [];
+
+            if (name) { updates.push('name = ?'); params.push(name); }
+            if (email) { updates.push('email = ?'); params.push(email); }
+            if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
+            if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
+            if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
+            if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
+            if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
+            if (numero) { updates.push('numero = ?'); params.push(numero); }
+            if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
+            if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
+            if (estado) { updates.push('estado = ?'); params.push(estado); }
+            if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+            
+            if (foto_perfil) { 
+                updates.push('foto_perfil = ?'); 
+                params.push(foto_perfil);
+                console.log("PUT /:id - Nome do arquivo de perfil a ser salvo no DB (Multer):", foto_perfil);
+            }
+
+            // Atualiza a senha se fornecida
+            if (password) {
+                const hashedPassword = await bcrypt.hash(password, 10);
+                updates.push('password = ?');
+                params.push(hashedPassword);
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
+            }
+
+            params.push(userId);
+
+            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+            console.log("PUT /:id - Query SQL executada:", query);
+            console.log("PUT /:id - Parâmetros SQL:", params);
+
+            const [result] = await pool.query(query, params);
+
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ message: 'Usuário não encontrado.' });
+            }
+
+            res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
+        } catch (error) {
+            console.error('ERRO CRÍTICO ao atualizar dados do usuário (PUT /:id):', error);
+            if (error.code === 'LIMIT_FILE_SIZE') {
+                res.status(400).json({ error: 'O arquivo de foto é muito grande. Tamanho máximo permitido é 20MB.' });
+            } else {
+                res.status(500).json({ error: 'Erro interno do servidor ao atualizar usuário.' });
+            }
         }
-
-        // 🔒 Geração do token com role incluído
-        const token = jwt.sign(
-            { id: user.id, email: user.email, role: user.role },
-            process.env.JWT_SECRET || 'chave_secreta',
-            { expiresIn: '7d' }
-        );
-
-        // 📤 Retornar também o tipo de usuário (role) na resposta
-        res.json({
-            token,
-            userId: user.id,
-            role: user.role,
-            nome: user.nome
-        });
-    } catch (error) {
-        console.error('Erro ao realizar login:', error);
-        res.status(500).json({ error: 'Erro ao realizar login' });
-    }
-});
-
-    
-    
-
-
-
-
-
-
-
-
-
-// Atualizar dados e foto de perfil do usuário logado (PUT)
-router.put('/me', authenticateToken, upload.single('foto_perfil'), async (req, res) => {
-    const userId = req.user.id;
-    const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
-    const foto_perfil = req.file ? req.file.filename : null;
-
-    try {
-        const updates = [];
-        const params = [];
-
-        if (name) { updates.push('name = ?'); params.push(name); }
-        if (email) { updates.push('email = ?'); params.push(email); }
-        if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
-        if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
-        if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
-        if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
-        if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
-        if (numero) { updates.push('numero = ?'); params.push(numero); }
-        if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
-        if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
-        if (estado) { updates.push('estado = ?'); params.push(estado); }
-        if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
-        if (foto_perfil) { updates.push('foto_perfil = ?'); params.push(foto_perfil); }
-
-        // Atualiza a senha se fornecida
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            updates.push('password = ?');
-            params.push(hashedPassword);
-        }
-
-
-        if (updates.length === 0) {
-            return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
-        }
-
-        params.push(userId);
-
-        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-        await pool.query(query, params);
-
-        res.json({ message: 'Dados e foto de perfil do usuário logado atualizados com sucesso.' });
-    } catch (error) {
-        console.error('Erro ao atualizar dados do usuário logado:', error);
-        res.status(500).json({ error: 'Erro ao atualizar dados do usuário logado.' });
-    }
-});
-
-
-// Atualizar dados e foto de perfil de um usuário específico (PUT)
-router.put('/:id', upload.single('foto_perfil'), async (req, res) => {
-    const userId = req.params.id;
-    const { name, email, telefone, sexo, data_nascimento, cpf, endereco, numero, bairro, cidade, estado, complemento, password } = req.body;
-    const foto_perfil = req.file ? req.file.filename : null;
-
-    console.log("Dados recebidos:", req.body); // Log dos dados recebidos
-
-    try {
-        const updates = [];
-        const params = [];
-
-        if (name) { updates.push('name = ?'); params.push(name); }
-        if (email) { updates.push('email = ?'); params.push(email); }
-        if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
-        if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
-        if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
-        if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
-        if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
-        if (numero) { updates.push('numero = ?'); params.push(numero); }
-        if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
-        if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
-        if (estado) { updates.push('estado = ?'); params.push(estado); }
-        if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
-        if (foto_perfil) { updates.push('foto_perfil = ?'); params.push(foto_perfil); }
-
-        // Atualiza a senha se fornecida
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            updates.push('password = ?');
-            params.push(hashedPassword);
-        }
-
-        if (updates.length === 0) {
-            return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
-        }
-
-
-        params.push(userId);
-
-        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-        const [result] = await pool.query(query, params);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Usuário não encontrado.' });
-        }
-
-        res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
-    } catch (error) {
-        console.error('Erro ao atualizar dados do usuário:', error);
-        res.status(500).json({ error: 'Erro ao atualizar dados do usuário.' });
-    }
-});
-
-
-
-
-
-
-
-
-
-
-
+    });
 
     return router;
 };
