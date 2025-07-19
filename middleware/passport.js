@@ -1,65 +1,79 @@
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const { clientID, clientSecret, callbackURL } = require('../config/google');
+// routes/auth.js (ou onde você define as rotas de autenticação)
+const express = require('express');
+const router = express.Router();
+const { OAuth2Client } = require('google-auth-library');
+const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 
-if (!clientID || !clientSecret || !callbackURL) {
-  console.warn('⚠️ Variáveis do Google OAuth não definidas. Estratégia não será inicializada.');
-} else {
-  passport.use(
-    new GoogleStrategy(
-      { clientID, clientSecret, callbackURL },
-      async (accessToken, refreshToken, profile, done) => {
-        try {
-          const email = profile.emails?.[0]?.value;
-          const nome = profile.displayName;
-          const foto_perfil = profile.photos?.[0]?.value;
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const client = new OAuth2Client(CLIENT_ID);
 
-          if (!email) {
-            return done(new Error('Email não fornecido pelo Google'), null);
-          }
+// Rota para autenticação via Google (usada pelo Flutter)
+router.post('/google-mobile', async (req, res) => {
+  const { idToken } = req.body;
 
-          const [userResult] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+  if (!idToken) {
+    return res.status(400).json({ error: 'idToken não fornecido' });
+  }
 
-          if (userResult.length > 0) {
-            return done(null, userResult[0]);
-          }
+  try {
+    // 1. Verifica token com o Google
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: CLIENT_ID,
+    });
 
-          const [insertResult] = await pool.query(
-            'INSERT INTO users (name, email, foto_perfil, role, created_at, provider) VALUES (?, ?, ?, ?, NOW(), ?)',
-            [nome, email, foto_perfil, 'Cliente', 'google']
-          );
+    const payload = ticket.getPayload();
 
-          const newUser = {
-            id: insertResult.insertId,
-            nome,
-            email,
-            foto_perfil,
-            role: 'Cliente',
-            provider: 'google',
-          };
+    const email = payload.email;
+    const nome = payload.name;
+    const foto_perfil = payload.picture;
 
-          return done(null, newUser);
-        } catch (err) {
-          console.error('Erro no login com Google:', err);
-          return done(err, null);
-        }
-      }
-    )
-  );
-}
+    if (!email) {
+      return res.status(400).json({ error: 'Email não fornecido pelo Google' });
+    }
 
-passport.serializeUser((user, done) => {
-  // Serializa apenas o necessário
-  done(null, {
-    id: user.id,
-    email: user.email,
-    nome: user.nome,
-    role: user.role,
-    foto_perfil: user.foto_perfil,
-  });
+    // 2. Verifica se o usuário já existe
+    const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+
+    let user;
+
+    if (users.length > 0) {
+      user = users[0];
+    } else {
+      // 3. Cria usuário novo se não existir
+      const [result] = await pool.query(
+        'INSERT INTO users (name, email, foto_perfil, role, created_at, provider) VALUES (?, ?, ?, ?, NOW(), ?)',
+        [nome, email, foto_perfil, 'Cliente', 'google']
+      );
+
+      user = {
+        id: result.insertId,
+        nome,
+        email,
+        foto_perfil,
+        role: 'Cliente',
+        provider: 'google',
+      };
+    }
+
+    // 4. Gera um token (opcional)
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // 5. Retorna usuário e token
+    return res.status(200).json({
+      message: 'Login com Google bem-sucedido',
+      user,
+      token,
+    });
+  } catch (error) {
+    console.error('Erro ao autenticar com Google:', error);
+    return res.status(500).json({ error: 'Erro ao autenticar com Google' });
+  }
 });
 
-passport.deserializeUser((user, done) => {
-  done(null, user);
-});
+module.exports = router;
