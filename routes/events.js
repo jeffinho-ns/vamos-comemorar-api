@@ -185,5 +185,55 @@ module.exports = (pool) => {
         }
     });
 
+
+    /**
+ * @route   GET /api/events/:id/reservas
+ * @desc    Busca todas as reservas associadas a um evento específico
+ * @access  Private (Admin)
+ */
+router.get('/:id/reservas', async (req, res) => {
+    const eventId = req.params.id;
+
+    try {
+        // Primeiro, verificamos se o evento realmente existe
+        const [eventRows] = await pool.query('SELECT id, nome_do_evento FROM eventos WHERE id = ?', [eventId]);
+        if (eventRows.length === 0) {
+            return res.status(404).json({ message: 'Evento não encontrado' });
+        }
+
+        // Agora, buscamos as reservas vinculadas a este evento.
+        // Usamos um JOIN para já trazer o nome do criador da reserva (o promoter/aniversariante).
+        const sql = `
+            SELECT 
+                r.id,
+                r.nome_lista,
+                r.tipo_reserva,
+                r.status,
+                u.name as nome_do_criador 
+            FROM 
+                reservas r
+            JOIN 
+                users u ON r.user_id = u.id
+            WHERE 
+                r.evento_id = ?
+            ORDER BY 
+                r.id DESC;
+        `;
+
+        const [reservas] = await pool.query(sql, [eventId]);
+
+        // Retornamos um objeto com os dados do evento e um array com suas reservas
+        res.status(200).json({
+            evento: eventRows[0],
+            reservas_associadas: reservas
+        });
+
+    } catch (error) {
+        console.error(`Erro ao buscar reservas para o evento ${eventId}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar as reservas do evento.' });
+    }
+});
+
+
     return router;
 };

@@ -374,5 +374,53 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
         }
     });
 
+
+
+    /**
+ * @route   GET /api/users/:id/reservas
+ * @desc    Busca todas as reservas criadas por um usuário específico
+ * @access  Private (Admin ou o próprio usuário)
+ */
+router.get('/:id/reservas', authenticateToken, async (req, res) => {
+    const userIdToFetch = req.params.id;
+    const loggedInUser = req.user; // Dados do usuário logado, vindo do token JWT
+
+    // Verificação de segurança: O usuário logado só pode ver suas próprias reservas,
+    // a menos que ele seja um 'admin' ou 'gerente'.
+    if (loggedInUser.role !== 'admin' && loggedInUser.role !== 'gerente' && loggedInUser.id.toString() !== userIdToFetch) {
+        return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para ver as reservas deste usuário.' });
+    }
+
+    try {
+        // Query avançada: Busca as reservas e, ao mesmo tempo, conta quantos convidados cada uma tem.
+        const sql = `
+            SELECT 
+                r.*,
+                (SELECT COUNT(*) FROM convidados c WHERE c.reserva_id = r.id) as quantidade_convidados,
+                (SELECT COUNT(*) FROM convidados c WHERE c.reserva_id = r.id AND c.status = 'CHECK-IN') as quantidade_checkins
+            FROM 
+                reservas r
+            WHERE 
+                r.user_id = ?
+            ORDER BY 
+                r.data_reserva DESC;
+        `;
+
+        const [reservas] = await pool.query(sql, [userIdToFetch]);
+
+        if (reservas.length === 0) {
+            return res.status(200).json([]); // Retorna um array vazio se o usuário não tiver reservas
+        }
+
+        res.status(200).json(reservas);
+
+    } catch (error) {
+        console.error(`Erro ao buscar reservas para o usuário ${userIdToFetch}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar as reservas do usuário.' });
+    }
+});
+
+
+
     return router;
 };

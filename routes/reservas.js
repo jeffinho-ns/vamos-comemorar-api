@@ -1,76 +1,86 @@
+// Em /routes/reservas.js
+// VERSÃO INTEGRADA E ADAPTADA
+
 const express = require('express');
-const generateQRCode = require('../middleware/qrcode');
 
 module.exports = (pool) => {
     const router = express.Router();
+    const qrcode = require('qrcode'); // Usaremos para a nova lógica
 
-    // Rota para criar uma nova reserva para um Evento
-router.post('/', async (req, res) => {
-    const { userId, eventId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
-    try {
-        const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
-        const user = userResult[0];
-        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    // ==========================================================================================
+    // ROTA DE CRIAÇÃO (POST /) - ADAPTADA PARA A NOVA LÓGICA UNIFICADA
+    // Esta rota agora substitui a lógica das suas duas rotas POST antigas.
+    // Ela é mais inteligente e lida com todos os tipos de reserva.
+    // ==========================================================================================
+    router.post('/', async (req, res) => {
+        const { 
+            userId, tipoReserva, nomeLista, dataReserva, eventoId, convidados, brindes 
+        } = req.body;
 
-        const [eventResult] = await pool.query(
-            `SELECT nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento FROM eventos WHERE id = ?`, 
-            [eventId]
-        );
-        const event = eventResult[0];
-        if (!event) return res.status(404).json({ error: "Evento não encontrado" });
+        // Validação básica para o novo modelo
+        if (!userId || !tipoReserva || !nomeLista || !dataReserva) {
+            return res.status(400).json({ message: 'Campos obrigatórios para o novo modelo de reserva ausentes.' });
+        }
 
-        // Executa a inserção e captura o resultado
-        const [insertResult] = await pool.query(
-            `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [userId, eventId, user.name, user.email, user.telefone, user.foto_perfil, event.nome_do_evento, event.casa_do_evento, event.data_do_evento, event.hora_do_evento, event.local_do_evento, event.brinde, event.imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
-        );
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction(); 
 
-        const newReservationId = insertResult.insertId; // Captura o ID gerado
+            // 1. Insere na nova tabela `reservas` (sem dados duplicados)
+            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id) VALUES (?, ?, ?, ?, ?)';
+            const [reservaResult] = await connection.execute(sqlReserva, [userId, tipoReserva, nomeLista, dataReserva, eventoId || null]);
+            const reservaId = reservaResult.insertId;
 
-        // Agora, busque a reserva recém-criada para retornar todos os seus dados
-        const [newReservationRows] = await pool.query('SELECT * FROM reservas WHERE id = ?', [newReservationId]);
-        const newReservation = newReservationRows[0]; // Pega o primeiro (e único) resultado
+            // 2. Insere as regras de brinde
+            if (brindes && brindes.length > 0) {
+                const sqlBrindes = 'INSERT INTO brindes_regras (reserva_id, descricao, condicao_tipo, condicao_valor) VALUES (?, ?, ?, ?)';
+                for (const brinde of brindes) {
+                    await connection.execute(sqlBrindes, [reservaId, brinde.descricao, 'MINIMO_CHECKINS', brinde.valor]);
+                }
+            }
+            
+            // 3. Insere os convidados, cada um com um QR Code único
+            if (convidados && convidados.length > 0) {
+                const sqlConvidados = 'INSERT INTO convidados (reserva_id, nome, qr_code) VALUES (?, ?, ?)';
+                for (const nomeConvidado of convidados) {
+                    const qrCodeData = `reserva:${reservaId}:convidado:${nomeConvidado.replace(/\s/g, '')}:${Date.now()}`;
+                    await connection.execute(sqlConvidados, [reservaId, nomeConvidado, qrCodeData]);
+                }
+            }
 
-        // Retorna a reserva completa criada
-        res.status(201).json(newReservation);
+            await connection.commit(); 
+            res.status(201).json({ message: 'Reserva criada com sucesso com a nova lógica!', reservaId: reservaId });
 
-    } catch (error) {
-        console.error("Erro ao criar reserva de evento:", error);
-        res.status(500).json({ error: "Erro ao criar reserva" });
-    }
-});
+        } catch (error) {
+            await connection.rollback(); 
+            console.error('Erro ao criar reserva (nova lógica):', error);
+            res.status(500).json({ message: 'Erro ao criar a reserva.' });
+        } finally {
+            if (connection) connection.release();
+        }
+    });
 
-    // Rota para criar uma nova reserva para um Local (sem evento específico)
-router.post('/place-reservation', async (req, res) => {
-    const { userId, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva } = req.body;
-    const nome_do_evento_padrao = `Reserva para ${casa_da_reserva}`;
-    try {
-        const [userResult] = await pool.query('SELECT name, email, telefone, foto_perfil FROM users WHERE id = ?', [userId]);
-        const user = userResult[0];
-        if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    // ==========================================================================================
+    // ROTA ANTIGA (POST /place-reservation) - MANTER OU REMOVER?
+    // Esta rota se torna obsoleta, pois a rota POST / acima já lida com reservas sem eventoId.
+    // Mantida aqui comentada para referência. O ideal é adaptar seu App para usar apenas a POST /
+    // ==========================================================================================
+    /*
+    router.post('/place-reservation', async (req, res) => {
+        // LÓGICA ANTIGA AQUI...
+        // Para adaptar: colete os dados e chame a mesma lógica da rota POST / acima,
+        // passando `tipoReserva: 'NORMAL'` e `eventoId: null`.
+        res.status(400).json({ message: "Esta rota está obsoleta. Use a rota principal POST /api/reservas."})
+    });
+    */
 
-        const [insertResult] = await pool.query( // Captura o resultado da inserção
-            `INSERT INTO reservas (user_id, event_id, name, email, telefone, foto_perfil, nome_do_evento, casa_do_evento, data_do_evento, hora_do_evento, local_do_evento, brinde, imagem_do_evento, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [userId, null, user.name, user.email, user.telefone, user.foto_perfil, nome_do_evento_padrao, casa_da_reserva, null, null, "Endereço não especificado (Reserva de Local)", "Não aplicável", null, quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, 'Aguardando']
-        );
 
-        const newReservationId = insertResult.insertId; // Captura o ID gerado
-
-        // Busque a reserva recém-criada para retornar todos os seus dados
-        const [newReservationRows] = await pool.query('SELECT * FROM reservas WHERE id = ?', [newReservationId]);
-        const newReservation = newReservationRows[0];
-
-        res.status(201).json(newReservation);
-    } catch (error) {
-        console.error(`Erro ao criar reserva de local:`, error);
-        res.status(500).json({ error: `Erro ao criar reserva para ${casa_da_reserva}` });
-    }
-});
-
-    // Rota para listar todas as reservas
+    // ==========================================================================================
+    // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
+    // ==========================================================================================
     router.get('/', async (req, res) => {
         try {
-            const [reservas] = await pool.query('SELECT * FROM reservas');
+            const [reservas] = await pool.query('SELECT * FROM reservas ORDER BY data_reserva DESC');
             res.status(200).json(reservas);
         } catch (error) {
             console.error("Erro ao buscar reservas:", error);
@@ -78,30 +88,45 @@ router.post('/place-reservation', async (req, res) => {
         }
     });
 
-    // Rota para obter uma reserva específica pelo ID
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [reserva] = await pool.query('SELECT * FROM reservas WHERE id = ?', [id]);
-            if (!reserva.length) return res.status(404).json({ error: "Reserva não encontrada" });
-            res.status(200).json(reserva[0]);
+            const [reservaPromise, convidadosPromise, brindesPromise] = await Promise.all([
+                pool.query('SELECT * FROM reservas WHERE id = ?', [id]),
+                pool.query('SELECT id, nome, status, data_checkin FROM convidados WHERE reserva_id = ?', [id]),
+                pool.query('SELECT * FROM brindes_regras WHERE reserva_id = ?', [id])
+            ]);
+
+            const [reservaRows] = reservaPromise;
+            if (!reservaRows.length) return res.status(404).json({ error: "Reserva não encontrada" });
+
+            const [convidados] = convidadosPromise;
+            const [brindes] = brindesPromise;
+
+            const resultadoCompleto = { ...reservaRows[0], convidados, brindes };
+            res.status(200).json(resultadoCompleto);
+
         } catch (error) {
-            console.error("Erro ao buscar reserva:", error);
-            res.status(500).json({ error: "Erro ao buscar reserva" });
+            console.error("Erro ao buscar detalhes da reserva:", error);
+            res.status(500).json({ error: "Erro ao buscar detalhes da reserva" });
         }
     });
     
-    // Rota para atualizar uma reserva (não o status)
+
+    // ==========================================================================================
+    // ROTAS DE ATUALIZAÇÃO (PUT) - ADAPTADAS
+    // ==========================================================================================
     router.put('/:id', async (req, res) => {
         const { id } = req.params;
-        const { quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status } = req.body;
-        try {
-            const [reservaExistente] = await pool.query('SELECT * FROM reservas WHERE id = ?', [id]);
-            if (!reservaExistente.length) return res.status(404).json({ error: "Reserva não encontrada" });
+        // ATENÇÃO: Os campos aqui precisam corresponder aos campos da NOVA tabela `reservas`
+        const { nome_lista, data_reserva, status } = req.body; 
 
+        // Adicione aqui outros campos que você queira que sejam atualizáveis na tabela principal de reservas
+        // Ex: Se você adicionar um campo 'mesas' na nova tabela 'reservas', ele entraria aqui.
+        try {
             await pool.query(
-                `UPDATE reservas SET quantidade_pessoas = ?, mesas = ?, data_da_reserva = ?, casa_da_reserva = ?, status = ? WHERE id = ?`,
-                [quantidade_pessoas, mesas, data_da_reserva, casa_da_reserva, status, id]
+                `UPDATE reservas SET nome_lista = ?, data_reserva = ?, status = ? WHERE id = ?`,
+                [nome_lista, data_reserva, status, id]
             );
             res.status(200).json({ message: "Reserva atualizada com sucesso" });
         } catch (error) {
@@ -110,38 +135,27 @@ router.post('/place-reservation', async (req, res) => {
         }
     });
 
-    // ---- ROTA DE ATUALIZAÇÃO DE STATUS (VERSÃO FINAL E CORRIGIDA) ----
+    // ROTA ANTIGA de atualização de status - REFATORADA
+    // A lógica de gerar QR Code foi removida daqui, pois agora ele é criado junto com o convidado.
+    // Esta rota agora serve apenas para, por exemplo, um admin aprovar uma lista.
     router.put('/update-status/:id', async (req, res) => {
         const { id } = req.params;
-        const { status } = req.body;
-    
-        console.log(`Recebida requisição para atualizar status da reserva ID: ${id} para "${status}"`);
+        const { status } = req.body; // Ex: 'ATIVA', 'CONCLUIDA', 'CANCELADA'
+
+        if (!status) {
+            return res.status(400).json({ message: 'O campo status é obrigatório.' });
+        }
     
         try {
-            // 1. Atualiza o status no banco de dados
-            await pool.query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
-            console.log(`Status da reserva ID: ${id} atualizado para "${status}" no banco.`);
-    
-            if (status === 'Aprovado') {
-                console.log(`Status é 'Aprovado'. Tentando gerar QR Code para a reserva ID: ${id}.`);
-    
-                try {
-                    // ---- CORREÇÃO FINAL AQUI ----
-                    // Passe o 'pool' que esta rota já tem acesso como primeiro argumento
-                    await generateQRCode(pool, id); 
-                    
-                    console.log(`QR Code gerado com SUCESSO para a reserva ID: ${id}.`);
-                } catch (qrError) {
-                    console.error(`!!! ERRO AO GERAR O QRCODE para a reserva ID: ${id} !!!`, qrError);
-                    return res.status(500).json({ message: 'Status atualizado, mas falha ao gerar QR Code.', error: qrError.message });
-                }
+            const [result] = await pool.query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
+            
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ message: 'Reserva não encontrada.' });
             }
-    
-            // 4. Se tudo correu bem, envia a resposta de sucesso final
-            res.status(200).json({ message: 'Status atualizado com sucesso!' });
+
+            res.status(200).json({ message: 'Status da reserva atualizado com sucesso!' });
     
         } catch (error) {
-            // Se houver um erro geral (ex: falha na primeira query de UPDATE), captura aqui
             console.error(`Erro geral ao atualizar o status da reserva ID: ${id}`, error);
             res.status(500).json({ message: 'Erro ao atualizar o status da reserva.' });
         }
