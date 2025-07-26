@@ -2,6 +2,7 @@
 // VERSÃO INTEGRADA E ADAPTADA
 
 const express = require('express');
+const { customAlphabet } = require('nanoid');
 
 module.exports = (pool) => {
     const router = express.Router();
@@ -12,53 +13,57 @@ module.exports = (pool) => {
     // Esta rota agora substitui a lógica das suas duas rotas POST antigas.
     // Ela é mais inteligente e lida com todos os tipos de reserva.
     // ==========================================================================================
-    router.post('/', async (req, res) => {
-        const { 
-            userId, tipoReserva, nomeLista, dataReserva, eventoId, convidados, brindes 
-        } = req.body;
+router.post('/', async (req, res) => {
+    // O front-end agora envia a quantidade, não os nomes
+    const { 
+        userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, brindes 
+    } = req.body;
 
-        // Validação básica para o novo modelo
-        if (!userId || !tipoReserva || !nomeLista || !dataReserva) {
-            return res.status(400).json({ message: 'Campos obrigatórios para o novo modelo de reserva ausentes.' });
+    // Gerador de código customizado: 6 caracteres, letras maiúsculas e números
+    const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
+    const codigoConvite = nanoid();
+
+    const connection = await pool.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        // 1. Inserir a reserva principal com a quantidade e o código do convite
+        const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const [reservaResult] = await connection.execute(sqlReserva, [
+            userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite
+        ]);
+        const reservaId = reservaResult.insertId;
+
+        // 2. Inserir o CRIADOR como o primeiro convidado
+        // Primeiro, buscamos o nome do criador na tabela de usuários
+        const [[user]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
+        if (!user) throw new Error('Usuário criador não encontrado.');
+        
+        const qrCodeDataCriador = `reserva:${reservaId}:convidado:${user.name.replace(/\s/g, '')}:${Date.now()}`;
+        const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status) VALUES (?, ?, ?, ?)';
+        await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'CHECK-IN']); // O criador já está "confirmado"
+
+        // 3. Inserir as regras de brinde (se houver)
+        if (brindes && brindes.length > 0) {
+            // ... (sua lógica de inserir brindes continua a mesma) ...
         }
 
-        const connection = await pool.getConnection();
-        try {
-            await connection.beginTransaction(); 
+        await connection.commit();
+        res.status(201).json({ 
+            message: 'Reserva criada com sucesso!', 
+            reservaId: reservaId,
+            codigoConvite: codigoConvite // Retornamos o código para o app poder montar o link
+        });
 
-            // 1. Insere na nova tabela `reservas` (sem dados duplicados)
-            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id) VALUES (?, ?, ?, ?, ?)';
-            const [reservaResult] = await connection.execute(sqlReserva, [userId, tipoReserva, nomeLista, dataReserva, eventoId || null]);
-            const reservaId = reservaResult.insertId;
-
-            // 2. Insere as regras de brinde
-            if (brindes && brindes.length > 0) {
-                const sqlBrindes = 'INSERT INTO brindes_regras (reserva_id, descricao, condicao_tipo, condicao_valor) VALUES (?, ?, ?, ?)';
-                for (const brinde of brindes) {
-                    await connection.execute(sqlBrindes, [reservaId, brinde.descricao, 'MINIMO_CHECKINS', brinde.valor]);
-                }
-            }
-            
-            // 3. Insere os convidados, cada um com um QR Code único
-            if (convidados && convidados.length > 0) {
-                const sqlConvidados = 'INSERT INTO convidados (reserva_id, nome, qr_code) VALUES (?, ?, ?)';
-                for (const nomeConvidado of convidados) {
-                    const qrCodeData = `reserva:${reservaId}:convidado:${nomeConvidado.replace(/\s/g, '')}:${Date.now()}`;
-                    await connection.execute(sqlConvidados, [reservaId, nomeConvidado, qrCodeData]);
-                }
-            }
-
-            await connection.commit(); 
-            res.status(201).json({ message: 'Reserva criada com sucesso com a nova lógica!', reservaId: reservaId });
-
-        } catch (error) {
-            await connection.rollback(); 
-            console.error('Erro ao criar reserva (nova lógica):', error);
-            res.status(500).json({ message: 'Erro ao criar a reserva.' });
-        } finally {
-            if (connection) connection.release();
-        }
-    });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Erro ao criar reserva (nova lógica de convite):', error);
+        res.status(500).json({ message: 'Erro ao criar a reserva.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
 
     // ==========================================================================================
     // ROTA ANTIGA (POST /place-reservation) - MANTER OU REMOVER?

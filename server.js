@@ -57,8 +57,7 @@ const eventsRoutes = require('./routes/events')(pool);
 const qrcodeRoutes = require('./routes/qrcode');
 const checkinRoutes = require('./routes/checkin')(pool);
 const reservasRoutes = require('./routes/reservas')(pool); 
-
-// --- CORRIGIDO: A rota convidados agora recebe o 'pool' corretamente ---
+const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 
 
@@ -69,8 +68,9 @@ app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/reservas', reservasRoutes);
 app.use('/api/qrcode', qrcodeRoutes);
-app.use('/api/convidados', convidadosRoutes); // Agora está correto
+app.use('/api/convidados', convidadosRoutes); 
 app.use('/api/checkin', checkinRoutes);
+app.use('/convite', inviteRoutes);
 
 
 // Iniciar o servidor
