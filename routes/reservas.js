@@ -2,7 +2,7 @@
 // VERSÃO INTEGRADA E ADAPTADA
 
 const express = require('express');
-const { customAlphabet } = require('nanoid');
+
 
 module.exports = (pool) => {
     const router = express.Router();
@@ -18,7 +18,7 @@ router.post('/', async (req, res) => {
     const { 
         userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, brindes 
     } = req.body;
-
+    const { customAlphabet } = await import('nanoid');  
     // Gerador de código customizado: 6 caracteres, letras maiúsculas e números
     const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
     const codigoConvite = nanoid();
