@@ -93,7 +93,7 @@ module.exports = (pool) => {
         try {
             const [reservaPromise, convidadosPromise, brindesPromise] = await Promise.all([
                 pool.query('SELECT * FROM reservas WHERE id = ?', [id]),
-                pool.query('SELECT id, nome, status, data_checkin FROM convidados WHERE reserva_id = ?', [id]),
+                pool.query('SELECT id, nome, status, data_checkin, qr_code FROM convidados WHERE reserva_id = ?', [id]),
                 pool.query('SELECT * FROM brindes_regras WHERE reserva_id = ?', [id])
             ]);
 
