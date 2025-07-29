@@ -86,8 +86,9 @@ router.post('/', async (req, res) => {
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite,
                         u.name AS name, u.email, u.telefone, u.foto_perfil,
-                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento, -- <--- CORRIGIDO AQUI!
-                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                        p.name AS casa_do_evento, -- <--- CORRIGIDO AQUI! 'p.name' é a coluna real
+                        p.street AS local_do_evento -- <--- CORRIGIDO AQUI! Usando 'p.street' como localização
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
@@ -100,8 +101,9 @@ router.post('/', async (req, res) => {
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite,
                         u.name AS name, u.email, u.telefone, u.foto_perfil,
-                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento, -- <--- CORRIGIDO AQUI!
-                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                        p.name AS casa_do_evento, -- <--- CORRIGIDO AQUI! 'p.name' é a coluna real
+                        p.street AS local_do_evento -- <--- CORRIGIDO AQUI! Usando 'p.street' como localização
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
