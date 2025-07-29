@@ -2,6 +2,7 @@
 // VERSÃO INTEGRADA E ADAPTADA
 
 const express = require('express');
+const auth = require('../middleware/auth'); 
 
 
 module.exports = (pool) => {
@@ -65,19 +66,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-    // ==========================================================================================
-    // ROTA ANTIGA (POST /place-reservation) - MANTER OU REMOVER?
-    // Esta rota se torna obsoleta, pois a rota POST / acima já lida com reservas sem eventoId.
-    // Mantida aqui comentada para referência. O ideal é adaptar seu App para usar apenas a POST /
-    // ==========================================================================================
-    /*
-    router.post('/place-reservation', async (req, res) => {
-        // LÓGICA ANTIGA AQUI...
-        // Para adaptar: colete os dados e chame a mesma lógica da rota POST / acima,
-        // passando `tipoReserva: 'NORMAL'` e `eventoId: null`.
-        res.status(400).json({ message: "Esta rota está obsoleta. Use a rota principal POST /api/reservas."})
-    });
-    */
+
 
 
     // ==========================================================================================
