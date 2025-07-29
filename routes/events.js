@@ -106,72 +106,28 @@ module.exports = (pool) => {
     });
     
     // ---- ROTA GET (LISTA DE EVENTOS) - COM CONTAGEM DE CONVIDADOS e GROUP BY CORRIGIDO ----
-    router.get('/', auth, async (req, res) => {
-        const { tipo } = req.query;
-        let query = `
-            SELECT 
-                e.id,
-                e.casa_do_evento,
-                e.nome_do_evento,
-                e.data_do_evento,
-                e.hora_do_evento,
-                e.local_do_evento,
-                e.categoria,
-                e.mesas,
-                e.valor_da_mesa,
-                e.brinde,
-                e.numero_de_convidados,
-                e.descricao,
-                e.valor_da_entrada,
-                e.imagem_do_evento,
-                e.imagem_do_combo,
-                e.observacao,
-                e.tipo_evento,
-                e.dia_da_semana,
-                -- e.user_id,    <-- REMOVIDO! Coluna não existe na tabela 'eventos'
-                -- e.status_evento, <-- REMOVIDO! Coluna não existe na tabela 'eventos'
-                COUNT(CASE WHEN c.status_checkin = 'CHECK-IN' THEN c.id END) AS total_convidados_checkin,
-                COUNT(c.id) AS total_convidados_cadastrados
-            FROM 
-                eventos e
-            LEFT JOIN 
-                reservas r ON e.id = r.evento_id
-            LEFT JOIN 
-                convidados c ON r.id = c.reserva_id
-            GROUP BY 
-                e.id, e.casa_do_evento, e.nome_do_evento, e.data_do_evento, e.hora_do_evento,
-                e.local_do_evento, e.categoria, e.mesas, e.valor_da_mesa, e.brinde,
-                e.numero_de_convidados, e.descricao, e.valor_da_entrada,
-                e.imagem_do_evento, e.imagem_do_combo, e.observacao,
-                e.tipo_evento, e.dia_da_semana
-                -- e.user_id, <-- REMOVIDO
-                -- e.status_evento <-- REMOVIDO
-        `;
+router.get('/', auth, async (req, res) => {
+    const { tipo } = req.query;
+    try {
+        let query = 'SELECT * FROM eventos';
         const params = [];
 
-        if (tipo === 'unico') {
-            query += ' HAVING e.tipo_evento = ? AND e.data_do_evento >= CURDATE() ORDER BY e.data_do_evento ASC';
-            params.push('unico');
-        } else if (tipo === 'semanal') {
-            query += ' HAVING e.tipo_evento = ? ORDER BY e.dia_da_semana ASC, e.casa_do_evento';
-            params.push('semanal');
+        if (tipo === 'unico' || tipo === 'semanal') {
+            query += ' WHERE tipo_evento = ?';
+            params.push(tipo);
         }
         
-        try {
-            const [rows] = await pool.query(query, params);
-            
-            const eventsWithUrlsAndCounts = rows.map(event => ({
-                ...addFullImageUrls(event),
-                total_convidados_checkin: Number(event.total_convidados_checkin) || 0,
-                total_convidados_cadastrados: Number(event.total_convidados_cadastrados) || 0,
-            }));
-            
-            res.status(200).json(eventsWithUrlsAndCounts);
-        } catch (error) {
-            console.error('Erro ao listar eventos no GET /api/events (ERRO SQL/BACKEND):', error);
-            res.status(500).json({ message: 'Erro interno ao listar eventos.', error: error.message, stack: error.stack });
-        }
-    });
+        const [rows] = await pool.query(query, params);
+        
+        // A função addFullImageUrls continua sendo ótima
+        const eventsWithUrls = rows.map(addFullImageUrls);
+        
+        res.status(200).json(eventsWithUrls);
+    } catch (error) {
+        console.error('Erro ao listar eventos (GET /api/events):', error);
+        res.status(500).json({ message: 'Erro interno ao listar eventos.' });
+    }
+});
 
     // ---- ROTA GET (ID ÚNICO) - COM AUTH E MELHOR ERRO ----
     router.get('/:id', auth, async (req, res) => {
