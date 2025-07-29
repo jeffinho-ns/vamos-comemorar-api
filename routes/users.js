@@ -26,9 +26,25 @@ const authenticateToken = require('../middleware/auth');
 const router = express.Router();
 // --- REMOVA ESTA LINHA TAMBÉM ---
 // const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
+
+
 // ------------------------------
 
 module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUpload' DO server.js
+
+
+        // --- ADICIONE ESTA NOVA FUNÇÃO AUXILIAR ---
+    const addFullImageUrlsToUser = (user) => {
+        if (!user) return user;
+        const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
+        return {
+            ...user,
+            // A API vai criar e retornar o campo foto_perfil_url
+            foto_perfil_url: user.foto_perfil 
+                ? `${baseUrl}/uploads/${user.foto_perfil}` 
+                : null,
+        };
+    };
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
@@ -124,38 +140,44 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
     // Listar usuários
     router.get('/', async (req, res) => {
         try {
-            const [results] = await pool.query(`
-                SELECT id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
-                cpf, endereco, numero, bairro, cidade, estado, complemento 
-                FROM users
-            `);
-            const sanitizedResults = results.map(({ password, ...user }) => user);
-            res.json(sanitizedResults);
+            const [results] = await pool.query('SELECT id, name, email, foto_perfil FROM users');
+            
+            // Mapeia os resultados para adicionar a URL completa da imagem
+            const usersWithUrls = results.map(addFullImageUrlsToUser);
+            
+            res.json(usersWithUrls);
         } catch (err) {
             console.error('Erro ao listar usuários:', err);
             res.status(500).json({ error: 'Erro ao listar usuários' });
         }
     });
 
-    // Obter dados do usuário logado
+    // --- AJUSTE A ROTA /me ---
     router.get('/me', authenticateToken, async (req, res) => {
         try {
             const userId = req.user.id;
-            const [results] = await pool.query(`
-                SELECT id, name, email, foto_perfil, telefone, sexo, data_nascimento, 
-                cpf, endereco, numero, bairro, cidade, estado, complemento 
-                FROM users 
-                WHERE id = ?
-            `, [userId]);
-            if (results.length === 0) return res.sendStatus(404);
-            const { password, ...user } = results[0];
-            res.json(user);
+            // CORREÇÃO: Buscamos o resultado primeiro, depois checamos
+            const [results] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
+            
+            if (results.length === 0) {
+                return res.status(404).json({ message: 'Usuário não encontrado.' });
+            }
+
+            const user = results[0];
+
+            // Usamos a função auxiliar para adicionar a URL da imagem
+            const userWithUrl = addFullImageUrlsToUser(user);
+            
+            // Remove a senha antes de enviar a resposta
+            delete userWithUrl.password; 
+
+            res.json(userWithUrl);
         } catch (error) {
-            console.error('Erro ao buscar dados do usuário:', error);
+            // CORREÇÃO: Adicionamos o tratamento de erro que estava faltando
+            console.error('Erro ao buscar dados do usuário logado:', error);
             res.status(500).json({ error: 'Erro ao buscar dados do usuário.' });
         }
     });
-
 
     // Deletar usuário
     router.delete('/:id', async (req, res) => {
