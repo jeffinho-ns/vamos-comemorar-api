@@ -3,7 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const router = express.Router();
-
+const auth = require('../middleware/auth');
 const rootPath = path.resolve(__dirname, '..');
 const uploadDir = path.join(rootPath, 'uploads/events');
 
@@ -233,6 +233,43 @@ router.get('/:id/reservas', async (req, res) => {
         res.status(500).json({ error: 'Erro ao buscar as reservas do evento.' });
     }
 });
+
+/**
+ * @route   GET /api/events/:id/guests
+ * @desc    Busca TODOS os convidados de TODAS as reservas de um evento específico.
+ * @access  Private (Admin, Promoter, etc)
+ */
+router.get('/:id/guests', auth, async (req, res) => {
+    const { id: eventId } = req.params;
+
+    try {
+        const sql = `
+            SELECT 
+                c.id,
+                c.nome,
+                c.documento,
+                c.email,
+                r.nome_lista,
+                u.name as nome_do_criador_da_lista
+            FROM 
+                convidados c
+            JOIN 
+                reservas r ON c.reserva_id = r.id
+            JOIN
+                users u ON r.user_id = u.id
+            WHERE 
+                r.evento_id = ?;
+        `;
+
+        const [guests] = await pool.query(sql, [eventId]);
+        res.status(200).json(guests);
+
+    } catch (error) {
+        console.error(`Erro ao buscar convidados para o evento ${eventId}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar convidados do evento.' });
+    }
+});
+
 
 
     return router;

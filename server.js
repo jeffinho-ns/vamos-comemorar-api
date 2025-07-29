@@ -59,6 +59,7 @@ const checkinRoutes = require('./routes/checkin')(pool);
 const reservasRoutes = require('./routes/reservas')(pool); 
 const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
+const rulesRoutes = require('./routes/rules')(pool);
 
 
 // Usando as Rotas
@@ -71,6 +72,7 @@ app.use('/api/qrcode', qrcodeRoutes);
 app.use('/api/convidados', convidadosRoutes); 
 app.use('/api/checkin', checkinRoutes);
 app.use('/convite', inviteRoutes);
+app.use('/api/events/:eventId/rules', rulesRoutes);
 
 
 // Iniciar o servidor
