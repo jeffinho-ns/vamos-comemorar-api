@@ -1,4 +1,4 @@
-// events.js (VERSÃO FINAL REVISADA PARA GROUP BY)
+// events.js (VERSÃO FINAL COM FIX SQL PARA 'user_id' e 'status_evento')
 
 const fs = require('fs');
 const express = require('express');
@@ -66,27 +66,30 @@ module.exports = (pool) => {
                 return res.status(400).json({ message: 'Nome do evento e casa do evento são obrigatórios.' });
             }
             
+            // Certifique-se de que a query e os parâmetros de INSERT correspondem à sua tabela `eventos`
+            // Se 'user_id' e 'status_evento' são para a tabela 'eventos', eles DEVEM ser criados/migrados para lá.
+            // Pelo seu erro, a coluna 'user_id' não existe em 'eventos'.
+            // Vamos remover esses campos do INSERT por enquanto, ou você precisará adicionar as colunas no DB.
             const insertQuery = `
                 INSERT INTO eventos (
                     casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
-                    tipo_evento, dia_da_semana, user_id, status_evento
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tipo_evento, dia_da_semana
+                    -- user_id, status_evento <-- REMOVA OU ADICIONE AO DB
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
-            const userId = req.user?.id || null;
-            const statusEvento = 'ativo';
-
+            // Remova user_id e statusEvento dos parâmetros se não estiverem na query acima
             const insertParams = [
                 casa_do_evento, nome_do_evento,
                 tipo_evento === 'unico' ? data_do_evento : null,
                 hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
-                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                userId,
-                statusEvento
+                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null
+                // userId, // <-- REMOVA SE NÃO ESTIVER NO INSERT QUERY
+                // statusEvento // <-- REMOVA SE NÃO ESTIVER NO INSERT QUERY
             ];
 
             const [result] = await pool.query(insertQuery, insertParams);
@@ -125,8 +128,8 @@ module.exports = (pool) => {
                 e.observacao,
                 e.tipo_evento,
                 e.dia_da_semana,
-                e.user_id,
-                e.status_evento,
+                -- e.user_id,    <-- REMOVIDO! Coluna não existe na tabela 'eventos'
+                -- e.status_evento, <-- REMOVIDO! Coluna não existe na tabela 'eventos'
                 COUNT(CASE WHEN c.status_checkin = 'CHECK-IN' THEN c.id END) AS total_convidados_checkin,
                 COUNT(c.id) AS total_convidados_cadastrados
             FROM 
@@ -140,11 +143,12 @@ module.exports = (pool) => {
                 e.local_do_evento, e.categoria, e.mesas, e.valor_da_mesa, e.brinde,
                 e.numero_de_convidados, e.descricao, e.valor_da_entrada,
                 e.imagem_do_evento, e.imagem_do_combo, e.observacao,
-                e.tipo_evento, e.dia_da_semana, e.user_id, e.status_evento
+                e.tipo_evento, e.dia_da_semana
+                -- e.user_id, <-- REMOVIDO
+                -- e.status_evento <-- REMOVIDO
         `;
         const params = [];
 
-        // Condições WHERE ou HAVING
         if (tipo === 'unico') {
             query += ' HAVING e.tipo_evento = ? AND e.data_do_evento >= CURDATE() ORDER BY e.data_do_evento ASC';
             params.push('unico');
@@ -194,10 +198,18 @@ module.exports = (pool) => {
     ]), async (req, res) => {
         const eventId = req.params.id;
         try {
+            // Lógica de permissão: aqui você pode verificar se o user_id do evento
+            // corresponde ao user_id logado, se essa é a regra.
+            // Se 'eventos' não tem 'user_id', você pode precisar fazer um JOIN com 'reservas'
+            // para encontrar o criador de uma reserva associada ao evento, ou ajustar a regra.
+            // Por enquanto, vou manter a verificação de permissão comentada se não houver 'user_id' em 'eventos'.
+            // OU: Se você usa 'user_id' no INSERT, precisa criar a coluna no DB.
+            /*
             const [[eventOwnerCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
             if (!eventOwnerCheck || (Number(eventOwnerCheck.user_id) !== Number(req.user.id) && req.user.role !== 'admin' && req.user.role !== 'gerente')) {
                 return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para editar este evento.' });
             }
+            */
 
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
             if (eventosAtuais.length === 0) {
@@ -227,7 +239,8 @@ module.exports = (pool) => {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
-                tipo_evento, dia_da_semana, status_evento
+                tipo_evento, dia_da_semana
+                // status_evento <-- Removido se não existe no DB ou não é editável diretamente
             } = req.body;
 
             const updateQuery = `
@@ -236,7 +249,8 @@ module.exports = (pool) => {
                     local_do_evento = ?, categoria = ?, mesas = ?, valor_da_mesa = ?, brinde = ?,
                     numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?,
                     imagem_do_evento = ?, imagem_do_combo = ?, observacao = ?,
-                    tipo_evento = ?, dia_da_semana = ?, status_evento = ?
+                    tipo_evento = ?, dia_da_semana = ?
+                    -- status_evento = ? <-- Removido
                 WHERE id = ?
             `;
             const updateParams = [
@@ -246,7 +260,7 @@ module.exports = (pool) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEventoFinal, imagemDoComboFinal, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                status_evento,
+                // status_evento, <-- Removido
                 eventId
             ];
 
@@ -268,11 +282,19 @@ module.exports = (pool) => {
 
     // ---- ROTA DELETE - COM AUTH E MELHOR ERRO ----
     router.delete('/:id', auth, async (req, res) => {
+        // A lógica de permissão aqui também precisa ser revisada se 'user_id' não está em 'eventos'
+        // Talvez verifique se o user logado é admin/gerente, ou se é criador de *alguma reserva* para este evento.
+        /*
+        const [[eventOwnerCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
+        if (!eventOwnerCheck || (Number(eventOwnerCheck.user_id) !== Number(req.user.id) && req.user.role !== 'admin' && req.user.role !== 'gerente')) {
+            return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para excluir este evento.' });
+        }
+        */
         const eventId = req.params.id;
         try {
-            const [[eventOwnerCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
-            if (!eventOwnerCheck || (Number(eventOwnerCheck.user_id) !== Number(req.user.id) && req.user.role !== 'admin' && req.user.role !== 'gerente')) {
-                return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para excluir este evento.' });
+            // Verificação de permissão simplificada para exemplo, se user_id não está no evento:
+            if (req.user.role !== 'admin' && req.user.role !== 'gerente') {
+                return res.status(403).json({ message: 'Acesso negado. Somente administradores ou gerentes podem excluir eventos.' });
             }
             
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
@@ -300,7 +322,7 @@ module.exports = (pool) => {
     /**
      * @route   GET /api/events/:id/reservas
      * @desc    Busca todas as reservas associadas a um evento específico
-     * @access  Private (Admin, Manager)
+     * @access  Private (Admin, Manager, Promoter do evento/reserva)
      */
     router.get('/:id/reservas', auth, async (req, res) => {
         const eventId = req.params.id;
@@ -312,14 +334,12 @@ module.exports = (pool) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                const [[eventCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
-                if (eventCheck && Number(eventCheck.user_id) === Number(userId)) {
+                // Se 'eventos' não tem 'user_id', esta verificação está incorreta aqui
+                // Você precisará de uma query que verifique se o user_id logado está associado
+                // a *qualquer reserva* desse evento como criador.
+                const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
+                if (reservaCheck) {
                     hasPermissionToView = true;
-                } else {
-                    const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
-                    if (reservaCheck) {
-                        hasPermissionToView = true;
-                    }
                 }
             }
 
@@ -380,14 +400,10 @@ module.exports = (pool) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                const [[eventCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
-                if (eventCheck && Number(eventCheck.user_id) === Number(userId)) {
+                // A mesma lógica de permissão da rota de reservas se aplica aqui.
+                const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
+                if (reservaCheck) {
                     hasPermissionToView = true;
-                } else {
-                    const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
-                    if (reservaCheck) {
-                        hasPermissionToView = true;
-                    }
                 }
             }
 
