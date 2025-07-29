@@ -106,28 +106,49 @@ module.exports = (pool) => {
     });
     
     // ---- ROTA GET (LISTA DE EVENTOS) - COM CONTAGEM DE CONVIDADOS e GROUP BY CORRIGIDO ----
-router.get('/', auth, async (req, res) => {
-    const { tipo } = req.query;
-    try {
-        let query = 'SELECT * FROM eventos';
-        const params = [];
+   router.get('/', auth, async (req, res) => {
+        try {
+            const { tipo } = req.query; // Para o filtro por tipo (unico/semanal)
+            let query = `
+                SELECT
+                    id,
+                    casa_do_evento, -- Ex: "Seu Justino"
+                    nome_do_evento,
+                    data_do_evento,
+                    hora_do_evento,
+                    local_do_evento, -- Ex: "Rua Harmonia, 77"
+                    criado_em,
+                    categoria,
+                    mesas,
+                    valor_da_mesa,
+                    brinde,
+                    numero_de_convidados,
+                    descricao,
+                    valor_da_entrada,
+                    imagem_do_evento,
+                    imagem_do_combo,
+                    observacao,
+                    tipo_evento AS tipoEvento, -- Mapeia 'tipo_evento' (DB) para 'tipoEvento' (Flutter Model)
+                    dia_da_semana
+                FROM eventos
+            `;
+            let queryParams = [];
 
-        if (tipo === 'unico' || tipo === 'semanal') {
-            query += ' WHERE tipo_evento = ?';
-            params.push(tipo);
+            if (tipo) {
+                query += ` WHERE tipo_evento = ?`;
+                queryParams.push(tipo);
+            }
+
+            // Garante que eventos populares apareçam primeiro
+            query += ` ORDER BY data_do_evento DESC, hora_do_evento DESC`;
+
+            const [events] = await pool.query(query, queryParams);
+            res.status(200).json(events);
+        } catch (error) {
+            console.error("Erro ao buscar eventos:", error);
+            res.status(500).json({ message: "Erro ao buscar eventos" });
         }
-        
-        const [rows] = await pool.query(query, params);
-        
-        // A função addFullImageUrls continua sendo ótima
-        const eventsWithUrls = rows.map(addFullImageUrls);
-        
-        res.status(200).json(eventsWithUrls);
-    } catch (error) {
-        console.error('Erro ao listar eventos (GET /api/events):', error);
-        res.status(500).json({ message: 'Erro interno ao listar eventos.' });
-    }
-});
+    });
 
     // ---- ROTA GET (ID ÚNICO) - COM AUTH E MELHOR ERRO ----
     router.get('/:id', auth, async (req, res) => {
