@@ -87,12 +87,12 @@ router.post('/', async (req, res) => {
                         r.codigo_convite,
                         u.name AS name, u.email, u.telefone, u.foto_perfil,
                         e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
-                        p.name AS casa_do_evento, -- <--- CORRIGIDO AQUI! 'p.name' é a coluna real
-                        p.street AS local_do_evento -- <--- CORRIGIDO AQUI! Usando 'p.street' como localização
+                        p.name AS casa_do_evento,
+                        p.street AS local_do_evento -- Considerando p.street como local_do_evento
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
-                    JOIN places p ON e.id_casa_evento = p.id
+                    JOIN places p ON e.id_place = p.id -- <--- CORRIGIDO AQUI! Usando a nova coluna id_place
                     ORDER BY r.data_reserva DESC
                 `;
             } else {
@@ -102,12 +102,12 @@ router.post('/', async (req, res) => {
                         r.codigo_convite,
                         u.name AS name, u.email, u.telefone, u.foto_perfil,
                         e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
-                        p.name AS casa_do_evento, -- <--- CORRIGIDO AQUI! 'p.name' é a coluna real
-                        p.street AS local_do_evento -- <--- CORRIGIDO AQUI! Usando 'p.street' como localização
+                        p.name AS casa_do_evento,
+                        p.street AS local_do_evento -- Considerando p.street como local_do_evento
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
-                    JOIN places p ON e.id_casa_evento = p.id
+                    JOIN places p ON e.id_place = p.id -- <--- CORRIGIDO AQUI! Usando a nova coluna id_place
                     WHERE r.user_id = ?
                     ORDER BY r.data_reserva DESC
                 `;
