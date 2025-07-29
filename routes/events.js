@@ -1,4 +1,4 @@
-// events.js (VERSÃO CORRIGIDA PARA INCLUIR total_convidados em GET /)
+// events.js (VERSÃO FINAL REVISADA PARA GROUP BY)
 
 const fs = require('fs');
 const express = require('express');
@@ -66,8 +66,6 @@ module.exports = (pool) => {
                 return res.status(400).json({ message: 'Nome do evento e casa do evento são obrigatórios.' });
             }
             
-            // Certifique-se de que a query e os parâmetros de INSERT correspondem à sua tabela `eventos`
-            // E que `user_id` e `status_evento` são tratados corretamente
             const insertQuery = `
                 INSERT INTO eventos (
                     casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
@@ -104,27 +102,49 @@ module.exports = (pool) => {
         }
     });
     
-    // ---- ROTA GET (LISTA DE EVENTOS) - COM CONTAGEM DE CONVIDADOS ----
-    router.get('/', auth, async (req, res) => { // Remova qualquer outra `router.get('/')` duplicada!
+    // ---- ROTA GET (LISTA DE EVENTOS) - COM CONTAGEM DE CONVIDADOS e GROUP BY CORRIGIDO ----
+    router.get('/', auth, async (req, res) => {
         const { tipo } = req.query;
         let query = `
             SELECT 
-                e.*,
-                COUNT(c.id) AS total_convidados_checkin,
-                COUNT(DISTINCT c2.id) AS total_convidados_cadastrados
+                e.id,
+                e.casa_do_evento,
+                e.nome_do_evento,
+                e.data_do_evento,
+                e.hora_do_evento,
+                e.local_do_evento,
+                e.categoria,
+                e.mesas,
+                e.valor_da_mesa,
+                e.brinde,
+                e.numero_de_convidados,
+                e.descricao,
+                e.valor_da_entrada,
+                e.imagem_do_evento,
+                e.imagem_do_combo,
+                e.observacao,
+                e.tipo_evento,
+                e.dia_da_semana,
+                e.user_id,
+                e.status_evento,
+                COUNT(CASE WHEN c.status_checkin = 'CHECK-IN' THEN c.id END) AS total_convidados_checkin,
+                COUNT(c.id) AS total_convidados_cadastrados
             FROM 
                 eventos e
             LEFT JOIN 
                 reservas r ON e.id = r.evento_id
             LEFT JOIN 
-                convidados c ON r.id = c.reserva_id AND c.status_checkin = 'CHECK-IN'
-            LEFT JOIN 
-                convidados c2 ON r.id = c2.reserva_id
-            GROUP BY e.id
+                convidados c ON r.id = c.reserva_id
+            GROUP BY 
+                e.id, e.casa_do_evento, e.nome_do_evento, e.data_do_evento, e.hora_do_evento,
+                e.local_do_evento, e.categoria, e.mesas, e.valor_da_mesa, e.brinde,
+                e.numero_de_convidados, e.descricao, e.valor_da_entrada,
+                e.imagem_do_evento, e.imagem_do_combo, e.observacao,
+                e.tipo_evento, e.dia_da_semana, e.user_id, e.status_evento
         `;
         const params = [];
 
-        // Adiciona filtros de tipo se especificado
+        // Condições WHERE ou HAVING
         if (tipo === 'unico') {
             query += ' HAVING e.tipo_evento = ? AND e.data_do_evento >= CURDATE() ORDER BY e.data_do_evento ASC';
             params.push('unico');
@@ -136,8 +156,6 @@ module.exports = (pool) => {
         try {
             const [rows] = await pool.query(query, params);
             
-            // Mapeia TODOS os resultados para adicionar as URLs completas
-            // E garante que as contagens sejam números
             const eventsWithUrlsAndCounts = rows.map(event => ({
                 ...addFullImageUrls(event),
                 total_convidados_checkin: Number(event.total_convidados_checkin) || 0,
@@ -146,7 +164,7 @@ module.exports = (pool) => {
             
             res.status(200).json(eventsWithUrlsAndCounts);
         } catch (error) {
-            console.error('Erro ao listar eventos no GET /api/events:', error);
+            console.error('Erro ao listar eventos no GET /api/events (ERRO SQL/BACKEND):', error);
             res.status(500).json({ message: 'Erro interno ao listar eventos.', error: error.message, stack: error.stack });
         }
     });
@@ -155,7 +173,6 @@ module.exports = (pool) => {
     router.get('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
-            // Lógica de permissão pode ser adicionada aqui se o evento for restrito
             const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]);
             if (rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
