@@ -72,31 +72,22 @@ router.post('/', async (req, res) => {
     // ==========================================================================================
     // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
     // ==========================================================================================
- router.get('/', auth, async (req, res) => { // Adicione o middleware 'auth' aqui
-        const userId = req.user.id; // Obtenha o ID do usuário logado
-        const userRole = req.user.role; // Obtenha o papel do usuário logado
+    router.get('/', auth, async (req, res) => {
+        const userId = req.user.id;
+        const userRole = req.user.role;
 
         try {
             let query;
             let queryParams = [];
 
-            // A query agora busca todos os dados necessários das tabelas relacionadas
-            // Adicionado 'u.name AS name' para o nome do usuário
-            // Adicionado 'u.email' para o email do usuário
-            // Adicionado 'u.telefone' para o telefone do usuário
-            // Adicionado 'u.foto_perfil' para a foto de perfil do usuário
-            // Adicionado 'e.nome AS nome_do_evento', etc. para os detalhes do evento
-            // Adicionado 'p.nome AS casa_do_evento', etc. para os detalhes do local
-
             if (userRole === 'admin') {
-                // Admins veem todas as reservas
                 query = `
                     SELECT
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
-                        r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
-                        u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
-                        e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
-                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento -- Dados do local
+                        r.codigo_convite,
+                        u.name AS name, u.email, u.telefone, u.foto_perfil,
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento, -- <--- CORRIGIDO AQUI!
+                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
@@ -104,14 +95,13 @@ router.post('/', async (req, res) => {
                     ORDER BY r.data_reserva DESC
                 `;
             } else {
-                // Outros usuários veem apenas suas próprias reservas
                 query = `
                     SELECT
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
-                        r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
-                        u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
-                        e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
-                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento -- Dados do local
+                        r.codigo_convite,
+                        u.name AS name, u.email, u.telefone, u.foto_perfil,
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento, -- <--- CORRIGIDO AQUI!
+                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     JOIN eventos e ON r.evento_id = e.id
@@ -129,6 +119,7 @@ router.post('/', async (req, res) => {
             res.status(500).json({ error: "Erro ao buscar reservas" });
         }
     });
+
 
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
