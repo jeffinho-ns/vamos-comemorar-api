@@ -83,9 +83,57 @@ router.post('/', async (req, res) => {
     // ==========================================================================================
     // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
     // ==========================================================================================
-    router.get('/', async (req, res) => {
+ router.get('/', auth, async (req, res) => { // Adicione o middleware 'auth' aqui
+        const userId = req.user.id; // Obtenha o ID do usuário logado
+        const userRole = req.user.role; // Obtenha o papel do usuário logado
+
         try {
-            const [reservas] = await pool.query('SELECT * FROM reservas ORDER BY data_reserva DESC');
+            let query;
+            let queryParams = [];
+
+            // A query agora busca todos os dados necessários das tabelas relacionadas
+            // Adicionado 'u.name AS name' para o nome do usuário
+            // Adicionado 'u.email' para o email do usuário
+            // Adicionado 'u.telefone' para o telefone do usuário
+            // Adicionado 'u.foto_perfil' para a foto de perfil do usuário
+            // Adicionado 'e.nome AS nome_do_evento', etc. para os detalhes do evento
+            // Adicionado 'p.nome AS casa_do_evento', etc. para os detalhes do local
+
+            if (userRole === 'admin') {
+                // Admins veem todas as reservas
+                query = `
+                    SELECT
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_pessoas, r.mesas, r.status, r.data_reserva,
+                        r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
+                        u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
+                        e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
+                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento -- Dados do local
+                    FROM reservas r
+                    JOIN users u ON r.user_id = u.id
+                    JOIN eventos e ON r.evento_id = e.id
+                    JOIN places p ON e.id_casa_evento = p.id
+                    ORDER BY r.data_reserva DESC
+                `;
+            } else {
+                // Outros usuários veem apenas suas próprias reservas
+                query = `
+                    SELECT
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_pessoas, r.mesas, r.status, r.data_reserva,
+                        r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
+                        u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
+                        e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
+                        p.nome AS casa_do_evento, p.localizacao AS local_do_evento -- Dados do local
+                    FROM reservas r
+                    JOIN users u ON r.user_id = u.id
+                    JOIN eventos e ON r.evento_id = e.id
+                    JOIN places p ON e.id_casa_evento = p.id
+                    WHERE r.user_id = ?
+                    ORDER BY r.data_reserva DESC
+                `;
+                queryParams.push(userId);
+            }
+            
+            const [reservas] = await pool.query(query, queryParams);
             res.status(200).json(reservas);
         } catch (error) {
             console.error("Erro ao buscar reservas:", error);
