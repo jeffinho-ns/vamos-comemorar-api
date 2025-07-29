@@ -92,7 +92,7 @@ router.post('/', async (req, res) => {
                 // Admins veem todas as reservas
                 query = `
                     SELECT
-                        r.id, r.tipo_reserva AS brinde, r.quantidade_pessoas, r.mesas, r.status, r.data_reserva,
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
                         u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
                         e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
@@ -107,7 +107,7 @@ router.post('/', async (req, res) => {
                 // Outros usuários veem apenas suas próprias reservas
                 query = `
                     SELECT
-                        r.id, r.tipo_reserva AS brinde, r.quantidade_pessoas, r.mesas, r.status, r.data_reserva,
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite, -- Adicione outros campos de 'reservas' que você usa
                         u.name AS name, u.email, u.telefone, u.foto_perfil, -- Dados do usuário
                         e.nome AS nome_do_evento, e.data AS data_do_evento, e.hora AS hora_do_evento, e.imagem_promocional AS imagem_do_evento, -- Dados do evento
