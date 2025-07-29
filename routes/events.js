@@ -1,4 +1,4 @@
-// events.js (VERSÃO FINAL COM FIX SQL PARA 'user_id' e 'status_evento')
+// routes/events.js
 
 const fs = require('fs');
 const express = require('express');
@@ -34,6 +34,7 @@ module.exports = (pool) => {
         if (!event) return null;
         return {
             ...event,
+            // Construímos as URLs completas aqui
             imagem_do_evento_url: event.imagem_do_evento
                 ? `${baseUrl}/uploads/events/${event.imagem_do_evento}`
                 : null,
@@ -66,10 +67,6 @@ module.exports = (pool) => {
                 return res.status(400).json({ message: 'Nome do evento e casa do evento são obrigatórios.' });
             }
             
-            // Certifique-se de que a query e os parâmetros de INSERT correspondem à sua tabela `eventos`
-            // Se 'user_id' e 'status_evento' são para a tabela 'eventos', eles DEVEM ser criados/migrados para lá.
-            // Pelo seu erro, a coluna 'user_id' não existe em 'eventos'.
-            // Vamos remover esses campos do INSERT por enquanto, ou você precisará adicionar as colunas no DB.
             const insertQuery = `
                 INSERT INTO eventos (
                     casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
@@ -77,10 +74,8 @@ module.exports = (pool) => {
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
                     tipo_evento, dia_da_semana
-                    -- user_id, status_evento <-- REMOVA OU ADICIONE AO DB
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
-            // Remova user_id e statusEvento dos parâmetros se não estiverem na query acima
             const insertParams = [
                 casa_do_evento, nome_do_evento,
                 tipo_evento === 'unico' ? data_do_evento : null,
@@ -88,14 +83,12 @@ module.exports = (pool) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null
-                // userId, // <-- REMOVA SE NÃO ESTIVER NO INSERT QUERY
-                // statusEvento // <-- REMOVA SE NÃO ESTIVER NO INSERT QUERY
             ];
 
             const [result] = await pool.query(insertQuery, insertParams);
 
             const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [result.insertId]);
-            const newEventWithUrls = addFullImageUrls(rows[0]);
+            const newEventWithUrls = addFullImageUrls(rows[0]); // Aplica para o evento recém-criado
 
             res.status(201).json(newEventWithUrls);
 
@@ -112,11 +105,11 @@ module.exports = (pool) => {
             let query = `
                 SELECT
                     id,
-                    casa_do_evento, -- Ex: "Seu Justino"
+                    casa_do_evento,
                     nome_do_evento,
                     data_do_evento,
                     hora_do_evento,
-                    local_do_evento, -- Ex: "Rua Harmonia, 77"
+                    local_do_evento,
                     criado_em,
                     categoria,
                     mesas,
@@ -139,11 +132,14 @@ module.exports = (pool) => {
                 queryParams.push(tipo);
             }
 
-            // Garante que eventos populares apareçam primeiro
             query += ` ORDER BY data_do_evento DESC, hora_do_evento DESC`;
 
             const [events] = await pool.query(query, queryParams);
-            res.status(200).json(events);
+            
+            // APLICA addFullImageUrls PARA CADA EVENTO NA LISTA
+            const eventsWithUrls = events.map(addFullImageUrls); // <--- APLICAÇÃO DA FUNÇÃO AQUI!
+
+            res.status(200).json(eventsWithUrls); // Envia os eventos com as URLs completas
         } catch (error) {
             console.error("Erro ao buscar eventos:", error);
             res.status(500).json({ message: "Erro ao buscar eventos" });
@@ -151,6 +147,7 @@ module.exports = (pool) => {
     });
 
     // ---- ROTA GET (ID ÚNICO) - COM AUTH E MELHOR ERRO ----
+    // Esta rota já chamava addFullImageUrls
     router.get('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
@@ -169,25 +166,13 @@ module.exports = (pool) => {
     });
 
     // ---- ROTA PUT (EDITAR) - ADICIONADO AUTH E MELHOR ERRO ----
+    // Esta rota já chamava addFullImageUrls para o evento atualizado
     router.put('/:id', auth, upload.fields([
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
     ]), async (req, res) => {
         const eventId = req.params.id;
         try {
-            // Lógica de permissão: aqui você pode verificar se o user_id do evento
-            // corresponde ao user_id logado, se essa é a regra.
-            // Se 'eventos' não tem 'user_id', você pode precisar fazer um JOIN com 'reservas'
-            // para encontrar o criador de uma reserva associada ao evento, ou ajustar a regra.
-            // Por enquanto, vou manter a verificação de permissão comentada se não houver 'user_id' em 'eventos'.
-            // OU: Se você usa 'user_id' no INSERT, precisa criar a coluna no DB.
-            /*
-            const [[eventOwnerCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
-            if (!eventOwnerCheck || (Number(eventOwnerCheck.user_id) !== Number(req.user.id) && req.user.role !== 'admin' && req.user.role !== 'gerente')) {
-                return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para editar este evento.' });
-            }
-            */
-
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
             if (eventosAtuais.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado.' });
@@ -217,7 +202,6 @@ module.exports = (pool) => {
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
                 tipo_evento, dia_da_semana
-                // status_evento <-- Removido se não existe no DB ou não é editável diretamente
             } = req.body;
 
             const updateQuery = `
@@ -227,7 +211,6 @@ module.exports = (pool) => {
                     numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?,
                     imagem_do_evento = ?, imagem_do_combo = ?, observacao = ?,
                     tipo_evento = ?, dia_da_semana = ?
-                    -- status_evento = ? <-- Removido
                 WHERE id = ?
             `;
             const updateParams = [
@@ -237,7 +220,6 @@ module.exports = (pool) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEventoFinal, imagemDoComboFinal, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                // status_evento, <-- Removido
                 eventId
             ];
 
@@ -259,17 +241,8 @@ module.exports = (pool) => {
 
     // ---- ROTA DELETE - COM AUTH E MELHOR ERRO ----
     router.delete('/:id', auth, async (req, res) => {
-        // A lógica de permissão aqui também precisa ser revisada se 'user_id' não está em 'eventos'
-        // Talvez verifique se o user logado é admin/gerente, ou se é criador de *alguma reserva* para este evento.
-        /*
-        const [[eventOwnerCheck]] = await pool.query('SELECT user_id FROM eventos WHERE id = ?', [eventId]);
-        if (!eventOwnerCheck || (Number(eventOwnerCheck.user_id) !== Number(req.user.id) && req.user.role !== 'admin' && req.user.role !== 'gerente')) {
-            return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para excluir este evento.' });
-        }
-        */
         const eventId = req.params.id;
         try {
-            // Verificação de permissão simplificada para exemplo, se user_id não está no evento:
             if (req.user.role !== 'admin' && req.user.role !== 'gerente') {
                 return res.status(403).json({ message: 'Acesso negado. Somente administradores ou gerentes podem excluir eventos.' });
             }
@@ -311,9 +284,6 @@ module.exports = (pool) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                // Se 'eventos' não tem 'user_id', esta verificação está incorreta aqui
-                // Você precisará de uma query que verifique se o user_id logado está associado
-                // a *qualquer reserva* desse evento como criador.
                 const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
                 if (reservaCheck) {
                     hasPermissionToView = true;
@@ -337,7 +307,7 @@ module.exports = (pool) => {
                     r.status,
                     u.name as nome_do_criador,
                     r.quantidade_convidados,
-                    r.brindes_solicitados,
+                    r.brindes_solicitados, -- Verifique se esta coluna existe em 'reservas'
                     (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND c.status_checkin = 'CHECK-IN') as total_checkins
                 FROM 
                     reservas r
@@ -377,7 +347,6 @@ module.exports = (pool) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                // A mesma lógica de permissão da rota de reservas se aplica aqui.
                 const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
                 if (reservaCheck) {
                     hasPermissionToView = true;
