@@ -72,55 +72,57 @@ router.post('/', async (req, res) => {
     // ==========================================================================================
     // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
     // ==========================================================================================
-    router.get('/', auth, async (req, res) => {
-        const userId = req.user.id;
-        const userRole = req.user.role;
+router.get('/', auth, async (req, res) => {
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
-        try {
-            let query;
-            let queryParams = [];
+    try {
+        let query;
+        let queryParams = [];
 
-            if (userRole === 'admin') {
-                query = `
-                    SELECT
-                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
-                        r.codigo_convite,
-                        u.name AS name, u.email, u.telefone, u.foto_perfil,
-                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
-                        p.name AS casa_do_evento,
-                        p.street AS local_do_evento -- Considerando p.street como local_do_evento
-                    FROM reservas r
-                    JOIN users u ON r.user_id = u.id
-                    JOIN eventos e ON r.evento_id = e.id
-                    JOIN places p ON e.id_place = p.id -- <--- CORRIGIDO AQUI! Usando a nova coluna id_place
-                    ORDER BY r.data_reserva DESC
-                `;
-            } else {
-                query = `
-                    SELECT
-                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
-                        r.codigo_convite,
-                        u.name AS name, u.email, u.telefone, u.foto_perfil,
-                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
-                        p.name AS casa_do_evento,
-                        p.street AS local_do_evento -- Considerando p.street como local_do_evento
-                    FROM reservas r
-                    JOIN users u ON r.user_id = u.id
-                    JOIN eventos e ON r.evento_id = e.id
-                    JOIN places p ON e.id_place = p.id -- <--- CORRIGIDO AQUI! Usando a nova coluna id_place
-                    WHERE r.user_id = ?
-                    ORDER BY r.data_reserva DESC
-                `;
-                queryParams.push(userId);
-            }
-            
-            const [reservas] = await pool.query(query, queryParams);
-            res.status(200).json(reservas);
-        } catch (error) {
-            console.error("Erro ao buscar reservas:", error);
-            res.status(500).json({ error: "Erro ao buscar reservas" });
+        if (userRole === 'admin') {
+            query = `
+                SELECT
+                    r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
+                    r.codigo_convite,
+                    u.name AS creatorName, -- <--- ALTERADO AQUI!
+                    u.email, u.telefone, u.foto_perfil,
+                    e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                    p.name AS casa_do_evento,
+                    p.street AS local_do_evento
+                FROM reservas r
+                JOIN users u ON r.user_id = u.id
+                JOIN eventos e ON r.evento_id = e.id
+                JOIN places p ON e.id_place = p.id
+                ORDER BY r.data_reserva DESC
+            `;
+        } else {
+            query = `
+                SELECT
+                    r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
+                    r.codigo_convite,
+                    u.name AS creatorName, -- <--- ALTERADO AQUI!
+                    u.email, u.telefone, u.foto_perfil,
+                    e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                    p.name AS casa_do_evento,
+                    p.street AS local_do_evento
+                FROM reservas r
+                JOIN users u ON r.user_id = u.id
+                JOIN eventos e ON r.evento_id = e.id
+                JOIN places p ON e.id_place = p.id
+                WHERE r.user_id = ?
+                ORDER BY r.data_reserva DESC
+            `;
+            queryParams.push(userId);
         }
-    });
+        
+        const [reservas] = await pool.query(query, queryParams);
+        res.status(200).json(reservas);
+    } catch (error) {
+        console.error("Erro ao buscar reservas:", error);
+        res.status(500).json({ error: "Erro ao buscar reservas" });
+    }
+});
 
 
     router.get('/:id', async (req, res) => {
