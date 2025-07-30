@@ -477,5 +477,33 @@ module.exports = (pool, checkAndAwardBrindes) => {
         }
     });
 
+    router.get("/:id/convidados-com-status", authenticateToken, async (req, res) => {
+  const eventoId = req.params.id;
+
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        convidados.id,
+        convidados.nome,
+        convidados.documento,
+        convidados.email,
+        convidados.status,
+        convidados.data_checkin,
+        reservas.id AS reserva_id,
+        reservas.evento_id,
+        users.nome AS criador_da_reserva
+      FROM convidados
+      JOIN reservas ON convidados.reserva_id = reservas.id
+      JOIN users ON reservas.user_id = users.id
+      WHERE reservas.evento_id = ?
+    `, [eventoId]);
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error("Erro ao buscar convidados do evento:", error);
+    res.status(500).json({ message: "Erro ao buscar convidados do evento." });
+  }
+});
+
     return router;
 };
