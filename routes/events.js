@@ -477,7 +477,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
         }
     });
 
-    router.get("/:id/convidados-com-status", authenticateToken, async (req, res) => {
+    router.get("/:id/convidados-com-status", auth, async (req, res) => {
   const eventoId = req.params.id;
 
   try {
