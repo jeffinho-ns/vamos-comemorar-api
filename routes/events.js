@@ -481,7 +481,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
   const eventoId = req.params.id;
 
   try {
-    const [rows] = await db.query(`
+    const [rows] = await pool.query(`
       SELECT
         convidados.id,
         convidados.nome,
