@@ -227,7 +227,7 @@ module.exports = (pool) => {
                 FROM reservas r
                 JOIN users u ON r.user_id = u.id
                 LEFT JOIN eventos e ON r.evento_id = e.id
-                LEFT JOIN JOIN places p ON e.id_place = p.id
+                LEFT JOIN places p ON e.id_place = p.id
                 WHERE r.id = ?
             `, [id]);
 
