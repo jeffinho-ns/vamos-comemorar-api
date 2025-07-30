@@ -477,7 +477,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
         }
     });
 
-    router.get("/:id/convidados-com-status", auth, async (req, res) => {
+router.get("/:id/convidados-com-status", auth, async (req, res) => {
   const eventoId = req.params.id;
 
   try {
@@ -491,7 +491,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
         convidados.data_checkin,
         reservas.id AS reserva_id,
         reservas.evento_id,
-        users.nome AS criador_da_reserva
+        users.name AS criador_da_reserva
       FROM convidados
       JOIN reservas ON convidados.reserva_id = reservas.id
       JOIN users ON reservas.user_id = users.id
