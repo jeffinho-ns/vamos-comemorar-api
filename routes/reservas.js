@@ -67,26 +67,81 @@ router.post('/', async (req, res) => {
 });
 
 
-
-
     // ==========================================================================================
     // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
     // ==========================================================================================
- router.get('/:id', async (req, res) => {
+    // ROTA PARA BUSCAR TODAS AS RESERVAS (GET /) <-- Adicionado novamente!
+    router.get('/', auth, async (req, res) => {
+        const userId = req.user.id;
+        const userRole = req.user.role;
+
+        try {
+            let query;
+            let queryParams = [];
+
+            if (userRole === 'admin') {
+                query = `
+                    SELECT
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
+                        r.codigo_convite,
+                        u.name AS creatorName, -- Nome do criador da reserva
+                        u.email, u.telefone, u.foto_perfil,
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                        p.name AS casa_do_evento,
+                        p.street AS local_do_evento
+                    FROM reservas r
+                    JOIN users u ON r.user_id = u.id
+                    LEFT JOIN eventos e ON r.evento_id = e.id
+                    LEFT JOIN places p ON e.id_place = p.id
+                    ORDER BY r.data_reserva DESC
+                `;
+            } else {
+                query = `
+                    SELECT
+                        r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
+                        r.codigo_convite,
+                        u.name AS creatorName, -- Nome do criador da reserva
+                        u.email, u.telefone, u.foto_perfil,
+                        e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
+                        p.name AS casa_do_evento,
+                        p.street AS local_do_evento
+                    FROM reservas r
+                    JOIN users u ON r.user_id = u.id
+                    LEFT JOIN eventos e ON r.evento_id = e.id
+                    LEFT JOIN places p ON e.id_place = p.id
+                    WHERE r.user_id = ?
+                    ORDER BY r.data_reserva DESC
+                `;
+                queryParams.push(userId);
+            }
+            
+            const [reservas] = await pool.query(query, queryParams);
+            res.status(200).json(reservas);
+        } catch (error) {
+            console.error("Erro ao buscar reservas:", error);
+            res.status(500).json({ error: "Erro ao buscar reservas" });
+        }
+    });
+
+    // ROTA PARA BUSCAR DETALHES DE UMA ÚNICA RESERVA POR ID (GET /:id) <-- Mantenha apenas esta!
+    router.get('/:id', async (req, res) => { // Removido o middleware 'auth' daqui, adicione se necessário
         const { id } = req.params;
         try {
-            // Nova query para buscar detalhes completos da reserva, incluindo evento, casa e criador
+            // Query para buscar detalhes completos da reserva, incluindo evento, casa e criador
             const [reservaRows] = await pool.query(`
                 SELECT
                     r.id,
-                    r.tipo_reserva AS brinde, -- Renomeado para 'brinde' conforme o modelo Reservation
+                    r.tipo_reserva AS brinde,
                     r.quantidade_convidados,
                     r.mesas,
                     r.status,
                     r.data_reserva,
-                    r.codigo_convite, -- <--- Adicionado
-                    r.nome_lista,     -- <--- Adicionado
-                    u.name AS creatorName, -- <--- Nome do criador da reserva
+                    r.codigo_convite,
+                    r.nome_lista,
+                    u.name AS creatorName,
+                    u.email AS userEmail, -- Adicionado para ser usado no Flutter, se necessário
+                    u.telefone AS userTelefone, -- Adicionado
+                    u.foto_perfil AS userFotoPerfil, -- Adicionado
                     e.nome_do_evento,
                     e.data_do_evento,
                     e.hora_do_evento,
@@ -95,20 +150,19 @@ router.post('/', async (req, res) => {
                     p.street AS local_do_evento
                 FROM reservas r
                 JOIN users u ON r.user_id = u.id
-                LEFT JOIN eventos e ON r.evento_id = e.id -- LEFT JOIN caso reserva não tenha evento_id (ex: aniversário sem evento_id)
+                LEFT JOIN eventos e ON r.evento_id = e.id
                 LEFT JOIN places p ON e.id_place = p.id
                 WHERE r.id = ?
             `, [id]);
 
             if (!reservaRows.length) return res.status(404).json({ error: "Reserva não encontrada" });
 
-            const reserva = reservaRows[0]; // A reserva principal
+            const reserva = reservaRows[0];
 
             // Buscar convidados e brindes separadamente
             const [convidados] = await pool.query('SELECT id, nome, status, data_checkin, qr_code, geo_checkin_status FROM convidados WHERE reserva_id = ?', [id]);
             const [brindes] = await pool.query('SELECT id, descricao, condicao_tipo, condicao_valor, status FROM brindes_regras WHERE reserva_id = ?', [id]);
 
-            // Combinar tudo em um único objeto de resposta
             const resultadoCompleto = {
                 ...reserva,
                 convidados: convidados,
@@ -121,32 +175,7 @@ router.post('/', async (req, res) => {
             res.status(500).json({ error: "Erro ao buscar detalhes da reserva" });
         }
     });
-
-    router.get('/:id', async (req, res) => {
-        const { id } = req.params;
-        try {
-            const [reservaPromise, convidadosPromise, brindesPromise] = await Promise.all([
-                pool.query('SELECT * FROM reservas WHERE id = ?', [id]),
-                pool.query('SELECT id, nome, status, data_checkin, qr_code FROM convidados WHERE reserva_id = ?', [id]),
-                pool.query('SELECT * FROM brindes_regras WHERE reserva_id = ?', [id])
-            ]);
-
-            const [reservaRows] = reservaPromise;
-            if (!reservaRows.length) return res.status(404).json({ error: "Reserva não encontrada" });
-
-            const [convidados] = convidadosPromise;
-            const [brindes] = brindesPromise;
-
-            const resultadoCompleto = { ...reservaRows[0], convidados, brindes };
-            res.status(200).json(resultadoCompleto);
-
-        } catch (error) {
-            console.error("Erro ao buscar detalhes da reserva:", error);
-            res.status(500).json({ error: "Erro ao buscar detalhes da reserva" });
-        }
-    });
     
-
     // ==========================================================================================
     // ROTAS DE ATUALIZAÇÃO (PUT) - ADAPTADAS
     // ==========================================================================================
