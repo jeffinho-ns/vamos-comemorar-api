@@ -81,7 +81,7 @@ module.exports = (pool) => {
     // ==========================================================================================
     // ROTAS DE CRIAÇÃO (POST /)
     // ==========================================================================================
-    router.post('/', async (req, res) => {
+router.post('/', async (req, res) => {
         const { 
             userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, brindes 
         } = req.body;
@@ -103,10 +103,12 @@ module.exports = (pool) => {
             const [[user]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
             if (!user) throw new Error('Usuário criador não encontrado.');
             
-            const qrcode = require('qrcode'); // Importar qrcode aqui para uso pontual
+            const qrcode = require('qrcode');
             const qrCodeDataCriador = `reserva:${reservaId}:convidado:${user.name.replace(/\s/g, '')}:${Date.now()}`;
-            const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status) VALUES (?, ?, ?, ?, ?)'; // Adicionado geo_checkin_status
-            await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'CHECK-IN', 'NAO_APLICAVEL']); // Criador já check-in, local não aplicável
+            
+            // ALTERAÇÃO AQUI: Mudar status para 'PENDENTE' ao invés de 'CHECK-IN'
+            const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status) VALUES (?, ?, ?, ?, ?)';
+            await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'PENDENTE', 'NAO_APLICAVEL']);
 
             // Inserir as regras de brinde (se houver)
             if (brindes && brindes.length > 0) {
@@ -117,7 +119,7 @@ module.exports = (pool) => {
                         brinde.descricao,
                         brinde.condicao_tipo,
                         brinde.condicao_valor,
-                        brinde.status || 'PENDENTE' // Assume PENDENTE se não especificado
+                        brinde.status || 'PENDENTE'
                     ]);
                 }
             }
