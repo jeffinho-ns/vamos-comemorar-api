@@ -4,7 +4,6 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const router = express.Router();
 
 const auth = require('../middleware/auth');
 const rootPath = path.resolve(__dirname, '..');
@@ -27,14 +26,29 @@ const upload = multer({
     limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-module.exports = (pool) => {
+// Helper function to calculate distance between two lat/lon points in km
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c; // Distance in km
+    return distance;
+}
+
+// Recebe checkAndAwardBrindes como argumento
+module.exports = (pool, checkAndAwardBrindes) => {
+    const router = express.Router();
 
     const addFullImageUrls = (event) => {
         const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
         if (!event) return null;
         return {
             ...event,
-            // Construímos as URLs completas aqui
             imagem_do_evento_url: event.imagem_do_evento
                 ? `${baseUrl}/uploads/events/${event.imagem_do_evento}`
                 : null,
@@ -60,7 +74,7 @@ module.exports = (pool) => {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
-                tipo_evento, dia_da_semana
+                tipo_evento, dia_da_semana, id_place // Adicionado id_place aqui
             } = req.body;
 
             if (!nome_do_evento || !casa_do_evento) {
@@ -73,8 +87,8 @@ module.exports = (pool) => {
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
-                    tipo_evento, dia_da_semana
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tipo_evento, dia_da_semana, id_place
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             const insertParams = [
                 casa_do_evento, nome_do_evento,
@@ -82,13 +96,14 @@ module.exports = (pool) => {
                 hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
-                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null
+                tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
+                id_place // Adicionado id_place aqui
             ];
 
             const [result] = await pool.query(insertQuery, insertParams);
 
             const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [result.insertId]);
-            const newEventWithUrls = addFullImageUrls(rows[0]); // Aplica para o evento recém-criado
+            const newEventWithUrls = addFullImageUrls(rows[0]);
 
             res.status(201).json(newEventWithUrls);
 
@@ -98,31 +113,17 @@ module.exports = (pool) => {
         }
     });
     
-    // ---- ROTA GET (LISTA DE EVENTOS) - COM CONTAGEM DE CONVIDADOS e GROUP BY CORRIGIDO ----
-   router.get('/', auth, async (req, res) => {
+    // ---- ROTA GET (LISTA DE EVENTOS) ----
+    router.get('/', auth, async (req, res) => {
         try {
-            const { tipo } = req.query; // Para o filtro por tipo (unico/semanal)
+            const { tipo } = req.query;
             let query = `
                 SELECT
-                    id,
-                    casa_do_evento,
-                    nome_do_evento,
-                    data_do_evento,
-                    hora_do_evento,
-                    local_do_evento,
-                    criado_em,
-                    categoria,
-                    mesas,
-                    valor_da_mesa,
-                    brinde,
-                    numero_de_convidados,
-                    descricao,
-                    valor_da_entrada,
-                    imagem_do_evento,
-                    imagem_do_combo,
-                    observacao,
-                    tipo_evento AS tipoEvento, -- Mapeia 'tipo_evento' (DB) para 'tipoEvento' (Flutter Model)
-                    dia_da_semana
+                    id, casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+                    local_do_evento, criado_em, categoria, mesas, valor_da_mesa, brinde,
+                    numero_de_convidados, descricao, valor_da_entrada,
+                    imagem_do_evento, imagem_do_combo, observacao,
+                    tipo_evento AS tipoEvento, dia_da_semana, id_place
                 FROM eventos
             `;
             let queryParams = [];
@@ -136,18 +137,16 @@ module.exports = (pool) => {
 
             const [events] = await pool.query(query, queryParams);
             
-            // APLICA addFullImageUrls PARA CADA EVENTO NA LISTA
-            const eventsWithUrls = events.map(addFullImageUrls); // <--- APLICAÇÃO DA FUNÇÃO AQUI!
+            const eventsWithUrls = events.map(addFullImageUrls);
 
-            res.status(200).json(eventsWithUrls); // Envia os eventos com as URLs completas
+            res.status(200).json(eventsWithUrls);
         } catch (error) {
             console.error("Erro ao buscar eventos:", error);
             res.status(500).json({ message: "Erro ao buscar eventos" });
         }
     });
 
-    // ---- ROTA GET (ID ÚNICO) - COM AUTH E MELHOR ERRO ----
-    // Esta rota já chamava addFullImageUrls
+    // ---- ROTA GET (ID ÚNICO) ----
     router.get('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
@@ -165,8 +164,7 @@ module.exports = (pool) => {
         }
     });
 
-    // ---- ROTA PUT (EDITAR) - ADICIONADO AUTH E MELHOR ERRO ----
-    // Esta rota já chamava addFullImageUrls para o evento atualizado
+    // ---- ROTA PUT (EDITAR) ----
     router.put('/:id', auth, upload.fields([
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
@@ -201,7 +199,7 @@ module.exports = (pool) => {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
-                tipo_evento, dia_da_semana
+                tipo_evento, dia_da_semana, id_place
             } = req.body;
 
             const updateQuery = `
@@ -210,7 +208,7 @@ module.exports = (pool) => {
                     local_do_evento = ?, categoria = ?, mesas = ?, valor_da_mesa = ?, brinde = ?,
                     numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?,
                     imagem_do_evento = ?, imagem_do_combo = ?, observacao = ?,
-                    tipo_evento = ?, dia_da_semana = ?
+                    tipo_evento = ?, dia_da_semana = ?, id_place = ?
                 WHERE id = ?
             `;
             const updateParams = [
@@ -220,6 +218,7 @@ module.exports = (pool) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEventoFinal, imagemDoComboFinal, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
+                id_place,
                 eventId
             ];
 
@@ -239,7 +238,7 @@ module.exports = (pool) => {
         }
     });
 
-    // ---- ROTA DELETE - COM AUTH E MELHOR ERRO ----
+    // ---- ROTA DELETE ----
     router.delete('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
@@ -307,8 +306,8 @@ module.exports = (pool) => {
                     r.status,
                     u.name as nome_do_criador,
                     r.quantidade_convidados,
-                    r.brindes_solicitados, -- Verifique se esta coluna existe em 'reservas'
-                    (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND c.status_checkin = 'CHECK-IN') as total_checkins
+                    (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) as confirmedGuestsCount,
+                    (SELECT br.status FROM brindes_regras br WHERE br.reserva_id = r.id LIMIT 1) AS brindeStatus
                 FROM 
                     reservas r
                 JOIN 
@@ -365,8 +364,9 @@ module.exports = (pool) => {
                     c.email,
                     c.telefone,
                     c.qr_code,
-                    c.status_checkin,
+                    c.status, -- Use 'status' ao invés de 'status_checkin' para o campo correto
                     c.data_checkin,
+                    c.geo_checkin_status, -- Incluído
                     r.nome_lista,
                     u.name as nome_do_criador_da_lista
                 FROM 
@@ -388,5 +388,94 @@ module.exports = (pool) => {
         }
     });
 
+    /**
+     * @route   PUT /api/events/guests/:guestId/checkin
+     * @desc    Atualiza o status de check-in de um convidado (QR Code ou Confirmar Local)
+     * @access  Private (Promoter/Admin)
+     * @body    { latitude, longitude } (opcional, para verificação de local)
+     */
+    router.put('/guests/:guestId/checkin', auth, async (req, res) => {
+        const { guestId } = req.params;
+        const { latitude, longitude } = req.body; // Latitude e longitude do self check-in
+
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // 1. Obter informações do convidado e da reserva/evento associados
+            const [[guest]] = await connection.query(
+                `SELECT c.id, c.reserva_id, r.evento_id, p.latitude AS place_latitude, p.longitude AS place_longitude
+                 FROM convidados c
+                 JOIN reservas r ON c.reserva_id = r.id
+                 LEFT JOIN eventos e ON r.evento_id = e.id
+                 LEFT JOIN places p ON e.id_place = p.id
+                 WHERE c.id = ?`,
+                [guestId]
+            );
+
+            if (!guest) {
+                await connection.rollback();
+                return res.status(404).json({ message: 'Convidado não encontrado.' });
+            }
+
+            const reservaId = guest.reserva_id;
+            const eventId = guest.evento_id; // Pode ser útil para logs ou futuras verificações
+
+            let geoCheckinStatus = 'PENDENTE';
+            let message = 'Check-in realizado com sucesso!';
+
+            // 2. Lógica de Geolocalização
+            if (guest.place_latitude && guest.place_longitude && latitude != null && longitude != null) {
+                const distance = calculateDistance(guest.place_latitude, guest.place_longitude, latitude, longitude);
+                const toleranceKm = 0.1; // 100 metros de tolerância
+
+                if (distance <= toleranceKm) {
+                    geoCheckinStatus = 'CONFIRMADO_LOCAL';
+                    message = 'Check-in confirmado no local!';
+                } else {
+                    geoCheckinStatus = 'INVALIDO';
+                    message = 'Check-in realizado, mas a localização parece inválida. Por favor, aproxime-se do local do evento.';
+                }
+            } else if (guest.evento_id && (latitude == null || longitude == null)) {
+                 // Se o evento existe mas não foram fornecidas coordenadas do cliente
+                geoCheckinStatus = 'LOCAL_NAO_INFORMADO'; // Novo status para indicar falta de info
+                message = 'Check-in realizado, mas a localização do seu dispositivo não foi informada.';
+            } else {
+                // Se não há evento associado ou informações de localização do local
+                geoCheckinStatus = 'NAO_APLICAVEL';
+                message = 'Check-in realizado com sucesso! Verificação de local não aplicável.';
+            }
+
+            // 3. Atualizar o status do convidado
+            const [updateResult] = await connection.query(
+                `UPDATE convidados SET status = 'CHECK-IN', geo_checkin_status = ?, data_checkin = NOW(), latitude_checkin = ?, longitude_checkin = ? WHERE id = ?`,
+                [geoCheckinStatus, latitude, longitude, guestId]
+            );
+
+            if (updateResult.affectedRows === 0) {
+                await connection.rollback();
+                return res.status(400).json({ message: 'Não foi possível atualizar o status do convidado.' });
+            }
+
+            await connection.commit();
+
+            // 4. CHAME A FUNÇÃO PARA VERIFICAR E ATRIBUIR BRINDES PARA A RESERVA
+            if (checkAndAwardBrindes) {
+                await checkAndAwardBrindes(reservaId);
+            } else {
+                console.warn('checkAndAwardBrindes não foi passado para routes/events.js. Verificação de brinde não executada.');
+            }
+            
+            res.status(200).json({ message: message, geo_status: geoCheckinStatus });
+
+        } catch (error) {
+            await connection.rollback();
+            console.error('Erro ao realizar check-in do convidado:', error);
+            res.status(500).json({ message: 'Erro ao realizar check-in do convidado.' });
+        } finally {
+            if (connection) connection.release();
+        }
+    });
+
     return router;
-}
+};

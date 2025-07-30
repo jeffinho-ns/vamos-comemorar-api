@@ -1,76 +1,147 @@
-// Em /routes/reservas.js
-// VERSÃO INTEGRADA E ADAPTADA
+// routes/reservas.js
 
 const express = require('express');
 const auth = require('../middleware/auth'); 
-
+// A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
+// const qrcode = require('qrcode');
 
 module.exports = (pool) => {
     const router = express.Router();
-    const qrcode = require('qrcode'); // Usaremos para a nova lógica
 
     // ==========================================================================================
-    // ROTA DE CRIAÇÃO (POST /) - ADAPTADA PARA A NOVA LÓGICA UNIFICADA
-    // Esta rota agora substitui a lógica das suas duas rotas POST antigas.
-    // Ela é mais inteligente e lida com todos os tipos de reserva.
+    // FUNÇÃO AUXILIAR: Verifica e Ativa Brindes
+    // Esta função será exportada e chamada após um check-in de convidado em outras rotas.
     // ==========================================================================================
-router.post('/', async (req, res) => {
-    // O front-end agora envia a quantidade, não os nomes
-    const { 
-        userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, brindes 
-    } = req.body;
-    const { customAlphabet } = await import('nanoid');  
-    // Gerador de código customizado: 6 caracteres, letras maiúsculas e números
-    const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
-    const codigoConvite = nanoid();
+    const checkAndAwardBrindes = async (reservaId) => {
+        const connection = await pool.getConnection();
+        try {
+            // 1. Contar convidados com CHECK-IN ou CONFIRMADO_LOCAL
+            const [confirmedGuestsRows] = await connection.query(
+                `SELECT COUNT(id) AS count FROM convidados WHERE reserva_id = ? AND (status = 'CHECK-IN' OR geo_checkin_status = 'CONFIRMADO_LOCAL')`,
+                [reservaId]
+            );
+            const confirmedCount = confirmedGuestsRows[0].count;
 
-    const connection = await pool.getConnection();
+            // 2. Obter quantidade total de convidados da reserva e brindes associados
+            const [reservationData] = await connection.query(
+                `SELECT r.quantidade_convidados, br.id AS brinde_id, br.descricao, br.condicao_tipo, br.condicao_valor, br.status AS brinde_status 
+                 FROM reservas r
+                 LEFT JOIN brindes_regras br ON r.id = br.reserva_id
+                 WHERE r.id = ?`,
+                [reservaId]
+            );
 
-    try {
-        await connection.beginTransaction();
+            if (!reservationData.length || !reservationData[0].brinde_id) {
+                // console.log(`Reserva ${reservaId} não encontrada ou sem regras de brinde associadas.`);
+                return; // Nenhuma regra de brinde para esta reserva ou reserva não encontrada
+            }
 
-        // 1. Inserir a reserva principal com a quantidade e o código do convite
-        const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const [reservaResult] = await connection.execute(sqlReserva, [
-            userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite
-        ]);
-        const reservaId = reservaResult.insertId;
+            const reservation = reservationData[0];
+            const totalGuestsExpected = reservation.quantidade_convidados;
+            const brinde = reservation; // Os dados do brinde estão no mesmo objeto da reserva neste JOIN
 
-        // 2. Inserir o CRIADOR como o primeiro convidado
-        // Primeiro, buscamos o nome do criador na tabela de usuários
-        const [[user]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
-        if (!user) throw new Error('Usuário criador não encontrado.');
-        
-        const qrCodeDataCriador = `reserva:${reservaId}:convidado:${user.name.replace(/\s/g, '')}:${Date.now()}`;
-        const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status) VALUES (?, ?, ?, ?)';
-        await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'CHECK-IN']); // O criador já está "confirmado"
+            const condicaoValorNumerico = parseInt(brinde.condicao_valor, 10); 
+            if (isNaN(condicaoValorNumerico)) {
+                console.error(`Valor da condição do brinde inválido para a reserva ${reservaId}: ${brinde.condicao_valor}`);
+                return;
+            }
 
-        // 3. Inserir as regras de brinde (se houver)
-        if (brindes && brindes.length > 0) {
-            // ... (sua lógica de inserir brindes continua a mesma) ...
+            let shouldAwardBrinde = false;
+
+            // Lógica para MINIMO_CHECKINS
+            if (brinde.condicao_tipo === 'MINIMO_CHECKINS') {
+                if (confirmedCount >= condicaoValorNumerico) {
+                    shouldAwardBrinde = true;
+                }
+            } 
+            // Exemplo para PORCENTAGEM (adapte sua tabela brindes_regras para ter 'PORCENTAGEM')
+            // else if (brinde.condicao_tipo === 'PORCENTAGEM') {
+            //     const percentageConfirmed = (confirmedCount / totalGuestsExpected) * 100;
+            //     if (percentageConfirmed >= condicaoValorNumerico) {
+            //         shouldAwardBrinde = true;
+            //     }
+            // }
+
+            // 3. Atualizar status do brinde se a condição for atendida e o status atual não for LIBERADO/ENTREGUE
+            if (shouldAwardBrinde && brinde.brinde_status !== 'LIBERADO' && brinde.brinde_status !== 'ENTREGUE') {
+                await connection.query(
+                    `UPDATE brindes_regras SET status = 'LIBERADO' WHERE id = ?`,
+                    [brinde.brinde_id]
+                );
+                console.log(`Brinde ID ${brinde.brinde_id} da Reserva ${reservaId} LIBERADO!`);
+            }
+
+        } catch (error) {
+            console.error('Erro em checkAndAwardBrindes:', error);
+        } finally {
+            if (connection) connection.release();
         }
-
-        await connection.commit();
-        res.status(201).json({ 
-            message: 'Reserva criada com sucesso!', 
-            reservaId: reservaId,
-            codigoConvite: codigoConvite // Retornamos o código para o app poder montar o link
-        });
-
-    } catch (error) {
-        await connection.rollback();
-        console.error('Erro ao criar reserva (nova lógica de convite):', error);
-        res.status(500).json({ message: 'Erro ao criar a reserva.' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
-
+    }; // Fim da função checkAndAwardBrindes
 
     // ==========================================================================================
-    // ROTAS DE LEITURA (GET) - ADAPTADAS PARA O NOVO BANCO DE DADOS
+    // ROTAS DE CRIAÇÃO (POST /)
     // ==========================================================================================
-    // ROTA PARA BUSCAR TODAS AS RESERVAS (GET /) <-- Adicionado novamente!
+    router.post('/', async (req, res) => {
+        const { 
+            userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, brindes 
+        } = req.body;
+        const { customAlphabet } = await import('nanoid');  
+        const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
+        const codigoConvite = nanoid();
+
+        const connection = await pool.getConnection();
+
+        try {
+            await connection.beginTransaction();
+
+            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES (?, ?, ?, ?, ?, ?, ?)';
+            const [reservaResult] = await connection.execute(sqlReserva, [
+                userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite
+            ]);
+            const reservaId = reservaResult.insertId;
+
+            const [[user]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
+            if (!user) throw new Error('Usuário criador não encontrado.');
+            
+            const qrcode = require('qrcode'); // Importar qrcode aqui para uso pontual
+            const qrCodeDataCriador = `reserva:${reservaId}:convidado:${user.name.replace(/\s/g, '')}:${Date.now()}`;
+            const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status) VALUES (?, ?, ?, ?, ?)'; // Adicionado geo_checkin_status
+            await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'CHECK-IN', 'NAO_APLICAVEL']); // Criador já check-in, local não aplicável
+
+            // Inserir as regras de brinde (se houver)
+            if (brindes && brindes.length > 0) {
+                const brindeSql = 'INSERT INTO brindes_regras (reserva_id, descricao, condicao_tipo, condicao_valor, status) VALUES (?, ?, ?, ?, ?)';
+                for (const brinde of brindes) {
+                    await connection.execute(brindeSql, [
+                        reservaId,
+                        brinde.descricao,
+                        brinde.condicao_tipo,
+                        brinde.condicao_valor,
+                        brinde.status || 'PENDENTE' // Assume PENDENTE se não especificado
+                    ]);
+                }
+            }
+
+            await connection.commit();
+            res.status(201).json({ 
+                message: 'Reserva criada com sucesso!', 
+                reservaId: reservaId,
+                codigoConvite: codigoConvite
+            });
+
+        } catch (error) {
+            await connection.rollback();
+            console.error('Erro ao criar reserva (nova lógica de convite):', error);
+            res.status(500).json({ message: 'Erro ao criar a reserva.' });
+        } finally {
+            if (connection) connection.release();
+        }
+    });
+
+    // ==========================================================================================
+    // ROTAS DE LEITURA (GET)
+    // ==========================================================================================
+    // ROTA PARA BUSCAR TODAS AS RESERVAS (GET /)
     router.get('/', auth, async (req, res) => {
         const userId = req.user.id;
         const userRole = req.user.role;
@@ -84,11 +155,13 @@ router.post('/', async (req, res) => {
                     SELECT
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite,
-                        u.name AS creatorName, -- Nome do criador da reserva
+                        u.name AS creatorName,
                         u.email, u.telefone, u.foto_perfil,
                         e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
                         p.name AS casa_do_evento,
-                        p.street AS local_do_evento
+                        p.street AS local_do_evento,
+                        (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) AS confirmedGuestsCount,
+                        (SELECT br.status FROM brindes_regras br WHERE br.reserva_id = r.id LIMIT 1) AS brindeStatus
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     LEFT JOIN eventos e ON r.evento_id = e.id
@@ -100,11 +173,13 @@ router.post('/', async (req, res) => {
                     SELECT
                         r.id, r.tipo_reserva AS brinde, r.quantidade_convidados, r.mesas, r.status, r.data_reserva,
                         r.codigo_convite,
-                        u.name AS creatorName, -- Nome do criador da reserva
+                        u.name AS creatorName,
                         u.email, u.telefone, u.foto_perfil,
                         e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.imagem_do_evento,
                         p.name AS casa_do_evento,
-                        p.street AS local_do_evento
+                        p.street AS local_do_evento,
+                        (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) AS confirmedGuestsCount,
+                        (SELECT br.status FROM brindes_regras br WHERE br.reserva_id = r.id LIMIT 1) AS brindeStatus
                     FROM reservas r
                     JOIN users u ON r.user_id = u.id
                     LEFT JOIN eventos e ON r.evento_id = e.id
@@ -123,14 +198,13 @@ router.post('/', async (req, res) => {
         }
     });
 
-    // ROTA PARA BUSCAR DETALHES DE UMA ÚNICA RESERVA POR ID (GET /:id) <-- Mantenha apenas esta!
-    router.get('/:id', async (req, res) => { // Removido o middleware 'auth' daqui, adicione se necessário
+    // ROTA PARA BUSCAR DETALHES DE UMA ÚNICA RESERVA POR ID (GET /:id)
+    router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            // Query para buscar detalhes completos da reserva, incluindo evento, casa e criador
             const [reservaRows] = await pool.query(`
                 SELECT
-                    r.id,
+                    r.id, r.user_id, r.evento_id,
                     r.tipo_reserva AS brinde,
                     r.quantidade_convidados,
                     r.mesas,
@@ -139,19 +213,21 @@ router.post('/', async (req, res) => {
                     r.codigo_convite,
                     r.nome_lista,
                     u.name AS creatorName,
-                    u.email AS userEmail, -- Adicionado para ser usado no Flutter, se necessário
-                    u.telefone AS userTelefone, -- Adicionado
-                    u.foto_perfil AS userFotoPerfil, -- Adicionado
+                    u.email AS userEmail,
+                    u.telefone AS userTelefone,
+                    u.foto_perfil AS userFotoPerfil,
                     e.nome_do_evento,
                     e.data_do_evento,
                     e.hora_do_evento,
                     e.imagem_do_evento,
                     p.name AS casa_do_evento,
-                    p.street AS local_do_evento
+                    p.street AS local_do_evento,
+                    (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) AS confirmedGuestsCount,
+                    (SELECT br.status FROM brindes_regras br WHERE br.reserva_id = r.id LIMIT 1) AS brindeStatus -- Adicionado status do brinde para detalhes
                 FROM reservas r
                 JOIN users u ON r.user_id = u.id
                 LEFT JOIN eventos e ON r.evento_id = e.id
-                LEFT JOIN places p ON e.id_place = p.id
+                LEFT JOIN JOIN places p ON e.id_place = p.id
                 WHERE r.id = ?
             `, [id]);
 
@@ -159,7 +235,6 @@ router.post('/', async (req, res) => {
 
             const reserva = reservaRows[0];
 
-            // Buscar convidados e brindes separadamente
             const [convidados] = await pool.query('SELECT id, nome, status, data_checkin, qr_code, geo_checkin_status FROM convidados WHERE reserva_id = ?', [id]);
             const [brindes] = await pool.query('SELECT id, descricao, condicao_tipo, condicao_valor, status FROM brindes_regras WHERE reserva_id = ?', [id]);
 
@@ -177,15 +252,12 @@ router.post('/', async (req, res) => {
     });
     
     // ==========================================================================================
-    // ROTAS DE ATUALIZAÇÃO (PUT) - ADAPTADAS
+    // ROTAS DE ATUALIZAÇÃO (PUT)
     // ==========================================================================================
     router.put('/:id', async (req, res) => {
         const { id } = req.params;
-        // ATENÇÃO: Os campos aqui precisam corresponder aos campos da NOVA tabela `reservas`
         const { nome_lista, data_reserva, status } = req.body; 
 
-        // Adicione aqui outros campos que você queira que sejam atualizáveis na tabela principal de reservas
-        // Ex: Se você adicionar um campo 'mesas' na nova tabela 'reservas', ele entraria aqui.
         try {
             await pool.query(
                 `UPDATE reservas SET nome_lista = ?, data_reserva = ?, status = ? WHERE id = ?`,
@@ -198,12 +270,9 @@ router.post('/', async (req, res) => {
         }
     });
 
-    // ROTA ANTIGA de atualização de status - REFATORADA
-    // A lógica de gerar QR Code foi removida daqui, pois agora ele é criado junto com o convidado.
-    // Esta rota agora serve apenas para, por exemplo, um admin aprovar uma lista.
     router.put('/update-status/:id', async (req, res) => {
         const { id } = req.params;
-        const { status } = req.body; // Ex: 'ATIVA', 'CONCLUIDA', 'CANCELADA'
+        const { status } = req.body;
 
         if (!status) {
             return res.status(400).json({ message: 'O campo status é obrigatório.' });
@@ -216,6 +285,11 @@ router.post('/', async (req, res) => {
                 return res.status(404).json({ message: 'Reserva não encontrada.' });
             }
 
+            // A chamada para checkAndAwardBrindes foi movida para a rota de check-in de convidado
+            // ou outra lógica que atualiza o status do convidado, pois essa rota não tem info suficiente.
+            // Para garantir que ainda funciona, você PODE CHAMAR AQUI, mas o melhor gatilho é o check-in do convidado.
+            // await checkAndAwardBrindes(id); // <--- Opcional, se você quiser que atualizar status da RESERVA acione brindes
+
             res.status(200).json({ message: 'Status da reserva atualizado com sucesso!' });
     
         } catch (error) {
@@ -224,5 +298,26 @@ router.post('/', async (req, res) => {
         }
     });
 
-    return router;
+    // ROTA PARA RESGATAR BRINDE (PUT /api/reservas/brindes/:brindeId/resgatar)
+    router.put('/brindes/:brindeId/resgatar', auth, async (req, res) => {
+        const { brindeId } = req.params;
+        try {
+            const [result] = await pool.query(
+                `UPDATE brindes_regras SET status = 'ENTREGUE' WHERE id = ? AND status = 'LIBERADO'`,
+                [brindeId]
+            );
+            if (result.affectedRows === 0) {
+                return res.status(400).json({ message: 'Brinde não encontrado ou não está no status "LIBERADO" para resgate.' });
+            }
+            res.status(200).json({ message: 'Brinde resgatado com sucesso!' });
+        } catch (error) {
+            console.error("Erro ao resgatar brinde:", error);
+            res.status(500).json({ message: 'Erro ao resgatar brinde.' });
+        }
+    });
+
+    return {
+        router: router,
+        checkAndAwardBrindes: checkAndAwardBrindes // Exporta a função
+    };
 };
