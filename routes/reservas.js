@@ -450,6 +450,62 @@ router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) =
     }
 });
 
+// ROTA PARA ATUALIZAR UMA RESERVA DE CAMAROTE
+router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
+    const { id_reserva_camarote } = req.params;
+    const updates = req.body;
+    const connection = await pool.getConnection();
+
+    try {
+        const allowedFields = [
+            'id_camarote', 'id_reserva', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
+            'data_nascimento', 'maximo_pessoas', 'entradas_unisex_free', 
+            'entradas_masculino_free', 'entradas_feminino_free', 'valor_camarote', 
+            'valor_consumacao', 'valor_pago', 'valor_sinal', 'prazo_sinal_dias', 
+            'solicitado_por', 'observacao', 'status_reserva', 'tag', 'hora_reserva'
+        ];
+        const updateFields = Object.keys(updates).filter(key => allowedFields.includes(key));
+
+        if (updateFields.length === 0) {
+            return res.status(400).json({ message: 'Nenhum campo válido para atualização fornecido.' });
+        }
+
+        const setClause = updateFields.map(field => `\`${field}\` = ?`).join(', ');
+        const values = updateFields.map(field => updates[field]);
+
+        const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = ?`;
+        values.push(id_reserva_camarote);
+
+        const [result] = await connection.execute(sql, values);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
+        }
+
+        res.status(200).json({ message: 'Reserva de camarote atualizada com sucesso!' });
+    } catch (error) {
+        console.error('Erro ao atualizar reserva de camarote:', error);
+        res.status(500).json({ error: 'Erro ao atualizar reserva de camarote.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// ROTA PARA BLOQUEAR UM CAMAROTE (novo)
+router.put('/camarotes/:id_camarote/block', auth, async (req, res) => {
+    const { id_camarote } = req.params;
+    try {
+        const [result] = await pool.query(`UPDATE camarotes SET status = 'bloqueado' WHERE id = ?`, [id_camarote]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Camarote não encontrado.' });
+        }
+        res.status(200).json({ message: 'Camarote bloqueado com sucesso!' });
+    } catch (error) {
+        console.error("Erro ao bloquear camarote:", error);
+        res.status(500).json({ error: "Erro ao bloquear camarote." });
+    }
+});
+
 
     return {
         router: router,
