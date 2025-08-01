@@ -58,6 +58,66 @@ module.exports = (pool, checkAndAwardBrindes) => {
         };
     };
 
+    // NOVO ENDPOINT: Buscar eventos onde o usuário é promoter
+    router.get('/promoter', auth, async (req, res) => {
+        console.log('--- BUSCANDO EVENTOS DO PROMOTER ---');
+        try {
+            const userId = req.user.id;
+            
+            // Busca eventos onde o usuário é promoter
+            // Por enquanto, vamos considerar que um usuário é promoter se criou reservas para o evento
+            // ou se tem uma relação específica com o evento
+            const [events] = await pool.query(`
+                SELECT DISTINCT e.*
+                FROM eventos e
+                LEFT JOIN reservas r ON e.id = r.evento_id
+                LEFT JOIN users u ON r.user_id = u.id
+                WHERE r.user_id = ? OR e.criado_por = ?
+                ORDER BY e.data_do_evento DESC, e.hora_do_evento ASC
+            `, [userId, userId]);
+
+            // Adiciona URLs completas das imagens
+            const eventsWithUrls = events.map(addFullImageUrls);
+
+            console.log(`Encontrados ${eventsWithUrls.length} eventos para o promoter ${userId}`);
+            res.status(200).json(eventsWithUrls);
+
+        } catch (error) {
+            console.error('Erro ao buscar eventos do promoter:', error);
+            res.status(500).json({ message: 'Erro ao buscar eventos do promoter.' });
+        }
+    });
+
+    // NOVO ENDPOINT: Verificar se o usuário é promoter de um evento específico
+    router.get('/:id/promoter-check', auth, async (req, res) => {
+        console.log('--- VERIFICANDO SE USUÁRIO É PROMOTER DO EVENTO ---');
+        try {
+            const userId = req.user.id;
+            const eventId = req.params.id;
+
+            // Verifica se o usuário é promoter do evento
+            const [rows] = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM (
+                    SELECT DISTINCT e.id
+                    FROM eventos e
+                    LEFT JOIN reservas r ON e.id = r.evento_id
+                    LEFT JOIN users u ON r.user_id = u.id
+                    WHERE (r.user_id = ? OR e.criado_por = ?) AND e.id = ?
+                ) as promoter_events
+            `, [userId, userId, eventId]);
+
+            const isPromoter = rows[0].count > 0;
+
+            console.log(`Usuário ${userId} é promoter do evento ${eventId}: ${isPromoter}`);
+            res.status(200).json({ isPromoter });
+
+        } catch (error) {
+            console.error('Erro ao verificar se usuário é promoter:', error);
+            res.status(500).json({ message: 'Erro ao verificar permissões de promoter.' });
+        }
+    });
+
     router.post('/', auth, upload.fields([
         { name: 'imagem_do_evento', maxCount: 1 },
         { name: 'imagem_do_combo', maxCount: 1 }
@@ -87,8 +147,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
-                    tipo_evento, dia_da_semana, id_place
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tipo_evento, dia_da_semana, id_place, criado_por
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
             const insertParams = [
                 casa_do_evento, nome_do_evento,
@@ -97,7 +157,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagemDoEvento, imagemDoCombo, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                id_place // Adicionado id_place aqui
+                id_place, req.user.id // Adiciona o ID do usuário que criou o evento
             ];
 
             const [result] = await pool.query(insertQuery, insertParams);
