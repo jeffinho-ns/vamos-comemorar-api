@@ -58,6 +58,25 @@ module.exports = (pool, checkAndAwardBrindes) => {
         };
     };
 
+    // ROTA TEMPORÁRIA SEM AUTENTICAÇÃO PARA TESTE
+    router.get('/public', async (req, res) => {
+        try {
+            const [events] = await pool.query(`
+                SELECT *
+                FROM eventos
+                ORDER BY data_do_evento DESC, hora_do_evento ASC
+            `);
+
+            // Adiciona URLs completas das imagens
+            const eventsWithUrls = events.map(addFullImageUrls);
+
+            res.status(200).json(eventsWithUrls);
+        } catch (error) {
+            console.error('Erro ao buscar eventos públicos:', error);
+            res.status(500).json({ message: 'Erro ao buscar eventos.' });
+        }
+    });
+
     // NOVO ENDPOINT: Buscar eventos onde o usuário é promoter
     router.get('/promoter', auth, async (req, res) => {
         console.log('--- BUSCANDO EVENTOS DO PROMOTER ---');

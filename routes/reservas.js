@@ -143,6 +143,26 @@ router.post('/', async (req, res) => {
     // ==========================================================================================
     // ROTAS DE LEITURA (GET)
     // ==========================================================================================
+    
+    // ROTA TEMPORÁRIA SEM AUTENTICAÇÃO PARA TESTE
+    router.get('/public', async (req, res) => {
+        try {
+            // Query muito simplificada para teste
+            const query = `SELECT COUNT(*) as total FROM reservas`;
+            
+            const [result] = await pool.query(query);
+            console.log(`Debug - Total de reservas: ${result[0].total}`);
+            res.status(200).json({ 
+                message: "Rota pública funcionando", 
+                totalReservas: result[0].total,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error("Erro ao buscar reservas públicas:", error);
+            res.status(500).json({ error: "Erro ao buscar reservas", details: error.message });
+        }
+    });
+    
     // ROTA PARA BUSCAR TODAS AS RESERVAS (GET /)
     router.get('/', auth, async (req, res) => {
         const userId = req.user.id;
