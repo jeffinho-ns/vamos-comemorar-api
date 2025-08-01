@@ -318,6 +318,139 @@ router.post('/', async (req, res) => {
         }
     });
 
+
+    router.get('/camarotes/:id_place', auth, async (req, res) => {
+    const { id_place } = req.params;
+    try {
+        const [camarotes] = await pool.query(`
+            SELECT 
+                c.id, 
+                c.nome_camarote, 
+                c.capacidade_maxima, 
+                c.status,
+                rc.id AS reserva_camarote_id,
+                rc.nome_cliente,
+                rc.entradas_unisex_free,
+                rc.entradas_masculino_free,
+                rc.entradas_feminino_free,
+                rc.valor_camarote,
+                rc.valor_consumacao,
+                rc.valor_pago,
+                rc.status_reserva
+            FROM camarotes c
+            LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva != 'disponivel'
+            WHERE c.id_place = ?
+            ORDER BY c.nome_camarote
+        `, [id_place]);
+
+        res.status(200).json(camarotes);
+    } catch (error) {
+        console.error("Erro ao buscar camarotes:", error);
+        res.status(500).json({ error: "Erro ao buscar camarotes" });
+    }
+});
+
+// ROTA PARA CRIAR UMA NOVA RESERVA DE CAMAROTE
+router.post('/camarote', auth, async (req, res) => {
+    const { 
+        id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+        maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+        valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
+        status_reserva, tag, hora_reserva, lista_convidados // Novo campo para a lista
+    } = req.body;
+    const userId = req.user.id;
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // 1. Criar a reserva na tabela 'reservas' (opcional, pode ser adaptado)
+        const sqlReserva = `
+            INSERT INTO reservas (user_id, evento_id, tipo_reserva, nome_lista, data_reserva, quantidade_convidados, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+        const [reservaResult] = await connection.execute(sqlReserva, [
+            userId, id_evento, 'CAMAROTE', nome_cliente, new Date(), maximo_pessoas, 'ATIVA'
+        ]);
+        const reservaId = reservaResult.insertId;
+
+        // 2. Criar o registro na tabela 'reservas_camarote'
+        const sqlCamarote = `
+            INSERT INTO reservas_camarote (
+                id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+                maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+                valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
+                status_reserva, tag, hora_reserva
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const [camaroteResult] = await connection.execute(sqlCamarote, [
+            reservaId, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+            maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+            valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
+            status_reserva, tag, hora_reserva
+        ]);
+        const reservaCamaroteId = camaroteResult.insertId;
+
+        // 3. Adicionar convidados à lista
+        if (lista_convidados && lista_convidados.length > 0) {
+            const sqlConvidados = 'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ?';
+            const convidadosData = lista_convidados.map(c => [reservaCamaroteId, c.nome, c.email]);
+            await connection.query(sqlConvidados, [convidadosData]);
+        }
+
+        await connection.commit();
+        res.status(201).json({ message: 'Reserva de camarote criada com sucesso!', reservaId: reservaCamaroteId });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Erro ao criar reserva de camarote:', error);
+        res.status(500).json({ error: 'Erro ao criar reserva de camarote.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// ROTA PARA BUSCAR DETALHES DE UMA RESERVA DE CAMAROTE
+router.get('/camarote/:id_reserva_camarote', auth, async (req, res) => {
+    const { id_reserva_camarote } = req.params;
+    try {
+        const [[reservaCamarote]] = await pool.query('SELECT * FROM reservas_camarote WHERE id = ?', [id_reserva_camarote]);
+        if (!reservaCamarote) {
+            return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
+        }
+        const [convidados] = await pool.query('SELECT nome, email FROM camarote_convidados WHERE id_reserva_camarote = ?', [id_reserva_camarote]);
+        res.status(200).json({ ...reservaCamarote, convidados });
+    } catch (error) {
+        console.error('Erro ao buscar reserva de camarote:', error);
+        res.status(500).json({ error: 'Erro ao buscar reserva de camarote.' });
+    }
+});
+
+// ROTA PARA ATUALIZAR UMA RESERVA DE CAMAROTE
+router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
+    const { id_reserva_camarote } = req.params;
+    const updates = req.body;
+    
+    // Adicione a lógica de validação e atualização aqui
+    // ...
+
+    res.status(200).json({ message: 'Reserva de camarote atualizada com sucesso!' });
+});
+
+// ROTA PARA ADICIONAR CONVIDADO A LISTA DO CAMAROTE
+router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) => {
+    const { id_reserva_camarote } = req.params;
+    const { nome, email } = req.body;
+    try {
+        await pool.query('INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES (?, ?, ?)', [id_reserva_camarote, nome, email]);
+        res.status(201).json({ message: 'Convidado adicionado com sucesso!' });
+    } catch (error) {
+        console.error('Erro ao adicionar convidado:', error);
+        res.status(500).json({ error: 'Erro ao adicionar convidado.' });
+    }
+});
+
+
     return {
         router: router,
         checkAndAwardBrindes: checkAndAwardBrindes // Exporta a função
