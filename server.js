@@ -55,7 +55,8 @@ const checkinRoutes = require('./routes/checkin')(pool);
 const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
-const birthdayReservationsRoutes = require('./routes/birthday_reservations');
+const birthdayReservationsRoutes = require('./routes/birthday-reservations')(pool);
+
 
 // Usando as Rotas
 app.use('/auth', authRoutes);
