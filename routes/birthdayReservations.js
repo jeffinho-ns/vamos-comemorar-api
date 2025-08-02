@@ -10,13 +10,12 @@ module.exports = (pool) => {
    * @access  Private (somente usuários autenticados)
    */
   router.post('/', async (req, res) => {
-    // Note que a estrutura do corpo da requisição corresponde ao que foi corrigido no Flutter
     const {
       user_id,
       aniversariante_nome,
       data_aniversario,
       quantidade_convidados,
-      id_casa_evento, // Receberá o ID já do Flutter ou será buscado aqui
+      id_casa_evento, 
       decoracao_tipo,
       painel_personalizado,
       painel_estoque_imagem_url,
@@ -32,15 +31,12 @@ module.exports = (pool) => {
     const connection = await pool.getConnection();
 
     try {
-      // Começa uma transação para garantir que tudo seja salvo ou nada seja salvo
       await connection.beginTransaction();
 
-      // Se o Flutter está enviando o nome do bar em vez do ID, você precisa buscar o ID
-      // Como o Flutter agora está ajustado para enviar o nome, vamos buscar o ID.
-      // É crucial que o Flutter envie o nome exato.
-      let placeId = id_casa_evento; // Assume que o Flutter já pode enviar o ID
+      let placeId = id_casa_evento;
       if (typeof id_casa_evento === 'string' && isNaN(parseInt(id_casa_evento))) {
-         const [placeRows] = await connection.query('SELECT id FROM places WHERE name = ?', [id_casa_evento]);
+         // MODIFICADO: A consulta agora usa COLLATE para ser insensível a maiúsculas e minúsculas
+         const [placeRows] = await connection.query('SELECT id FROM places WHERE name = ? COLLATE utf8mb4_unicode_ci', [id_casa_evento]);
          if (placeRows.length > 0) {
            placeId = placeRows[0].id;
          } else {
