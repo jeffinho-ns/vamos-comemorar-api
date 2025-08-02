@@ -55,7 +55,6 @@ const checkinRoutes = require('./routes/checkin')(pool);
 const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
-const birthdayReservationsRoutes = require('./routes/birthday-reservations')(pool);
 
 
 // Usando as Rotas
@@ -64,7 +63,6 @@ app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/reservas', reservasRouter); // Usa o router destruturado
-app.use('/api/birthday-reservations', birthdayReservationsRoutes);
 app.use('/api/qrcode', qrcodeRoutes);
 app.use('/api/convidados', convidadosRoutes);
 app.use('/api/checkin', checkinRoutes);
