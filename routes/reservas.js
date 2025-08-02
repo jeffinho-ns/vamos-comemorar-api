@@ -147,16 +147,24 @@ router.post('/', async (req, res) => {
     // ROTA TEMPORÁRIA SEM AUTENTICAÇÃO PARA TESTE
     router.get('/public', async (req, res) => {
         try {
-            // Query muito simplificada para teste
-            const query = `SELECT COUNT(*) as total FROM reservas`;
+            const query = `
+                SELECT
+                    r.id, r.tipo_reserva, r.quantidade_convidados, r.status, r.data_reserva,
+                    r.codigo_convite, r.nome_lista,
+                    u.name AS creatorName,
+                    e.nome_do_evento, e.id_place,
+                    p.name AS casa_do_evento,
+                    (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) AS confirmedGuestsCount
+                FROM reservas r
+                JOIN users u ON r.user_id = u.id
+                LEFT JOIN eventos e ON r.evento_id = e.id
+                LEFT JOIN places p ON e.id_place = p.id
+                ORDER BY r.data_reserva DESC
+            `;
             
-            const [result] = await pool.query(query);
-            console.log(`Debug - Total de reservas: ${result[0].total}`);
-            res.status(200).json({ 
-                message: "Rota pública funcionando", 
-                totalReservas: result[0].total,
-                timestamp: new Date().toISOString()
-            });
+            const [reservas] = await pool.query(query);
+            console.log(`Debug - Encontradas ${reservas.length} reservas`);
+            res.status(200).json(reservas);
         } catch (error) {
             console.error("Erro ao buscar reservas públicas:", error);
             res.status(500).json({ error: "Erro ao buscar reservas", details: error.message });
