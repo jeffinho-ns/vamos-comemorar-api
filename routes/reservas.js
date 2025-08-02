@@ -149,11 +149,11 @@ router.post('/', async (req, res) => {
         try {
             const query = `
                 SELECT
-                    r.id, r.tipo_reserva, r.quantidade_convidados, r.status, r.data_reserva,
+                    r.id, r.evento_id, r.tipo_reserva, r.quantidade_convidados, r.status, r.data_reserva,
                     r.codigo_convite, r.nome_lista,
                     u.name AS creatorName,
-                    e.nome_do_evento, e.id_place,
-                    p.name AS casa_do_evento,
+                    e.nome_do_evento, e.id_place, e.casa_do_evento,
+                    p.name AS casa_do_evento_place,
                     (SELECT COUNT(c.id) FROM convidados c WHERE c.reserva_id = r.id AND (c.status = 'CHECK-IN' OR c.geo_checkin_status = 'CONFIRMADO_LOCAL')) AS confirmedGuestsCount
                 FROM reservas r
                 JOIN users u ON r.user_id = u.id
@@ -164,6 +164,18 @@ router.post('/', async (req, res) => {
             
             const [reservas] = await pool.query(query);
             console.log(`Debug - Encontradas ${reservas.length} reservas`);
+            
+            // Log das primeiras 3 reservas para debug
+            if (reservas.length > 0) {
+                console.log('Debug - Primeira reserva:', JSON.stringify(reservas[0], null, 2));
+                if (reservas.length > 1) {
+                    console.log('Debug - Segunda reserva:', JSON.stringify(reservas[1], null, 2));
+                }
+                if (reservas.length > 2) {
+                    console.log('Debug - Terceira reserva:', JSON.stringify(reservas[2], null, 2));
+                }
+            }
+            
             res.status(200).json(reservas);
         } catch (error) {
             console.error("Erro ao buscar reservas públicas:", error);
