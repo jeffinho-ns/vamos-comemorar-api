@@ -55,6 +55,7 @@ const checkinRoutes = require('./routes/checkin')(pool);
 const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
+const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
 
 
 // Usando as Rotas
@@ -68,6 +69,7 @@ app.use('/api/convidados', convidadosRoutes);
 app.use('/api/checkin', checkinRoutes);
 app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
+app.use('/api/birthday-reservations', birthdayReservationsRouter);
 
 
 // Iniciar o servidor
