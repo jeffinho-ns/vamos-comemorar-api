@@ -352,6 +352,10 @@ router.post('/', async (req, res) => {
 
 // ROTA PARA CRIAR UMA NOVA RESERVA DE CAMAROTE
 router.post('/camarote', auth, async (req, res) => {
+    console.log('🔍 Iniciando criação de reserva de camarote...');
+    console.log('📤 Body recebido:', JSON.stringify(req.body, null, 2));
+    console.log('👤 User ID:', req.user.id);
+    
     const { 
         id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
         maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
@@ -360,53 +364,84 @@ router.post('/camarote', auth, async (req, res) => {
     } = req.body;
     const userId = req.user.id;
 
+    // Validação básica
+    if (!id_camarote || !nome_cliente) {
+        console.error('❌ Dados obrigatórios faltando:', { id_camarote, nome_cliente });
+        return res.status(400).json({ error: 'id_camarote e nome_cliente são obrigatórios' });
+    }
+
     const connection = await pool.getConnection();
     try {
+        console.log('🔗 Conexão com banco estabelecida');
         await connection.beginTransaction();
+        console.log('🔄 Transação iniciada');
 
         // 1. Criar a reserva na tabela 'reservas' (opcional, pode ser adaptado)
+        console.log('📝 Inserindo na tabela reservas...');
         const sqlReserva = `
             INSERT INTO reservas (user_id, evento_id, tipo_reserva, nome_lista, data_reserva, quantidade_convidados, status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
-        const [reservaResult] = await connection.execute(sqlReserva, [
-            userId, id_evento, 'CAMAROTE', nome_cliente, new Date(), maximo_pessoas, 'ATIVA'
-        ]);
+        const reservaParams = [userId, id_evento, 'CAMAROTE', nome_cliente, new Date(), maximo_pessoas, 'ATIVA'];
+        console.log('📋 Parâmetros reserva:', reservaParams);
+        
+        const [reservaResult] = await connection.execute(sqlReserva, reservaParams);
         const reservaId = reservaResult.insertId;
+        console.log('✅ Reserva criada com ID:', reservaId);
 
         // 2. Criar o registro na tabela 'reservas_camarote'
+        console.log('📝 Inserindo na tabela reservas_camarote...');
         const sqlCamarote = `
             INSERT INTO reservas_camarote (
                 id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-                valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
-                status_reserva, tag, hora_reserva
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
+                solicitado_por, observacao, status_reserva, tag, hora_reserva
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const [camaroteResult] = await connection.execute(sqlCamarote, [
+        const camaroteParams = [
             reservaId, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
             maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-            valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
-            status_reserva, tag, hora_reserva
-        ]);
+            valor_camarote, valor_consumacao, valor_pago, valor_sinal || 0, prazo_sinal_dias || 0,
+            solicitado_por, observacao, status_reserva, tag, hora_reserva
+        ];
+        console.log('📋 Parâmetros camarote:', camaroteParams);
+        
+        const [camaroteResult] = await connection.execute(sqlCamarote, camaroteParams);
         const reservaCamaroteId = camaroteResult.insertId;
+        console.log('✅ Reserva de camarote criada com ID:', reservaCamaroteId);
 
         // 3. Adicionar convidados à lista
         if (lista_convidados && lista_convidados.length > 0) {
+            console.log('📝 Adicionando convidados:', lista_convidados.length);
             const sqlConvidados = 'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ?';
             const convidadosData = lista_convidados.map(c => [reservaCamaroteId, c.nome, c.email]);
             await connection.query(sqlConvidados, [convidadosData]);
+            console.log('✅ Convidados adicionados');
         }
 
         await connection.commit();
+        console.log('✅ Transação commitada com sucesso');
         res.status(201).json({ message: 'Reserva de camarote criada com sucesso!', reservaId: reservaCamaroteId });
 
     } catch (error) {
-        await connection.rollback();
-        console.error('Erro ao criar reserva de camarote:', error);
-        res.status(500).json({ error: 'Erro ao criar reserva de camarote.' });
+        console.error('❌ Erro ao criar reserva de camarote:', error);
+        console.error('📋 Stack trace:', error.stack);
+        
+        if (connection) {
+            await connection.rollback();
+            console.log('🔄 Transação revertida');
+        }
+        
+        res.status(500).json({ 
+            error: 'Erro ao criar reserva de camarote.',
+            details: error.message 
+        });
     } finally {
-        if (connection) connection.release();
+        if (connection) {
+            connection.release();
+            console.log('🔗 Conexão liberada');
+        }
     }
 });
 
