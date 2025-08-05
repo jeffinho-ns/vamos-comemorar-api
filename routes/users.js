@@ -54,7 +54,7 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
             const hashedPassword = await bcrypt.hash(password, 10);
     
             const [result] = await pool.query(
-                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES (?, ?, ?, ?, ?)',
+                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES (?, ?, ?, ?, ?, ?)',
                 [name, email, cpf, hashedPassword, profileImageUrl, telefone]
             );
     
