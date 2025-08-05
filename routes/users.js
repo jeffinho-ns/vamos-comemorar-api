@@ -48,14 +48,14 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
     
     // Cadastro de usuário
     router.post('/', async (req, res) => {
-        const { name, email, cpf, password, profileImageUrl } = req.body;
+        const { name, email, cpf, password, profileImageUrl, telefone } = req.body;
     
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
     
             const [result] = await pool.query(
-                'INSERT INTO users (name, email, cpf, password, foto_perfil) VALUES (?, ?, ?, ?, ?)',
-                [name, email, cpf, hashedPassword, profileImageUrl]
+                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES (?, ?, ?, ?, ?)',
+                [name, email, cpf, hashedPassword, profileImageUrl, telefone]
             );
     
             const userId = result.insertId;
@@ -74,6 +74,7 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
                 email,
                 cpf,
                 profileImageUrl,
+                telefone
             });
         } catch (error) {
             console.error('Erro ao cadastrar usuário:', error);
