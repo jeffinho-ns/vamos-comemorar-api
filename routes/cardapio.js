@@ -86,6 +86,34 @@ module.exports = (pool) => {
         }
     });
 
+    // Rota para atualizar uma categoria
+    router.put('/categories/:id', async (req, res) => {
+        const { id } = req.params;
+        const { barId, name, order } = req.body;
+        try {
+            await pool.query(
+                'UPDATE menu_categories SET bar_id = ?, name = ?, `order` = ? WHERE id = ?',
+                [barId, name, order, id]
+            );
+            res.json({ message: 'Categoria atualizada com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao atualizar categoria:', error);
+            res.status(500).json({ error: 'Erro ao atualizar categoria.' });
+        }
+    });
+
+    // Rota para deletar uma categoria
+    router.delete('/categories/:id', async (req, res) => {
+        const { id } = req.params;
+        try {
+            await pool.query('DELETE FROM menu_categories WHERE id = ?', [id]);
+            res.json({ message: 'Categoria deletada com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao deletar categoria:', error);
+            res.status(500).json({ error: 'Erro ao deletar categoria.' });
+        }
+    });
+
     // Rotas para Itens
     router.post('/items', async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
@@ -119,6 +147,62 @@ module.exports = (pool) => {
             res.json(itemsWithToppings);
         } catch (error) {
             res.status(500).json({ error: 'Erro ao listar itens.' });
+        }
+    });
+
+    // Rota para atualizar um item
+    router.put('/items/:id', async (req, res) => {
+        const { id } = req.params;
+        const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
+        try {
+            await pool.query(
+                'UPDATE menu_items SET name = ?, description = ?, price = ?, image_url = ?, category_id = ?, bar_id = ?, `order` = ? WHERE id = ?',
+                [name, description, price, imageUrl, categoryId, barId, order, id]
+            );
+            
+            // Atualizar toppings se fornecidos
+            if (toppings && toppings.length > 0) {
+                // Remover toppings existentes
+                await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
+                
+                // Inserir novos toppings
+                for (const topping of toppings) {
+                    const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
+                    const toppingId = toppingResult.insertId;
+                    await pool.query('INSERT INTO item_toppings (item_id, topping_id) VALUES (?, ?)', [id, toppingId]);
+                }
+            }
+            
+            res.json({ message: 'Item atualizado com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao atualizar item:', error);
+            res.status(500).json({ error: 'Erro ao atualizar item.' });
+        }
+    });
+
+    // Rota para deletar um item
+    router.delete('/items/:id', async (req, res) => {
+        const { id } = req.params;
+        try {
+            // Remover relacionamentos item-topping primeiro
+            await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
+            // Remover o item
+            await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
+            res.json({ message: 'Item deletado com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao deletar item:', error);
+            res.status(500).json({ error: 'Erro ao deletar item.' });
+        }
+    });
+
+    // Rota para upload de imagens (simulada)
+    router.post('/images/upload', async (req, res) => {
+        try {
+            // Simular upload - em produção isso seria um upload real
+            const imageUrl = `https://images.unsplash.com/photo-${Date.now()}?w=400&h=300&fit=crop`;
+            res.json({ success: true, url: imageUrl });
+        } catch (error) {
+            res.status(500).json({ error: 'Erro no upload da imagem.' });
         }
     });
 
