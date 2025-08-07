@@ -8,14 +8,13 @@ module.exports = (pool) => {
     router.post('/bars', async (req, res) => {
         const { name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
         try {
-            // Converter tipos adequadamente
             const ratingValue = rating ? parseFloat(rating) : null;
             const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
             const latitudeValue = latitude ? parseFloat(latitude) : null;
             const longitudeValue = longitude ? parseFloat(longitude) : null;
             
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logo_url, cover_image_url, address, rating, reviews_count, latitude, longitude, amenities) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [name, slug, description, logoUrl, coverImageUrl, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities)]
             );
             const newBar = { id: result.insertId, ...req.body };
@@ -58,7 +57,7 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para atualizar um estabelecimento (CORRIGIDA)
+    // Rota para atualizar um estabelecimento
     router.put('/bars/:id', async (req, res) => {
         const { id } = req.params;
         const { name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
@@ -69,7 +68,7 @@ module.exports = (pool) => {
             const longitudeValue = longitude ? parseFloat(longitude) : null;
 
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logo_url = ?, cover_image_url = ?, address = ?, rating = ?, reviews_count = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
                 [name, slug, description, logoUrl, coverImageUrl, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities), id]
             );
             res.json({ message: 'Estabelecimento atualizado com sucesso.' });
@@ -96,7 +95,7 @@ module.exports = (pool) => {
         const { barId, name, order } = req.body;
         try {
             const [result] = await pool.query(
-                'INSERT INTO menu_categories (bar_id, name, `order`) VALUES (?, ?, ?)',
+                'INSERT INTO menu_categories (barId, name, `order`) VALUES (?, ?, ?)',
                 [barId, name, order]
             );
             res.status(201).json({ id: result.insertId, ...req.body });
@@ -135,7 +134,7 @@ module.exports = (pool) => {
         const { barId, name, order } = req.body;
         try {
             await pool.query(
-                'UPDATE menu_categories SET bar_id = ?, name = ?, `order` = ? WHERE id = ?',
+                'UPDATE menu_categories SET barId = ?, name = ?, `order` = ? WHERE id = ?',
                 [barId, name, order, id]
             );
             res.json({ message: 'Categoria atualizada com sucesso.' });
@@ -157,12 +156,12 @@ module.exports = (pool) => {
         }
     });
 
-    // Rotas para Itens
+    // Rotas para Itens (CORRIGIDAS)
     router.post('/items', async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
         try {
             const [result] = await pool.query(
-                'INSERT INTO menu_items (name, description, price, image_url, category_id, bar_id, `order`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, `order`) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [name, description, price, imageUrl, categoryId, barId, order]
             );
             const itemId = result.insertId;
@@ -181,10 +180,11 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.bar_id FROM menu_items mi JOIN menu_categories mc ON mi.category_id = mc.id');
+            // A query foi ajustada para os nomes de colunas do banco
+            const [items] = await pool.query('SELECT mi.id, mi.name, mi.description, mi.price, mi.imageUrl, mi.categoryId, mi.barId, mi.order, mc.name as category FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id');
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
-                return { ...item, toppings, category_id: item.category_id };
+                return { ...item, toppings };
             }));
             res.json(itemsWithToppings);
         } catch (error) {
@@ -197,15 +197,13 @@ module.exports = (pool) => {
     router.get('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.bar_id FROM menu_items mi JOIN menu_categories mc ON mi.category_id = mc.id WHERE mi.id = ?', [id]);
+            const [items] = await pool.query('SELECT mi.id, mi.name, mi.description, mi.price, mi.imageUrl, mi.categoryId, mi.barId, mi.order, mc.name as category FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id WHERE mi.id = ?', [id]);
             if (items.length === 0) {
                 return res.status(404).json({ error: 'Item não encontrado.' });
             }
             const item = items[0];
             const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [id]);
             item.toppings = toppings;
-            item.category_id = item.category_id;
-            item.bar_id = item.bar_id;
             res.json(item);
         } catch (error) {
             console.error('Erro ao buscar item:', error);
@@ -218,14 +216,14 @@ module.exports = (pool) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
         try {
-            // A query foi ajustada para os nomes de colunas do banco
             await pool.query(
-                'UPDATE menu_items SET name = ?, description = ?, price = ?, image_url = ?, category_id = ?, bar_id = ?, `order` = ? WHERE id = ?',
+                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, `order` = ? WHERE id = ?',
                 [name, description, price, imageUrl, categoryId, barId, order, id]
             );
             
             if (toppings && toppings.length > 0) {
                 await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
+                
                 for (const topping of toppings) {
                     const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
                     const toppingId = toppingResult.insertId;
@@ -240,7 +238,7 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para deletar um item (CORRIGIDA)
+    // Rota para deletar um item
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
@@ -262,33 +260,6 @@ module.exports = (pool) => {
             res.status(500).json({ error: 'Erro no upload da imagem.' });
         }
     });
-
-    // Rota de teste para verificar conexão com banco
-    router.get('/test', async (req, res) => {
-        try {
-            const [result] = await pool.query('SELECT 1 as test');
-            res.json({ message: 'Conexão com banco OK', result });
-        } catch (error) {
-            console.error('Erro no teste de conexão:', error);
-            res.status(500).json({ error: 'Erro na conexão com banco' });
-        }
-    });
-
-    // Rota para verificar estrutura da tabela bars
-    router.get('/test-bars', async (req, res) => {
-        try {
-            const [columns] = await pool.query('DESCRIBE bars');
-            const [sample] = await pool.query('SELECT * FROM bars LIMIT 1');
-            res.json({ 
-                message: 'Estrutura da tabela bars',
-                columns: columns.map(col => ({ field: col.Field, type: col.Type, null: col.Null })),
-                sample: sample[0] || null
-            });
-        } catch (error) {
-            console.error('Erro ao verificar estrutura:', error);
-            res.status(500).json({ error: 'Erro ao verificar estrutura' });
-        }
-    });
-
+    
     return router;
 };
