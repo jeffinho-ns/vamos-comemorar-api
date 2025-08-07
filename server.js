@@ -11,13 +11,13 @@ const http = require('http');
 const { Server } = require("socket.io");
 require("dotenv").config();
 
+// Configuração baseada no ambiente
+const config = require('./config/production');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: ['http://localhost:3000', 'https://vamos-comemorar-next.vercel.app', 'https://vamos-comemorar-mobile.vercel.app'],
-        credentials: true
-    }
+    cors: config.server.cors
 });
 
 app.set('socketio', io);
@@ -27,10 +27,10 @@ const pool = require('./config/database');
 // Disponibilizar pool para as rotas
 app.set('pool', pool);
 
-const PORT = process.env.PORT || 5001;
+const PORT = config.server.port;
 
 // Middleware
-app.use(cors());
+app.use(cors(config.server.cors));
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
@@ -78,6 +78,7 @@ app.use('/api/images', imagesRouter);
 
 
 // Iniciar o servidor
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, config.server.host, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`🌐 CORS origins: ${config.server.cors.origin.join(', ')}`);
 });

@@ -50,7 +50,9 @@ const ftpConfig = {
   user: 'u621081794',
   password: 'Jeffl1ma!@',
   secure: false,
-  port: 21
+  port: 21,
+  remoteDirectory: '/cardapio-agilizaiapp/',
+  baseUrl: 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
 };
 
 // Função para fazer upload via FTP
@@ -60,7 +62,7 @@ async function uploadToFTP(localPath, remoteFilename) {
 
   try {
     await client.access(ftpConfig);
-    await client.ensureDir('/cardapio-agilizaiapp/');
+    await client.ensureDir(ftpConfig.remoteDirectory);
     await client.uploadFrom(localPath, remoteFilename);
     client.close();
     return true;
@@ -116,7 +118,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const file = req.file;
     const remoteFilename = file.filename;
     const localPath = file.path;
-    const imageUrl = `https://www.grupoideiaum.com.br/cardapio-agilizaiapp/${remoteFilename}`;
+    const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
 
     // Fazer upload via FTP
     const ftpSuccess = await uploadToFTP(localPath, remoteFilename);
@@ -229,7 +231,7 @@ router.delete('/:imageId', async (req, res) => {
       const client = new ftp.Client();
       client.ftp.verbose = false;
       await client.access(ftpConfig);
-      await client.remove(`/cardapio-agilizaiapp/${image.filename}`);
+      await client.remove(`${ftpConfig.remoteDirectory}${image.filename}`);
       client.close();
     } catch (ftpError) {
       console.warn('Erro ao deletar do FTP:', ftpError);
