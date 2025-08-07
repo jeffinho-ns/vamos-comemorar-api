@@ -12,7 +12,8 @@ const { Server } = require("socket.io");
 require("dotenv").config();
 
 // Configuração baseada no ambiente
-const config = require('./config/production');
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const config = require(isDevelopment ? './config/development' : './config/production');
 
 const app = express();
 const server = http.createServer(app);
