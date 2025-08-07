@@ -61,6 +61,7 @@ const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
 const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
 const imagesRouter = require('./routes/images');
+const cardapioRoutes = require('./routes/cardapio')(pool);
 
 
 // Usando as Rotas
@@ -76,6 +77,7 @@ app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
 app.use('/api/birthday-reservations', birthdayReservationsRouter);
 app.use('/api/images', imagesRouter);
+app.use('/api/cardapio', cardapioRoutes);
 
 // Health check para o Render
 app.get('/health', (req, res) => {
