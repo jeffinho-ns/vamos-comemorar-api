@@ -58,9 +58,25 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para atualizar um estabelecimento
-    router.put('/bars/:id', (req, res) => {
-        res.json({ message: 'Estabelecimento atualizado com sucesso.' });
+    // Rota para atualizar um estabelecimento (CORRIGIDA)
+    router.put('/bars/:id', async (req, res) => {
+        const { id } = req.params;
+        const { name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
+        try {
+            const ratingValue = rating ? parseFloat(rating) : null;
+            const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
+            const latitudeValue = latitude ? parseFloat(latitude) : null;
+            const longitudeValue = longitude ? parseFloat(longitude) : null;
+
+            await pool.query(
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logo_url = ?, cover_image_url = ?, address = ?, rating = ?, reviews_count = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
+                [name, slug, description, logoUrl, coverImageUrl, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities), id]
+            );
+            res.json({ message: 'Estabelecimento atualizado com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao atualizar estabelecimento:', error);
+            res.status(500).json({ error: 'Erro ao atualizar estabelecimento.' });
+        }
     });
 
     // Rota para deletar um estabelecimento
@@ -151,7 +167,6 @@ module.exports = (pool) => {
             );
             const itemId = result.insertId;
             if (toppings && toppings.length > 0) {
-                // Lógica para inserir toppings
                 for (const topping of toppings) {
                     const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
                     const toppingId = toppingResult.insertId;
@@ -166,10 +181,10 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.barId FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id');
+            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.bar_id FROM menu_items mi JOIN menu_categories mc ON mi.category_id = mc.id');
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
-                return { ...item, toppings };
+                return { ...item, toppings, category_id: item.category_id };
             }));
             res.json(itemsWithToppings);
         } catch (error) {
@@ -182,13 +197,15 @@ module.exports = (pool) => {
     router.get('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.barId FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id WHERE mi.id = ?', [id]);
+            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.bar_id FROM menu_items mi JOIN menu_categories mc ON mi.category_id = mc.id WHERE mi.id = ?', [id]);
             if (items.length === 0) {
                 return res.status(404).json({ error: 'Item não encontrado.' });
             }
             const item = items[0];
             const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [id]);
             item.toppings = toppings;
+            item.category_id = item.category_id;
+            item.bar_id = item.bar_id;
             res.json(item);
         } catch (error) {
             console.error('Erro ao buscar item:', error);
@@ -201,17 +218,14 @@ module.exports = (pool) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
         try {
+            // A query foi ajustada para os nomes de colunas do banco
             await pool.query(
                 'UPDATE menu_items SET name = ?, description = ?, price = ?, image_url = ?, category_id = ?, bar_id = ?, `order` = ? WHERE id = ?',
                 [name, description, price, imageUrl, categoryId, barId, order, id]
             );
             
-            // Atualizar toppings se fornecidos
             if (toppings && toppings.length > 0) {
-                // Remover toppings existentes
                 await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
-                
-                // Inserir novos toppings
                 for (const topping of toppings) {
                     const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
                     const toppingId = toppingResult.insertId;
@@ -226,13 +240,11 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para deletar um item
+    // Rota para deletar um item (CORRIGIDA)
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            // Remover relacionamentos item-topping primeiro
             await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
-            // Remover o item
             await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
             res.json({ message: 'Item deletado com sucesso.' });
         } catch (error) {
@@ -241,10 +253,9 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para upload de imagens (simulada)
+    // Rota para upload de imagens (Simulação)
     router.post('/images/upload', async (req, res) => {
         try {
-            // Simular upload - em produção isso seria um upload real
             const imageUrl = `https://images.unsplash.com/photo-${Date.now()}?w=400&h=300&fit=crop`;
             res.json({ success: true, url: imageUrl });
         } catch (error) {
