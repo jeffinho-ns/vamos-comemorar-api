@@ -24,6 +24,9 @@ app.set('socketio', io);
 
 const pool = require('./config/database');
 
+// Disponibilizar pool para as rotas
+app.set('pool', pool);
+
 const PORT = process.env.PORT || 5001;
 
 // Middleware
@@ -56,6 +59,7 @@ const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
 const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
+const imagesRouter = require('./routes/images');
 
 
 // Usando as Rotas
@@ -70,6 +74,7 @@ app.use('/api/checkin', checkinRoutes);
 app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
 app.use('/api/birthday-reservations', birthdayReservationsRouter);
+app.use('/api/images', imagesRouter);
 
 
 // Iniciar o servidor
