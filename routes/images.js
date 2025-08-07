@@ -44,15 +44,15 @@ const upload = multer({
   }
 });
 
-// Configuração FTP
+// Configuração FTP - usar variáveis de ambiente em produção
 const ftpConfig = {
-  host: '195.35.41.247',
-  user: 'u621081794',
-  password: 'Jeffl1ma!@',
-  secure: false,
-  port: 21,
-  remoteDirectory: '/cardapio-agilizaiapp/',
-  baseUrl: 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
+  host: process.env.FTP_HOST || '195.35.41.247',
+  user: process.env.FTP_USER || 'u621081794',
+  password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
+  secure: process.env.FTP_SECURE === 'true' || false,
+  port: parseInt(process.env.FTP_PORT) || 21,
+  remoteDirectory: process.env.FTP_REMOTE_DIR || '/cardapio-agilizaiapp/',
+  baseUrl: process.env.FTP_BASE_URL || 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
 };
 
 // Função para fazer upload via FTP

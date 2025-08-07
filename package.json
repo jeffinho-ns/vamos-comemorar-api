@@ -4,14 +4,19 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "NODE_ENV=development node server.js",
+    "start": "NODE_ENV=production node server.js",
+    "migrate": "node run_cardapio_migration.js",
+    "test-ftp": "node scripts/test-ftp.js",
+    "build": "npm install"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "basic-ftp": "^5.0.5",
     "bcryptjs": "^2.4.3",
+    "basic-ftp": "^5.0.0",
     "cookie-session": "^2.1.0",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",

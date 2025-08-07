@@ -9,6 +9,7 @@ module.exports = {
         'https://vamos-comemorar-next.vercel.app',
         'https://vamos-comemorar-mobile.vercel.app',
         'https://www.grupoideiaum.com.br',
+        'https://vamos-comemorar-next.vercel.app',
         'http://localhost:3000', // Para desenvolvimento local
         'http://localhost:3001', // Para desenvolvimento local
         'http://127.0.0.1:3000', // Para desenvolvimento local

@@ -13,7 +13,7 @@ require("dotenv").config();
 
 // Configuração baseada no ambiente
 const isDevelopment = process.env.NODE_ENV !== 'production';
-const config = require(isDevelopment ? './config/development' : './config/production');
+const config = require(isDevelopment ? './config/development' : './config/environment');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,6 +76,15 @@ app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
 app.use('/api/birthday-reservations', birthdayReservationsRouter);
 app.use('/api/images', imagesRouter);
+
+// Health check para o Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
 
 // Iniciar o servidor
