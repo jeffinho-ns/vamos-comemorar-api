@@ -1,50 +1,29 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs'); // Apenas para checagem, não mais para exclusão de arquivos
 const ftp = require('basic-ftp');
 
 const router = express.Router();
 
-// Configuração do Multer para upload local
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/cardapio');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Gerar nome único para o arquivo
-    const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 15);
-    const extension = path.extname(file.originalname);
-    const filename = `${timestamp}-${randomString}${extension}`;
-    cb(null, filename);
-  }
-});
-
-// Filtro para validar tipos de arquivo
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-  
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Tipo de arquivo não permitido. Apenas imagens são aceitas.'), false);
-  }
-};
-
+// Configuração Multer para armazenamento em memória
+// O arquivo ficará disponível como um buffer em req.file.buffer
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB
+    fileSize: 5 * 1024 * 1024 // Limite de 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de arquivo não permitido.'), false);
+    }
   }
 });
 
-// Configuração FTP - usar variáveis de ambiente em produção
+// Configuração FTP - Usar APENAS variáveis de ambiente em produção
 const ftpConfig = {
   host: process.env.FTP_HOST || '195.35.41.247',
   user: process.env.FTP_USER || 'u621081794',
@@ -55,21 +34,21 @@ const ftpConfig = {
   baseUrl: process.env.FTP_BASE_URL || 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
 };
 
-// Função para fazer upload via FTP
-async function uploadToFTP(localPath, remoteFilename) {
+// Função para fazer upload de um buffer para o FTP
+async function uploadBufferToFTP(buffer, remoteDirectory, remoteFilename) {
   const client = new ftp.Client();
   client.ftp.verbose = false;
 
   try {
     await client.access(ftpConfig);
-    await client.ensureDir(ftpConfig.remoteDirectory);
-    await client.uploadFrom(localPath, remoteFilename);
-    client.close();
+    await client.ensureDir(remoteDirectory);
+    await client.uploadFrom(buffer, remoteFilename);
     return true;
   } catch (error) {
     console.error('Erro no upload FTP:', error);
-    client.close();
     return false;
+  } finally {
+    client.close();
   }
 }
 
@@ -116,12 +95,11 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     }
 
     const file = req.file;
-    const remoteFilename = file.filename;
-    const localPath = file.path;
+    const remoteFilename = file.originalname; // Você pode usar um nome único, mas aqui mantive o original para simplificar
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
-
-    // Fazer upload via FTP
-    const ftpSuccess = await uploadToFTP(localPath, remoteFilename);
+    
+    // Faz o upload direto do buffer para o FTP
+    const ftpSuccess = await uploadBufferToFTP(file.buffer, ftpConfig.remoteDirectory, remoteFilename);
 
     if (!ftpSuccess) {
       return res.status(500).json({ error: 'Erro ao fazer upload para o servidor FTP' });
@@ -142,9 +120,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     // Salvar no banco de dados
     const imageId = await saveImageToDatabase(req.app.get('pool'), imageData);
 
-    // Remover arquivo local após upload bem-sucedido
-    fs.unlinkSync(localPath);
-
     res.json({
       success: true,
       imageId: imageId,
@@ -155,12 +130,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
   } catch (error) {
     console.error('Erro no upload:', error);
-    
-    // Remover arquivo local em caso de erro
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
@@ -274,4 +243,4 @@ router.get('/:imageId', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
