@@ -139,13 +139,14 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.bar_id FROM menu_items mi JOIN menu_categories mc ON mi.category_id = mc.id');
+            const [items] = await pool.query('SELECT mi.*, mc.name as category, mi.barId FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id');
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
                 return { ...item, toppings };
             }));
             res.json(itemsWithToppings);
         } catch (error) {
+            console.error('Erro ao listar itens:', error);
             res.status(500).json({ error: 'Erro ao listar itens.' });
         }
     });
