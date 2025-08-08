@@ -34,8 +34,8 @@ module.exports = {
 
   // Configurações FTP (AJUSTADO)
   ftp: {
-    host: 'ftp.grupoideiaum.com.br',
-    user: 'u621081794.agilizaiiapp',
+    host: '195.35.41.247',
+    user: 'u621081794',
     password: 'Jeffl1ma!@',
     secure: false,
     port: 21,

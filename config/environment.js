@@ -33,8 +33,8 @@ module.exports = {
 
   // Configurações FTP (AJUSTADO)
   ftp: {
-    host: process.env.FTP_HOST || 'ftp.grupoideiaum.com.br',
-    user: process.env.FTP_USER || 'u621081794.agilizaiiapp',
+    host: process.env.FTP_HOST || '195.35.41.247',
+    user: process.env.FTP_USER || 'u621081794',
     password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
     secure: process.env.FTP_SECURE === 'true' || false,
     port: parseInt(process.env.FTP_PORT) || 21,

@@ -57,8 +57,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     try {
         console.log('Tentando conectar ao FTP...');
         await client.access({
-            host: ftpConfig.host,
-            user: ftpConfig.user,
+            host: '195.35.41.247', // AJUSTADO PARA O IP DIRETO
+            user: 'u621081794', // AJUSTADO PARA O NOME DE USUÁRIO CORRETO
             password: ftpConfig.password,
             secure: ftpConfig.secure,
             port: ftpConfig.port
