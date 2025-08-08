@@ -93,13 +93,13 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       entityType: req.body.entityType || null
     };
 
-    // AQUI ESTÁ A CORREÇÃO: Removido 'uploaded_at' e 'NOW()' da query
     const [result] = await pool.execute(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [imageData.filename, imageData.originalName, imageData.fileSize, imageData.mimeType, imageData.url, imageData.type, imageData.entityId, imageData.entityType]
     );
 
+    // CORREÇÃO: Acessando o insertId da forma correta
     res.json({
       success: true,
       imageId: result.insertId,
