@@ -12,7 +12,8 @@ module.exports = {
         'http://127.0.0.1:3001',
         'https://vamos-comemorar-next.vercel.app',
         'https://vamos-comemorar-mobile.vercel.app',
-        'https://grupoideiaum.com.br'
+        'https://grupoideiaum.com.br',
+        'https://www.grupoideiaum.com.br' // Adicionar para compatibilidade com URLs existentes
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

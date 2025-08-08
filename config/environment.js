@@ -6,13 +6,11 @@ module.exports = {
     host: '0.0.0.0',
     cors: {
       origin: [
-        'https://vamos-comemorar-next.vercel.app',
-        'https://vamos-comemorar-mobile.vercel.app',
-        'https://grupoideiaum.com.br',
         'http://localhost:3000',
         'http://localhost:3001',
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:3001'
+        'https://vamos-comemorar-next.vercel.app',
+        'https://grupoideiaum.com.br',
+        'https://www.grupoideiaum.com.br' // Adicionar para compatibilidade com URLs existentes
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
