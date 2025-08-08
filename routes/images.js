@@ -45,7 +45,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     const file = req.file;
     const extension = path.extname(file.originalname);
-    const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
+    const remoteFilename = `${nanoid()}${extension}`;
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
 
     let ftpSuccess = false;
@@ -57,8 +57,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     try {
         console.log('Tentando conectar ao FTP...');
         await client.access({
-            host: '195.35.41.247', // AJUSTADO PARA O IP DIRETO
-            user: 'u621081794', // AJUSTADO PARA O NOME DE USUÁRIO CORRETO
+            host: '195.35.41.247',
+            user: 'u621081794',
             password: ftpConfig.password,
             secure: ftpConfig.secure,
             port: ftpConfig.port
@@ -66,15 +66,12 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log('Conexão FTP estabelecida com sucesso.');
         
         console.log('Tentando garantir o diretório remoto...');
-        // O cliente FTP já entra no diretório raiz do usuário.
-        // O caminho a ser usado é relativo a esse diretório.
-        const simplifiedRemotePath = ftpConfig.remoteDirectory.split('public_html/')[1];
-        await client.ensureDir(simplifiedRemotePath);
-        console.log('Diretório remoto garantido:', simplifiedRemotePath);
+        await client.ensureDir(ftpConfig.remoteDirectory);
+        console.log('Diretório remoto garantido:', ftpConfig.remoteDirectory);
         
         console.log('Iniciando upload do buffer para o FTP...');
         const readableStream = Readable.from(file.buffer);
-        await client.uploadFrom(readableStream, remoteFilename);
+        await client.uploadFrom(readableStream, `${ftpConfig.remoteDirectory}${remoteFilename}`);
         console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
     } catch (error) {
@@ -131,7 +128,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor. Detalhes: ' + error.message });
   }
 });
-
+// Rota para listar imagens
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
   if (!pool) {
