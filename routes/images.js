@@ -26,7 +26,7 @@ const upload = multer({
 });
 
 // Gerador de nome de arquivo único de 10 caracteres
-const nanoid = customAlphabet('upcardapios-', 10);
+const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
