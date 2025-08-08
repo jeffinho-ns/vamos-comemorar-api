@@ -32,9 +32,9 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   const pool = req.app.get('pool');
   const ftpConfig = req.app.get('ftpConfig'); // Acessando a configuração do FTP
   
-  if (!pool) {
-      console.error('Pool de conexão com o banco não disponível.');
-      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
+  if (!pool || !ftpConfig) {
+      console.error('Dependências do servidor não disponíveis.');
+      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão ou configuração FTP não disponível.' });
   }
 
   try {
@@ -44,25 +44,34 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     const file = req.file;
     const extension = path.extname(file.originalname);
-    const remoteFilename = `${nanoid()}${extension}`;
+    const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
 
     let ftpSuccess = false;
     let ftpErrorDetails = null;
 
     const client = new ftp.Client();
-    client.ftp.verbose = true;
+    client.ftp.verbose = true; // Ative o modo verboso para depuração
     
     try {
+        console.log('Tentando conectar ao FTP...');
         await client.access(ftpConfig);
+        console.log('Conexão FTP estabelecida com sucesso.');
+        
+        console.log('Tentando garantir o diretório remoto...');
         await client.ensureDir(ftpConfig.remoteDirectory);
+        console.log('Diretório remoto garantido.');
+        
+        console.log('Iniciando upload do buffer para o FTP...');
         await client.uploadFrom(file.buffer, remoteFilename);
+        console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
     } catch (error) {
         console.error('Erro detalhado no upload FTP:', error);
         ftpErrorDetails = error.message;
     } finally {
         await client.close();
+        console.log('Conexão FTP fechada.');
     }
 
     if (!ftpSuccess) {
@@ -102,7 +111,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor. Detalhes: ' + error.message });
   }
 });
-
+// Rota para listar imagens
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
   if (!pool) {
