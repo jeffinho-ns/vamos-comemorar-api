@@ -38,24 +38,6 @@ const ftpConfig = {
 // Gerador de nome de arquivo único de 10 caracteres
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
-// Função para fazer upload de um buffer para o FTP
-async function uploadBufferToFTP(buffer, remoteDirectory, remoteFilename) {
-  const client = new ftp.Client();
-  client.ftp.verbose = false;
-
-  try {
-    await client.access(ftpConfig);
-    await client.ensureDir(remoteDirectory);
-    await client.uploadFrom(buffer, remoteFilename);
-    return true;
-  } catch (error) {
-    console.error('Erro no upload FTP:', error);
-    return false;
-  } finally {
-    client.close();
-  }
-}
-
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
   const pool = req.app.get('pool');
@@ -74,12 +56,30 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const extension = path.extname(file.originalname);
     const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
+
+    let ftpSuccess = false;
+    let ftpErrorDetails = null;
+
+    const client = new ftp.Client();
+    client.ftp.verbose = true; // Ative o modo verboso para depuração
     
-    // Faz o upload direto do buffer para o FTP
-    const ftpSuccess = await uploadBufferToFTP(file.buffer, ftpConfig.remoteDirectory, remoteFilename);
+    try {
+        await client.access(ftpConfig);
+        await client.ensureDir(ftpConfig.remoteDirectory);
+        await client.uploadFrom(file.buffer, remoteFilename);
+        ftpSuccess = true;
+    } catch (error) {
+        console.error('Erro detalhado no upload FTP:', error);
+        ftpErrorDetails = error.message;
+    } finally {
+        await client.close();
+    }
 
     if (!ftpSuccess) {
-      return res.status(500).json({ error: 'Erro ao fazer upload para o servidor FTP. Verifique as credenciais ou permissões.' });
+      return res.status(500).json({ 
+        error: 'Erro ao fazer upload para o servidor FTP.',
+        details: ftpErrorDetails || 'Verifique as credenciais ou permissões do FTP.' 
+      });
     }
 
     const imageData = {
@@ -93,7 +93,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       entityType: req.body.entityType || null
     };
 
-    // Salvar no banco de dados
     const [result] = await pool.execute(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, uploaded_at, type, entity_id, entity_type) 
        VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)`,
@@ -114,7 +113,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
-// A rota de imagens não precisa de pool para as rotas abaixo, então as rotas estão fora da função de exportação
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
   if (!pool) {
