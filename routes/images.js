@@ -66,15 +66,15 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log('Conexão FTP estabelecida com sucesso.');
         
         console.log('Tentando garantir o diretório remoto...');
-        // Acessa o diretório de upload de forma relativa
-        await client.ensureDir(ftpConfig.remoteDirectory);
-        await client.cd(ftpConfig.remoteDirectory); // CORREÇÃO: Usando 'client.cd' para entrar no diretório
-        console.log('Diretório remoto garantido:', ftpConfig.remoteDirectory);
+        // CORREÇÃO: Usando o caminho relativo a partir do diretório raiz do usuário
+        const relativeRemotePath = 'domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/';
+        await client.ensureDir(relativeRemotePath);
+        console.log('Diretório remoto garantido:', relativeRemotePath);
         
         console.log('Iniciando upload do buffer para o FTP...');
         const readableStream = Readable.from(file.buffer);
-        // CORREÇÃO: Usando apenas o nome do arquivo para o upload
-        await client.uploadFrom(readableStream, remoteFilename);
+        // CORREÇÃO: Usando o caminho relativo para o upload
+        await client.uploadFrom(readableStream, `${relativeRemotePath}${remoteFilename}`);
         console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
     } catch (error) {
