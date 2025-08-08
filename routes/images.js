@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const ftp = require('basic-ftp');
 const { customAlphabet } = require('nanoid');
+const { Readable } = require('stream'); // Importado a classe Readable
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
   const pool = req.app.get('pool');
-  const ftpConfig = req.app.get('ftpConfig'); // Acessando a configuração do FTP
+  const ftpConfig = req.app.get('ftpConfig');
   
   if (!pool || !ftpConfig) {
       console.error('Dependências do servidor não disponíveis.');
@@ -51,7 +52,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     let ftpErrorDetails = null;
 
     const client = new ftp.Client();
-    client.ftp.verbose = true; // Ative o modo verboso para depuração
+    client.ftp.verbose = true;
     
     try {
         console.log('Tentando conectar ao FTP...');
@@ -63,7 +64,9 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log('Diretório remoto garantido.');
         
         console.log('Iniciando upload do buffer para o FTP...');
-        await client.uploadFrom(file.buffer, remoteFilename);
+        // CORREÇÃO: Cria um stream a partir do buffer do arquivo
+        const readableStream = Readable.from(file.buffer);
+        await client.uploadFrom(readableStream, remoteFilename);
         console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
     } catch (error) {
@@ -95,7 +98,16 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const [result] = await pool.execute(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [imageData.filename, imageData.originalName, imageData.fileSize, imageData.mimeType, imageData.url, imageData.type, imageData.entityId, imageData.entityType]
+      [
+        imageData.filename, 
+        imageData.originalName, 
+        imageData.fileSize, 
+        imageData.mimeType, 
+        imageData.url, 
+        imageData.type, 
+        imageData.entityId, 
+        imageData.entityType
+      ]
     );
 
     res.json({
@@ -111,6 +123,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor. Detalhes: ' + error.message });
   }
 });
+
 // Rota para listar imagens
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
