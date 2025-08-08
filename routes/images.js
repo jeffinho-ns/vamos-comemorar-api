@@ -68,11 +68,11 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log('Tentando garantir o diretório remoto...');
         await client.ensureDir(ftpConfig.remoteDirectory);
         console.log('Diretório remoto garantido:', ftpConfig.remoteDirectory);
-        
+        const remoteDir = ftpConfig.remoteDirectory.replace(/\/+$/, '') + '/';
         console.log('Iniciando upload do buffer para o FTP...');
         const readableStream = Readable.from(file.buffer);
         // CORREÇÃO: Usando apenas o nome do arquivo para o upload
-        await client.uploadFrom(readableStream, `${ftpConfig.remoteDirectory}${remoteFilename}`);
+        await client.uploadFrom(readableStream, remoteFilename);
         console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
     } catch (error) {
