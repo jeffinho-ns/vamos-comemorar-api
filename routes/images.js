@@ -61,7 +61,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     let ftpErrorDetails = null;
 
     const client = new ftp.Client();
-    client.ftp.verbose = true; // Ative o modo verboso para depuração
+    client.ftp.verbose = true;
     
     try {
         await client.access(ftpConfig);
@@ -93,9 +93,10 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       entityType: req.body.entityType || null
     };
 
+    // AQUI ESTÁ A CORREÇÃO: Removido 'uploaded_at' e 'NOW()' da query
     const [result] = await pool.execute(
-      `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, uploaded_at, type, entity_id, entity_type) 
-       VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)`,
+      `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [imageData.filename, imageData.originalName, imageData.fileSize, imageData.mimeType, imageData.url, imageData.type, imageData.entityId, imageData.entityType]
     );
 
