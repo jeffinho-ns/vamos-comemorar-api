@@ -27,7 +27,7 @@ const pool = require('./config/database');
 
 // Disponibilizar pool para as rotas
 app.set('pool', pool);
-app.set('ftpConfig', config.ftp); // Adicionando a configuração do FTP ao app
+app.set('ftpConfig', config.ftp);
 
 const PORT = config.server.port;
 
@@ -59,6 +59,10 @@ const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
 const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
+
+// AQUI ESTÁ A CORREÇÃO MAIS IMPORTANTE:
+// 1. A rota de upload de imagens está no arquivo images.js, que exporta uma função que espera o pool.
+// 2. A rota de CRUD do cardápio está no arquivo cardapio.js, que também espera o pool.
 const imagesRouter = require('./routes/images')(pool);
 const cardapioRoutes = require('./routes/cardapio')(pool);
 
@@ -75,7 +79,11 @@ app.use('/api/checkin', checkinRoutes);
 app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
 app.use('/api/birthday-reservations', birthdayReservationsRouter);
+
+// Montando as rotas de forma correta e separada
+// A rota de upload agora está em /api/images, como você sugeriu
 app.use('/api/images', imagesRouter);
+// A rota do cardápio está em /api/cardapio
 app.use('/api/cardapio', cardapioRoutes);
 
 // Health check para o Render
