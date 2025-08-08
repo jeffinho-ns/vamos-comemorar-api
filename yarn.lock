@@ -494,7 +494,7 @@ base64url@3.x.x:
   resolved "https://registry.npmjs.org/base64url/-/base64url-3.0.1.tgz"
   integrity sha512-ir1UPr3dkwexU7FdV8qBBbNDRUhMmIekYMFZfi+C/sLNnRESKPl23nB9b2pltqfOQNnGzsDdId90AEtG5tCx4A==
 
-basic-ftp@^5.0.5:
+basic-ftp@^5.0.0:
   version "5.0.5"
   resolved "https://registry.npmjs.org/basic-ftp/-/basic-ftp-5.0.5.tgz"
   integrity sha512-4Bcg1P8xhUuqcii/S0Z9wiHIrQVPMermM1any+MX5GeGD7faD3/msQUDGLol9wOcz4/jbg/WJnGqoJF6LiBdtg==
