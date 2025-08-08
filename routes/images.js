@@ -67,7 +67,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         
         console.log('Tentando garantir o diretório remoto...');
         // Acessa o diretório de upload de forma relativa
-        await client.cwd(ftpConfig.remoteDirectory);
+        await client.ensureDir(ftpConfig.remoteDirectory);
+        await client.cd(ftpConfig.remoteDirectory); // CORREÇÃO: Usando 'client.cd' para entrar no diretório
         console.log('Diretório remoto garantido:', ftpConfig.remoteDirectory);
         
         console.log('Iniciando upload do buffer para o FTP...');
