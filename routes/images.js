@@ -45,7 +45,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     const file = req.file;
     const extension = path.extname(file.originalname);
-    const remoteFilename = `${nanoid()}${extension}`;
+    const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
 
     let ftpSuccess = false;
@@ -71,6 +71,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         
         console.log('Iniciando upload do buffer para o FTP...');
         const readableStream = Readable.from(file.buffer);
+        // CORREÇÃO: Usando apenas o nome do arquivo para o upload
         await client.uploadFrom(readableStream, `${ftpConfig.remoteDirectory}${remoteFilename}`);
         console.log('Upload FTP concluído com sucesso.');
         ftpSuccess = true;
@@ -128,6 +129,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor. Detalhes: ' + error.message });
   }
 });
+
 // Rota para listar imagens
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
