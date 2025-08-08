@@ -31,14 +31,14 @@ module.exports = {
     queueLimit: 0
   },
 
-  // Configurações FTP
+  // Configurações FTP (AJUSTADO)
   ftp: {
-    host: '195.35.41.247',
-    user: 'u621081794',
+    host: 'ftp.grupoideiaum.com.br',
+    user: 'u621081794.agilizaiiapp',
     password: 'Jeffl1ma!@',
-    secure: false,
+    secure: false, // Pode ser necessário mudar para 'true' se o servidor suportar FTPS
     port: 21,
-    remoteDirectory: '/cardapio-agilizaiapp/',
+    remoteDirectory: '/home/u621081794/domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/',
     baseUrl: 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
   },
 
@@ -48,4 +48,4 @@ module.exports = {
     allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
     localUploadDir: 'uploads/cardapio'
   }
-}; 
+};

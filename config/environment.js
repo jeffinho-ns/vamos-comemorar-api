@@ -31,14 +31,14 @@ module.exports = {
     queueLimit: 0
   },
 
-  // Configurações FTP
+  // Configurações FTP (AJUSTADO)
   ftp: {
-    host: process.env.FTP_HOST || '195.35.41.247',
-    user: process.env.FTP_USER || 'u621081794',
+    host: process.env.FTP_HOST || 'ftp.grupoideiaum.com.br',
+    user: process.env.FTP_USER || 'u621081794.agilizaiiapp',
     password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
     secure: process.env.FTP_SECURE === 'true' || false,
     port: parseInt(process.env.FTP_PORT) || 21,
-    remoteDirectory: process.env.FTP_REMOTE_DIR || '/cardapio-agilizaiapp/',
+    remoteDirectory: process.env.FTP_REMOTE_DIR || '/home/u621081794/domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/',
     baseUrl: process.env.FTP_BASE_URL || 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
   },
 
@@ -48,4 +48,4 @@ module.exports = {
     allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
     localUploadDir: 'uploads/cardapio'
   }
-}; 
+};
