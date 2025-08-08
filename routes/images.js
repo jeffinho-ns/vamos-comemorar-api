@@ -58,6 +58,13 @@ async function uploadBufferToFTP(buffer, remoteDirectory, remoteFilename) {
 
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
+  const pool = req.app.get('pool');
+  
+  if (!pool) {
+      console.error('Pool de conexão com o banco não disponível.');
+      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
+  }
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo foi enviado' });
@@ -68,10 +75,11 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
     
+    // Faz o upload direto do buffer para o FTP
     const ftpSuccess = await uploadBufferToFTP(file.buffer, ftpConfig.remoteDirectory, remoteFilename);
 
     if (!ftpSuccess) {
-      return res.status(500).json({ error: 'Erro ao fazer upload para o servidor FTP' });
+      return res.status(500).json({ error: 'Erro ao fazer upload para o servidor FTP. Verifique as credenciais ou permissões.' });
     }
 
     const imageData = {
@@ -85,12 +93,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       entityType: req.body.entityType || null
     };
 
-    const pool = req.app.get('pool');
-    if (!pool) {
-      throw new Error('Pool de conexão com o banco não disponível.');
-    }
-
-    const imageId = await pool.execute(
+    // Salvar no banco de dados
+    const [result] = await pool.execute(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, uploaded_at, type, entity_id, entity_type) 
        VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?)`,
       [imageData.filename, imageData.originalName, imageData.fileSize, imageData.mimeType, imageData.url, imageData.type, imageData.entityId, imageData.entityType]
@@ -98,7 +102,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     res.json({
       success: true,
-      imageId: imageId[0].insertId,
+      imageId: result.insertId,
       filename: remoteFilename,
       url: imageUrl,
       message: 'Imagem enviada com sucesso'
@@ -106,6 +110,121 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
   } catch (error) {
     console.error('Erro no upload:', error);
+    res.status(500).json({ error: 'Erro interno do servidor. Detalhes: ' + error.message });
+  }
+});
+
+// A rota de imagens não precisa de pool para as rotas abaixo, então as rotas estão fora da função de exportação
+router.get('/list', async (req, res) => {
+  const pool = req.app.get('pool');
+  if (!pool) {
+      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
+  }
+  try {
+    const { type, entityType, entityId } = req.query;
+    
+    let query = 'SELECT * FROM cardapio_images WHERE 1=1';
+    const params = [];
+
+    if (type) {
+      query += ' AND type = ?';
+      params.push(type);
+    }
+
+    if (entityType) {
+      query += ' AND entity_type = ?';
+      params.push(entityType);
+    }
+
+    if (entityId) {
+      query += ' AND entity_id = ?';
+      params.push(entityId);
+    }
+
+    query += ' ORDER BY uploaded_at DESC';
+
+    const [rows] = await pool.execute(query, params);
+
+    res.json({
+      success: true,
+      images: rows
+    });
+
+  } catch (error) {
+    console.error('Erro ao listar imagens:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+router.delete('/:imageId', async (req, res) => {
+  const pool = req.app.get('pool');
+  if (!pool) {
+      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
+  }
+  try {
+    const { imageId } = req.params;
+
+    const [rows] = await pool.execute(
+      'SELECT * FROM cardapio_images WHERE id = ?',
+      [imageId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Imagem não encontrada' });
+    }
+
+    const image = rows[0];
+
+    await pool.execute(
+      'DELETE FROM cardapio_images WHERE id = ?',
+      [imageId]
+    );
+
+    try {
+      const client = new ftp.Client();
+      client.ftp.verbose = false;
+      await client.access(ftpConfig);
+      await client.remove(`${ftpConfig.remoteDirectory}${image.filename}`);
+      client.close();
+    } catch (ftpError) {
+      console.warn('Erro ao deletar do FTP:', ftpError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Imagem deletada com sucesso'
+    });
+
+  } catch (error) {
+    console.error('Erro ao deletar imagem:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+router.get('/:imageId', async (req, res) => {
+  const pool = req.app.get('pool');
+  if (!pool) {
+      return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
+  }
+  try {
+    const { imageId } = req.params;
+
+    const [rows] = await pool.execute(
+      'SELECT * FROM cardapio_images WHERE id = ?',
+      [imageId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Imagem não encontrada' });
+    }
+
+    res.json({
+      success: true,
+      image: rows[0]
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar imagem:', error);
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
