@@ -60,7 +60,9 @@ const inviteRoutes = require('./routes/invite')(pool);
 const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
 const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
-const imagesRouter = require('./routes/images');
+
+// CORREÇÃO AQUI: As duas rotas precisam ser chamadas como funções com 'pool'
+const imagesRouter = require('./routes/images')(pool);
 const cardapioRoutes = require('./routes/cardapio')(pool);
 
 
@@ -76,7 +78,7 @@ app.use('/api/checkin', checkinRoutes);
 app.use('/convite', inviteRoutes);
 app.use('/api/events/:eventId/rules', rulesRoutes);
 app.use('/api/birthday-reservations', birthdayReservationsRouter);
-app.use('/api/images', imagesRouter);
+app.use('/api/cardapio/images', imagesRouter);
 app.use('/api/cardapio', cardapioRoutes);
 
 // Health check para o Render

@@ -68,7 +68,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
     
-    // Faz o upload direto do buffer para o FTP
     const ftpSuccess = await uploadBufferToFTP(file.buffer, ftpConfig.remoteDirectory, remoteFilename);
 
     if (!ftpSuccess) {
@@ -86,7 +85,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       entityType: req.body.entityType || null
     };
 
-    // Acessando o pool de conexões do Express
     const pool = req.app.get('pool');
     if (!pool) {
       throw new Error('Pool de conexão com o banco não disponível.');
@@ -111,3 +109,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
+
+module.exports = (pool) => {
+  return router;
+};
