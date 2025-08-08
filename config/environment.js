@@ -38,7 +38,7 @@ module.exports = {
     password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
     secure: false,
     port: 21,
-    remoteDirectory: '/home/u621081794/domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/',
+    remoteDirectory: '/public_html/cardapio-agilizaiapp/',
     baseUrl: 'https://grupoideiaum.com.br/cardapio-agilizaiapp/'
   },
 

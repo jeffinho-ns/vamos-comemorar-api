@@ -74,15 +74,38 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     } catch (dirError) {
       // Ignora erros de diretório já existente
       if (!dirError.message.includes('File exists')) {
-        throw dirError;
+        console.log('⚠️ Erro ao verificar diretório:', dirError.message);
+        // Tentar navegar para o diretório diretamente
+        try {
+          await client.cd(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+          console.log('✅ Navegação para diretório bem-sucedida.');
+        } catch (cdError) {
+          console.log('❌ Erro ao navegar para diretório:', cdError.message);
+          throw cdError;
+        }
+      } else {
+        console.log('Diretório remoto já existe.');
       }
-      console.log('Diretório remoto já existe.');
     }
 
     console.log(`Enviando arquivo ${remoteFilename} para o FTP...`);
     const readableStream = Readable.from(file.buffer);
     await client.uploadFrom(readableStream, remoteFilename);
     console.log(`Upload FTP concluído: ${remoteFilename} (${file.size} bytes)`);
+    
+    // Verificar se o arquivo foi realmente enviado
+    try {
+      const fileList = await client.list();
+      const uploadedFile = fileList.find(f => f.name === remoteFilename);
+      if (uploadedFile) {
+        console.log(`✅ Arquivo confirmado no servidor: ${remoteFilename} (${uploadedFile.size} bytes)`);
+      } else {
+        console.log(`⚠️ Arquivo não encontrado na listagem: ${remoteFilename}`);
+      }
+    } catch (listError) {
+      console.log(`⚠️ Erro ao listar arquivos: ${listError.message}`);
+    }
+    
     ftpSuccess = true;
 
   } catch (ftpError) {
@@ -94,13 +117,13 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     });
   }
 
-  // Salvar no banco
+  // Salvar no banco - apenas o nome do arquivo
   const imageData = {
     filename: remoteFilename,
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: imageUrl,
+    url: remoteFilename, // Salvar apenas o nome do arquivo
     type: req.body.type || 'general',
     entityId: req.body.entityId || null,
     entityType: req.body.entityType || null
@@ -127,7 +150,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       success: true,
       imageId: result.insertId,
       filename: remoteFilename,
-      url: imageUrl,
+      url: remoteFilename, // Retornar apenas o nome do arquivo
       message: 'Imagem enviada com sucesso'
     });
 
