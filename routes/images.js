@@ -56,12 +56,21 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     
     try {
         console.log('Tentando conectar ao FTP...');
-        await client.access(ftpConfig);
+        await client.access({
+            host: ftpConfig.host,
+            user: ftpConfig.user,
+            password: ftpConfig.password,
+            secure: ftpConfig.secure,
+            port: ftpConfig.port
+        });
         console.log('Conexão FTP estabelecida com sucesso.');
         
         console.log('Tentando garantir o diretório remoto...');
-        await client.ensureDir(ftpConfig.remoteDirectory);
-        console.log('Diretório remoto garantido.');
+        // O cliente FTP já entra no diretório raiz do usuário.
+        // O caminho a ser usado é relativo a esse diretório.
+        const simplifiedRemotePath = ftpConfig.remoteDirectory.split('public_html/')[1];
+        await client.ensureDir(simplifiedRemotePath);
+        console.log('Diretório remoto garantido:', simplifiedRemotePath);
         
         console.log('Iniciando upload do buffer para o FTP...');
         const readableStream = Readable.from(file.buffer);
@@ -123,7 +132,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
-// Rota para listar imagens
 router.get('/list', async (req, res) => {
   const pool = req.app.get('pool');
   if (!pool) {
