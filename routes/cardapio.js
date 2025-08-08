@@ -156,7 +156,7 @@ module.exports = (pool) => {
         }
     });
 
-    // Rotas para Itens (CORRIGIDAS)
+    // Rotas para Itens
     router.post('/items', async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, order, toppings } = req.body;
         try {
@@ -180,7 +180,6 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            // A query foi ajustada para os nomes de colunas do banco
             const [items] = await pool.query('SELECT mi.id, mi.name, mi.description, mi.price, mi.imageUrl, mi.categoryId, mi.barId, mi.order, mc.name as category FROM menu_items mi JOIN menu_categories mc ON mi.categoryId = mc.id');
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
@@ -248,16 +247,6 @@ module.exports = (pool) => {
         } catch (error) {
             console.error('Erro ao deletar item:', error);
             res.status(500).json({ error: 'Erro ao deletar item.' });
-        }
-    });
-
-    // Rota para upload de imagens (Simulação)
-    router.post('/images/upload', async (req, res) => {
-        try {
-            const imageUrl = `https://images.unsplash.com/photo-${Date.now()}?w=400&h=300&fit=crop`;
-            res.json({ success: true, url: imageUrl });
-        } catch (error) {
-            res.status(500).json({ error: 'Erro no upload da imagem.' });
         }
     });
     
