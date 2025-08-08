@@ -5,7 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const ftp = require('basic-ftp');
 const { customAlphabet } = require('nanoid');
-const { Readable } = require('stream'); // Importado a classe Readable
+const { Readable } = require('stream');
 
 const router = express.Router();
 
@@ -64,7 +64,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log('Diretório remoto garantido.');
         
         console.log('Iniciando upload do buffer para o FTP...');
-        // CORREÇÃO: Cria um stream a partir do buffer do arquivo
         const readableStream = Readable.from(file.buffer);
         await client.uploadFrom(readableStream, remoteFilename);
         console.log('Upload FTP concluído com sucesso.');
