@@ -12,7 +12,7 @@ module.exports = {
         'http://127.0.0.1:3001',
         'https://vamos-comemorar-next.vercel.app',
         'https://vamos-comemorar-mobile.vercel.app',
-        'https://www.grupoideiaum.com.br'
+        'https://grupoideiaum.com.br'
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -39,7 +39,7 @@ module.exports = {
     secure: false, // Pode ser necessário mudar para 'true' se o servidor suportar FTPS
     port: 21,
     remoteDirectory: '/home/u621081794/domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/',
-    baseUrl: 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
+    baseUrl: 'https://grupoideiaum.com.br/cardapio-agilizaiapp/'
   },
 
   // Configurações de upload

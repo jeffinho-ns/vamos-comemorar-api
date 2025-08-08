@@ -8,7 +8,7 @@ module.exports = {
       origin: [
         'https://vamos-comemorar-next.vercel.app',
         'https://vamos-comemorar-mobile.vercel.app',
-        'https://www.grupoideiaum.com.br',
+        'https://grupoideiaum.com.br',
         'http://localhost:3000',
         'http://localhost:3001',
         'http://127.0.0.1:3000',
@@ -39,7 +39,7 @@ module.exports = {
     secure: false,
     port: 21,
     remoteDirectory: '/home/u621081794/domains/grupoideiaum.com.br/public_html/cardapio-agilizaiapp/',
-    baseUrl: 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
+    baseUrl: 'https://grupoideiaum.com.br/cardapio-agilizaiapp/'
   },
 
   // Configurações de upload

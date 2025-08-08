@@ -30,6 +30,7 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
+  console.log('📤 Iniciando upload de imagem...');
   const pool = req.app.get('pool');
   const ftpConfig = req.app.get('ftpConfig');
 
@@ -39,6 +40,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   }
 
   if (!req.file) {
+    console.log('❌ Nenhum arquivo foi enviado');
     return res.status(400).json({ error: 'Nenhum arquivo foi enviado' });
   }
 
@@ -46,6 +48,9 @@ router.post('/upload', upload.single('image'), async (req, res) => {
   const extension = path.extname(file.originalname);
   const remoteFilename = `${nanoid()}${extension}`;
   const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
+  
+  console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+  console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
 
   const client = new ftp.Client();
   client.ftp.verbose = true;
@@ -62,18 +67,27 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     });
     console.log('Conexão FTP estabelecida com sucesso.');
 
-    console.log('Garantindo diretório remoto...');
-    await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
-    console.log('Diretório remoto garantido.');
+    console.log('Verificando diretório remoto...');
+    try {
+      await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+      console.log('Diretório remoto verificado.');
+    } catch (dirError) {
+      // Ignora erros de diretório já existente
+      if (!dirError.message.includes('File exists')) {
+        throw dirError;
+      }
+      console.log('Diretório remoto já existe.');
+    }
 
-    console.log('Enviando arquivo para o FTP...');
+    console.log(`Enviando arquivo ${remoteFilename} para o FTP...`);
     const readableStream = Readable.from(file.buffer);
     await client.uploadFrom(readableStream, remoteFilename);
-    console.log('Upload FTP concluído.');
+    console.log(`Upload FTP concluído: ${remoteFilename} (${file.size} bytes)`);
     ftpSuccess = true;
 
   } catch (ftpError) {
-    console.error('Erro no upload para o FTP:', ftpError.stack);
+    console.error('❌ Erro no upload para o FTP:', ftpError.message);
+    console.error('Stack trace:', ftpError.stack);
     return res.status(500).json({
       error: 'Erro ao fazer upload para o servidor FTP',
       details: ftpError.message
@@ -108,6 +122,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       ]
     );
 
+    console.log(`✅ Imagem salva no banco: ID ${result.insertId}, Filename: ${remoteFilename}`);
     res.json({
       success: true,
       imageId: result.insertId,
@@ -117,18 +132,26 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     });
 
   } catch (dbError) {
-    console.error('Erro ao salvar no banco:', dbError.stack);
+    console.error('❌ Erro ao salvar no banco:', dbError.message);
+    console.error('Stack trace:', dbError.stack);
+    
     // Remove do FTP se falhar no banco
-    try {
-      await client.remove(remoteFilename);
-      console.log('Arquivo removido do FTP após erro no banco.');
-    } catch (removeError) {
-      console.warn('Falha ao remover arquivo do FTP após erro no banco:', removeError.message);
+    if (ftpSuccess) {
+      try {
+        await client.remove(remoteFilename);
+        console.log('🗑️ Arquivo removido do FTP após erro no banco.');
+      } catch (removeError) {
+        console.warn('⚠️ Falha ao remover arquivo do FTP após erro no banco:', removeError.message);
+      }
     }
-    return res.status(500).json({ error: 'Erro ao salvar imagem no banco de dados' });
+    
+    return res.status(500).json({ 
+      error: 'Erro ao salvar imagem no banco de dados',
+      details: dbError.message 
+    });
   } finally {
     client.close();
-    console.log('Conexão FTP fechada.');
+    console.log('🔌 Conexão FTP fechada.');
   }
 });
 
