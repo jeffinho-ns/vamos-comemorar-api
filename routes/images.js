@@ -24,23 +24,13 @@ const upload = multer({
   }
 });
 
-// Configuração FTP - Usar APENAS variáveis de ambiente
-const ftpConfig = {
-  host: process.env.FTP_HOST || '195.35.41.247',
-  user: process.env.FTP_USER || 'u621081794',
-  password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
-  secure: process.env.FTP_SECURE === 'true',
-  port: parseInt(process.env.FTP_PORT) || 21,
-  remoteDirectory: process.env.FTP_REMOTE_DIR || '/cardapio-agilizaiapp/',
-  baseUrl: process.env.FTP_BASE_URL || 'https://www.grupoideiaum.com.br/cardapio-agilizaiapp/'
-};
-
 // Gerador de nome de arquivo único de 10 caracteres
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
   const pool = req.app.get('pool');
+  const ftpConfig = req.app.get('ftpConfig'); // Acessando a configuração do FTP
   
   if (!pool) {
       console.error('Pool de conexão com o banco não disponível.');
@@ -54,7 +44,7 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     const file = req.file;
     const extension = path.extname(file.originalname);
-    const remoteFilename = `${nanoid()}${extension}`; // Nome de arquivo único
+    const remoteFilename = `${nanoid()}${extension}`;
     const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
 
     let ftpSuccess = false;
@@ -99,7 +89,6 @@ router.post('/upload', upload.single('image'), async (req, res) => {
       [imageData.filename, imageData.originalName, imageData.fileSize, imageData.mimeType, imageData.url, imageData.type, imageData.entityId, imageData.entityType]
     );
 
-    // CORREÇÃO: Acessando o insertId da forma correta
     res.json({
       success: true,
       imageId: result.insertId,
@@ -157,6 +146,8 @@ router.get('/list', async (req, res) => {
 
 router.delete('/:imageId', async (req, res) => {
   const pool = req.app.get('pool');
+  const ftpConfig = req.app.get('ftpConfig');
+  
   if (!pool) {
       return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão não disponível.' });
   }

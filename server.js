@@ -27,6 +27,7 @@ const pool = require('./config/database');
 
 // Disponibilizar pool para as rotas
 app.set('pool', pool);
+app.set('ftpConfig', config.ftp); // Adicionando a configuração do FTP ao app
 
 const PORT = config.server.port;
 
@@ -49,9 +50,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users')(pool, generalUpload);
 const placeRoutes = require('./routes/places')(pool, generalUpload);
 
-// ---- MODIFICAÇÃO AQUI: Importa router E a função checkAndAwardBrindes ----
 const { router: reservasRouter, checkAndAwardBrindes } = require('./routes/reservas')(pool);
-// ---- MODIFICAÇÃO AQUI: Passa checkAndAwardBrindes para eventsRoutes ----
 const eventsRoutes = require('./routes/events')(pool, checkAndAwardBrindes); 
 
 const qrcodeRoutes = require('./routes/qrcode');
@@ -61,7 +60,6 @@ const convidadosRoutes = require('./routes/convidados')(pool);
 const rulesRoutes = require('./routes/rules')(pool);
 const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool);
 
-// CORREÇÃO AQUI: As duas rotas precisam ser chamadas como funções com 'pool'
 const imagesRouter = require('./routes/images')(pool);
 const cardapioRoutes = require('./routes/cardapio')(pool);
 
@@ -71,7 +69,7 @@ app.use('/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/events', eventsRoutes);
-app.use('/api/reservas', reservasRouter); // Usa o router destruturado
+app.use('/api/reservas', reservasRouter);
 app.use('/api/qrcode', qrcodeRoutes);
 app.use('/api/convidados', convidadosRoutes);
 app.use('/api/checkin', checkinRoutes);
