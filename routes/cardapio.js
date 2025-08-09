@@ -178,6 +178,16 @@ module.exports = (pool) => {
     // Listar todas as sub-categorias
     router.get('/subcategories', async (req, res) => {
         try {
+            // Verifica se a tabela existe antes de fazer a query
+            const [tables] = await pool.query("SHOW TABLES LIKE 'menu_subcategories'");
+            
+            if (tables.length === 0) {
+                // Tabela não existe, retorna array vazio
+                console.log('⚠️ Tabela menu_subcategories não existe, retornando array vazio');
+                res.json([]);
+                return;
+            }
+            
             const [subCategories] = await pool.query(`
                 SELECT 
                     ms.*,
@@ -288,24 +298,55 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            const [items] = await pool.query(`
-                SELECT 
-                    mi.id, 
-                    mi.name, 
-                    mi.description, 
-                    mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
-                    mi.subCategoryId,
-                    mi.order, 
-                    mc.name as category,
-                    ms.name as subCategoryName
-                FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
-                LEFT JOIN menu_subcategories ms ON mi.subCategoryId = ms.id
-                ORDER BY mi.barId, mi.categoryId, mi.subCategoryId, mi.order
-            `);
+            // Verifica se a tabela de subcategorias existe
+            const [tables] = await pool.query("SHOW TABLES LIKE 'menu_subcategories'");
+            const hasSubcategoriesTable = tables.length > 0;
+            
+            let query, items;
+            
+            if (hasSubcategoriesTable) {
+                // Query completa com subcategorias
+                query = `
+                    SELECT 
+                        mi.id, 
+                        mi.name, 
+                        mi.description, 
+                        mi.price, 
+                        mi.imageUrl, 
+                        mi.categoryId, 
+                        mi.barId, 
+                        mi.subCategoryId,
+                        mi.order, 
+                        mc.name as category,
+                        ms.name as subCategoryName
+                    FROM menu_items mi 
+                    JOIN menu_categories mc ON mi.categoryId = mc.id
+                    LEFT JOIN menu_subcategories ms ON mi.subCategoryId = ms.id
+                    ORDER BY mi.barId, mi.categoryId, mi.subCategoryId, mi.order
+                `;
+            } else {
+                // Query sem subcategorias (fallback)
+                console.log('⚠️ Tabela menu_subcategories não existe, usando query simplificada');
+                query = `
+                    SELECT 
+                        mi.id, 
+                        mi.name, 
+                        mi.description, 
+                        mi.price, 
+                        mi.imageUrl, 
+                        mi.categoryId, 
+                        mi.barId, 
+                        mi.order, 
+                        mc.name as category,
+                        mi.subCategory as subCategoryName
+                    FROM menu_items mi 
+                    JOIN menu_categories mc ON mi.categoryId = mc.id
+                    ORDER BY mi.barId, mi.categoryId, mi.order
+                `;
+            }
+            
+            [items] = await pool.query(query);
+            
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
                 return { ...item, toppings };
