@@ -157,116 +157,31 @@ module.exports = (pool) => {
     });
 
     // ============================================
-    // ROTAS PARA SUB-CATEGORIAS
+    // ROTAS PARA SUB-CATEGORIAS (Sistema simples com varchar)
     // ============================================
 
-    // Criar sub-categoria
-    router.post('/subcategories', async (req, res) => {
-        const { name, categoryId, barId, order } = req.body;
-        try {
-            const [result] = await pool.query(
-                'INSERT INTO menu_subcategories (name, categoryId, barId, `order`) VALUES (?, ?, ?, ?)',
-                [name, categoryId, barId, order || 0]
-            );
-            res.status(201).json({ id: result.insertId, ...req.body });
-        } catch (error) {
-            console.error('Erro ao criar sub-categoria:', error);
-            res.status(500).json({ error: 'Erro ao criar sub-categoria.' });
-        }
-    });
-
-    // Listar todas as sub-categorias
+    // Listar todas as sub-categorias únicas
     router.get('/subcategories', async (req, res) => {
         try {
-            // Verifica se a tabela existe antes de fazer a query
-            const [tables] = await pool.query("SHOW TABLES LIKE 'menu_subcategories'");
-            
-            if (tables.length === 0) {
-                // Tabela não existe, retorna array vazio
-                console.log('⚠️ Tabela menu_subcategories não existe, retornando array vazio');
-                res.json([]);
-                return;
-            }
-            
+            // Busca sub-categorias únicas dos itens existentes
             const [subCategories] = await pool.query(`
-                SELECT 
-                    ms.*,
+                SELECT DISTINCT 
+                    mi.subCategory as name,
+                    mi.categoryId,
+                    mi.barId,
                     mc.name as categoryName,
                     b.name as barName
-                FROM menu_subcategories ms
-                LEFT JOIN menu_categories mc ON ms.categoryId = mc.id
-                LEFT JOIN bars b ON ms.barId = b.id
-                ORDER BY ms.barId, ms.categoryId, ms.order
+                FROM menu_items mi
+                JOIN menu_categories mc ON mi.categoryId = mc.id
+                JOIN bars b ON mi.barId = b.id
+                WHERE mi.subCategory IS NOT NULL 
+                  AND mi.subCategory != ''
+                ORDER BY b.name, mc.name, mi.subCategory
             `);
             res.json(subCategories);
         } catch (error) {
             console.error('Erro ao listar sub-categorias:', error);
             res.status(500).json({ error: 'Erro ao listar sub-categorias.' });
-        }
-    });
-
-    // Buscar sub-categoria específica
-    router.get('/subcategories/:id', async (req, res) => {
-        const { id } = req.params;
-        try {
-            const [subCategories] = await pool.query(`
-                SELECT 
-                    ms.*,
-                    mc.name as categoryName,
-                    b.name as barName
-                FROM menu_subcategories ms
-                LEFT JOIN menu_categories mc ON ms.categoryId = mc.id
-                LEFT JOIN bars b ON ms.barId = b.id
-                WHERE ms.id = ?
-            `, [id]);
-            
-            if (subCategories.length === 0) {
-                return res.status(404).json({ error: 'Sub-categoria não encontrada.' });
-            }
-            res.json(subCategories[0]);
-        } catch (error) {
-            console.error('Erro ao buscar sub-categoria:', error);
-            res.status(500).json({ error: 'Erro ao buscar sub-categoria.' });
-        }
-    });
-
-    // Atualizar sub-categoria
-    router.put('/subcategories/:id', async (req, res) => {
-        const { id } = req.params;
-        const { name, categoryId, barId, order } = req.body;
-        try {
-            await pool.query(
-                'UPDATE menu_subcategories SET name = ?, categoryId = ?, barId = ?, `order` = ? WHERE id = ?',
-                [name, categoryId, barId, order || 0, id]
-            );
-            res.json({ message: 'Sub-categoria atualizada com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao atualizar sub-categoria:', error);
-            res.status(500).json({ error: 'Erro ao atualizar sub-categoria.' });
-        }
-    });
-
-    // Deletar sub-categoria específica
-    router.delete('/subcategories/:id', async (req, res) => {
-        const { id } = req.params;
-        try {
-            await pool.query('DELETE FROM menu_subcategories WHERE id = ?', [id]);
-            res.json({ message: 'Sub-categoria deletada com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao deletar sub-categoria:', error);
-            res.status(500).json({ error: 'Erro ao deletar sub-categoria.' });
-        }
-    });
-
-    // Deletar todas as sub-categorias de uma categoria (usado ao editar categoria)
-    router.delete('/subcategories/category/:categoryId', async (req, res) => {
-        const { categoryId } = req.params;
-        try {
-            await pool.query('DELETE FROM menu_subcategories WHERE categoryId = ?', [categoryId]);
-            res.json({ message: 'Sub-categorias da categoria deletadas com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao deletar sub-categorias da categoria:', error);
-            res.status(500).json({ error: 'Erro ao deletar sub-categorias da categoria.' });
         }
     });
 
@@ -276,11 +191,11 @@ module.exports = (pool) => {
 
     // Rotas para Itens
     router.post('/items', async (req, res) => {
-        const { name, description, price, imageUrl, categoryId, barId, subCategoryId, order, toppings } = req.body;
+        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
         try {
             const [result] = await pool.query(
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategoryId, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, description, price, imageUrl, categoryId, barId, subCategoryId || null, order]
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order]
             );
             const itemId = result.insertId;
             if (toppings && toppings.length > 0) {
@@ -298,54 +213,25 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            // Verifica se a tabela de subcategorias existe
-            const [tables] = await pool.query("SHOW TABLES LIKE 'menu_subcategories'");
-            const hasSubcategoriesTable = tables.length > 0;
+            // Usa a estrutura atual com subCategory como varchar
+            const query = `
+                SELECT 
+                    mi.id, 
+                    mi.name, 
+                    mi.description, 
+                    mi.price, 
+                    mi.imageUrl, 
+                    mi.categoryId, 
+                    mi.barId, 
+                    mi.order, 
+                    mc.name as category,
+                    mi.subCategory as subCategoryName
+                FROM menu_items mi 
+                JOIN menu_categories mc ON mi.categoryId = mc.id
+                ORDER BY mi.barId, mi.categoryId, mi.order
+            `;
             
-            let query, items;
-            
-            if (hasSubcategoriesTable) {
-                // Query completa com subcategorias
-                query = `
-                    SELECT 
-                        mi.id, 
-                        mi.name, 
-                        mi.description, 
-                        mi.price, 
-                        mi.imageUrl, 
-                        mi.categoryId, 
-                        mi.barId, 
-                        mi.subCategoryId,
-                        mi.order, 
-                        mc.name as category,
-                        ms.name as subCategoryName
-                    FROM menu_items mi 
-                    JOIN menu_categories mc ON mi.categoryId = mc.id
-                    LEFT JOIN menu_subcategories ms ON mi.subCategoryId = ms.id
-                    ORDER BY mi.barId, mi.categoryId, mi.subCategoryId, mi.order
-                `;
-            } else {
-                // Query sem subcategorias (fallback)
-                console.log('⚠️ Tabela menu_subcategories não existe, usando query simplificada');
-                query = `
-                    SELECT 
-                        mi.id, 
-                        mi.name, 
-                        mi.description, 
-                        mi.price, 
-                        mi.imageUrl, 
-                        mi.categoryId, 
-                        mi.barId, 
-                        mi.order, 
-                        mc.name as category,
-                        mi.subCategory as subCategoryName
-                    FROM menu_items mi 
-                    JOIN menu_categories mc ON mi.categoryId = mc.id
-                    ORDER BY mi.barId, mi.categoryId, mi.order
-                `;
-            }
-            
-            [items] = await pool.query(query);
+            const [items] = await pool.query(query);
             
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
@@ -371,13 +257,11 @@ module.exports = (pool) => {
                     mi.imageUrl, 
                     mi.categoryId, 
                     mi.barId, 
-                    mi.subCategoryId,
                     mi.order, 
                     mc.name as category,
-                    ms.name as subCategoryName
+                    mi.subCategory as subCategoryName
                 FROM menu_items mi 
                 JOIN menu_categories mc ON mi.categoryId = mc.id
-                LEFT JOIN menu_subcategories ms ON mi.subCategoryId = ms.id
                 WHERE mi.id = ?
             `, [id]);
             if (items.length === 0) {
@@ -396,11 +280,11 @@ module.exports = (pool) => {
     // Rota para atualizar um item
     router.put('/items/:id', async (req, res) => {
         const { id } = req.params;
-        const { name, description, price, imageUrl, categoryId, barId, subCategoryId, order, toppings } = req.body;
+        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
         try {
             await pool.query(
-                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategoryId = ?, `order` = ? WHERE id = ?',
-                [name, description, price, imageUrl, categoryId, barId, subCategoryId || null, order, id]
+                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?',
+                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id]
             );
             
             if (toppings && toppings.length > 0) {
