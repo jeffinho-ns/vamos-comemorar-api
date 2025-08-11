@@ -13,7 +13,7 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024 // Limite de 5MB
+    fileSize: 10 * 1024 * 1024 // Limite de 10MB
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
@@ -58,9 +58,16 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
   try {
     console.log('Tentando conectar ao FTP...');
+    console.log('Configurações FTP:', {
+      host: ftpConfig.host,
+      user: ftpConfig.user,
+      port: ftpConfig.port,
+      secure: ftpConfig.secure
+    });
+    
     await client.access({
-      host: '195.35.41.247',
-      user: 'u621081794',
+      host: ftpConfig.host,
+      user: ftpConfig.user,
       password: ftpConfig.password,
       secure: ftpConfig.secure,
       port: ftpConfig.port
@@ -69,22 +76,35 @@ router.post('/upload', upload.single('image'), async (req, res) => {
 
     console.log('Verificando diretório remoto...');
     try {
-      await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
-      console.log('Diretório remoto verificado.');
-    } catch (dirError) {
-      // Ignora erros de diretório já existente
-      if (!dirError.message.includes('File exists')) {
-        console.log('⚠️ Erro ao verificar diretório:', dirError.message);
-        // Tentar navegar para o diretório diretamente
+      // Tentar navegar para o diretório primeiro
+      await client.cd(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+      console.log('✅ Navegação para diretório bem-sucedida.');
+    } catch (cdError) {
+      console.log('⚠️ Erro ao navegar para diretório:', cdError.message);
+      // Tentar criar o diretório se não existir
+      try {
+        await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+        console.log('✅ Diretório criado/verificado com sucesso.');
+      } catch (dirError) {
+        console.log('❌ Erro ao criar/verificar diretório:', dirError.message);
+        // Tentar criar manualmente
         try {
-          await client.cd(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
-          console.log('✅ Navegação para diretório bem-sucedida.');
-        } catch (cdError) {
-          console.log('❌ Erro ao navegar para diretório:', cdError.message);
-          throw cdError;
+          const dirs = ftpConfig.remoteDirectory.split('/').filter(d => d);
+          let currentPath = '';
+          for (const dir of dirs) {
+            currentPath += '/' + dir;
+            try {
+              await client.cd(currentPath);
+            } catch (e) {
+              await client.send('MKD', currentPath);
+              console.log(`✅ Diretório criado: ${currentPath}`);
+            }
+          }
+          console.log('✅ Estrutura de diretórios criada com sucesso.');
+        } catch (mkdirError) {
+          console.log('❌ Erro ao criar estrutura de diretórios:', mkdirError.message);
+          throw mkdirError;
         }
-      } else {
-        console.log('Diretório remoto já existe.');
       }
     }
 
@@ -92,6 +112,9 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     const readableStream = Readable.from(file.buffer);
     await client.uploadFrom(readableStream, remoteFilename);
     console.log(`Upload FTP concluído: ${remoteFilename} (${file.size} bytes)`);
+    
+    // Aguardar um pouco para garantir que o arquivo foi processado
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Verificar se o arquivo foi realmente enviado
     try {
@@ -101,6 +124,15 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         console.log(`✅ Arquivo confirmado no servidor: ${remoteFilename} (${uploadedFile.size} bytes)`);
       } else {
         console.log(`⚠️ Arquivo não encontrado na listagem: ${remoteFilename}`);
+        // Tentar listar novamente após um delay
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const fileList2 = await client.list();
+        const uploadedFile2 = fileList2.find(f => f.name === remoteFilename);
+        if (uploadedFile2) {
+          console.log(`✅ Arquivo confirmado na segunda verificação: ${remoteFilename}`);
+        } else {
+          console.log(`❌ Arquivo ainda não encontrado após segunda verificação: ${remoteFilename}`);
+        }
       }
     } catch (listError) {
       console.log(`⚠️ Erro ao listar arquivos: ${listError.message}`);
@@ -117,13 +149,13 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     });
   }
 
-  // Salvar no banco - apenas o nome do arquivo
+  // Salvar no banco - URL completa para exibição
   const imageData = {
     filename: remoteFilename,
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: remoteFilename, // Salvar apenas o nome do arquivo
+    url: `${ftpConfig.baseUrl}${remoteFilename}`, // URL completa para exibição
     type: req.body.type || 'general',
     entityId: req.body.entityId || null,
     entityType: req.body.entityType || null
@@ -146,11 +178,31 @@ router.post('/upload', upload.single('image'), async (req, res) => {
     );
 
     console.log(`✅ Imagem salva no banco: ID ${result.insertId}, Filename: ${remoteFilename}`);
+    console.log(`🌐 URL completa: ${ftpConfig.baseUrl}${remoteFilename}`);
+    
+    // Verificar se a URL está acessível
+    try {
+      const testUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
+      console.log(`🔍 URL da imagem: ${testUrl}`);
+      
+      // Testar algumas variações da URL para debug
+      const variations = [
+        testUrl,
+        testUrl.replace('https://', 'http://'),
+        testUrl.replace('grupoideiaum.com.br', 'www.grupoideiaum.com.br'),
+        `https://grupoideiaum.com.br/cardapio-agilizaiapp/${remoteFilename}`
+      ];
+      
+      console.log('🔍 Variações de URL para teste:', variations);
+    } catch (urlError) {
+      console.log(`⚠️ Erro ao testar URL: ${urlError.message}`);
+    }
+    
     res.json({
       success: true,
       imageId: result.insertId,
       filename: remoteFilename,
-      url: remoteFilename, // Retornar apenas o nome do arquivo
+      url: `${ftpConfig.baseUrl}${remoteFilename}`, // URL completa para exibição
       message: 'Imagem enviada com sucesso'
     });
 

@@ -1,4 +1,4 @@
-// Configuração de ambiente para produção
+// Configuração de ambiente para desenvolvimento
 module.exports = {
   // Configurações do servidor
   server: {
@@ -10,11 +10,11 @@ module.exports = {
         'http://localhost:3001',
         'https://vamos-comemorar-next.vercel.app',
         'https://grupoideiaum.com.br',
-        'https://www.grupoideiaum.com.br' // Adicionar para compatibilidade com URLs existentes
+        'https://www.grupoideiaum.com.br'
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Content-Length']
     }
   },
 
@@ -29,7 +29,7 @@ module.exports = {
     queueLimit: 0
   },
 
-  // Configurações FTP (AJUSTADO)
+  // Configurações FTP (DESENVOLVIMENTO)
   ftp: {
     host: process.env.FTP_HOST || '195.35.41.247',
     user: process.env.FTP_USER || 'u621081794',

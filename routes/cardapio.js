@@ -6,16 +6,26 @@ const router = express.Router();
 module.exports = (pool) => {
     // Rota para criar um novo estabelecimento
     router.post('/bars', async (req, res) => {
-        const { name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
+        const { name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
         try {
             const ratingValue = rating ? parseFloat(rating) : null;
             const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
             const latitudeValue = latitude ? parseFloat(latitude) : null;
             const longitudeValue = longitude ? parseFloat(longitude) : null;
             
+            // Tratar coverImages - pode ser array ou string
+            let coverImagesValue = '[]';
+            if (coverImages) {
+                if (Array.isArray(coverImages)) {
+                    coverImagesValue = JSON.stringify(coverImages);
+                } else if (typeof coverImages === 'string') {
+                    coverImagesValue = coverImages;
+                }
+            }
+            
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, slug, description, logoUrl, coverImageUrl, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities)]
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, slug, description, logoUrl, coverImageUrl, coverImagesValue, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities)]
             );
             const newBar = { id: result.insertId, ...req.body };
             res.status(201).json(newBar);
@@ -28,10 +38,11 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/bars', async (req, res) => {
         try {
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities FROM bars');
+            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars');
             const barsFormatted = bars.map(bar => ({
                 ...bar,
-                amenities: bar.amenities ? JSON.parse(bar.amenities) : []
+                amenities: bar.amenities ? JSON.parse(bar.amenities) : [],
+                coverImages: bar.coverImages ? JSON.parse(bar.coverImages) : []
             }));
             res.json(barsFormatted);
         } catch (error) {
@@ -44,12 +55,13 @@ module.exports = (pool) => {
     router.get('/bars/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities FROM bars WHERE id = ?', [id]);
+            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars WHERE id = ?', [id]);
             if (bars.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
             const bar = bars[0];
             bar.amenities = bar.amenities ? JSON.parse(bar.amenities) : [];
+            bar.coverImages = bar.coverImages ? JSON.parse(bar.coverImages) : [];
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
@@ -60,16 +72,26 @@ module.exports = (pool) => {
     // Rota para atualizar um estabelecimento
     router.put('/bars/:id', async (req, res) => {
         const { id } = req.params;
-        const { name, slug, description, logoUrl, coverImageUrl, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
+        const { name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
         try {
             const ratingValue = rating ? parseFloat(rating) : null;
             const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
             const latitudeValue = latitude ? parseFloat(latitude) : null;
             const longitudeValue = longitude ? parseFloat(longitude) : null;
 
+            // Tratar coverImages - pode ser array ou string
+            let coverImagesValue = '[]';
+            if (coverImages) {
+                if (Array.isArray(coverImages)) {
+                    coverImagesValue = JSON.stringify(coverImages);
+                } else if (typeof coverImages === 'string') {
+                    coverImagesValue = coverImages;
+                }
+            }
+
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
-                [name, slug, description, logoUrl, coverImageUrl, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities), id]
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
+                [name, slug, description, logoUrl, coverImageUrl, coverImagesValue, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities), id]
             );
             res.json({ message: 'Estabelecimento atualizado com sucesso.' });
         } catch (error) {

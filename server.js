@@ -13,7 +13,7 @@ require("dotenv").config();
 
 // Configuração baseada no ambiente
 const isDevelopment = process.env.NODE_ENV !== 'production';
-const config = require(isDevelopment ? './config/development' : './config/environment');
+const config = require(isDevelopment ? './config/development' : './config/production');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +35,12 @@ const PORT = config.server.port;
 app.use(cors(config.server.cors));
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
+
+// Middleware para logs de requisições
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
 
 // Configuração de Uploads e Diretório Estático
 const uploadDir = path.join(__dirname, 'uploads');
