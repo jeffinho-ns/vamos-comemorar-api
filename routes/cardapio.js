@@ -1,19 +1,21 @@
-// routes/cardapio.js
-
 const express = require('express');
 const router = express.Router();
 
 module.exports = (pool) => {
     // Rota para criar um novo estabelecimento
     router.post('/bars', async (req, res) => {
-        const { name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
+        const { 
+            name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
+            reviewsCount, latitude, longitude, amenities,
+            popupImageUrl // ✨ Adicionado
+        } = req.body;
+        
         try {
             const ratingValue = rating ? parseFloat(rating) : null;
             const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
             const latitudeValue = latitude ? parseFloat(latitude) : null;
             const longitudeValue = longitude ? parseFloat(longitude) : null;
             
-            // Tratar coverImages - pode ser array ou string
             let coverImagesValue = '[]';
             if (coverImages) {
                 if (Array.isArray(coverImages)) {
@@ -24,9 +26,14 @@ module.exports = (pool) => {
             }
             
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, slug, description, logoUrl, coverImageUrl, coverImagesValue, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities)]
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', // ✨ Adicionada coluna na query
+                [
+                    name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
+                    address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
+                    JSON.stringify(amenities), popupImageUrl // ✨ Adicionado valor na lista
+                ]
             );
+            
             const newBar = { id: result.insertId, ...req.body };
             res.status(201).json(newBar);
         } catch (error) {
@@ -72,14 +79,18 @@ module.exports = (pool) => {
     // Rota para atualizar um estabelecimento
     router.put('/bars/:id', async (req, res) => {
         const { id } = req.params;
-        const { name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities } = req.body;
+        const { 
+            name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
+            reviewsCount, latitude, longitude, amenities,
+            popupImageUrl // ✨ Adicionado
+        } = req.body;
+        
         try {
             const ratingValue = rating ? parseFloat(rating) : null;
             const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
             const latitudeValue = latitude ? parseFloat(latitude) : null;
             const longitudeValue = longitude ? parseFloat(longitude) : null;
 
-            // Tratar coverImages - pode ser array ou string
             let coverImagesValue = '[]';
             if (coverImages) {
                 if (Array.isArray(coverImages)) {
@@ -88,11 +99,17 @@ module.exports = (pool) => {
                     coverImagesValue = coverImages;
                 }
             }
-
+            
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ? WHERE id = ?',
-                [name, slug, description, logoUrl, coverImageUrl, coverImagesValue, address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, JSON.stringify(amenities), id]
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ? WHERE id = ?', // ✨ Adicionada coluna na query
+                [
+                    name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
+                    address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
+                    JSON.stringify(amenities), popupImageUrl, // ✨ Adicionado valor na lista
+                    id
+                ]
             );
+            
             res.json({ message: 'Estabelecimento atualizado com sucesso.' });
         } catch (error) {
             console.error('Erro ao atualizar estabelecimento:', error);
@@ -185,7 +202,6 @@ module.exports = (pool) => {
     // Listar todas as sub-categorias únicas
     router.get('/subcategories', async (req, res) => {
         try {
-            // Busca sub-categorias únicas dos itens existentes
             const [subCategories] = await pool.query(`
                 SELECT DISTINCT 
                     mi.subCategory as name,
@@ -235,7 +251,6 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            // Usa a estrutura atual com subCategory como varchar
             const query = `
                 SELECT 
                     mi.id, 
