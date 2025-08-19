@@ -8,7 +8,11 @@ module.exports = {
       origin: [
         'http://localhost:3000',
         'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
         'https://vamos-comemorar-next.vercel.app',
+        "https://agilizaiapp.com.br",
+        "https://www.agilizaiapp.com.br",
         'https://grupoideiaum.com.br',
         'https://www.grupoideiaum.com.br'
       ],

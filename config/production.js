@@ -6,11 +6,15 @@ module.exports = {
     host: '0.0.0.0',
     cors: {
       origin: [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
         'https://vamos-comemorar-next.vercel.app',
+        "https://agilizaiapp.com.br",
+        "https://www.agilizaiapp.com.br",
         'https://grupoideiaum.com.br',
-        'https://www.grupoideiaum.com.br',
-        'http://localhost:3000', // Para desenvolvimento local
-        'http://localhost:3001'  // Para desenvolvimento local
+        'https://www.grupoideiaum.com.br'
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
