@@ -27,7 +27,6 @@ const router = express.Router();
 // --- REMOVA ESTA LINHA TAMBÉM ---
 // const IMAGE_DIRECTORY = path.join(__dirname, 'uploads');
 
-
 // ------------------------------
 
 module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUpload' DO server.js
@@ -333,7 +332,7 @@ module.exports = (pool, upload) => { // 'upload' AQUI É A INSTÂNCIA 'generalUp
         const foto_perfil = req.file ? req.file.filename : null;
 
         console.log("PUT /:id - Dados recebidos:", req.body);
-        console.log("PUT /:id - Arquivo recebido (req.file):", req.file);
+        console.log("PUT /me - Arquivo recebido (req.file):", req.file);
 
         try {
             // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários

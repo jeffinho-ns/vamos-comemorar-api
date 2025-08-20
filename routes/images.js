@@ -28,6 +28,190 @@ const upload = multer({
 // Gerador de nome de arquivo único
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
+// Rota para upload de foto de perfil específica para o Flutter
+router.post('/upload-profile-photo', upload.single('foto_perfil'), async (req, res) => {
+  console.log('📤 Iniciando upload de foto de perfil...');
+  const pool = req.app.get('pool');
+  const ftpConfig = req.app.get('ftpConfig');
+
+  if (!pool || !ftpConfig) {
+    console.error('Dependências do servidor não disponíveis.');
+    return res.status(500).json({ error: 'Erro interno do servidor: configuração ausente.' });
+  }
+
+  if (!req.file) {
+    console.log('❌ Nenhum arquivo foi enviado');
+    return res.status(400).json({ error: 'Nenhum arquivo foi enviado' });
+  }
+
+  const file = req.file;
+  const extension = path.extname(file.originalname);
+  const remoteFilename = `profile_${nanoid()}${extension}`;
+  const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
+  
+  console.log(`📋 Detalhes da foto de perfil: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+  console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
+
+  const client = new ftp.Client();
+  client.ftp.verbose = true;
+  let ftpSuccess = false;
+
+  try {
+    console.log('Tentando conectar ao FTP...');
+    console.log('Configurações FTP:', {
+      host: ftpConfig.host,
+      user: ftpConfig.user,
+      port: ftpConfig.port,
+      secure: ftpConfig.secure
+    });
+    
+    await client.access({
+      host: ftpConfig.host,
+      user: ftpConfig.user,
+      password: ftpConfig.password,
+      secure: ftpConfig.secure,
+      port: ftpConfig.port
+    });
+    console.log('Conexão FTP estabelecida com sucesso.');
+
+    console.log('Verificando diretório remoto...');
+    try {
+      // Tentar navegar para o diretório primeiro
+      await client.cd(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+      console.log('✅ Navegação para diretório bem-sucedida.');
+    } catch (cdError) {
+      console.log('⚠️ Erro ao navegar para diretório:', cdError.message);
+      // Tentar criar o diretório se não existir
+      try {
+        await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+        console.log('✅ Diretório criado/verificado com sucesso.');
+      } catch (dirError) {
+        console.log('❌ Erro ao criar/verificar diretório:', dirError.message);
+        // Tentar criar manualmente
+        try {
+          const dirs = ftpConfig.remoteDirectory.split('/').filter(d => d);
+          let currentPath = '';
+          for (const dir of dirs) {
+            currentPath += '/' + dir;
+            try {
+              await client.cd(currentPath);
+            } catch (e) {
+              await client.send('MKD', currentPath);
+              console.log(`✅ Diretório criado: ${currentPath}`);
+            }
+          }
+          console.log('✅ Estrutura de diretórios criada com sucesso.');
+        } catch (mkdirError) {
+          console.log('❌ Erro ao criar estrutura de diretórios:', mkdirError.message);
+          throw mkdirError;
+        }
+      }
+    }
+
+    console.log(`Enviando foto de perfil ${remoteFilename} para o FTP...`);
+    const readableStream = Readable.from(file.buffer);
+    await client.uploadFrom(readableStream, remoteFilename);
+    console.log(`Upload FTP concluído: ${remoteFilename} (${file.size} bytes)`);
+    
+    // Aguardar um pouco para garantir que o arquivo foi processado
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Verificar se o arquivo foi realmente enviado
+    try {
+      const fileList = await client.list();
+      const uploadedFile = fileList.find(f => f.name === remoteFilename);
+      if (uploadedFile) {
+        console.log(`✅ Foto de perfil confirmada no servidor: ${remoteFilename} (${uploadedFile.size} bytes)`);
+      } else {
+        console.log(`⚠️ Foto de perfil não encontrada na listagem: ${remoteFilename}`);
+        // Tentar listar novamente após um delay
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const fileList2 = await client.list();
+        const uploadedFile2 = fileList2.find(f => f.name === remoteFilename);
+        if (uploadedFile2) {
+          console.log(`✅ Foto de perfil confirmada na segunda verificação: ${remoteFilename}`);
+        } else {
+          console.log(`❌ Foto de perfil ainda não encontrada após segunda verificação: ${remoteFilename}`);
+        }
+      }
+    } catch (listError) {
+      console.log(`⚠️ Erro ao listar arquivos: ${listError.message}`);
+    }
+    
+    ftpSuccess = true;
+
+  } catch (ftpError) {
+    console.error('❌ Erro no upload para o FTP:', ftpError.message);
+    console.error('Stack trace:', ftpError.stack);
+    return res.status(500).json({
+      error: 'Erro ao fazer upload para o servidor FTP',
+      details: ftpError.message
+    });
+  }
+
+  // Salvar no banco - URL completa para exibição
+  const imageData = {
+    filename: remoteFilename,
+    originalName: file.originalname,
+    fileSize: file.size,
+    mimeType: file.mimetype,
+    url: `${ftpConfig.baseUrl}${remoteFilename}`,
+    type: 'profile_photo',
+    entityId: req.body.userId || null,
+    entityType: 'user'
+  };
+
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        imageData.filename,
+        imageData.originalName,
+        imageData.fileSize,
+        imageData.mimeType,
+        imageData.url,
+        imageData.type,
+        imageData.entityId,
+        imageData.entityType
+      ]
+    );
+
+    console.log(`✅ Foto de perfil salva no banco: ID ${result.insertId}, Filename: ${remoteFilename}`);
+    console.log(`🌐 URL completa: ${ftpConfig.baseUrl}${remoteFilename}`);
+    
+    res.json({
+      success: true,
+      imageId: result.insertId,
+      filename: remoteFilename,
+      url: `${ftpConfig.baseUrl}${remoteFilename}`,
+      message: 'Foto de perfil enviada com sucesso'
+    });
+
+  } catch (dbError) {
+    console.error('❌ Erro ao salvar no banco:', dbError.message);
+    console.error('Stack trace:', dbError.stack);
+    
+    // Remove do FTP se falhar no banco
+    if (ftpSuccess) {
+      try {
+        await client.remove(remoteFilename);
+        console.log('🗑️ Arquivo removido do FTP após erro no banco.');
+      } catch (removeError) {
+        console.warn('⚠️ Falha ao remover arquivo do FTP após erro no banco:', removeError.message);
+      }
+    }
+    
+    return res.status(500).json({ 
+      error: 'Erro ao salvar foto de perfil no banco de dados',
+      details: dbError.message 
+    });
+  } finally {
+    client.close();
+    console.log('🔌 Conexão FTP fechada.');
+  }
+});
+
 // Rota para upload de imagem
 router.post('/upload', upload.single('image'), async (req, res) => {
   console.log('📤 Iniciando upload de imagem...');
