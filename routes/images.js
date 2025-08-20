@@ -222,7 +222,7 @@ router.post('/upload-profile-photo', upload.single('foto_perfil'), handleMulterE
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: `${ftpConfig.baseUrl}${remoteFilename}`,
+    url: remoteFilename, // APENAS o filename, não a URL completa
     type: 'profile_photo',
     entityId: req.body.userId || null,
     entityType: 'user'
@@ -250,8 +250,7 @@ router.post('/upload-profile-photo', upload.single('foto_perfil'), handleMulterE
     res.json({
       success: true,
       imageId: result.insertId,
-      filename: remoteFilename,
-      url: `${ftpConfig.baseUrl}${remoteFilename}`,
+      filename: remoteFilename, // APENAS o filename, como no projeto Next.js
       message: 'Foto de perfil enviada com sucesso'
     });
 
@@ -400,13 +399,13 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     });
   }
 
-  // Salvar no banco - URL completa para exibição
+  // Salvar no banco - APENAS o filename, como no projeto Next.js
   const imageData = {
     filename: remoteFilename,
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: `${ftpConfig.baseUrl}${remoteFilename}`, // URL completa para exibição
+    url: remoteFilename, // APENAS o filename, não a URL completa
     type: req.body.type || 'general',
     entityId: req.body.entityId || null,
     entityType: req.body.entityType || null
@@ -452,8 +451,7 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     res.json({
       success: true,
       imageId: result.insertId,
-      filename: remoteFilename,
-      url: `${ftpConfig.baseUrl}${remoteFilename}`, // URL completa para exibição
+      filename: remoteFilename, // APENAS o filename, como no projeto Next.js
       message: 'Imagem enviada com sucesso'
     });
 
