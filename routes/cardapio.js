@@ -208,18 +208,281 @@ module.exports = (pool) => {
                     mi.categoryId,
                     mi.barId,
                     mc.name as categoryName,
-                    b.name as barName
+                    b.name as barName,
+                    COUNT(mi.id) as itemsCount
                 FROM menu_items mi
                 JOIN menu_categories mc ON mi.categoryId = mc.id
                 JOIN bars b ON mi.barId = b.id
                 WHERE mi.subCategory IS NOT NULL 
                   AND mi.subCategory != ''
-                ORDER BY b.name, mc.name, mi.subCategory
+                  AND mi.subCategory != ' '
+                GROUP BY mi.subCategory, mi.categoryId, mi.barId
+                ORDER BY b.name, mc.order, mi.subCategory
             `);
             res.json(subCategories);
         } catch (error) {
             console.error('Erro ao listar sub-categorias:', error);
             res.status(500).json({ error: 'Erro ao listar sub-categorias.' });
+        }
+    });
+
+    // Listar subcategorias de uma categoria específica
+    router.get('/subcategories/category/:categoryId', async (req, res) => {
+        const { categoryId } = req.params;
+        try {
+            const [subCategories] = await pool.query(`
+                SELECT DISTINCT 
+                    mi.subCategory as name,
+                    mi.categoryId,
+                    mi.barId,
+                    COUNT(mi.id) as itemsCount,
+                    MIN(mi.id) as id
+                FROM menu_items mi
+                WHERE mi.categoryId = ? 
+                  AND mi.subCategory IS NOT NULL 
+                  AND mi.subCategory != ''
+                  AND mi.subCategory != ' '
+                GROUP BY mi.subCategory, mi.categoryId, mi.barId
+                ORDER BY mi.subCategory
+            `, [categoryId]);
+            res.json(subCategories);
+        } catch (error) {
+            console.error('Erro ao listar sub-categorias da categoria:', error);
+            res.status(500).json({ error: 'Erro ao listar sub-categorias da categoria.' });
+        }
+    });
+
+    // Listar subcategorias de um bar específico
+    router.get('/subcategories/bar/:barId', async (req, res) => {
+        const { barId } = req.params;
+        try {
+            const [subCategories] = await pool.query(`
+                SELECT DISTINCT 
+                    mi.subCategory as name,
+                    mi.categoryId,
+                    mi.barId,
+                    mc.name as categoryName,
+                    COUNT(mi.id) as itemsCount,
+                    MIN(mi.id) as id
+                FROM menu_items mi
+                JOIN menu_categories mc ON mi.categoryId = mc.id
+                WHERE mi.barId = ? 
+                  AND mi.subCategory IS NOT NULL 
+                  AND mi.subCategory != ''
+                  AND mi.subCategory != ' '
+                GROUP BY mi.subCategory, mi.categoryId, mi.barId
+                ORDER BY mc.order, mi.subCategory
+            `, [barId]);
+            res.json(subCategories);
+        } catch (error) {
+            console.error('Erro ao listar sub-categorias do bar:', error);
+            res.status(500).json({ error: 'Erro ao listar sub-categorias do bar.' });
+        }
+    });
+
+    // Criar nova subcategoria (atualizando itens existentes ou criando novos)
+    router.post('/subcategories', async (req, res) => {
+        const { name, categoryId, barId, order } = req.body;
+        
+        if (!name || !categoryId || !barId) {
+            return res.status(400).json({ error: 'Nome, categoryId e barId são obrigatórios.' });
+        }
+
+        try {
+            // Verificar se a categoria existe
+            const [categories] = await pool.query('SELECT id FROM menu_categories WHERE id = ? AND barId = ?', [categoryId, barId]);
+            if (categories.length === 0) {
+                return res.status(404).json({ error: 'Categoria não encontrada.' });
+            }
+
+            // Verificar se o bar existe
+            const [bars] = await pool.query('SELECT id FROM bars WHERE id = ?', [barId]);
+            if (bars.length === 0) {
+                return res.status(404).json({ error: 'Bar não encontrado.' });
+            }
+
+            // Verificar se já existe uma subcategoria com o mesmo nome na mesma categoria
+            const [existing] = await pool.query(
+                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+                [name, categoryId, barId]
+            );
+            
+            if (existing[0].count > 0) {
+                return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
+            }
+
+            // Criar um item vazio com a nova subcategoria para "reservar" o nome
+            const [result] = await pool.query(
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0]
+            );
+
+            const newSubCategory = {
+                id: result.insertId,
+                name,
+                categoryId,
+                barId,
+                order: order || 0,
+                itemsCount: 1
+            };
+
+            res.status(201).json(newSubCategory);
+        } catch (error) {
+            console.error('Erro ao criar subcategoria:', error);
+            res.status(500).json({ error: 'Erro ao criar subcategoria.' });
+        }
+    });
+
+    // Atualizar subcategoria (renomear)
+    router.put('/subcategories/:id', async (req, res) => {
+        const { id } = req.params;
+        const { name, order } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({ error: 'Nome é obrigatório.' });
+        }
+
+        try {
+            // Buscar o item que representa a subcategoria
+            const [items] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
+            if (items.length === 0) {
+                return res.status(404).json({ error: 'Subcategoria não encontrada.' });
+            }
+
+            const item = items[0];
+            const oldSubCategoryName = item.subCategory;
+
+            // Verificar se o novo nome já existe na mesma categoria
+            if (name !== oldSubCategoryName) {
+                const [duplicate] = await pool.query(
+                    'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+                    [name, item.categoryId, item.barId]
+                );
+                
+                if (duplicate[0].count > 0) {
+                    return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
+                }
+
+                // Atualizar todos os itens que usam esta subcategoria
+                await pool.query(
+                    'UPDATE menu_items SET subCategory = ? WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+                    [name, oldSubCategoryName, item.categoryId, item.barId]
+                );
+            }
+
+            // Atualizar ordem se fornecida
+            if (order !== undefined && order !== item.order) {
+                await pool.query(
+                    'UPDATE menu_items SET `order` = ? WHERE id = ?',
+                    [order, id]
+                );
+            }
+
+            // Buscar item atualizado
+            const [updated] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
+            
+            res.json({
+                id: updated[0].id,
+                name: updated[0].subCategory,
+                categoryId: updated[0].categoryId,
+                barId: updated[0].barId,
+                order: updated[0].order,
+                message: 'Subcategoria atualizada com sucesso'
+            });
+        } catch (error) {
+            console.error('Erro ao atualizar subcategoria:', error);
+            res.status(500).json({ error: 'Erro ao atualizar subcategoria.' });
+        }
+    });
+
+    // Excluir subcategoria
+    router.delete('/subcategories/:id', async (req, res) => {
+        const { id } = req.params;
+
+        try {
+            // Buscar o item que representa a subcategoria
+            const [items] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
+            if (items.length === 0) {
+                return res.status(404).json({ error: 'Subcategoria não encontrada.' });
+            }
+
+            const item = items[0];
+            const subCategoryName = item.subCategory;
+
+            // Verificar se há outros itens usando esta subcategoria
+            const [otherItems] = await pool.query(
+                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ? AND id != ?',
+                [subCategoryName, item.categoryId, item.barId, id]
+            );
+
+            if (otherItems[0].count > 0) {
+                return res.status(400).json({ 
+                    error: `Não é possível excluir esta subcategoria. Ela está sendo usada por ${otherItems[0].count} outro(s) item(s).`,
+                    itemsCount: otherItems[0].count
+                });
+            }
+
+            // Excluir o item que representa a subcategoria
+            await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
+
+            res.json({ 
+                message: 'Subcategoria excluída com sucesso.',
+                deletedSubCategory: {
+                    name: subCategoryName,
+                    categoryId: item.categoryId,
+                    barId: item.barId
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao excluir subcategoria:', error);
+            res.status(500).json({ error: 'Erro ao excluir subcategoria.' });
+        }
+    });
+
+    // Reordenar subcategorias de uma categoria
+    router.put('/subcategories/reorder/:categoryId', async (req, res) => {
+        const { categoryId } = req.params;
+        const { subcategoryNames } = req.body; // Array de nomes na nova ordem
+
+        if (!Array.isArray(subcategoryNames) || subcategoryNames.length === 0) {
+            return res.status(400).json({ error: 'Array de nomes de subcategorias é obrigatório.' });
+        }
+
+        try {
+            // Verificar se a categoria existe
+            const [categories] = await pool.query('SELECT id FROM menu_categories WHERE id = ?', [categoryId]);
+            if (categories.length === 0) {
+                return res.status(404).json({ error: 'Categoria não encontrada.' });
+            }
+
+            // Atualizar ordem das subcategorias
+            for (let i = 0; i < subcategoryNames.length; i++) {
+                await pool.query(
+                    'UPDATE menu_items SET `order` = ? WHERE subCategory = ? AND categoryId = ?',
+                    [i, subcategoryNames[i], categoryId]
+                );
+            }
+
+            // Buscar subcategorias atualizadas
+            const [updated] = await pool.query(`
+                SELECT DISTINCT 
+                    subCategory as name,
+                    categoryId,
+                    barId,
+                    COUNT(*) as itemsCount
+                FROM menu_items 
+                WHERE categoryId = ? AND subCategory IS NOT NULL AND subCategory != ''
+                GROUP BY subCategory, categoryId, barId
+                ORDER BY \`order\`, name
+            `, [categoryId]);
+
+            res.json({
+                message: 'Ordem das subcategorias atualizada com sucesso.',
+                subcategories: updated
+            });
+        } catch (error) {
+            console.error('Erro ao reordenar subcategorias:', error);
+            res.status(500).json({ error: 'Erro ao reordenar subcategorias.' });
         }
     });
 
