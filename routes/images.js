@@ -16,12 +16,62 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // Limite de 10MB
   },
   fileFilter: (req, file, cb) => {
+    console.log('🔍 Multer fileFilter - Arquivo:', {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size
+    });
+    
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (allowedTypes.includes(file.mimetype)) {
+      console.log('✅ Tipo de arquivo permitido');
       cb(null, true);
     } else {
+      console.log('❌ Tipo de arquivo não permitido:', file.mimetype);
       cb(new Error('Tipo de arquivo não permitido. Apenas imagens são aceitas.'), false);
     }
+  }
+});
+
+// Middleware para capturar erros do multer
+const handleMulterError = (error, req, res, next) => {
+  console.error('💥 Erro do Multer:', error);
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Arquivo muito grande. Tamanho máximo: 10MB' });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'Muitos arquivos enviados' });
+    }
+    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ error: 'Campo de arquivo inesperado' });
+    }
+  }
+  return res.status(400).json({ error: error.message });
+};
+
+// Rota de teste para verificar se o multer está funcionando
+router.post('/test-upload', upload.single('test_file'), handleMulterError, (req, res) => {
+  console.log('🧪 Teste de upload - Request recebido');
+  console.log('📋 Request body:', req.body);
+  console.log('📁 Request file:', req.file);
+  
+  if (req.file) {
+    res.json({
+      success: true,
+      message: 'Arquivo recebido com sucesso',
+      file: {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        fieldname: req.file.fieldname
+      }
+    });
+  } else {
+    res.status(400).json({
+      success: false,
+      message: 'Nenhum arquivo recebido'
+    });
   }
 });
 
@@ -29,28 +79,45 @@ const upload = multer({
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota para upload de foto de perfil específica para o Flutter
-router.post('/upload-profile-photo', upload.single('foto_perfil'), async (req, res) => {
+router.post('/upload-profile-photo', upload.single('foto_perfil'), handleMulterError, async (req, res) => {
   console.log('📤 Iniciando upload de foto de perfil...');
+  console.log('📋 Request body:', req.body);
+  console.log('📁 Request file:', req.file);
+  console.log('🔑 Headers:', req.headers);
+  
   const pool = req.app.get('pool');
   const ftpConfig = req.app.get('ftpConfig');
 
   if (!pool || !ftpConfig) {
-    console.error('Dependências do servidor não disponíveis.');
+    console.error('❌ Dependências do servidor não disponíveis.');
+    console.error('Pool:', !!pool);
+    console.error('FTP Config:', !!ftpConfig);
     return res.status(500).json({ error: 'Erro interno do servidor: configuração ausente.' });
   }
 
   if (!req.file) {
     console.log('❌ Nenhum arquivo foi enviado');
+    console.log('📋 Request files:', req.files);
+    console.log('📋 Request body keys:', Object.keys(req.body));
     return res.status(400).json({ error: 'Nenhum arquivo foi enviado' });
   }
 
   const file = req.file;
+  console.log('📁 Arquivo recebido:', {
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    buffer: !!file.buffer,
+    fieldname: file.fieldname
+  });
+  
   const extension = path.extname(file.originalname);
   const remoteFilename = `profile_${nanoid()}${extension}`;
   const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
   
   console.log(`📋 Detalhes da foto de perfil: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
   console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
+  console.log(`🌐 URL final: ${imageUrl}`);
 
   const client = new ftp.Client();
   client.ftp.verbose = true;
