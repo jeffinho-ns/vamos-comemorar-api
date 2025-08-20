@@ -280,7 +280,7 @@ router.post('/upload-profile-photo', upload.single('foto_perfil'), handleMulterE
 });
 
 // Rota para upload de imagem
-router.post('/upload', upload.single('image'), async (req, res) => {
+router.post('/upload', upload.single('image'), handleMulterError, async (req, res) => {
   console.log('📤 Iniciando upload de imagem...');
   const pool = req.app.get('pool');
   const ftpConfig = req.app.get('ftpConfig');
