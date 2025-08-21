@@ -6,8 +6,9 @@ module.exports = (pool) => {
     router.post('/bars', async (req, res) => {
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
-            reviewsCount, latitude, longitude, amenities,
-            popupImageUrl // ✨ Adicionado
+            reviewsCount, latitude, longitude, amenities, popupImageUrl,
+            // ✨ Adicionados os novos campos
+            facebook, instagram, whatsapp 
         } = req.body;
         
         try {
@@ -25,12 +26,15 @@ module.exports = (pool) => {
                 }
             }
             
+            // ✨ Query de INSERT atualizada para incluir as novas colunas
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', // ✨ Adicionada coluna na query
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
-                    JSON.stringify(amenities), popupImageUrl // ✨ Adicionado valor na lista
+                    JSON.stringify(amenities), popupImageUrl, 
+                    // ✨ Adicionados os valores dos novos campos
+                    facebook || null, instagram || null, whatsapp || null
                 ]
             );
             
@@ -45,6 +49,7 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/bars', async (req, res) => {
         try {
+            // ✨ Query de SELECT atualizada para buscar as novas colunas
             const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars');
             const barsFormatted = bars.map(bar => ({
                 ...bar,
@@ -62,6 +67,7 @@ module.exports = (pool) => {
     router.get('/bars/:id', async (req, res) => {
         const { id } = req.params;
         try {
+            // ✨ Query de SELECT atualizada para buscar as novas colunas
             const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars WHERE id = ?', [id]);
             if (bars.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
@@ -81,8 +87,9 @@ module.exports = (pool) => {
         const { id } = req.params;
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
-            reviewsCount, latitude, longitude, amenities,
-            popupImageUrl // ✨ Adicionado
+            reviewsCount, latitude, longitude, amenities, popupImageUrl,
+            // ✨ Adicionados os novos campos
+            facebook, instagram, whatsapp
         } = req.body;
         
         try {
@@ -100,12 +107,15 @@ module.exports = (pool) => {
                 }
             }
             
+            // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ? WHERE id = ?', // ✨ Adicionada coluna na query
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ? WHERE id = ?',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
-                    JSON.stringify(amenities), popupImageUrl, // ✨ Adicionado valor na lista
+                    JSON.stringify(amenities), popupImageUrl, 
+                    // ✨ Adicionados os valores dos novos campos
+                    facebook || null, instagram || null, whatsapp || null,
                     id
                 ]
             );
@@ -494,23 +504,36 @@ module.exports = (pool) => {
     router.post('/items', async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
         try {
+            await pool.query('START TRANSACTION');
+
             const [result] = await pool.query(
                 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [name, description, price, imageUrl, categoryId, barId, subCategory || null, order]
             );
             const itemId = result.insertId;
+
             if (toppings && toppings.length > 0) {
+                const toppingIds = [];
                 for (const topping of toppings) {
                     const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
-                    const toppingId = toppingResult.insertId;
-                    await pool.query('INSERT INTO item_toppings (item_id, topping_id) VALUES (?, ?)', [itemId, toppingId]);
+                    toppingIds.push(toppingResult.insertId);
+                }
+
+                const itemToppingValues = toppingIds.map(toppingId => `(${itemId}, ${toppingId})`).join(', ');
+                if (itemToppingValues) {
+                    await pool.query(`INSERT INTO item_toppings (item_id, topping_id) VALUES ${itemToppingValues}`);
                 }
             }
+
+            await pool.query('COMMIT');
             res.status(201).json({ id: itemId, ...req.body });
         } catch (error) {
+            await pool.query('ROLLBACK');
+            console.error('Erro ao criar item:', error);
             res.status(500).json({ error: 'Erro ao criar item.' });
         }
     });
+
 
     router.get('/items', async (req, res) => {
         try {
@@ -582,23 +605,41 @@ module.exports = (pool) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
         try {
+            await pool.query('START TRANSACTION');
+
             await pool.query(
                 'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?',
                 [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id]
             );
             
+            await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
+            
             if (toppings && toppings.length > 0) {
-                await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
-                
+                const toppingIds = [];
                 for (const topping of toppings) {
-                    const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
-                    const toppingId = toppingResult.insertId;
-                    await pool.query('INSERT INTO item_toppings (item_id, topping_id) VALUES (?, ?)', [id, toppingId]);
+                    let toppingId;
+                    // Tenta encontrar o topping existente pelo nome e preço
+                    const [existingToppings] = await pool.query('SELECT id FROM toppings WHERE name = ? AND price = ?', [topping.name, topping.price]);
+                    if (existingToppings.length > 0) {
+                        toppingId = existingToppings[0].id;
+                    } else {
+                        // Se não encontrar, insere um novo
+                        const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
+                        toppingId = toppingResult.insertId;
+                    }
+                    toppingIds.push(toppingId);
+                }
+
+                const itemToppingValues = toppingIds.map(toppingId => `(${id}, ${toppingId})`).join(', ');
+                if (itemToppingValues) {
+                     await pool.query(`INSERT INTO item_toppings (item_id, topping_id) VALUES ${itemToppingValues}`);
                 }
             }
             
+            await pool.query('COMMIT');
             res.json({ message: 'Item atualizado com sucesso.' });
         } catch (error) {
+            await pool.query('ROLLBACK');
             console.error('Erro ao atualizar item:', error);
             res.status(500).json({ error: 'Erro ao atualizar item.' });
         }
@@ -608,10 +649,13 @@ module.exports = (pool) => {
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
+            await pool.query('START TRANSACTION');
             await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
             await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
+            await pool.query('COMMIT');
             res.json({ message: 'Item deletado com sucesso.' });
         } catch (error) {
+            await pool.query('ROLLBACK');
             console.error('Erro ao deletar item:', error);
             res.status(500).json({ error: 'Erro ao deletar item.' });
         }
