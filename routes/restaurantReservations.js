@@ -11,16 +11,18 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      const { date, status, area_id, limit, sort, order } = req.query;
+      const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
       
       let query = `
         SELECT 
           rr.*,
           ra.name as area_name,
-          u.name as created_by_name
+          u.name as created_by_name,
+          p.name as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
         WHERE 1=1
       `;
       
@@ -39,6 +41,11 @@ module.exports = (pool) => {
       if (area_id) {
         query += ` AND rr.area_id = ?`;
         params.push(area_id);
+      }
+      
+      if (establishment_id) {
+        query += ` AND rr.establishment_id = ?`;
+        params.push(establishment_id);
       }
       
       if (sort && order) {
@@ -81,10 +88,12 @@ module.exports = (pool) => {
         SELECT 
           rr.*,
           ra.name as area_name,
-          u.name as created_by_name
+          u.name as created_by_name,
+          p.name as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
         WHERE rr.id = ?
       `;
       
@@ -130,7 +139,8 @@ module.exports = (pool) => {
         status = 'NOVA',
         origin = 'PESSOAL',
         notes,
-        created_by
+        created_by,
+        establishment_id = 1
       } = req.body;
       
       // Validações básicas
@@ -143,14 +153,14 @@ module.exports = (pool) => {
       
       const query = `
         INSERT INTO restaurant_reservations (
-          client_name, client_phone, client_email, reservation_date, 
+          establishment_id, client_name, client_phone, client_email, reservation_date, 
           reservation_time, number_of_people, area_id, table_number, 
           status, origin, notes, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       const params = [
-        client_name, client_phone, client_email, reservation_date,
+        establishment_id, client_name, client_phone, client_email, reservation_date,
         reservation_time, number_of_people, area_id, table_number,
         status, origin, notes, created_by
       ];
@@ -162,10 +172,12 @@ module.exports = (pool) => {
         SELECT 
           rr.*,
           ra.name as area_name,
-          u.name as created_by_name
+          u.name as created_by_name,
+          p.name as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
         WHERE rr.id = ?
       `, [result.insertId]);
       
@@ -241,10 +253,12 @@ module.exports = (pool) => {
         SELECT 
           rr.*,
           ra.name as area_name,
-          u.name as created_by_name
+          u.name as created_by_name,
+          p.name as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
         WHERE rr.id = ?
       `, [id]);
       
