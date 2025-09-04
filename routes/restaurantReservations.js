@@ -11,17 +11,19 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      const { date, status, area_id, limit, sort, order } = req.query;
+      const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
       
       let query = `
         SELECT 
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          'Estabelecimento Padrão' as establishment_name
+          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
+        LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE 1=1
       `;
       
@@ -40,6 +42,11 @@ module.exports = (pool) => {
       if (area_id) {
         query += ` AND rr.area_id = ?`;
         params.push(area_id);
+      }
+      
+      if (establishment_id) {
+        query += ` AND rr.establishment_id = ?`;
+        params.push(establishment_id);
       }
       
       if (sort && order) {
@@ -153,10 +160,11 @@ module.exports = (pool) => {
         if (tables.length === 0) {
           console.log('📝 Criando tabela restaurant_reservations...');
           
-          // Criar a tabela com estrutura mais simples
+          // Criar a tabela com estrutura completa incluindo establishment_id
           await pool.execute(`
             CREATE TABLE restaurant_reservations (
               id int(11) NOT NULL AUTO_INCREMENT,
+              establishment_id int(11) DEFAULT NULL,
               client_name varchar(255) NOT NULL,
               client_phone varchar(20) DEFAULT NULL,
               client_email varchar(255) DEFAULT NULL,
@@ -171,7 +179,8 @@ module.exports = (pool) => {
               created_by int(11) DEFAULT NULL,
               created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
               updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id)
+              PRIMARY KEY (id),
+              KEY idx_establishment_id (establishment_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           `);
           
@@ -182,34 +191,43 @@ module.exports = (pool) => {
         // Continuar mesmo se houver erro na criação da tabela
       }
       
-      // Por enquanto, retornar dados mock para testar
-      console.log('📝 Retornando dados mock para teste');
+      // Inserir reserva no banco de dados
+      const insertQuery = `
+        INSERT INTO restaurant_reservations (
+          client_name, client_phone, client_email, reservation_date, 
+          reservation_time, number_of_people, area_id, table_number, 
+          status, origin, notes, created_by, establishment_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
       
-      const mockReservation = {
-        id: Date.now(), // ID temporário
-        client_name,
-        client_phone,
-        client_email,
-        reservation_date,
-        reservation_time,
-        number_of_people,
-        area_id,
-        table_number,
-        status,
-        origin,
-        notes,
-        created_by,
-        establishment_name: 'Estabelecimento Padrão',
-        area_name: 'Área Padrão',
-        created_by_name: 'Admin',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      const insertParams = [
+        client_name, client_phone, client_email, reservation_date,
+        reservation_time, number_of_people, area_id, table_number,
+        status, origin, notes, created_by, req.body.establishment_id || null
+      ];
+      
+      const [result] = await pool.execute(insertQuery, insertParams);
+      const reservationId = result.insertId;
+      
+      // Buscar a reserva criada com dados completos
+      const [newReservation] = await pool.execute(`
+        SELECT 
+          rr.*,
+          ra.name as area_name,
+          u.name as created_by_name,
+          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
+        FROM restaurant_reservations rr
+        LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+        LEFT JOIN users u ON rr.created_by = u.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
+        LEFT JOIN bars b ON rr.establishment_id = b.id
+        WHERE rr.id = ?
+      `, [reservationId]);
       
       res.status(201).json({
         success: true,
-        message: 'Reserva criada com sucesso (dados temporários)',
-        reservation: mockReservation
+        message: 'Reserva criada com sucesso',
+        reservation: newReservation[0]
       });
       
     } catch (error) {
