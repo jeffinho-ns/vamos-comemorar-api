@@ -92,6 +92,7 @@ const waitlistRouter = require('./routes/waitlist')(pool);
 const restaurantAreasRouter = require('./routes/restaurantAreas')(pool);
 const specialDatesRouter = require('./routes/specialDates')(pool);
 const reportsRouter = require('./routes/reports')(pool);
+const migrationsRouter = require('./routes/migrations')(pool);
 
 
 // Usando as Rotas
@@ -122,6 +123,7 @@ app.use('/api/waitlist', waitlistRouter);
 app.use('/api/restaurant-areas', restaurantAreasRouter);
 app.use('/api/special-dates', specialDatesRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/migrations', migrationsRouter);
 
 // Health check para o Render
 app.get('/health', (req, res) => {
