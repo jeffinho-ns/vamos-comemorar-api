@@ -11,44 +11,19 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
+      const { date, status, area_id, limit, sort, order } = req.query;
       
-      // Verificar se a tabela tem o campo establishment_id
-      let hasEstablishmentId = false;
-      try {
-        const [columns] = await pool.execute('DESCRIBE restaurant_reservations');
-        hasEstablishmentId = columns.some(col => col.Field === 'establishment_id');
-      } catch (error) {
-        console.log('⚠️ Erro ao verificar estrutura da tabela:', error.message);
-      }
-      
-      let query;
-      if (hasEstablishmentId) {
-        query = `
-          SELECT 
-            rr.*,
-            ra.name as area_name,
-            u.name as created_by_name,
-            p.name as establishment_name
-          FROM restaurant_reservations rr
-          LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
-          LEFT JOIN users u ON rr.created_by = u.id
-          LEFT JOIN places p ON rr.establishment_id = p.id
-          WHERE 1=1
-        `;
-      } else {
-        query = `
-          SELECT 
-            rr.*,
-            ra.name as area_name,
-            u.name as created_by_name,
-            'Estabelecimento Padrão' as establishment_name
-          FROM restaurant_reservations rr
-          LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
-          LEFT JOIN users u ON rr.created_by = u.id
-          WHERE 1=1
-        `;
-      }
+      let query = `
+        SELECT 
+          rr.*,
+          ra.name as area_name,
+          u.name as created_by_name,
+          'Estabelecimento Padrão' as establishment_name
+        FROM restaurant_reservations rr
+        LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+        LEFT JOIN users u ON rr.created_by = u.id
+        WHERE 1=1
+      `;
       
       const params = [];
       
@@ -65,11 +40,6 @@ module.exports = (pool) => {
       if (area_id) {
         query += ` AND rr.area_id = ?`;
         params.push(area_id);
-      }
-      
-      if (establishment_id && hasEstablishmentId) {
-        query += ` AND rr.establishment_id = ?`;
-        params.push(establishment_id);
       }
       
       if (sort && order) {
@@ -163,8 +133,7 @@ module.exports = (pool) => {
         status = 'NOVA',
         origin = 'PESSOAL',
         notes,
-        created_by,
-        establishment_id = 1
+        created_by
       } = req.body;
       
       console.log('📥 Dados recebidos na API:', JSON.stringify(req.body, null, 2));
@@ -177,78 +146,34 @@ module.exports = (pool) => {
         });
       }
       
-      // Verificar se a tabela tem o campo establishment_id
-      let hasEstablishmentId = false;
-      try {
-        const [columns] = await pool.execute('DESCRIBE restaurant_reservations');
-        hasEstablishmentId = columns.some(col => col.Field === 'establishment_id');
-        console.log('🔍 Campo establishment_id existe:', hasEstablishmentId);
-      } catch (error) {
-        console.log('⚠️ Erro ao verificar estrutura da tabela:', error.message);
-      }
-      
-      let query, params;
-      
-      if (hasEstablishmentId) {
-        query = `
-          INSERT INTO restaurant_reservations (
-            establishment_id, client_name, client_phone, client_email, reservation_date, 
-            reservation_time, number_of_people, area_id, table_number, 
-            status, origin, notes, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        params = [
-          establishment_id, client_name, client_phone, client_email, reservation_date,
-          reservation_time, number_of_people, area_id, table_number,
+      const query = `
+        INSERT INTO restaurant_reservations (
+          client_name, client_phone, client_email, reservation_date, 
+          reservation_time, number_of_people, area_id, table_number, 
           status, origin, notes, created_by
-        ];
-      } else {
-        query = `
-          INSERT INTO restaurant_reservations (
-            client_name, client_phone, client_email, reservation_date, 
-            reservation_time, number_of_people, area_id, table_number, 
-            status, origin, notes, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        params = [
-          client_name, client_phone, client_email, reservation_date,
-          reservation_time, number_of_people, area_id, table_number,
-          status, origin, notes, created_by
-        ];
-      }
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const params = [
+        client_name, client_phone, client_email, reservation_date,
+        reservation_time, number_of_people, area_id, table_number,
+        status, origin, notes, created_by
+      ];
       
       const [result] = await pool.execute(query, params);
       
       // Buscar a reserva criada com dados completos
-      let searchQuery;
-      if (hasEstablishmentId) {
-        searchQuery = `
-          SELECT 
-            rr.*,
-            ra.name as area_name,
-            u.name as created_by_name,
-            p.name as establishment_name
-          FROM restaurant_reservations rr
-          LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
-          LEFT JOIN users u ON rr.created_by = u.id
-          LEFT JOIN places p ON rr.establishment_id = p.id
-          WHERE rr.id = ?
-        `;
-      } else {
-        searchQuery = `
-          SELECT 
-            rr.*,
-            ra.name as area_name,
-            u.name as created_by_name,
-            'Estabelecimento Padrão' as establishment_name
-          FROM restaurant_reservations rr
-          LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
-          LEFT JOIN users u ON rr.created_by = u.id
-          WHERE rr.id = ?
-        `;
-      }
-      
-      const [newReservation] = await pool.execute(searchQuery, [result.insertId]);
+      const [newReservation] = await pool.execute(`
+        SELECT 
+          rr.*,
+          ra.name as area_name,
+          u.name as created_by_name,
+          'Estabelecimento Padrão' as establishment_name
+        FROM restaurant_reservations rr
+        LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+        LEFT JOIN users u ON rr.created_by = u.id
+        WHERE rr.id = ?
+      `, [result.insertId]);
       
       res.status(201).json({
         success: true,
