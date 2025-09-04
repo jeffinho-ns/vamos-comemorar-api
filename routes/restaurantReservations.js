@@ -200,11 +200,24 @@ module.exports = (pool) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
+      // Garantir que todos os parâmetros sejam válidos
       const insertParams = [
-        client_name, client_phone, client_email, reservation_date,
-        reservation_time, number_of_people, area_id, table_number,
-        status, origin, notes, created_by, req.body.establishment_id || null
+        client_name || null, 
+        client_phone || null, 
+        client_email || null, 
+        reservation_date || null,
+        reservation_time || null, 
+        number_of_people || null, 
+        area_id || null, 
+        table_number || null,
+        status || 'NOVA', 
+        origin || 'PESSOAL', 
+        notes || null, 
+        created_by || null, 
+        req.body.establishment_id || null
       ];
+      
+      console.log('📝 Parâmetros de inserção:', insertParams);
       
       const [result] = await pool.execute(insertQuery, insertParams);
       const reservationId = result.insertId;
