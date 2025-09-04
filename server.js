@@ -80,8 +80,10 @@ const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool
 // AQUI ESTÁ A CORREÇÃO MAIS IMPORTANTE:
 // 1. A rota de upload de imagens está no arquivo images.js, que exporta uma função que espera o pool.
 // 2. A rota de CRUD do cardápio está no arquivo cardapio.js, que também espera o pool.
+// 3. A rota de bares/estabelecimentos está no arquivo bars.js, que também espera o pool.
 const imagesRouter = require('./routes/images');
 const cardapioRoutes = require('./routes/cardapio');
+const barsRoutes = require('./routes/bars');
 
 // Rotas do sistema de reservas do restaurante
 const restaurantReservationsRouter = require('./routes/restaurantReservations')(pool);
@@ -110,6 +112,8 @@ app.use('/api/birthday-reservations', birthdayReservationsRouter);
 app.use('/api/images', imagesRouter(pool));
 // A rota do cardápio está em /api/cardapio
 app.use('/api/cardapio', cardapioRoutes(pool));
+// A rota de bares/estabelecimentos está em /api/bars
+app.use('/api/bars', barsRoutes(pool));
 
 // Rotas do sistema de reservas do restaurante
 app.use('/api/restaurant-reservations', restaurantReservationsRouter);
