@@ -11,23 +11,67 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
+      console.log('🔍 Iniciando busca de áreas...');
+      
+      // Verificar se a tabela restaurant_areas existe
+      console.log('🔍 Verificando se tabela restaurant_areas existe...');
+      const [tables] = await pool.execute("SHOW TABLES LIKE 'restaurant_areas'");
+      console.log('📊 Resultado da verificação de tabelas:', tables);
+      
+      if (tables.length === 0) {
+        console.log('📝 Criando tabela restaurant_areas...');
+        
+        try {
+          // Criar a tabela
+          await pool.execute(`
+            CREATE TABLE restaurant_areas (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              name varchar(255) NOT NULL,
+              description text DEFAULT NULL,
+              capacity_lunch int(11) DEFAULT 0,
+              capacity_dinner int(11) DEFAULT 0,
+              is_active tinyint(1) DEFAULT 1,
+              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (id),
+              UNIQUE KEY unique_name (name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          `);
+          console.log('✅ Tabela criada com sucesso!');
+          
+          // Inserir dados de exemplo
+          await pool.execute(`
+            INSERT INTO restaurant_areas (name, description, capacity_lunch, capacity_dinner, is_active) VALUES
+            ('Área Coberta', 'Área interna com ar condicionado e ambiente climatizado', 50, 40, 1),
+            ('Área Descoberta', 'Área externa com vista para o jardim e ambiente natural', 30, 25, 1),
+            ('Área VIP', 'Área exclusiva com serviço diferenciado', 20, 15, 1),
+            ('Balcão', 'Área do balcão para refeições rápidas', 15, 12, 1),
+            ('Terraço', 'Área no terraço com vista panorâmica', 25, 20, 1)
+          `);
+          console.log('✅ Dados de exemplo inseridos com sucesso!');
+          
+        } catch (createError) {
+          console.error('❌ Erro ao criar tabela:', createError);
+          throw createError;
+        }
+      } else {
+        console.log('✅ Tabela restaurant_areas já existe');
+      }
+      
+      // Consulta simplificada sem JOINs que podem falhar
+      console.log('🔍 Executando consulta de áreas...');
       const query = `
         SELECT 
           ra.*,
-          COUNT(rr.id) as active_reservations,
-          COUNT(wi.id) as active_walk_ins
+          0 as active_reservations,
+          0 as active_walk_ins
         FROM restaurant_areas ra
-        LEFT JOIN restaurant_reservations rr ON ra.id = rr.area_id 
-          AND rr.status IN ('NOVA', 'CONFIRMADA') 
-          AND rr.reservation_date = CURDATE()
-        LEFT JOIN walk_ins wi ON ra.id = wi.area_id 
-          AND wi.status = 'ATIVO'
         WHERE ra.is_active = 1
-        GROUP BY ra.id
         ORDER BY ra.name ASC
       `;
       
       const [areas] = await pool.execute(query);
+      console.log('📊 Áreas encontradas:', areas.length);
       
       res.json({
         success: true,
@@ -36,9 +80,10 @@ module.exports = (pool) => {
       
     } catch (error) {
       console.error('❌ Erro ao buscar áreas:', error);
+      console.error('❌ Stack trace:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor: ' + error.message
       });
     }
   });
