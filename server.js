@@ -86,7 +86,7 @@ const cardapioRoutes = require('./routes/cardapio');
 const barsRoutes = require('./routes/bars');
 
 // Rotas do sistema de reservas do restaurante
-const restaurantReservationsRouter = require('./routes/restaurantReservations')(pool);
+const restaurantReservationsRouter = require('./routes/restaurantReservationsSimple')(pool);
 const walkInsRouter = require('./routes/walkIns')(pool);
 const waitlistRouter = require('./routes/waitlist')(pool);
 const restaurantAreasRouter = require('./routes/restaurantAreas')(pool);
