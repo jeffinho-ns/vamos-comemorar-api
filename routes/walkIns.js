@@ -11,6 +11,41 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
+      // Verificar se a tabela walk_ins existe, se não, criar
+      try {
+        const [tables] = await pool.execute("SHOW TABLES LIKE 'walk_ins'");
+        
+        if (tables.length === 0) {
+          console.log('📝 Criando tabela walk_ins...');
+          
+          await pool.execute(`
+            CREATE TABLE walk_ins (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              establishment_id int(11) DEFAULT NULL,
+              client_name varchar(255) NOT NULL,
+              client_phone varchar(20) DEFAULT NULL,
+              number_of_people int(11) NOT NULL,
+              arrival_time timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+              area_id int(11) DEFAULT NULL,
+              table_number varchar(50) DEFAULT NULL,
+              status varchar(50) DEFAULT 'ATIVO',
+              notes text DEFAULT NULL,
+              created_by int(11) DEFAULT NULL,
+              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (id),
+              KEY idx_establishment_id (establishment_id),
+              KEY idx_status (status),
+              KEY idx_arrival_time (arrival_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          `);
+          
+          console.log('✅ Tabela walk_ins criada com sucesso!');
+        }
+      } catch (tableError) {
+        console.log('⚠️ Erro ao verificar/criar tabela walk_ins:', tableError.message);
+      }
+
       const { status, area_id, date, limit, sort, order } = req.query;
       
       let query = `

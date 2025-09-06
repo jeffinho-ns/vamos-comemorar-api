@@ -11,6 +11,41 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
+      // Verificar se a tabela waitlist existe, se não, criar
+      try {
+        const [tables] = await pool.execute("SHOW TABLES LIKE 'waitlist'");
+        
+        if (tables.length === 0) {
+          console.log('📝 Criando tabela waitlist...');
+          
+          await pool.execute(`
+            CREATE TABLE waitlist (
+              id int(11) NOT NULL AUTO_INCREMENT,
+              establishment_id int(11) DEFAULT NULL,
+              client_name varchar(255) NOT NULL,
+              client_phone varchar(20) DEFAULT NULL,
+              client_email varchar(255) DEFAULT NULL,
+              number_of_people int(11) NOT NULL,
+              preferred_time varchar(50) DEFAULT NULL,
+              status varchar(50) DEFAULT 'AGUARDANDO',
+              position int(11) DEFAULT 1,
+              estimated_wait_time int(11) DEFAULT 0,
+              notes text DEFAULT NULL,
+              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (id),
+              KEY idx_establishment_id (establishment_id),
+              KEY idx_status (status),
+              KEY idx_position (position)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          `);
+          
+          console.log('✅ Tabela waitlist criada com sucesso!');
+        }
+      } catch (tableError) {
+        console.log('⚠️ Erro ao verificar/criar tabela waitlist:', tableError.message);
+      }
+
       const { status, limit, sort, order } = req.query;
       
       let query = `
