@@ -9,7 +9,10 @@
     "start": "NODE_ENV=production node server.js",
     "migrate": "node run_cardapio_migration.js",
     "test-ftp": "node scripts/test-ftp.js",
-    "build": "npm install"
+    "build": "npm install",
+    "deploy": "chmod +x scripts/deploy-production.sh && ./scripts/deploy-production.sh",
+    "test-db": "node -e \"const pool = require('./config/database'); pool.execute('SELECT 1').then(() => { console.log('✅ Database connection OK'); process.exit(0); }).catch((err) => { console.error('❌ Database connection failed:', err.message); process.exit(1); });\"",
+    "health-check": "curl -f http://localhost:10000/health || exit 1"
   },
   "keywords": [],
   "author": "",

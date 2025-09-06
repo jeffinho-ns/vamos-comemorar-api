@@ -1,12 +1,34 @@
+# Configuração para Deploy no Render
+# Sistema de Reservas do Restaurante
+
 services:
   - type: web
     name: vamos-comemorar-api
     env: node
-    plan: free
+    plan: starter
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 10000 
+        value: 10000
+      - key: DB_HOST
+        value: 193.203.175.55
+      - key: DB_USER
+        value: u621081794_vamos
+      - key: DB_PASSWORD
+        value: "@123Mudar!@"
+      - key: DB_NAME
+        value: u621081794_vamos
+      - key: FTP_HOST
+        value: 195.35.41.247
+      - key: FTP_USER
+        value: u621081794
+      - key: FTP_PASSWORD
+        value: "Jeffl1ma!@"
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 1

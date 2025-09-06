@@ -176,11 +176,15 @@ module.exports = (pool) => {
               status varchar(50) DEFAULT 'NOVA',
               origin varchar(50) DEFAULT 'PESSOAL',
               notes text DEFAULT NULL,
+              check_in_time timestamp NULL DEFAULT NULL,
+              check_out_time timestamp NULL DEFAULT NULL,
               created_by int(11) DEFAULT NULL,
               created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
               updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
               PRIMARY KEY (id),
-              KEY idx_establishment_id (establishment_id)
+              KEY idx_establishment_id (establishment_id),
+              KEY idx_reservation_date (reservation_date),
+              KEY idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           `);
           
@@ -271,7 +275,9 @@ module.exports = (pool) => {
         table_number,
         status,
         origin,
-        notes
+        notes,
+        check_in_time,
+        check_out_time
       } = req.body;
       
       // Verificar se a reserva existe
@@ -287,22 +293,79 @@ module.exports = (pool) => {
         });
       }
       
+      // Construir query dinamicamente baseado nos campos fornecidos
+      let updateFields = [];
+      let params = [];
+      
+      if (client_name !== undefined) {
+        updateFields.push('client_name = ?');
+        params.push(client_name);
+      }
+      if (client_phone !== undefined) {
+        updateFields.push('client_phone = ?');
+        params.push(client_phone);
+      }
+      if (client_email !== undefined) {
+        updateFields.push('client_email = ?');
+        params.push(client_email);
+      }
+      if (reservation_date !== undefined) {
+        updateFields.push('reservation_date = ?');
+        params.push(reservation_date);
+      }
+      if (reservation_time !== undefined) {
+        updateFields.push('reservation_time = ?');
+        params.push(reservation_time);
+      }
+      if (number_of_people !== undefined) {
+        updateFields.push('number_of_people = ?');
+        params.push(number_of_people);
+      }
+      if (area_id !== undefined) {
+        updateFields.push('area_id = ?');
+        params.push(area_id);
+      }
+      if (table_number !== undefined) {
+        updateFields.push('table_number = ?');
+        params.push(table_number);
+      }
+      if (status !== undefined) {
+        updateFields.push('status = ?');
+        params.push(status);
+      }
+      if (origin !== undefined) {
+        updateFields.push('origin = ?');
+        params.push(origin);
+      }
+      if (notes !== undefined) {
+        updateFields.push('notes = ?');
+        params.push(notes);
+      }
+      if (check_in_time !== undefined) {
+        updateFields.push('check_in_time = ?');
+        params.push(check_in_time);
+      }
+      if (check_out_time !== undefined) {
+        updateFields.push('check_out_time = ?');
+        params.push(check_out_time);
+      }
+      
+      // Sempre atualizar o timestamp
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(id);
+      
       const query = `
         UPDATE restaurant_reservations SET
-          client_name = ?, client_phone = ?, client_email = ?, 
-          reservation_date = ?, reservation_time = ?, number_of_people = ?,
-          area_id = ?, table_number = ?, status = ?, origin = ?, notes = ?,
-          updated_at = CURRENT_TIMESTAMP
+          ${updateFields.join(', ')}
         WHERE id = ?
       `;
       
-      const params = [
-        client_name, client_phone, client_email, reservation_date,
-        reservation_time, number_of_people, area_id, table_number,
-        status, origin, notes, id
-      ];
-      
       await pool.execute(query, params);
+      
+      // Se o status foi alterado para 'completed', verificar lista de espera
+      if (status === 'completed') {
+        await checkWaitlistAndNotify(pool);
+      }
       
       // Buscar a reserva atualizada
       const [updatedReservation] = await pool.execute(`
@@ -310,11 +373,12 @@ module.exports = (pool) => {
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          p.name as establishment_name
+          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
         LEFT JOIN places p ON rr.establishment_id = p.id
+        LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE rr.id = ?
       `, [id]);
       
@@ -372,6 +436,72 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   GET /api/restaurant-reservations/capacity/check
+   * @desc    Verifica capacidade disponível para uma data específica
+   * @access  Private
+   */
+  router.get('/capacity/check', async (req, res) => {
+    try {
+      const { date, establishment_id, new_reservation_people } = req.query;
+      
+      if (!date || !establishment_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetros obrigatórios: date, establishment_id'
+        });
+      }
+      
+      // Calcular capacidade total do estabelecimento
+      const [areas] = await pool.execute(
+        'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
+      );
+      const totalCapacity = areas[0].total_capacity || 0;
+      
+      // Contar pessoas das reservas ativas para a data
+      const [activeReservations] = await pool.execute(`
+        SELECT SUM(number_of_people) as total_people
+        FROM restaurant_reservations 
+        WHERE reservation_date = ? 
+        AND establishment_id = ? 
+        AND status IN ('confirmed', 'checked-in')
+      `, [date, establishment_id]);
+      
+      const currentPeople = activeReservations[0].total_people || 0;
+      const newPeople = parseInt(new_reservation_people) || 0;
+      const totalWithNew = currentPeople + newPeople;
+      
+      // Verificar se há pessoas na lista de espera
+      const [waitlistCount] = await pool.execute(
+        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      );
+      const hasWaitlist = waitlistCount[0].count > 0;
+      
+      const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
+      
+      res.json({
+        success: true,
+        capacity: {
+          totalCapacity,
+          currentPeople,
+          newPeople,
+          totalWithNew,
+          availableCapacity: totalCapacity - currentPeople,
+          hasWaitlist,
+          canMakeReservation,
+          occupancyPercentage: totalCapacity > 0 ? Math.round((currentPeople / totalCapacity) * 100) : 0
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao verificar capacidade:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/stats/dashboard
    * @desc    Busca estatísticas para o dashboard
    * @access  Private
@@ -394,7 +524,7 @@ module.exports = (pool) => {
       // Taxa de ocupação (simplificada)
       const [occupancyRate] = await pool.execute(`
         SELECT 
-          (COUNT(CASE WHEN status IN ('CONFIRMADA', 'CONCLUIDA') THEN 1 END) * 100.0 / COUNT(*)) as rate
+          (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / COUNT(*)) as rate
         FROM restaurant_reservations 
         WHERE reservation_date = ?
       `, [today]);
@@ -416,6 +546,71 @@ module.exports = (pool) => {
       });
     }
   });
+
+  // Função auxiliar para verificar lista de espera e notificar
+  async function checkWaitlistAndNotify(pool) {
+    try {
+      // Buscar a próxima pessoa na lista de espera
+      const [nextInLine] = await pool.execute(`
+        SELECT * FROM waitlist 
+        WHERE status = 'AGUARDANDO' 
+        ORDER BY position ASC, created_at ASC 
+        LIMIT 1
+      `);
+      
+      if (nextInLine.length > 0) {
+        const customer = nextInLine[0];
+        
+        // Atualizar status para CHAMADO
+        await pool.execute(
+          'UPDATE waitlist SET status = "CHAMADO", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [customer.id]
+        );
+        
+        // Recalcular posições dos demais
+        await recalculateWaitlistPositions(pool);
+        
+        console.log(`🔔 Mesa liberada! Cliente chamado: ${customer.client_name} (${customer.number_of_people} pessoas)`);
+        
+        return {
+          success: true,
+          customer: {
+            id: customer.id,
+            name: customer.client_name,
+            people: customer.number_of_people,
+            phone: customer.client_phone
+          }
+        };
+      }
+      
+      return { success: false, message: 'Nenhum cliente na lista de espera' };
+      
+    } catch (error) {
+      console.error('❌ Erro ao verificar lista de espera:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Função auxiliar para recalcular posições da lista de espera
+  async function recalculateWaitlistPositions(pool) {
+    try {
+      const [waitingItems] = await pool.execute(
+        'SELECT id FROM waitlist WHERE status = "AGUARDANDO" ORDER BY created_at ASC'
+      );
+      
+      for (let i = 0; i < waitingItems.length; i++) {
+        const newPosition = i + 1;
+        const estimatedWaitTime = i * 15; // 15 minutos por pessoa na frente
+        
+        await pool.execute(
+          'UPDATE waitlist SET position = ?, estimated_wait_time = ? WHERE id = ?',
+          [newPosition, estimatedWaitTime, waitingItems[i].id]
+        );
+      }
+    } catch (error) {
+      console.error('❌ Erro ao recalcular posições:', error);
+    }
+  }
 
   return router;
 };

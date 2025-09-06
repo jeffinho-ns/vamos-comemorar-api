@@ -20,3 +20,4 @@ UPDATE restaurant_reservations SET establishment_id = 1 WHERE establishment_id I
 -- Esta migração adiciona suporte para múltiplos estabelecimentos nas reservas do restaurante
 -- Data: 2024-01-XX
 -- Autor: Sistema de Reservas
+
