@@ -65,3 +65,4 @@ CREATE TABLE IF NOT EXISTS walk_ins (
   KEY idx_status (status),
   KEY idx_arrival_time (arrival_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

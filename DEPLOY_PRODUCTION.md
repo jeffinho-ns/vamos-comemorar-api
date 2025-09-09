@@ -172,3 +172,4 @@ Para problemas ou dúvidas:
 2. Testar endpoints individualmente
 3. Verificar configurações de banco
 4. Consultar documentação da API
+

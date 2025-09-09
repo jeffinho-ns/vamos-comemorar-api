@@ -47,6 +47,7 @@ module.exports = (pool) => {
       if (establishment_id) {
         query += ` AND rr.establishment_id = ?`;
         params.push(establishment_id);
+        console.log('🔍 Filtrando por establishment_id:', establishment_id);
       }
       
       if (sort && order) {
@@ -61,6 +62,9 @@ module.exports = (pool) => {
       }
       
       const [reservations] = await pool.execute(query, params);
+      
+      console.log(`✅ ${reservations.length} reservas encontradas`);
+      console.log('📋 Reservas encontradas:', reservations.map(r => ({ id: r.id, establishment_id: r.establishment_id, client_name: r.client_name, status: r.status })));
       
       res.json({
         success: true,
@@ -222,6 +226,7 @@ module.exports = (pool) => {
       ];
       
       console.log('📝 Parâmetros de inserção:', insertParams);
+      console.log('🔍 Establishment ID recebido:', req.body.establishment_id);
       
       const [result] = await pool.execute(insertQuery, insertParams);
       const reservationId = result.insertId;

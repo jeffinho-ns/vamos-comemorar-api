@@ -22,3 +22,4 @@ INSERT IGNORE INTO `restaurant_areas` (`id`, `name`, `description`, `capacity_lu
 (4, 'Balcão', 'Área do balcão para refeições rápidas', 15, 12, 1),
 (5, 'Terraço', 'Área no terraço com vista panorâmica', 25, 20, 1);
 
+

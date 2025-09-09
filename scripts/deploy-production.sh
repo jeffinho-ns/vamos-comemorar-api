@@ -47,3 +47,4 @@ pool.execute('SELECT 1')
 # Iniciar servidor
 echo "🎯 Iniciando servidor de produção..."
 NODE_ENV=production node server.js
+
