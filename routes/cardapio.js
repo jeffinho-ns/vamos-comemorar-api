@@ -323,8 +323,8 @@ module.exports = (pool) => {
 
             // Criar um item vazio com a nova subcategoria para "reservar" o nome
             const [result] = await pool.query(
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0]
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0, null]
             );
 
             const newSubCategory = {
@@ -502,13 +502,16 @@ module.exports = (pool) => {
 
     // Rotas para Itens
     router.post('/items', async (req, res) => {
-        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
+        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
         try {
             await pool.query('START TRANSACTION');
 
+            // Converter seals para JSON se for um array
+            const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
+
             const [result] = await pool.query(
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order]
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson]
             );
             const itemId = result.insertId;
 
@@ -548,7 +551,8 @@ module.exports = (pool) => {
                     mi.barId, 
                     mi.order, 
                     mc.name as category,
-                    mi.subCategory as subCategoryName
+                    mi.subCategory as subCategoryName,
+                    mi.seals
                 FROM menu_items mi 
                 JOIN menu_categories mc ON mi.categoryId = mc.id
                 ORDER BY mi.barId, mi.categoryId, mi.order
@@ -558,7 +562,19 @@ module.exports = (pool) => {
             
             const itemsWithToppings = await Promise.all(items.map(async (item) => {
                 const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
-                return { ...item, toppings };
+                
+                // Converter seals de JSON para array
+                let seals = [];
+                if (item.seals) {
+                    try {
+                        seals = JSON.parse(item.seals);
+                    } catch (e) {
+                        console.error('Erro ao parsear seals:', e);
+                        seals = [];
+                    }
+                }
+                
+                return { ...item, toppings, seals };
             }));
             res.json(itemsWithToppings);
         } catch (error) {
@@ -582,7 +598,8 @@ module.exports = (pool) => {
                     mi.barId, 
                     mi.order, 
                     mc.name as category,
-                    mi.subCategory as subCategoryName
+                    mi.subCategory as subCategoryName,
+                    mi.seals
                 FROM menu_items mi 
                 JOIN menu_categories mc ON mi.categoryId = mc.id
                 WHERE mi.id = ?
@@ -592,7 +609,20 @@ module.exports = (pool) => {
             }
             const item = items[0];
             const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [id]);
+            
+            // Converter seals de JSON para array
+            let seals = [];
+            if (item.seals) {
+                try {
+                    seals = JSON.parse(item.seals);
+                } catch (e) {
+                    console.error('Erro ao parsear seals:', e);
+                    seals = [];
+                }
+            }
+            
             item.toppings = toppings;
+            item.seals = seals;
             res.json(item);
         } catch (error) {
             console.error('Erro ao buscar item:', error);
@@ -603,13 +633,16 @@ module.exports = (pool) => {
     // Rota para atualizar um item
     router.put('/items/:id', async (req, res) => {
         const { id } = req.params;
-        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings } = req.body;
+        const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
         try {
             await pool.query('START TRANSACTION');
 
+            // Converter seals para JSON se for um array
+            const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
+
             await pool.query(
-                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?',
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id]
+                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ?, seals = ? WHERE id = ?',
+                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson, id]
             );
             
             await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
