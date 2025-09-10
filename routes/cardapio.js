@@ -796,5 +796,56 @@ module.exports = (pool) => {
         }
     });
     
+    // Endpoint para executar migração de selos
+    router.post('/migrate-seals', async (req, res) => {
+        try {
+            console.log('🚀 Iniciando migração de selos via API...');
+            
+            // Verificar se o campo já existe
+            const [existingColumns] = await pool.query(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
+            );
+            
+            if (existingColumns.length > 0) {
+                return res.json({ 
+                    success: true, 
+                    message: 'Campo "seals" já existe na tabela menu_items',
+                    alreadyExists: true 
+                });
+            }
+
+            console.log('📋 Executando migração...');
+            
+            // Executar comandos de migração
+            await pool.query(
+                "ALTER TABLE `menu_items` ADD COLUMN `seals` JSON DEFAULT NULL COMMENT 'Array de IDs dos selos selecionados para o item' AFTER `subCategory`"
+            );
+            
+            await pool.query(
+                "CREATE INDEX `idx_menu_items_seals` ON `menu_items` ((CAST(`seals` AS CHAR(255) ARRAY)))"
+            );
+            
+            await pool.query(
+                "ALTER TABLE `menu_items` COMMENT = 'Tabela de itens do cardápio com suporte a selos de identificação'"
+            );
+
+            console.log('✅ Migração executada com sucesso!');
+            
+            res.json({ 
+                success: true, 
+                message: 'Migração de selos executada com sucesso!',
+                alreadyExists: false 
+            });
+
+        } catch (error) {
+            console.error('❌ Erro durante a migração:', error);
+            res.status(500).json({ 
+                success: false, 
+                error: 'Erro ao executar migração de selos',
+                details: error.message 
+            });
+        }
+    });
+
     return router;
 };
