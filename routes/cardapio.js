@@ -522,30 +522,29 @@ module.exports = (pool) => {
         try {
             await pool.query('START TRANSACTION');
 
-            // Verificar se o campo seals existe
+            // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
+            let itemId;
+
             try {
-                const [columns] = await pool.query(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
-                );
-                hasSealsField = columns.length > 0;
+                // Tentar com seals primeiro
+                const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
+                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson];
+                
+                const [result] = await pool.query(query, values);
+                hasSealsField = true;
+                itemId = result.insertId;
+                console.log('✅ Item criado com selos');
             } catch (e) {
-                console.log('Campo seals não encontrado, ignorando selos');
+                // Se falhar, usar versão sem seals
+                console.log('⚠️ Campo seals não disponível, criando item sem selos');
+                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order];
+                
+                const [result] = await pool.query(query, values);
+                itemId = result.insertId;
             }
-
-            // Converter seals para JSON se for um array e o campo existir
-            const sealsJson = hasSealsField && seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
-
-            const query = hasSealsField ? 
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)' :
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-            
-            const values = hasSealsField ? 
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson] :
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order];
-
-            const [result] = await pool.query(query, values);
-            const itemId = result.insertId;
 
             if (toppings && toppings.length > 0) {
                 const toppingIds = [];
@@ -572,49 +571,51 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
-            // Primeiro, verificar se o campo seals existe
-            let hasSealsField = false;
+            // Tentar sempre incluir o campo seals, se falhar, usar versão sem seals
+            let query, hasSealsField = false;
+            
             try {
-                const [columns] = await pool.query(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
-                );
-                hasSealsField = columns.length > 0;
+                // Primeiro tentar com seals
+                query = `
+                    SELECT 
+                        mi.id, 
+                        mi.name, 
+                        mi.description, 
+                        mi.price, 
+                        mi.imageUrl, 
+                        mi.categoryId, 
+                        mi.barId, 
+                        mi.order, 
+                        mc.name as category,
+                        mi.subCategory as subCategoryName,
+                        mi.seals
+                    FROM menu_items mi 
+                    JOIN menu_categories mc ON mi.categoryId = mc.id
+                    ORDER BY mi.barId, mi.categoryId, mi.order
+                `;
+                await pool.query(query);
+                hasSealsField = true;
+                console.log('✅ Campo seals encontrado, usando versão completa');
             } catch (e) {
-                console.log('Campo seals não encontrado, usando versão compatível');
+                // Se falhar, usar versão sem seals
+                console.log('⚠️ Campo seals não encontrado, usando versão compatível');
+                query = `
+                    SELECT 
+                        mi.id, 
+                        mi.name, 
+                        mi.description, 
+                        mi.price, 
+                        mi.imageUrl, 
+                        mi.categoryId, 
+                        mi.barId, 
+                        mi.order, 
+                        mc.name as category,
+                        mi.subCategory as subCategoryName
+                    FROM menu_items mi 
+                    JOIN menu_categories mc ON mi.categoryId = mc.id
+                    ORDER BY mi.barId, mi.categoryId, mi.order
+                `;
             }
-
-            const query = hasSealsField ? `
-                SELECT 
-                    mi.id, 
-                    mi.name, 
-                    mi.description, 
-                    mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
-                    mi.order, 
-                    mc.name as category,
-                    mi.subCategory as subCategoryName,
-                    mi.seals
-                FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
-                ORDER BY mi.barId, mi.categoryId, mi.order
-            ` : `
-                SELECT 
-                    mi.id, 
-                    mi.name, 
-                    mi.description, 
-                    mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
-                    mi.order, 
-                    mc.name as category,
-                    mi.subCategory as subCategoryName
-                FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
-                ORDER BY mi.barId, mi.categoryId, mi.order
-            `;
             
             const [items] = await pool.query(query);
             
@@ -723,29 +724,26 @@ module.exports = (pool) => {
         try {
             await pool.query('START TRANSACTION');
 
-            // Verificar se o campo seals existe
+            // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
+
             try {
-                const [columns] = await pool.query(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
-                );
-                hasSealsField = columns.length > 0;
+                // Tentar com seals primeiro
+                const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
+                const query = 'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ?, seals = ? WHERE id = ?';
+                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson, id];
+                
+                await pool.query(query, values);
+                hasSealsField = true;
+                console.log('✅ Item atualizado com selos');
             } catch (e) {
-                console.log('Campo seals não encontrado, ignorando selos');
+                // Se falhar, usar versão sem seals
+                console.log('⚠️ Campo seals não disponível, atualizando item sem selos');
+                const query = 'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?';
+                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id];
+                
+                await pool.query(query, values);
             }
-
-            // Converter seals para JSON se for um array e o campo existir
-            const sealsJson = hasSealsField && seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
-
-            const query = hasSealsField ? 
-                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ?, seals = ? WHERE id = ?' :
-                'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?';
-            
-            const values = hasSealsField ? 
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson, id] :
-                [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id];
-
-            await pool.query(query, values);
             
             await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
             
