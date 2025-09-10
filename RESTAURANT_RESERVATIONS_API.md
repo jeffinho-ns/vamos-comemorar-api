@@ -436,3 +436,6 @@ curl -X GET "https://vamos-comemorar-api.onrender.com/api/restaurant-areas/1/ava
 4. Adicionar logs de auditoria
 5. Implementar notificações em tempo real
 6. Adicionar exportação de relatórios em PDF/Excel
+
+
+

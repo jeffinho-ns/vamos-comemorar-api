@@ -305,3 +305,6 @@ Para dúvidas ou problemas:
 - ✅ Sistema de relatórios
 - ✅ Integração com frontend
 - ✅ Documentação completa
+
+
+
