@@ -796,6 +796,40 @@ module.exports = (pool) => {
         }
     });
     
+    // Endpoint para verificar status do banco
+    router.get('/debug-seals', async (req, res) => {
+        try {
+            console.log('🔍 Verificando status do campo seals...');
+            
+            // Verificar se o campo existe
+            const [columns] = await pool.query(
+                "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
+            );
+            
+            // Verificar estrutura da tabela
+            const [tableInfo] = await pool.query("DESCRIBE menu_items");
+            
+            // Verificar alguns itens para ver se têm selos
+            const [items] = await pool.query("SELECT id, name, seals FROM menu_items LIMIT 5");
+            
+            res.json({
+                hasSealsField: columns.length > 0,
+                sealsFieldInfo: columns[0] || null,
+                tableStructure: tableInfo,
+                sampleItems: items,
+                message: columns.length > 0 ? 'Campo seals existe' : 'Campo seals não existe'
+            });
+
+        } catch (error) {
+            console.error('❌ Erro ao verificar status:', error);
+            res.status(500).json({ 
+                success: false, 
+                error: 'Erro ao verificar status do banco',
+                details: error.message 
+            });
+        }
+    });
+
     // Endpoint para executar migração de selos
     router.post('/migrate-seals', async (req, res) => {
         try {
