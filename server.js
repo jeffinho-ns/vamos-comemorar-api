@@ -84,6 +84,10 @@ const birthdayReservationsRouter = require('./routes/birthdayReservations')(pool
 const imagesRouter = require('./routes/images');
 const cardapioRoutes = require('./routes/cardapio');
 const barsRoutes = require('./routes/bars');
+const restaurantReservationsRoutes = require('./routes/restaurantReservations');
+const walkInsRoutes = require('./routes/walkIns');
+const waitlistRoutes = require('./routes/waitlist');
+const restaurantAreasRoutes = require('./routes/restaurantAreas');
 
 
 // Usando as Rotas
@@ -106,6 +110,14 @@ app.use('/api/images', imagesRouter(pool));
 app.use('/api/cardapio', cardapioRoutes(pool));
 // A rota de bares/estabelecimentos está em /api/bars
 app.use('/api/bars', barsRoutes(pool));
+// A rota de reservas de restaurante está em /api/restaurant-reservations
+app.use('/api/restaurant-reservations', restaurantReservationsRoutes(pool));
+// A rota de walk-ins está em /api/walk-ins
+app.use('/api/walk-ins', walkInsRoutes(pool));
+// A rota de waitlist está em /api/waitlist
+app.use('/api/waitlist', waitlistRoutes(pool));
+// A rota de áreas do restaurante está em /api/restaurant-areas
+app.use('/api/restaurant-areas', restaurantAreasRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {
