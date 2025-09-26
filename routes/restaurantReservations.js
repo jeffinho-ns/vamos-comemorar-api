@@ -18,7 +18,7 @@ module.exports = (pool) => {
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
+          COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
@@ -94,11 +94,12 @@ module.exports = (pool) => {
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          p.name as establishment_name
+          COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
         LEFT JOIN places p ON rr.establishment_id = p.id
+        LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE rr.id = ?
       `;
       
@@ -125,6 +126,8 @@ module.exports = (pool) => {
     }
   });
 
+
+
   /**
    * @route   POST /api/restaurant-reservations
    * @desc    Cria uma nova reserva
@@ -138,7 +141,7 @@ module.exports = (pool) => {
         client_name,
         client_phone,
         client_email,
-        data_nascimento_cliente, // ✅ Adicionado aqui
+        data_nascimento_cliente,
         reservation_date,
         reservation_time,
         number_of_people,
@@ -156,49 +159,6 @@ module.exports = (pool) => {
           success: false,
           error: 'Campos obrigatórios: client_name, reservation_date, reservation_time, area_id'
         });
-      }
-      
-      // Verificar se a tabela restaurant_reservations existe
-      try {
-        const [tables] = await pool.execute("SHOW TABLES LIKE 'restaurant_reservations'");
-        
-        if (tables.length === 0) {
-          console.log('📝 Criando tabela restaurant_reservations...');
-          
-          // Criar a tabela com estrutura completa incluindo establishment_id e data de nascimento
-          await pool.execute(`
-            CREATE TABLE restaurant_reservations (
-              id int(11) NOT NULL AUTO_INCREMENT,
-              establishment_id int(11) DEFAULT NULL,
-              client_name varchar(255) NOT NULL,
-              client_phone varchar(20) DEFAULT NULL,
-              client_email varchar(255) DEFAULT NULL,
-              data_nascimento_cliente DATE DEFAULT NULL, // ✅ Adicionado aqui
-              reservation_date date NOT NULL,
-              reservation_time time NOT NULL,
-              number_of_people int(11) NOT NULL,
-              area_id int(11) DEFAULT NULL,
-              table_number varchar(50) DEFAULT NULL,
-              status varchar(50) DEFAULT 'NOVA',
-              origin varchar(50) DEFAULT 'PESSOAL',
-              notes text DEFAULT NULL,
-              check_in_time timestamp NULL DEFAULT NULL,
-              check_out_time timestamp NULL DEFAULT NULL,
-              created_by int(11) DEFAULT NULL,
-              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              KEY idx_establishment_id (establishment_id),
-              KEY idx_reservation_date (reservation_date),
-              KEY idx_status (status)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-          
-          console.log('✅ Tabela restaurant_reservations criada com sucesso!');
-        }
-      } catch (tableError) {
-        console.log('⚠️ Erro ao verificar/criar tabela:', tableError.message);
-        // Continuar mesmo se houver erro na criação da tabela
       }
       
       // Validação: se table_number foi informado, verificar conflito no dia inteiro
@@ -253,7 +213,7 @@ module.exports = (pool) => {
         client_name || null, 
         client_phone || null, 
         client_email || null, 
-        data_nascimento_cliente || null, // ✅ Adicionado aqui
+        data_nascimento_cliente || null,
         reservation_date || null,
         reservation_time || null, 
         number_of_people || null, 
@@ -278,7 +238,7 @@ module.exports = (pool) => {
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
+          COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
@@ -302,6 +262,8 @@ module.exports = (pool) => {
     }
   });
 
+
+
   /**
    * @route   PUT /api/restaurant-reservations/:id
    * @desc    Atualiza uma reserva existente
@@ -314,7 +276,7 @@ module.exports = (pool) => {
         client_name,
         client_phone,
         client_email,
-        data_nascimento_cliente, // ✅ Adicionado aqui
+        data_nascimento_cliente,
         reservation_date,
         reservation_time,
         number_of_people,
@@ -356,7 +318,7 @@ module.exports = (pool) => {
         updateFields.push('client_email = ?');
         params.push(client_email);
       }
-      if (data_nascimento_cliente !== undefined) { // ✅ Adicionado aqui
+      if (data_nascimento_cliente !== undefined) {
         updateFields.push('data_nascimento_cliente = ?');
         params.push(data_nascimento_cliente);
       }
@@ -424,7 +386,7 @@ module.exports = (pool) => {
           rr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name, 'Estabelecimento Padrão') as establishment_name
+          COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
@@ -447,6 +409,8 @@ module.exports = (pool) => {
       });
     }
   });
+
+
 
   /**
    * @route   DELETE /api/restaurant-reservations/:id
@@ -485,6 +449,8 @@ module.exports = (pool) => {
       });
     }
   });
+
+
 
   /**
    * @route   GET /api/restaurant-reservations/capacity/check
@@ -552,6 +518,8 @@ module.exports = (pool) => {
     }
   });
 
+
+
   /**
    * @route   GET /api/restaurant-reservations/stats/dashboard
    * @desc    Busca estatísticas para o dashboard
@@ -597,6 +565,8 @@ module.exports = (pool) => {
       });
     }
   });
+
+
 
   // Função auxiliar para verificar lista de espera e notificar
   async function checkWaitlistAndNotify(pool) {
