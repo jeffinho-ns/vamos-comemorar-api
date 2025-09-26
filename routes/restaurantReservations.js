@@ -199,6 +199,44 @@ module.exports = (pool) => {
         // Continuar mesmo se houver erro na criação da tabela
       }
       
+      // Validação: se table_number foi informado, verificar conflito no dia inteiro
+      if (table_number && area_id && reservation_date) {
+        const [conflicts] = await pool.execute(
+          `SELECT id FROM restaurant_reservations
+           WHERE reservation_date = ? AND area_id = ? AND table_number = ?
+           AND status NOT IN ('CANCELADA')
+           LIMIT 1`,
+          [reservation_date, area_id, String(table_number)]
+        );
+        if (conflicts.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Mesa já reservada para este dia'
+          });
+        }
+      }
+
+      // Validação: se table_number foi informado, conferir se a mesa existe e pertence à área
+      if (table_number && area_id) {
+        try {
+          const [tableExists] = await pool.execute(
+            `SHOW TABLES LIKE 'restaurant_tables'`
+          );
+          if (tableExists.length > 0) {
+            const [tableRow] = await pool.execute(
+              `SELECT id FROM restaurant_tables WHERE area_id = ? AND table_number = ? AND is_active = 1 LIMIT 1`,
+              [area_id, String(table_number)]
+            );
+            if (tableRow.length === 0) {
+              return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
+            }
+          }
+        } catch (e) {
+          // Se a tabela de mesas não existir ainda, segue sem impedir criação
+          console.log('ℹ️ Tabela restaurant_tables não encontrada, pulando validação de mesa.');
+        }
+      }
+
       // Inserir reserva no banco de dados
       const insertQuery = `
         INSERT INTO restaurant_reservations (

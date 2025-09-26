@@ -211,3 +211,4 @@ mysql.createConnection(dbConfig).then(conn => {
 - [API Endpoints](routes/cardapio.js)
 - [Frontend Integration](../vamos-comemorar-next/app/admin/cardapio/page.tsx)
 
+
