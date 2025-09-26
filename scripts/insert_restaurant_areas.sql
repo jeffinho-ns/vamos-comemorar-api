@@ -13,3 +13,4 @@ INSERT IGNORE INTO restaurant_areas (name, description, capacity_lunch, capacity
 SELECT 'Áreas do Restaurante' as tabela, COUNT(*) as total FROM restaurant_areas WHERE is_active = 1;
 
 
+

@@ -155,9 +155,21 @@ module.exports = (pool) => {
 
     router.get('/categories', async (req, res) => {
         try {
-            const [categories] = await pool.query('SELECT * FROM menu_categories');
+            const { barId } = req.query;
+            let query = 'SELECT * FROM menu_categories';
+            let params = [];
+            
+            if (barId) {
+                query += ' WHERE barId = ?';
+                params.push(barId);
+            }
+            
+            query += ' ORDER BY barId, `order`';
+            
+            const [categories] = await pool.query(query, params);
             res.json(categories);
         } catch (error) {
+            console.error('Erro ao listar categorias:', error);
             res.status(500).json({ error: 'Erro ao listar categorias.' });
         }
     });
@@ -571,6 +583,8 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
+            const { barId } = req.query;
+            
             // Tentar sempre incluir o campo seals, se falhar, usar versão sem seals
             let query, hasSealsField = false;
             
@@ -588,12 +602,21 @@ module.exports = (pool) => {
                         mi.order, 
                         mc.name as category,
                         mi.subCategory as subCategoryName,
-                        mi.seals
+                        mi.seals,
+                        GROUP_CONCAT(
+                            CONCAT(t.id, ':', t.name, ':', t.price) 
+                            SEPARATOR '|'
+                        ) as toppings
                     FROM menu_items mi 
                     JOIN menu_categories mc ON mi.categoryId = mc.id
+                    LEFT JOIN item_toppings it ON mi.id = it.item_id
+                    LEFT JOIN toppings t ON it.topping_id = t.id
+                    ${barId ? 'WHERE mi.barId = ?' : ''}
+                    GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
+                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.seals
                     ORDER BY mi.barId, mi.categoryId, mi.order
                 `;
-                await pool.query(query);
+                await pool.query(query, barId ? [barId] : []);
                 hasSealsField = true;
                 console.log('✅ Campo seals encontrado, usando versão completa');
             } catch (e) {
@@ -610,17 +633,35 @@ module.exports = (pool) => {
                         mi.barId, 
                         mi.order, 
                         mc.name as category,
-                        mi.subCategory as subCategoryName
+                        mi.subCategory as subCategoryName,
+                        GROUP_CONCAT(
+                            CONCAT(t.id, ':', t.name, ':', t.price) 
+                            SEPARATOR '|'
+                        ) as toppings
                     FROM menu_items mi 
                     JOIN menu_categories mc ON mi.categoryId = mc.id
+                    LEFT JOIN item_toppings it ON mi.id = it.item_id
+                    LEFT JOIN toppings t ON it.topping_id = t.id
+                    ${barId ? 'WHERE mi.barId = ?' : ''}
+                    GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
+                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory
                     ORDER BY mi.barId, mi.categoryId, mi.order
                 `;
             }
             
-            const [items] = await pool.query(query);
+            const [items] = await pool.query(query, barId ? [barId] : []);
             
-            const itemsWithToppings = await Promise.all(items.map(async (item) => {
-                const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [item.id]);
+            const itemsWithToppings = items.map((item) => {
+                // Processar toppings do GROUP_CONCAT
+                let toppings = [];
+                if (item.toppings) {
+                    toppings = item.toppings.split('|')
+                        .filter(t => t.trim() !== '')
+                        .map(t => {
+                            const [id, name, price] = t.split(':');
+                            return { id: parseInt(id), name, price: parseFloat(price) };
+                        });
+                }
                 
                 // Converter seals de JSON para array (apenas se o campo existir)
                 let seals = [];
@@ -634,7 +675,8 @@ module.exports = (pool) => {
                 }
                 
                 return { ...item, toppings, seals };
-            }));
+            });
+            
             res.json(itemsWithToppings);
         } catch (error) {
             console.error('Erro ao listar itens:', error);

@@ -173,3 +173,4 @@ Para problemas ou dúvidas:
 3. Verificar configurações de banco
 4. Consultar documentação da API
 
+
