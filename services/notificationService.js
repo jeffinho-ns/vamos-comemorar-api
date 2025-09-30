@@ -1,28 +1,20 @@
 // services/notificationService.js
 
-const nodemailer = require('nodemailer');
+
+const { Resend } = require('resend');
 
 class NotificationService {
   constructor() {
-    // Transforma a porta do ambiente em um número para comparação
-    const smtpPort = parseInt(process.env.SMTP_PORT, 10);
+    // Inicia o cliente do Resend com a chave de API das variáveis de ambiente
+    if (process.env.RESEND_API_KEY) {
+      this.resend = new Resend(process.env.RESEND_API_KEY);
+      console.log('✅ Serviço de e-mail (Resend) configurado.');
+    } else {
+      console.warn('⚠️ AVISO: RESEND_API_KEY não foi encontrada. O serviço de e-mail está desativado.');
+      this.resend = null;
+    }
 
-    // Configuração do transporter de email, ajustado para Hostinger
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST, // Deverá ser 'smtp.hostinger.com'
-      port: smtpPort,             // Deverá ser 465
-      // AJUSTE CRÍTICO: `secure` deve ser `true` para a porta 465 (SSL)
-      secure: smtpPort === 465,
-      auth: {
-        user: process.env.SMTP_USER, // Seu e-mail: reservas@grupoideiaum.com.br
-        pass: process.env.SMTP_PASS  // Sua NOVA senha do e-mail
-      },
-      // Habilita logs detalhados para depuração no console do Render
-      logger: true,
-      debug: true
-    });
-
-    // Configuração do WhatsApp (usando Twilio ou similar)
+    // Configuração do WhatsApp (pode ser ajustada depois)
     this.whatsappClient = null;
     if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
       const twilio = require('twilio');

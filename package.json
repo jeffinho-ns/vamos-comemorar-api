@@ -38,6 +38,7 @@
     "passport-google-oauth20": "^2.0.0",
     "qrcode": "^1.5.4",
     "qrcode-reader": "^1.0.4",
+    "resend": "^6.1.1",
     "sharp": "^0.33.5",
     "socket.io": "^4.8.1",
     "twilio": "^5.10.1"
