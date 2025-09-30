@@ -4,15 +4,22 @@ const nodemailer = require('nodemailer');
 
 class NotificationService {
   constructor() {
-    // Configuração do transporter de email
-    this.transporter = nodemailer.createTransporter({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false,
+    // Transforma a porta do ambiente em um número para comparação
+    const smtpPort = parseInt(process.env.SMTP_PORT, 10);
+
+    // Configuração do transporter de email, ajustado para Hostinger
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST, // Deverá ser 'smtp.hostinger.com'
+      port: smtpPort,             // Deverá ser 465
+      // AJUSTE CRÍTICO: `secure` deve ser `true` para a porta 465 (SSL)
+      secure: smtpPort === 465,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      }
+        user: process.env.SMTP_USER, // Seu e-mail: reservas@grupoideiaum.com.br
+        pass: process.env.SMTP_PASS  // Sua NOVA senha do e-mail
+      },
+      // Habilita logs detalhados para depuração no console do Render
+      logger: true,
+      debug: true
     });
 
     // Configuração do WhatsApp (usando Twilio ou similar)
@@ -34,7 +41,7 @@ class NotificationService {
       const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name } = reservation;
       
       const mailOptions = {
-        from: process.env.SMTP_USER,
+        from: `"${establishment_name}" <${process.env.SMTP_USER}>`,
         to: client_email,
         subject: `🎉 Confirmação de Reserva Grande - ${establishment_name}`,
         html: `
@@ -124,7 +131,6 @@ class NotificationService {
 
       const { client_phone, client_name, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
       
-      // Formatar número do telefone (remover caracteres especiais e adicionar código do país)
       const formattedPhone = client_phone.replace(/\D/g, '');
       const phoneNumber = formattedPhone.startsWith('55') ? formattedPhone : `55${formattedPhone}`;
       
@@ -171,7 +177,7 @@ Esperamos proporcionar uma experiência inesquecível! 🍽️✨
       const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name, table_number } = reservation;
       
       const mailOptions = {
-        from: process.env.SMTP_USER,
+        from: `"${establishment_name}" <${process.env.SMTP_USER}>`,
         to: client_email,
         subject: `🍽️ Confirmação de Reserva - ${establishment_name}`,
         html: `
@@ -266,7 +272,6 @@ Esperamos proporcionar uma experiência inesquecível! 🍽️✨
 
       const { client_phone, client_name, reservation_date, reservation_time, number_of_people, establishment_name, table_number } = reservation;
       
-      // Formatar número do telefone (remover caracteres especiais e adicionar código do país)
       const formattedPhone = client_phone.replace(/\D/g, '');
       const phoneNumber = formattedPhone.startsWith('55') ? formattedPhone : `55${formattedPhone}`;
       
@@ -313,7 +318,7 @@ Esperamos proporcionar uma experiência inesquecível! 🍽️✨
       const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
       
       const mailOptions = {
-        from: process.env.SMTP_USER,
+        from: `"${reservation.establishment_name}" <${process.env.SMTP_USER}>`,
         to: adminEmail,
         subject: `🔔 Nova Reserva - ${reservation.establishment_name}`,
         html: `
@@ -399,7 +404,7 @@ Esperamos proporcionar uma experiência inesquecível! 🍽️✨
       const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
       
       const mailOptions = {
-        from: process.env.SMTP_USER,
+        from: `"${reservation.establishment_name}" <${process.env.SMTP_USER}>`,
         to: adminEmail,
         subject: `🔔 Nova Reserva Grande - ${reservation.establishment_name}`,
         html: `
