@@ -49,3 +49,4 @@ echo "🎯 Iniciando servidor de produção..."
 NODE_ENV=production node server.js
 
 
+

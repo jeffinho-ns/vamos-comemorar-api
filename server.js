@@ -89,6 +89,7 @@ const walkInsRoutes = require('./routes/walkIns');
 const waitlistRoutes = require('./routes/waitlist');
 const restaurantAreasRoutes = require('./routes/restaurantAreas');
 const restaurantTablesRoutes = require('./routes/restaurantTables');
+const largeReservationsRoutes = require('./routes/largeReservations');
 
 
 // Usando as Rotas
@@ -121,6 +122,8 @@ app.use('/api/waitlist', waitlistRoutes(pool));
 app.use('/api/restaurant-areas', restaurantAreasRoutes(pool));
 // A rota de mesas do restaurante está em /api/restaurant-tables
 app.use('/api/restaurant-tables', restaurantTablesRoutes(pool));
+// A rota de reservas grandes está em /api/large-reservations
+app.use('/api/large-reservations', largeReservationsRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {

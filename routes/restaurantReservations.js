@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const NotificationService = require('../services/notificationService');
 
 module.exports = (pool) => {
   /**
@@ -253,6 +254,47 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE rr.id = ?
       `, [reservationId]);
+
+      // Enviar notificações se for reserva de cliente
+      if (origin === 'SITE' || origin === 'CLIENTE') {
+        const notificationService = new NotificationService();
+        
+        // Enviar email de confirmação
+        if (client_email) {
+          try {
+            const emailResult = await notificationService.sendReservationConfirmationEmail(newReservation[0]);
+            if (emailResult.success) {
+              console.log('✅ Email de confirmação enviado');
+            } else {
+              console.error('❌ Erro ao enviar email:', emailResult.error);
+            }
+          } catch (error) {
+            console.error('❌ Erro ao enviar email:', error);
+          }
+        }
+
+        // Enviar WhatsApp de confirmação
+        if (client_phone) {
+          try {
+            const whatsappResult = await notificationService.sendReservationConfirmationWhatsApp(newReservation[0]);
+            if (whatsappResult.success) {
+              console.log('✅ WhatsApp de confirmação enviado');
+            } else {
+              console.error('❌ Erro ao enviar WhatsApp:', whatsappResult.error);
+            }
+          } catch (error) {
+            console.error('❌ Erro ao enviar WhatsApp:', error);
+          }
+        }
+
+        // Enviar notificação para admin
+        try {
+          await notificationService.sendAdminReservationNotification(newReservation[0]);
+          console.log('✅ Notificação admin enviada');
+        } catch (error) {
+          console.error('❌ Erro ao enviar notificação admin:', error);
+        }
+      }
 
       res.status(201).json({
         success: true,
