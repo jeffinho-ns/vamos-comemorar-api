@@ -13,3 +13,4 @@ CREATE INDEX `idx_menu_items_seals` ON `menu_items` ((CAST(`seals` AS CHAR(255) 
 ALTER TABLE `menu_items` COMMENT = 'Tabela de itens do cardápio com suporte a selos de identificação';
 
 
+

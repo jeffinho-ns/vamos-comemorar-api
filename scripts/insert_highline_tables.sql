@@ -58,3 +58,4 @@ INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, desc
 (2, '17', 3, 'frente_bar', 'Mesa frente do bar 3 lugares - Deck', 1);
 
 
+
