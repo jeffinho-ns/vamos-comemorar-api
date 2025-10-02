@@ -117,22 +117,52 @@ class NotificationService {
     }
   }
 
-  // --- Funções de WhatsApp (mantidas para uso futuro) ---
+  // --- Funções de WhatsApp ---
   
-  async sendLargeReservationConfirmationWhatsApp(reservation) {
-    if (!this.whatsappClient) {
-      console.log('⚠️ WhatsApp client não configurado');
-      return { success: false, error: 'WhatsApp não configurado' };
-    }
-    // ... seu código de WhatsApp aqui ...
-  }
-  
+  /**
+   * Envia uma mensagem de confirmação de reserva via WhatsApp.
+   * Adapta a mensagem se for uma reserva grande (>= 16 pessoas).
+   * @param {object} reservation - O objeto da reserva.
+   */
   async sendReservationConfirmationWhatsApp(reservation) {
     if (!this.whatsappClient) {
-      console.log('⚠️ WhatsApp client não configurado');
-      return { success: false, error: 'WhatsApp não configurado' };
+      console.warn('⚠️ AVISO: Cliente do WhatsApp (Twilio) não está configurado.');
+      return { success: false, error: 'Serviço de WhatsApp não configurado.' };
     }
-    // ... seu código de WhatsApp aqui ...
+
+    const { client_name, client_phone, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
+    const isLargeReservation = number_of_people >= 16;
+
+    // Formata o número de telefone para o padrão E.164 exigido pela Twilio
+    // Exemplo: +5511999998888
+    // Adicione uma lógica mais robusta aqui se os números não vierem formatados do front-end
+    const formattedPhone = client_phone.startsWith('+') ? client_phone : `+${client_phone}`;
+
+    const to = `whatsapp:${formattedPhone}`;
+    const from = `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`;
+
+    let messageBody;
+
+    if (isLargeReservation) {
+      messageBody = `Olá, ${client_name}! Sua reserva grande (para ${number_of_people} pessoas) no *${establishment_name}* foi confirmada! 🥳\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date).toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\n\nPara reservas deste tamanho, poderemos entrar em contato para alinhar outros detalhes. Obrigado pela preferência!`;
+    } else {
+      messageBody = `Olá, ${client_name}! Sua reserva no *${establishment_name}* foi confirmada com sucesso! 🎉\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date).toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nObrigado por escolher o ${establishment_name}!`;
+    }
+
+    try {
+      const message = await this.whatsappClient.messages.create({
+        from: from,
+        body: messageBody,
+        to: to
+      });
+
+      console.log(`✅ Mensagem de confirmação via WhatsApp enviada para ${to}! SID: ${message.sid}`);
+      return { success: true, messageSid: message.sid };
+
+    } catch (error) {
+      console.error(`❌ Erro CRÍTICO ao enviar WhatsApp para ${to} via Twilio:`, error.message);
+      return { success: false, error: error.message };
+    }
   }
 }
 
