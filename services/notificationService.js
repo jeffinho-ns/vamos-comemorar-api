@@ -1,5 +1,5 @@
-// services/notificationService.js
 const { Resend } = require('resend');
+const twilio = require('twilio');
 
 class NotificationService {
   constructor() {
@@ -12,14 +12,16 @@ class NotificationService {
       this.resend = null;
     }
 
-    // Configuração do WhatsApp (mantida como está para uso futuro)
+    // Configuração do WhatsApp
     this.whatsappClient = null;
-    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-      const twilio = require('twilio');
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
       this.whatsappClient = twilio(
         process.env.TWILIO_ACCOUNT_SID,
         process.env.TWILIO_AUTH_TOKEN
       );
+       console.log('✅ Serviço de WhatsApp (Twilio) configurado.');
+    } else {
+        console.warn('⚠️ AVISO: As credenciais da Twilio não foram encontradas. O serviço de WhatsApp está desativado.');
     }
   }
 
@@ -38,21 +40,46 @@ class NotificationService {
         to: [client_email],
         subject: isLargeReservation ? `🎉 Confirmação de Reserva Grande - ${establishment_name}` : `🍽️ Confirmação de Reserva - ${establishment_name}`,
         html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #333;">Olá, ${client_name}!</h2>
-            <p>Sua reserva no <strong>${establishment_name}</strong> foi confirmada com sucesso!</p>
-            <hr>
-            <h3>Detalhes da Reserva:</h3>
-            <ul>
-              <li><strong>Data:</strong> ${new Date(reservation_date).toLocaleDateString('pt-BR')}</li>
-              <li><strong>Horário:</strong> ${reservation_time}</li>
-              <li><strong>Pessoas:</strong> ${number_of_people}</li>
-              <li><strong>Área:</strong> ${area_name || 'A definir'}</li>
-              ${table_number ? `<li><strong>Mesa:</strong> ${table_number}</li>` : ''}
-            </ul>
-            <hr>
-            <p>Obrigado por escolher o ${establishment_name}!</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #333; text-align: center;">
+
+          <img src="https://grupoideiaum.com.br/emails/highline/header.png" alt="High Line" style="width: 100%; max-width: 600px; height: auto;">
+
+          <div style="padding: 20px;">
+            <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✨ Obrigado pela sua reserva ✨</h1>
+            
+            <p style="font-size: 16px; line-height: 1.5;">Sua experiência no <strong>${establishment_name}</strong> já está garantida.</p>
+            <p style="font-size: 16px; line-height: 1.5;">É um prazer receber você! Estamos ansiosos para proporcionar uma experiência única, repleta de sabor e momentos especiais. Confira abaixo os detalhes da sua reserva:</p>
           </div>
+
+          <div style="text-align: left; padding: 0 30px 20px 30px;">
+            <h2 style="font-size: 20px; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 10px; font-weight: bold; text-align: center;">Detalhes da Reserva:</h2>
+            <ul style="list-style-type: none; padding: 10px 0 0 0; font-size: 16px;">
+              <li style="padding: 8px 0;"><strong>Data:</strong> ${new Date(reservation_date).toLocaleDateString('pt-BR')}</li>
+              <li style="padding: 8px 0;"><strong>Horário:</strong> ${reservation_time}</li>
+              <li style="padding: 8px 0;"><strong>Pessoas:</strong> ${number_of_people}</li>
+              <li style="padding: 8px 0;"><strong>Área:</strong> ${area_name || 'A definir'}</li>
+              ${table_number ? `<li style="padding: 8px 0;"><strong>Mesa:</strong> ${table_number}</li>` : ''}
+            </ul>
+          </div>
+
+          <div style="background-color: #333; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: left; border-radius: 8px;">
+              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">Informações importantes</h2>
+              <p style="font-size: 14px; line-height: 1.6;">※ Chegue com 10 minutos de antecedência para garantir sua mesa.</p>
+              <p style="font-size: 14px; line-height: 1.6;">※ Em caso de atraso superior a 15 minutos, sua reserva poderá ser cancelada.</p>
+              <p style="font-size: 14px; line-height: 1.6;">※ Para alterações, entre em contato pelo telefone [telefone do restaurante].</p>
+          </div>
+          
+          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto;">
+
+          <div style="padding: 30px 20px;">
+            <p style="font-size: 16px;">👉 Aproveite para conhecer nosso cardápio completo e novidades em nosso site.</p>
+            
+            <a href="#" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
+                Visitar o Site
+            </a>
+          </div>
+
+        </div>
         `
       });
 
@@ -133,12 +160,27 @@ class NotificationService {
     const { client_name, client_phone, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
     const isLargeReservation = number_of_people >= 16;
 
-    // Formata o número de telefone para o padrão E.164 exigido pela Twilio
-    // Exemplo: +5511999998888
-    // Adicione uma lógica mais robusta aqui se os números não vierem formatados do front-end
-    const formattedPhone = client_phone.startsWith('+') ? client_phone : `+${client_phone}`;
+    // --- LÓGICA DE FORMATAÇÃO CORRIGIDA ---
+    // 1. Remove todos os caracteres que não são dígitos do número.
+    const digitsOnlyPhone = (client_phone || '').replace(/\D/g, '');
 
-    const to = `whatsapp:${formattedPhone}`;
+    let e164Phone;
+
+    // 2. Se o número tiver 10 ou 11 dígitos (formato brasileiro comum sem o +55), adiciona o código do país.
+    if (digitsOnlyPhone.length === 10 || digitsOnlyPhone.length === 11) {
+      e164Phone = `+55${digitsOnlyPhone}`;
+    } 
+    // 3. Se o número já começar com 55 (possivelmente já formatado), apenas adiciona o `+`.
+    else if (digitsOnlyPhone.startsWith('55') && (digitsOnlyPhone.length === 12 || digitsOnlyPhone.length === 13)) {
+      e164Phone = `+${digitsOnlyPhone}`;
+    }
+    // 4. Se não se encaixar nas regras acima, usa a lógica original como último recurso.
+    else {
+      e164Phone = client_phone.startsWith('+') ? client_phone : `+${client_phone}`;
+    }
+    // --- FIM DA CORREÇÃO ---
+
+    const to = `whatsapp:${e164Phone}`;
     const from = `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`;
 
     let messageBody;
@@ -167,3 +209,4 @@ class NotificationService {
 }
 
 module.exports = NotificationService;
+
