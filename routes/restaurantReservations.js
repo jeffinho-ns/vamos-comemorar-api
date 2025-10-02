@@ -255,8 +255,8 @@ module.exports = (pool) => {
         WHERE rr.id = ?
       `, [reservationId]);
 
-      // Enviar notificações se for reserva de cliente
-      if (origin === 'SITE' || origin === 'CLIENTE') {
+      // Enviar notificações em criação (cliente e admin)
+      if (origin === 'SITE' || origin === 'CLIENTE' || origin === 'ADMIN') {
         const notificationService = new NotificationService();
         
         // Enviar email de confirmação
@@ -443,6 +443,36 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE rr.id = ?
       `, [id]);
+
+      // Enviar notificações quando o status for confirmado (cliente e admin)
+      try {
+        if (status && (String(status).toLowerCase() === 'confirmed' || String(status).toUpperCase() === 'CONFIRMADA')) {
+          const notificationService = new NotificationService();
+          const r = updatedReservation[0];
+          if (r?.client_email) {
+            try {
+              const emailResult = await notificationService.sendReservationConfirmedEmail(r);
+              if (!emailResult?.success) {
+                console.error('❌ Erro ao enviar email de reserva confirmada:', emailResult?.error);
+              }
+            } catch (e) {
+              console.error('❌ Erro ao enviar email de reserva confirmada:', e);
+            }
+          }
+          if (r?.client_phone) {
+            try {
+              const whatsappResult = await notificationService.sendReservationConfirmedWhatsApp(r);
+              if (!whatsappResult?.success) {
+                console.error('❌ Erro ao enviar WhatsApp de reserva confirmada:', whatsappResult?.error);
+              }
+            } catch (e) {
+              console.error('❌ Erro ao enviar WhatsApp de reserva confirmada:', e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('❌ Erro ao processar notificações de confirmação:', e);
+      }
 
       res.json({
         success: true,

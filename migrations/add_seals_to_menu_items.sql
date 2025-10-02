@@ -14,3 +14,5 @@ ALTER TABLE `menu_items` COMMENT = 'Tabela de itens do cardápio com suporte a s
 
 
 
+
+
