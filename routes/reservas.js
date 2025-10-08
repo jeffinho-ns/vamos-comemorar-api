@@ -336,7 +336,10 @@ router.post('/', async (req, res) => {
                 rc.valor_camarote,
                 rc.valor_consumacao,
                 rc.valor_pago,
-                rc.status_reserva
+                rc.valor_sinal,
+                rc.status_reserva,
+                rc.data_reserva,
+                rc.data_expiracao
             FROM camarotes c
             LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva != 'disponivel'
             WHERE c.id_place = ?
@@ -360,7 +363,7 @@ router.post('/camarote', auth, async (req, res) => {
         id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
         maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
         valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias, solicitado_por, observacao,
-        status_reserva, tag, hora_reserva, lista_convidados // Novo campo para a lista
+        status_reserva, tag, hora_reserva, data_reserva, lista_convidados // Adicionado data_reserva
     } = req.body;
     const userId = req.user.id;
 
@@ -396,14 +399,15 @@ router.post('/camarote', auth, async (req, res) => {
                 id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                 valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
-                solicitado_por, observacao, status_reserva, tag, hora_reserva
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const camaroteParams = [
             reservaId, id_camarote, nome_cliente, telefone || null, cpf_cnpj || null, email || null, data_nascimento || null,
             maximo_pessoas, entradas_unisex_free || 0, entradas_masculino_free || 0, entradas_feminino_free || 0,
             valor_camarote || 0, valor_consumacao || 0, valor_pago || 0, valor_sinal || 0, prazo_sinal_dias || 0,
-            solicitado_por || null, observacao || null, status_reserva || 'pre-reservado', tag || null, hora_reserva || null
+            solicitado_por || null, observacao || null, status_reserva || 'pre-reservado', tag || null, hora_reserva || null,
+            data_reserva || new Date().toISOString().split('T')[0] // Adicionado data_reserva
         ];
         console.log('📋 Parâmetros camarote:', camaroteParams);
         
@@ -494,7 +498,7 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     try {
         const allowedFields = [
             'id_camarote', 'id_reserva', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
-            'data_nascimento', 'maximo_pessoas', 'entradas_unisex_free', 
+            'data_nascimento', 'data_reserva', 'maximo_pessoas', 'entradas_unisex_free', 
             'entradas_masculino_free', 'entradas_feminino_free', 'valor_camarote', 
             'valor_consumacao', 'valor_pago', 'valor_sinal', 'prazo_sinal_dias', 
             'solicitado_por', 'observacao', 'status_reserva', 'tag', 'hora_reserva'
