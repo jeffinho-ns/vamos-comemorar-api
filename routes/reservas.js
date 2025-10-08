@@ -400,10 +400,10 @@ router.post('/camarote', auth, async (req, res) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const camaroteParams = [
-            reservaId, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
-            maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-            valor_camarote, valor_consumacao, valor_pago, valor_sinal || 0, prazo_sinal_dias || 0,
-            solicitado_por, observacao, status_reserva, tag, hora_reserva
+            reservaId, id_camarote, nome_cliente, telefone || null, cpf_cnpj || null, email || null, data_nascimento || null,
+            maximo_pessoas, entradas_unisex_free || 0, entradas_masculino_free || 0, entradas_feminino_free || 0,
+            valor_camarote || 0, valor_consumacao || 0, valor_pago || 0, valor_sinal || 0, prazo_sinal_dias || 0,
+            solicitado_por || null, observacao || null, status_reserva || 'pre-reservado', tag || null, hora_reserva || null
         ];
         console.log('📋 Parâmetros camarote:', camaroteParams);
         
