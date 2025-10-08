@@ -359,7 +359,7 @@ router.post('/camarote', auth, async (req, res) => {
     const { 
         id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
         maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-        valor_camarote, valor_consumacao, valor_pago, solicitado_por, observacao,
+        valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias, solicitado_por, observacao,
         status_reserva, tag, hora_reserva, lista_convidados // Novo campo para a lista
     } = req.body;
     const userId = req.user.id;
