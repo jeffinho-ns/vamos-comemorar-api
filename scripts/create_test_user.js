@@ -1,80 +1,74 @@
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 
-// Configuração do banco de dados
-const dbConfig = {
+const pool = mysql.createPool({
   host: '193.203.175.55',
   user: 'u621081794_vamos',
   password: '@123Mudar!@',
-  database: 'u621081794_vamos'
-};
+  database: 'u621081794_vamos',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
 async function createTestUser() {
-  let connection;
+  const connection = await pool.getConnection();
   
   try {
     console.log('🔧 Criando usuário de teste...');
-    connection = await mysql.createConnection(dbConfig);
     
-    // Verificar se o usuário já existe
-    const [existingUsers] = await connection.execute(`
-      SELECT id FROM users WHERE email = 'admin@teste.com'
-    `);
+    // Verificar se usuário já existe
+    const [existingUsers] = await connection.query(`
+      SELECT id, email FROM users WHERE email = ?
+    `, ['admin@teste.com']);
     
     if (existingUsers.length > 0) {
-      console.log('✅ Usuário de teste já existe!');
+      console.log('ℹ️ Usuário já existe:', existingUsers[0]);
       
-      // Atualizar senha para garantir que seja conhecida
+      // Atualizar senha para garantir que está correta
       const hashedPassword = await bcrypt.hash('123456', 10);
-      await connection.execute(`
+      await connection.query(`
         UPDATE users 
-        SET password = ?, role = 'admin' 
-        WHERE email = 'admin@teste.com'
-      `, [hashedPassword]);
+        SET password = ?, name = 'Admin Teste', role = 'admin'
+        WHERE email = ?
+      `, [hashedPassword, 'admin@teste.com']);
       
-      console.log('✅ Senha atualizada para: 123456');
+      console.log('✅ Senha do usuário atualizada');
     } else {
-      // Criar novo usuário de teste
+      // Criar novo usuário
       const hashedPassword = await bcrypt.hash('123456', 10);
+      const [result] = await connection.query(`
+        INSERT INTO users (name, email, password, role, created_at) 
+        VALUES (?, ?, ?, ?, NOW())
+      `, ['Admin Teste', 'admin@teste.com', hashedPassword, 'admin']);
       
-      await connection.execute(`
-        INSERT INTO users (
-          name, email, cpf, password, telefone, role, 
-          sexo, data_nascimento, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-      `, [
-        'Admin Teste',
-        'admin@teste.com',
-        '123.456.789-00',
-        hashedPassword,
-        '11999999999',
-        'admin',
-        'Masculino',
-        '1990-01-01'
-      ]);
-      
-      console.log('✅ Usuário de teste criado!');
-      console.log('📧 Email: admin@teste.com');
-      console.log('🔑 Senha: 123456');
+      console.log('✅ Usuário criado com ID:', result.insertId);
     }
     
     // Testar login
     console.log('\n🔍 Testando login...');
-    const [users] = await connection.execute(`
-      SELECT id, name, email, role FROM users WHERE email = 'admin@teste.com'
-    `);
+    const [users] = await connection.query(`
+      SELECT id, name, email, password, role FROM users WHERE email = ?
+    `, ['admin@teste.com']);
     
     if (users.length > 0) {
       const user = users[0];
-      console.log(`✅ Usuário encontrado: ${user.name} (ID: ${user.id}, Role: ${user.role})`);
+      console.log('📋 Dados do usuário:');
+      console.log(`   ID: ${user.id}`);
+      console.log(`   Nome: ${user.name}`);
+      console.log(`   Email: ${user.email}`);
+      console.log(`   Role: ${user.role}`);
+      
+      // Verificar se a senha está correta
+      const passwordMatch = await bcrypt.compare('123456', user.password);
+      console.log(`   Senha válida: ${passwordMatch ? '✅' : '❌'}`);
     }
     
   } catch (error) {
     console.error('❌ Erro:', error);
   } finally {
-    if (connection) {
-      await connection.end();
-    }
+    connection.release();
+    await pool.end();
   }
 }
 
