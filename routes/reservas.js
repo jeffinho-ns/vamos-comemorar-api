@@ -491,6 +491,11 @@ router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) =
 
 // ROTA PARA ATUALIZAR UMA RESERVA DE CAMAROTE
 router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
+    console.log('🔧 === INÍCIO DA ATUALIZAÇÃO NO BACKEND ===');
+    console.log('📋 ID da reserva:', req.params.id_reserva_camarote);
+    console.log('📤 Dados recebidos:', JSON.stringify(req.body, null, 2));
+    console.log('👤 User ID:', req.user?.id);
+    
     const { id_reserva_camarote } = req.params;
     const updates = req.body;
     const connection = await pool.getConnection();
@@ -505,7 +510,11 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         ];
         const updateFields = Object.keys(updates).filter(key => allowedFields.includes(key));
 
+        console.log('📝 Campos permitidos:', allowedFields);
+        console.log('📝 Campos a serem atualizados:', updateFields);
+
         if (updateFields.length === 0) {
+            console.log('❌ Nenhum campo válido encontrado');
             return res.status(400).json({ message: 'Nenhum campo válido para atualização fornecido.' });
         }
 
@@ -515,15 +524,29 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = ?`;
         values.push(id_reserva_camarote);
 
+        console.log('📝 SQL:', sql);
+        console.log('📝 Valores:', values);
+
         const [result] = await connection.execute(sql, values);
 
+        console.log('📊 Resultado da atualização:', {
+            affectedRows: result.affectedRows,
+            changedRows: result.changedRows
+        });
+
         if (result.affectedRows === 0) {
+            console.log('❌ Nenhuma linha foi afetada');
             return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
         }
 
-        res.status(200).json({ message: 'Reserva de camarote atualizada com sucesso!' });
+        console.log('✅ Atualização realizada com sucesso!');
+        res.status(200).json({ 
+            message: 'Reserva de camarote atualizada com sucesso!',
+            affectedRows: result.affectedRows,
+            changedRows: result.changedRows
+        });
     } catch (error) {
-        console.error('Erro ao atualizar reserva de camarote:', error);
+        console.error('❌ Erro ao atualizar reserva de camarote:', error);
         res.status(500).json({ error: 'Erro ao atualizar reserva de camarote.' });
     } finally {
         if (connection) connection.release();
