@@ -465,16 +465,7 @@ router.get('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     }
 });
 
-// ROTA PARA ATUALIZAR UMA RESERVA DE CAMAROTE
-router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
-    const { id_reserva_camarote } = req.params;
-    const updates = req.body;
-    
-    // Adicione a lógica de validação e atualização aqui
-    // ...
-
-    res.status(200).json({ message: 'Reserva de camarote atualizada com sucesso!' });
-});
+// ROTA DUPLICADA REMOVIDA - usando a implementação completa abaixo
 
 // ROTA PARA ADICIONAR CONVIDADO A LISTA DO CAMAROTE
 router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) => {
@@ -503,7 +494,7 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     try {
         const allowedFields = [
             'id_camarote', 'id_reserva', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
-            'data_nascimento', 'data_reserva', 'maximo_pessoas', 'entradas_unisex_free', 
+            'data_nascimento', 'data_reserva', 'data_expiracao', 'maximo_pessoas', 'entradas_unisex_free', 
             'entradas_masculino_free', 'entradas_feminino_free', 'valor_camarote', 
             'valor_consumacao', 'valor_pago', 'valor_sinal', 'prazo_sinal_dias', 
             'solicitado_por', 'observacao', 'status_reserva', 'tag', 'hora_reserva'
