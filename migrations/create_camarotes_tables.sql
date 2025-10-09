@@ -111,3 +111,6 @@ ALTER TABLE `camarote_convidados` COMMENT = 'Tabela de convidados por reserva de
 CREATE INDEX idx_camarotes_place_status ON camarotes(id_place, status);
 CREATE INDEX idx_reservas_camarote_camarote_status ON reservas_camarote(id_camarote, status_reserva);
 CREATE INDEX idx_reservas_camarote_data_status ON reservas_camarote(data_reserva, status_reserva);
+
+
+
