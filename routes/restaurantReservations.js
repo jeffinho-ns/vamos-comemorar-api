@@ -13,12 +13,9 @@ module.exports = (pool) => {
   router.get('/', async (req, res) => {
     try {
       const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
-
       let query = `
         SELECT
-          rr.*,
-          ra.name as area_name,
-          u.name as created_by_name,
+          rr.*, ra.name as area_name, u.name as created_by_name,
           COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
@@ -27,57 +24,20 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON rr.establishment_id = b.id
         WHERE 1=1
       `;
-
       const params = [];
-
-      if (date) {
-        query += ` AND rr.reservation_date = ?`;
-        params.push(date);
-      }
-
-      if (status) {
-        query += ` AND rr.status = ?`;
-        params.push(status);
-      }
-
-      if (area_id) {
-        query += ` AND rr.area_id = ?`;
-        params.push(area_id);
-      }
-
-      if (establishment_id) {
-        query += ` AND rr.establishment_id = ?`;
-        params.push(establishment_id);
-        console.log('🔍 Filtrando por establishment_id:', establishment_id);
-      }
-
-      if (sort && order) {
-        query += ` ORDER BY rr.${sort} ${order.toUpperCase()}`;
-      } else {
-        query += ` ORDER BY rr.reservation_date DESC, rr.reservation_time DESC`;
-      }
-
-      if (limit) {
-        query += ` LIMIT ?`;
-        params.push(parseInt(limit));
-      }
+      if (date) { query += ` AND rr.reservation_date = ?`; params.push(date); }
+      if (status) { query += ` AND rr.status = ?`; params.push(status); }
+      if (area_id) { query += ` AND rr.area_id = ?`; params.push(area_id); }
+      if (establishment_id) { query += ` AND rr.establishment_id = ?`; params.push(establishment_id); }
+      if (sort && order) { query += ` ORDER BY rr.${sort} ${order.toUpperCase()}`; } 
+      else { query += ` ORDER BY rr.reservation_date DESC, rr.reservation_time DESC`; }
+      if (limit) { query += ` LIMIT ?`; params.push(parseInt(limit)); }
 
       const [reservations] = await pool.execute(query, params);
-
-      console.log(`✅ ${reservations.length} reservas encontradas`);
-      console.log('📋 Reservas encontradas:', reservations.map(r => ({ id: r.id, establishment_id: r.establishment_id, client_name: r.client_name, status: r.status })));
-
-      res.json({
-        success: true,
-        reservations: reservations
-      });
-
+      res.json({ success: true, reservations });
     } catch (error) {
       console.error('❌ Erro ao buscar reservas:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Erro interno do servidor'
-      });
+      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
     }
   });
 

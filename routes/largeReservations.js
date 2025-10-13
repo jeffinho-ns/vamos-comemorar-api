@@ -10,7 +10,7 @@ module.exports = (pool) => {
    * @desc    Lista todas as reservas grandes com filtros opcionais
    * @access  Private
    */
-  router.get('/', async (req, res) => {
+    router.get('/', async (req, res) => {
     try {
       const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
 
@@ -27,50 +27,39 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON lr.establishment_id = b.id
         WHERE 1=1
       `;
-
       const params = [];
-
       if (date) {
         query += ` AND lr.reservation_date = ?`;
         params.push(date);
       }
-
       if (status) {
         query += ` AND lr.status = ?`;
         params.push(status);
       }
-
       if (area_id) {
         query += ` AND lr.area_id = ?`;
         params.push(area_id);
       }
-
       if (establishment_id) {
         query += ` AND lr.establishment_id = ?`;
         params.push(establishment_id);
         console.log('🔍 Filtrando reservas grandes por establishment_id:', establishment_id);
       }
-
       if (sort && order) {
         query += ` ORDER BY lr.${sort} ${order.toUpperCase()}`;
       } else {
         query += ` ORDER BY lr.reservation_date DESC, lr.reservation_time DESC`;
       }
-
       if (limit) {
         query += ` LIMIT ?`;
         params.push(parseInt(limit));
       }
-
       const [reservations] = await pool.execute(query, params);
-
       console.log(`✅ ${reservations.length} reservas grandes encontradas`);
-
       res.json({
         success: true,
         reservations: reservations
       });
-
     } catch (error) {
       console.error('❌ Erro ao buscar reservas grandes:', error);
       res.status(500).json({
@@ -88,7 +77,6 @@ module.exports = (pool) => {
   router.get('/:id', async (req, res) => {
     try {
       const { id } = req.params;
-
       const query = `
         SELECT
           lr.*,
@@ -102,21 +90,17 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON lr.establishment_id = b.id
         WHERE lr.id = ?
       `;
-
       const [reservations] = await pool.execute(query, [id]);
-
       if (reservations.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
         });
       }
-
       res.json({
         success: true,
         reservation: reservations[0]
       });
-
     } catch (error) {
       console.error('❌ Erro ao buscar reserva grande:', error);
       res.status(500).json({
@@ -135,57 +119,27 @@ module.exports = (pool) => {
     try {
       console.log('📥 Dados recebidos na API de reservas grandes:', JSON.stringify(req.body, null, 2));
 
+      // Captura os novos campos de notificação
       const {
-        client_name,
-        client_phone,
-        client_email,
-        data_nascimento_cliente,
-        reservation_date,
-        reservation_time,
-        number_of_people,
-        area_id,
-        selected_tables,
-        status = 'NOVA',
-        origin = 'CLIENTE',
-        notes,
-        admin_notes,
-        created_by,
-        establishment_id
+        client_name, client_phone, client_email, data_nascimento_cliente,
+        reservation_date, reservation_time, number_of_people, area_id,
+        selected_tables, status = 'NOVA', origin = 'CLIENTE',
+        notes, admin_notes, created_by, establishment_id,
+        send_email, send_whatsapp // CAMPOS CAPTURADOS
       } = req.body;
 
-      // Validações básicas
+      // Validações
       if (!client_name || !reservation_date || !reservation_time || !number_of_people) {
-        return res.status(400).json({
-          success: false,
-          error: 'Campos obrigatórios: client_name, reservation_date, reservation_time, number_of_people'
-        });
+        return res.status(400).json({ success: false, error: 'Campos obrigatórios: client_name, reservation_date, reservation_time, number_of_people' });
       }
-
-      // Validar se é realmente uma reserva grande (>= 11 pessoas)
       if (number_of_people < 11) {
-        return res.status(400).json({
-          success: false,
-          error: 'Esta rota é apenas para reservas grandes (11 pessoas ou mais)'
-        });
+        return res.status(400).json({ success: false, error: 'Esta rota é apenas para reservas grandes (11 pessoas ou mais)' });
       }
-
-      // Validação do establishment_id
       if (establishment_id === null || establishment_id === undefined) {
-        return res.status(400).json({
-          success: false,
-          error: 'establishment_id é obrigatório para criar a reserva.'
-        });
+        return res.status(400).json({ success: false, error: 'establishment_id é obrigatório para criar a reserva.' });
       }
 
-      // Converter selected_tables para JSON se for array
-      let selectedTablesJson = null;
-      if (selected_tables && Array.isArray(selected_tables)) {
-        selectedTablesJson = JSON.stringify(selected_tables);
-      } else if (selected_tables && typeof selected_tables === 'string') {
-        selectedTablesJson = selected_tables;
-      }
-
-      // Inserir reserva grande no banco de dados
+      // Inserção no Banco de Dados
       const insertQuery = `
         INSERT INTO large_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
@@ -193,37 +147,17 @@ module.exports = (pool) => {
           status, origin, notes, admin_notes, created_by, establishment_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-
       const insertParams = [
-        client_name || null,
-        client_phone || null,
-        client_email || null,
-        data_nascimento_cliente || null,
-        reservation_date || null,
-        reservation_time || null,
-        number_of_people || null,
-        area_id || null,
-        selectedTablesJson,
-        status || 'NOVA',
-        origin || 'CLIENTE',
-        notes || null,
-        admin_notes || null,
-        created_by || null,
-        establishment_id
+        client_name || null, client_phone || null, client_email || null, data_nascimento_cliente || null,
+        reservation_date || null, reservation_time || null, number_of_people || null, area_id || null,
+        selected_tables ? JSON.stringify(selected_tables) : null, status, origin, notes || null, admin_notes || null, created_by || null, establishment_id
       ];
-
-      console.log('📝 Parâmetros de inserção:', insertParams);
-      
       const [result] = await pool.execute(insertQuery, insertParams);
       const reservationId = result.insertId;
 
-      // Buscar a reserva criada com dados completos
-      const [newReservation] = await pool.execute(`
-        SELECT
-          lr.*,
-          ra.name as area_name,
-          u.name as created_by_name,
-          COALESCE(p.name, b.name) as establishment_name
+      // Busca a reserva completa
+      const [newReservationRows] = await pool.execute(`
+        SELECT lr.*, ra.name as area_name, u.name as created_by_name, COALESCE(p.name, b.name) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
@@ -231,71 +165,45 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON lr.establishment_id = b.id
         WHERE lr.id = ?
       `, [reservationId]);
+      const newReservation = newReservationRows[0];
 
-      // Gerar guest_list quando for sexta com lista ou sábado (aniversário/despedida)
-      const reservationDateObj = new Date(reservation_date + 'T00:00:00');
-      const dayOfWeek = reservationDateObj.getDay(); // 0=Domingo ... 5=Sexta, 6=Sábado
-
-      // Geração de token simples e seguro
-      function generateToken() {
-        return require('crypto').randomBytes(24).toString('hex');
-      }
-
+      // Criação da lista de convidados
       let guestListLink = null;
+      const reservationDateObj = new Date(reservation_date + 'T00:00:00');
+      const dayOfWeek = reservationDateObj.getDay();
       if (dayOfWeek === 5 || dayOfWeek === 6) {
-        // Definir event_type conforme regra: sexta = lista_sexta; sábado = a definir no front (aniversário/despedida)
         const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (req.body.event_type || null);
-
-        const token = generateToken();
-        // expiração no dia da reserva às 23:59
+        const token = require('crypto').randomBytes(24).toString('hex');
         const expiresAt = `${reservation_date} 23:59:59`;
-
         await pool.execute(
-          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-           VALUES (?, 'large', ?, ?, ?)`,
+          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES (?, 'large', ?, ?, ?)`,
           [reservationId, detectedEventType, token, expiresAt]
         );
-
         const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
         guestListLink = `${baseUrl}/lista/${token}`;
       }
-
-      // Enviar notificações se for reserva de cliente
-      if (origin === 'CLIENTE') {
-        const notificationService = new NotificationService();
-        
-        // Enviar email de confirmação
-        if (client_email) {
-          const emailResult = await notificationService.sendLargeReservationConfirmationEmail(newReservation[0]);
-          if (emailResult.success) {
-            await pool.execute(
-              'UPDATE large_reservations SET email_sent = 1 WHERE id = ?',
-              [reservationId]
-            );
-            console.log('✅ Email de confirmação enviado');
-          }
-        }
-
-        // Enviar WhatsApp de confirmação
-        if (client_phone) {
-          const whatsappResult = await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation[0]);
-          if (whatsappResult.success) {
-            await pool.execute(
-              'UPDATE large_reservations SET whatsapp_sent = 1 WHERE id = ?',
-              [reservationId]
-            );
-            console.log('✅ WhatsApp de confirmação enviado');
-          }
-        }
-
-        // Enviar notificação para admin
-        await notificationService.sendAdminNotification(newReservation[0]);
+      
+      // Lógica de Notificação Corrigida
+      const notificationService = new NotificationService();
+      if (send_email && client_email) {
+        try {
+          await notificationService.sendLargeReservationConfirmationEmail(newReservation);
+          console.log('✅ Email de confirmação enviado');
+        } catch(e) { console.error('❌ Falha ao enviar email:', e); }
       }
+      if (send_whatsapp && client_phone) {
+        try {
+          await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation);
+          console.log('✅ WhatsApp de confirmação enviado');
+        } catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e); }
+      }
+      // Notificação para o admin sempre é enviada
+      await notificationService.sendAdminNotification(newReservation);
 
       const responseBody = {
         success: true,
         message: 'Reserva grande criada com sucesso',
-        reservation: newReservation[0]
+        reservation: newReservation
       };
       if (guestListLink) {
         responseBody.guest_list_link = guestListLink;
