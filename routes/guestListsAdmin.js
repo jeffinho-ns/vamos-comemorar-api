@@ -73,7 +73,7 @@ module.exports = (pool) => {
    * @desc    Adiciona um convidado
    * @access  Private (Administrador, Gerente)
    */
-  router.post('/guest-lists/:list_id/guests', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.post('/guest-lists/:list_id/guests', async (req, res) => {
     try {
       const { list_id } = req.params;
       const { name, whatsapp } = req.body;
@@ -124,7 +124,7 @@ module.exports = (pool) => {
    * @desc    Edita um convidado
    * @access  Private (Administrador, Gerente)
    */
-  router.put('/guests/:guest_id', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.put('/guests/:guest_id', async (req, res) => {
     try {
       const { guest_id } = req.params;
       const { name, whatsapp } = req.body;
@@ -156,7 +156,7 @@ module.exports = (pool) => {
    * @desc    Remove um convidado
    * @access  Private (Administrador, Gerente)
    */
-  router.delete('/guests/:guest_id', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.delete('/guests/:guest_id', async (req, res) => {
     try {
       const { guest_id } = req.params;
 
