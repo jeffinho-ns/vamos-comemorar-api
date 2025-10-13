@@ -119,24 +119,23 @@ module.exports = (pool) => {
     try {
       console.log('📥 Dados recebidos na API de reservas grandes:', JSON.stringify(req.body, null, 2));
 
-      // Captura os novos campos de notificação
       const {
         client_name, client_phone, client_email, data_nascimento_cliente,
         reservation_date, reservation_time, number_of_people, area_id,
         selected_tables, status = 'NOVA', origin = 'CLIENTE',
         notes, admin_notes, created_by, establishment_id,
-        send_email, send_whatsapp // CAMPOS CAPTURADOS
+        send_email, send_whatsapp
       } = req.body;
 
-      // Validações
+      // Validações (permanecem as mesmas)
       if (!client_name || !reservation_date || !reservation_time || !number_of_people) {
-        return res.status(400).json({ success: false, error: 'Campos obrigatórios: client_name, reservation_date, reservation_time, number_of_people' });
+        return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando.' });
       }
       if (number_of_people < 11) {
-        return res.status(400).json({ success: false, error: 'Esta rota é apenas para reservas grandes (11 pessoas ou mais)' });
+        return res.status(400).json({ success: false, error: 'Esta rota é apenas para reservas com 11+ pessoas.' });
       }
       if (establishment_id === null || establishment_id === undefined) {
-        return res.status(400).json({ success: false, error: 'establishment_id é obrigatório para criar a reserva.' });
+        return res.status(400).json({ success: false, error: 'establishment_id é obrigatório.' });
       }
 
       // Inserção no Banco de Dados
@@ -148,14 +147,15 @@ module.exports = (pool) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const insertParams = [
-        client_name || null, client_phone || null, client_email || null, data_nascimento_cliente || null,
-        reservation_date || null, reservation_time || null, number_of_people || null, area_id || null,
-        selected_tables ? JSON.stringify(selected_tables) : null, status, origin, notes || null, admin_notes || null, created_by || null, establishment_id
+        client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
+        reservation_time, number_of_people, area_id, selected_tables ? JSON.stringify(selected_tables) : null,
+        status, origin, notes, admin_notes, created_by, establishment_id
       ];
+      
       const [result] = await pool.execute(insertQuery, insertParams);
       const reservationId = result.insertId;
 
-      // Busca a reserva completa
+      // Busca a reserva completa que acabamos de criar
       const [newReservationRows] = await pool.execute(`
         SELECT lr.*, ra.name as area_name, u.name as created_by_name, COALESCE(p.name, b.name) as establishment_name
         FROM large_reservations lr
@@ -165,16 +165,25 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON lr.establishment_id = b.id
         WHERE lr.id = ?
       `, [reservationId]);
+
+      // ### PROTEÇÃO ADICIONADA ###
+      // Verifica se a reserva foi encontrada após a inserção. Se não, algo está muito errado.
+      if (!newReservationRows || newReservationRows.length === 0) {
+        console.error(`🚨 FALHA CRÍTICA: Reserva com ID ${reservationId} foi inserida mas não pôde ser recuperada.`);
+        return res.status(500).json({ success: false, error: 'Falha ao processar a reserva após a criação.' });
+      }
       const newReservation = newReservationRows[0];
 
       // Criação da lista de convidados
       let guestListLink = null;
       const reservationDateObj = new Date(reservation_date + 'T00:00:00');
       const dayOfWeek = reservationDateObj.getDay();
-      if (dayOfWeek === 5 || dayOfWeek === 6) {
+
+      if (dayOfWeek === 5 || dayOfWeek === 6) { // Sexta ou Sábado
         const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (req.body.event_type || null);
         const token = require('crypto').randomBytes(24).toString('hex');
         const expiresAt = `${reservation_date} 23:59:59`;
+
         await pool.execute(
           `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES (?, 'large', ?, ?, ?)`,
           [reservationId, detectedEventType, token, expiresAt]
@@ -183,23 +192,30 @@ module.exports = (pool) => {
         guestListLink = `${baseUrl}/lista/${token}`;
       }
       
-      // Lógica de Notificação Corrigida
+      // ### LÓGICA DE NOTIFICAÇÃO MAIS SEGURA ###
       const notificationService = new NotificationService();
+      
       if (send_email && client_email) {
         try {
           await notificationService.sendLargeReservationConfirmationEmail(newReservation);
-          console.log('✅ Email de confirmação enviado');
-        } catch(e) { console.error('❌ Falha ao enviar email:', e); }
+          console.log('✅ Email de confirmação enviado.');
+        } catch(e) { console.error('❌ Falha ao enviar email:', e.message); }
       }
+      
       if (send_whatsapp && client_phone) {
         try {
           await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation);
-          console.log('✅ WhatsApp de confirmação enviado');
-        } catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e); }
+          console.log('✅ WhatsApp de confirmação enviado.');
+        } catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e.message); }
       }
-      // Notificação para o admin sempre é enviada
-      await notificationService.sendAdminNotification(newReservation);
 
+      // Notificação para o admin (sempre tenta enviar)
+      try {
+        await notificationService.sendAdminNotification(newReservation);
+        console.log('✅ Notificação para admin enviada.');
+      } catch (e) { console.error('❌ Falha ao notificar admin:', e.message); }
+
+      // Resposta de sucesso
       const responseBody = {
         success: true,
         message: 'Reserva grande criada com sucesso',
@@ -214,7 +230,8 @@ module.exports = (pool) => {
       console.error('❌ Erro ao criar reserva grande:', error);
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        details: error.message // Adiciona mais detalhes ao erro
       });
     }
   });
