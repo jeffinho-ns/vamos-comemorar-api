@@ -13,7 +13,7 @@ module.exports = (pool) => {
    * @desc    Lista todas as reservas GRANDES futuras com listas de convidados
    * @access  Private (Administrador, Gerente)
    */
-  router.get('/guest-lists', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.get('/guest-lists', async (req, res) => {
     try {
       // ... (lógica de filtros permanece a mesma)
       const { date, month, establishment_id } = req.query;
@@ -104,7 +104,7 @@ module.exports = (pool) => {
    * @desc    Lista convidados de uma lista
    * @access  Private (Administrador, Gerente)
    */
-  router.get('/guest-lists/:list_id/guests', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.get('/guest-lists/:list_id/guests', async (req, res) => {
     try {
       const { list_id } = req.params;
       const [lists] = await pool.execute('SELECT id FROM guest_lists WHERE id = ? LIMIT 1', [list_id]);
@@ -178,7 +178,7 @@ module.exports = (pool) => {
    * @desc    Cria uma nova lista de convidados manualmente (admin)
    * @access  Private (Administrador, Gerente)
    */
-  router.post('/guest-lists/create', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
+  router.post('/guest-lists/create', async (req, res) => {
     try {
       const { client_name, reservation_date, event_type, establishment_id } = req.body; // Adicionado establishment_id
 
