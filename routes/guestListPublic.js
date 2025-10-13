@@ -82,6 +82,67 @@ module.exports = (pool) => {
     }
   });
 
+  /**
+   * @route   POST /api/guest-list/:token/guests
+   * @desc    Adiciona um convidado à lista (público)
+   * @access  Public
+   */
+  router.post('/:token/guests', async (req, res) => {
+    try {
+      const { token } = req.params;
+      const { name, whatsapp } = req.body;
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Nome é obrigatório' });
+      }
+
+      // Verificar se a lista existe e não expirou
+      const [lists] = await pool.execute(
+        `SELECT gl.id, gl.expires_at,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid
+         FROM guest_lists gl
+         WHERE gl.shareable_link_token = ?
+         LIMIT 1`,
+        [token]
+      );
+
+      if (lists.length === 0) {
+        return res.status(404).json({ success: false, error: 'Lista não encontrada' });
+      }
+
+      const list = lists[0];
+      if (!list.is_valid) {
+        return res.status(410).json({ success: false, error: 'Link expirado' });
+      }
+
+      // Verificar se já existe um convidado com o mesmo nome na lista
+      const [existingGuests] = await pool.execute(
+        'SELECT id FROM guests WHERE guest_list_id = ? AND name = ? LIMIT 1',
+        [list.id, name.trim()]
+      );
+
+      if (existingGuests.length > 0) {
+        return res.status(400).json({ success: false, error: 'Você já está nesta lista!' });
+      }
+
+      // Adicionar o convidado
+      const [result] = await pool.execute(
+        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES (?, ?, ?)',
+        [list.id, name.trim(), whatsapp || null]
+      );
+
+      res.status(201).json({ 
+        success: true, 
+        message: 'Você foi adicionado à lista com sucesso!',
+        guest: { id: result.insertId, name: name.trim(), whatsapp: whatsapp || null }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao adicionar convidado à lista pública:', error);
+      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    }
+  });
+
   return router;
 };
 
