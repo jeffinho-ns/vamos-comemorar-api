@@ -90,6 +90,8 @@ const waitlistRoutes = require('./routes/waitlist');
 const restaurantAreasRoutes = require('./routes/restaurantAreas');
 const restaurantTablesRoutes = require('./routes/restaurantTables');
 const largeReservationsRoutes = require('./routes/largeReservations');
+const guestListPublicRoutes = require('./routes/guestListPublic');
+const guestListsAdminRoutes = require('./routes/guestListsAdmin');
 
 
 // Usando as Rotas
@@ -124,6 +126,9 @@ app.use('/api/restaurant-areas', restaurantAreasRoutes(pool));
 app.use('/api/restaurant-tables', restaurantTablesRoutes(pool));
 // A rota de reservas grandes está em /api/large-reservations
 app.use('/api/large-reservations', largeReservationsRoutes(pool));
+// Rotas de lista de convidados
+app.use('/api/guest-list', guestListPublicRoutes(pool));
+app.use('/api/admin', guestListsAdminRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {

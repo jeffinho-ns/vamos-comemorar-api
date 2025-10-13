@@ -161,11 +161,11 @@ module.exports = (pool) => {
         });
       }
 
-      // Validar se é realmente uma reserva grande (acima de 15 pessoas)
-      if (number_of_people <= 15) {
+      // Validar se é realmente uma reserva grande (>= 11 pessoas)
+      if (number_of_people < 11) {
         return res.status(400).json({
           success: false,
-          error: 'Esta rota é apenas para reservas grandes (acima de 15 pessoas)'
+          error: 'Esta rota é apenas para reservas grandes (11 pessoas ou mais)'
         });
       }
 
@@ -232,6 +232,34 @@ module.exports = (pool) => {
         WHERE lr.id = ?
       `, [reservationId]);
 
+      // Gerar guest_list quando for sexta com lista ou sábado (aniversário/despedida)
+      const reservationDateObj = new Date(reservation_date + 'T00:00:00');
+      const dayOfWeek = reservationDateObj.getDay(); // 0=Domingo ... 5=Sexta, 6=Sábado
+
+      // Geração de token simples e seguro
+      function generateToken() {
+        return require('crypto').randomBytes(24).toString('hex');
+      }
+
+      let guestListLink = null;
+      if (dayOfWeek === 5 || dayOfWeek === 6) {
+        // Definir event_type conforme regra: sexta = lista_sexta; sábado = a definir no front (aniversário/despedida)
+        const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (req.body.event_type || null);
+
+        const token = generateToken();
+        // expiração no dia da reserva às 23:59
+        const expiresAt = `${reservation_date} 23:59:59`;
+
+        await pool.execute(
+          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
+           VALUES (?, 'large', ?, ?, ?)`,
+          [reservationId, detectedEventType, token, expiresAt]
+        );
+
+        const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+        guestListLink = `${baseUrl}/lista/${token}`;
+      }
+
       // Enviar notificações se for reserva de cliente
       if (origin === 'CLIENTE') {
         const notificationService = new NotificationService();
@@ -264,11 +292,15 @@ module.exports = (pool) => {
         await notificationService.sendAdminNotification(newReservation[0]);
       }
 
-      res.status(201).json({
+      const responseBody = {
         success: true,
         message: 'Reserva grande criada com sucesso',
         reservation: newReservation[0]
-      });
+      };
+      if (guestListLink) {
+        responseBody.guest_list_link = guestListLink;
+      }
+      res.status(201).json(responseBody);
 
     } catch (error) {
       console.error('❌ Erro ao criar reserva grande:', error);
