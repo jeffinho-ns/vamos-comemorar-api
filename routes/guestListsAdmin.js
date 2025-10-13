@@ -24,12 +24,17 @@ module.exports = (pool) => {
         whereClauses.push('lr.reservation_date = ?');
         params.push(date);
       } else if (month) {
-        whereClauses.push('DATE_FORMAT(lr.reservation_date, "%Y-%m") = ?');
-        params.push(month);
+        // Corrigir o filtro de mês para usar YEAR() e MONTH() separadamente
+        const year = month.split('-')[0];
+        const monthNum = month.split('-')[1];
+        whereClauses.push('YEAR(lr.reservation_date) = ? AND MONTH(lr.reservation_date) = ?');
+        params.push(year, monthNum);
       } else {
         const currentMonth = new Date().toISOString().slice(0, 7);
-        whereClauses.push('DATE_FORMAT(lr.reservation_date, "%Y-%m") = ?');
-        params.push(currentMonth);
+        const year = currentMonth.split('-')[0];
+        const monthNum = currentMonth.split('-')[1];
+        whereClauses.push('YEAR(lr.reservation_date) = ? AND MONTH(lr.reservation_date) = ?');
+        params.push(year, monthNum);
       }
       if (establishment_id) {
           whereClauses.push('lr.establishment_id = ?');
