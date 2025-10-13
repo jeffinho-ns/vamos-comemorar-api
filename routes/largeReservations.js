@@ -115,27 +115,24 @@ module.exports = (pool) => {
    * @desc    Cria uma nova reserva grande
    * @access  Private
    */
-   router.post('/', async (req, res) => {
+ router.post('/', async (req, res) => {
     try {
       console.log('📥 Dados recebidos na API de reservas grandes:', JSON.stringify(req.body, null, 2));
 
       const {
         client_name, client_phone, client_email, data_nascimento_cliente,
         reservation_date, reservation_time, number_of_people, area_id,
-        selected_tables, status = 'NOVA', origin = 'CLIENTE',
+        selected_tables, status = 'NOVA', origin = 'SITE',
         notes, admin_notes, created_by, establishment_id,
         send_email, send_whatsapp, event_type
       } = req.body;
 
-      // Validações (permanecem as mesmas)
-      if (!client_name || !reservation_date || !reservation_time || !number_of_people) {
-        return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando.' });
+      // Validações
+      if (!client_name || !reservation_date || !reservation_time || !number_of_people || establishment_id === undefined) {
+        return res.status(400).json({ success: false, error: 'Campos essenciais faltando (nome, data, hora, pessoas, estabelecimento).' });
       }
-      if (number_of_people < 11) {
+      if (Number(number_of_people) < 11) {
         return res.status(400).json({ success: false, error: 'Esta rota é apenas para reservas com 11+ pessoas.' });
-      }
-      if (establishment_id === null || establishment_id === undefined) {
-        return res.status(400).json({ success: false, error: 'establishment_id é obrigatório.' });
       }
 
       // Inserção no Banco de Dados
@@ -147,8 +144,8 @@ module.exports = (pool) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      // ### CORREÇÃO PRINCIPAL AQUI ###
-      // Garante que valores ausentes se tornem 'null' em vez de 'undefined'
+      // ### CORREÇÃO DEFINITIVA AQUI ###
+      // Garantimos que todos os campos que podem ser nulos recebam `null` ao invés de `undefined`.
       const insertParams = [
         client_name,
         client_phone || null,
@@ -157,20 +154,20 @@ module.exports = (pool) => {
         reservation_date,
         reservation_time,
         number_of_people,
-        area_id,
+        area_id || null, // Garante que area_id também seja nulo se não vier
         selected_tables ? JSON.stringify(selected_tables) : null,
         status,
         origin,
-        notes || null,          // <-- CORREÇÃO
-        admin_notes || null,    // <-- CORREÇÃO
-        created_by || null,     // <-- CORREÇÃO
+        notes || null,
+        admin_notes || null,
+        created_by || null,
         establishment_id
       ];
       
       const [result] = await pool.execute(insertQuery, insertParams);
       const reservationId = result.insertId;
 
-      // Busca a reserva completa que acabamos de criar
+      // O restante do código para buscar a reserva, criar a lista e enviar notificações continua o mesmo.
       const [newReservationRows] = await pool.execute(`
         SELECT lr.*, ra.name as area_name, u.name as created_by_name, COALESCE(p.name, b.name) as establishment_name
         FROM large_reservations lr
@@ -187,11 +184,9 @@ module.exports = (pool) => {
       }
       const newReservation = newReservationRows[0];
 
-      // Criação da lista de convidados
       let guestListLink = null;
       const reservationDateObj = new Date(reservation_date + 'T00:00:00');
       const dayOfWeek = reservationDateObj.getDay();
-
       if (dayOfWeek === 5 || dayOfWeek === 6) { // Sexta ou Sábado
         const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (event_type || null);
         const token = require('crypto').randomBytes(24).toString('hex');
@@ -205,26 +200,18 @@ module.exports = (pool) => {
         guestListLink = `${baseUrl}/lista/${token}`;
       }
       
-      // Lógica de Notificação
       const notificationService = new NotificationService();
       if (send_email && client_email) {
-        try {
-          await notificationService.sendLargeReservationConfirmationEmail(newReservation);
-          console.log('✅ Email de confirmação enviado.');
-        } catch(e) { console.error('❌ Falha ao enviar email:', e.message); }
+        try { await notificationService.sendLargeReservationConfirmationEmail(newReservation); console.log('✅ Email enviado.'); } 
+        catch(e) { console.error('❌ Falha ao enviar email:', e.message); }
       }
       if (send_whatsapp && client_phone) {
-        try {
-          await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation);
-          console.log('✅ WhatsApp de confirmação enviado.');
-        } catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e.message); }
+        try { await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation); console.log('✅ WhatsApp enviado.'); } 
+        catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e.message); }
       }
-      try {
-        await notificationService.sendAdminNotification(newReservation);
-        console.log('✅ Notificação para admin enviada.');
-      } catch (e) { console.error('❌ Falha ao notificar admin:', e.message); }
+      try { await notificationService.sendAdminNotification(newReservation); console.log('✅ Notificação para admin enviada.'); } 
+      catch (e) { console.error('❌ Falha ao notificar admin:', e.message); }
 
-      // Resposta de sucesso
       const responseBody = {
         success: true,
         message: 'Reserva grande criada com sucesso',
