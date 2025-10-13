@@ -115,7 +115,7 @@ module.exports = (pool) => {
    * @desc    Cria uma nova reserva grande
    * @access  Private
    */
-  router.post('/', async (req, res) => {
+   router.post('/', async (req, res) => {
     try {
       console.log('📥 Dados recebidos na API de reservas grandes:', JSON.stringify(req.body, null, 2));
 
@@ -124,7 +124,7 @@ module.exports = (pool) => {
         reservation_date, reservation_time, number_of_people, area_id,
         selected_tables, status = 'NOVA', origin = 'CLIENTE',
         notes, admin_notes, created_by, establishment_id,
-        send_email, send_whatsapp
+        send_email, send_whatsapp, event_type
       } = req.body;
 
       // Validações (permanecem as mesmas)
@@ -146,10 +146,25 @@ module.exports = (pool) => {
           status, origin, notes, admin_notes, created_by, establishment_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
+
+      // ### CORREÇÃO PRINCIPAL AQUI ###
+      // Garante que valores ausentes se tornem 'null' em vez de 'undefined'
       const insertParams = [
-        client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
-        reservation_time, number_of_people, area_id, selected_tables ? JSON.stringify(selected_tables) : null,
-        status, origin, notes, admin_notes, created_by, establishment_id
+        client_name,
+        client_phone || null,
+        client_email || null,
+        data_nascimento_cliente || null,
+        reservation_date,
+        reservation_time,
+        number_of_people,
+        area_id,
+        selected_tables ? JSON.stringify(selected_tables) : null,
+        status,
+        origin,
+        notes || null,          // <-- CORREÇÃO
+        admin_notes || null,    // <-- CORREÇÃO
+        created_by || null,     // <-- CORREÇÃO
+        establishment_id
       ];
       
       const [result] = await pool.execute(insertQuery, insertParams);
@@ -166,8 +181,6 @@ module.exports = (pool) => {
         WHERE lr.id = ?
       `, [reservationId]);
 
-      // ### PROTEÇÃO ADICIONADA ###
-      // Verifica se a reserva foi encontrada após a inserção. Se não, algo está muito errado.
       if (!newReservationRows || newReservationRows.length === 0) {
         console.error(`🚨 FALHA CRÍTICA: Reserva com ID ${reservationId} foi inserida mas não pôde ser recuperada.`);
         return res.status(500).json({ success: false, error: 'Falha ao processar a reserva após a criação.' });
@@ -180,7 +193,7 @@ module.exports = (pool) => {
       const dayOfWeek = reservationDateObj.getDay();
 
       if (dayOfWeek === 5 || dayOfWeek === 6) { // Sexta ou Sábado
-        const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (req.body.event_type || null);
+        const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (event_type || null);
         const token = require('crypto').randomBytes(24).toString('hex');
         const expiresAt = `${reservation_date} 23:59:59`;
 
@@ -192,24 +205,20 @@ module.exports = (pool) => {
         guestListLink = `${baseUrl}/lista/${token}`;
       }
       
-      // ### LÓGICA DE NOTIFICAÇÃO MAIS SEGURA ###
+      // Lógica de Notificação
       const notificationService = new NotificationService();
-      
       if (send_email && client_email) {
         try {
           await notificationService.sendLargeReservationConfirmationEmail(newReservation);
           console.log('✅ Email de confirmação enviado.');
         } catch(e) { console.error('❌ Falha ao enviar email:', e.message); }
       }
-      
       if (send_whatsapp && client_phone) {
         try {
           await notificationService.sendLargeReservationConfirmationWhatsApp(newReservation);
           console.log('✅ WhatsApp de confirmação enviado.');
         } catch(e) { console.error('❌ Falha ao enviar WhatsApp:', e.message); }
       }
-
-      // Notificação para o admin (sempre tenta enviar)
       try {
         await notificationService.sendAdminNotification(newReservation);
         console.log('✅ Notificação para admin enviada.');
@@ -231,7 +240,7 @@ module.exports = (pool) => {
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
-        details: error.message // Adiciona mais detalhes ao erro
+        details: error.message
       });
     }
   });
