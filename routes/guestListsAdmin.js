@@ -15,12 +15,11 @@ module.exports = (pool) => {
    */
   router.get('/guest-lists', auth, authorize('Administrador', 'Gerente'), async (req, res) => {
     try {
-      const { date, month, establishment_id } = req.query; // Adicionado filtro de estabelecimento
-
+      // ... (lógica de filtros permanece a mesma)
+      const { date, month, establishment_id } = req.query;
       let whereClauses = [];
       let params = [];
 
-      // Filtro de data ou mês
       if (date) {
         whereClauses.push('lr.reservation_date = ?');
         params.push(date);
@@ -32,22 +31,19 @@ module.exports = (pool) => {
         whereClauses.push('DATE_FORMAT(lr.reservation_date, "%Y-%m") = ?');
         params.push(currentMonth);
       }
-
-      // Filtro de estabelecimento
       if (establishment_id) {
           whereClauses.push('lr.establishment_id = ?');
           params.push(establishment_id);
       }
-      
       const whereClauseString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-
-      // ### CORREÇÃO PRINCIPAL AQUI ###
-      // A consulta agora busca APENAS em large_reservations.
+      
+      // ### CORREÇÃO AQUI: Adicione shareable_link_token ###
       const [rows] = await pool.execute(`
         SELECT 
           gl.id as guest_list_id, 
           gl.event_type, 
           gl.expires_at,
+          gl.shareable_link_token, -- ADICIONADO ESTE CAMPO
           CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
           lr.client_name as owner_name,
           lr.reservation_date,
@@ -65,7 +61,6 @@ module.exports = (pool) => {
       res.status(500).json({ success: false, error: 'Erro interno do servidor' });
     }
   });
-
   // --- O RESTANTE DO ARQUIVO PERMANECE IGUAL ---
 
   /**
