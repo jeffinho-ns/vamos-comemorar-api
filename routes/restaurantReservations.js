@@ -111,7 +111,9 @@ module.exports = (pool) => {
         origin = 'PESSOAL',
         notes,
         created_by,
-        establishment_id
+        establishment_id,
+        send_email = true,
+        send_whatsapp = true
       } = req.body;
 
       // Validações básicas
@@ -216,44 +218,42 @@ module.exports = (pool) => {
       `, [reservationId]);
 
       // Enviar notificações em criação (cliente e admin)
-      if (origin === 'SITE' || origin === 'CLIENTE' || origin === 'ADMIN') {
-        const notificationService = new NotificationService();
-        
-        // Enviar email de confirmação
-        if (client_email) {
-          try {
-            const emailResult = await notificationService.sendReservationConfirmationEmail(newReservation[0]);
-            if (emailResult.success) {
-              console.log('✅ Email de confirmação enviado');
-            } else {
-              console.error('❌ Erro ao enviar email:', emailResult.error);
-            }
-          } catch (error) {
-            console.error('❌ Erro ao enviar email:', error);
-          }
-        }
-
-        // Enviar WhatsApp de confirmação
-        if (client_phone) {
-          try {
-            const whatsappResult = await notificationService.sendReservationConfirmationWhatsApp(newReservation[0]);
-            if (whatsappResult.success) {
-              console.log('✅ WhatsApp de confirmação enviado');
-            } else {
-              console.error('❌ Erro ao enviar WhatsApp:', whatsappResult.error);
-            }
-          } catch (error) {
-            console.error('❌ Erro ao enviar WhatsApp:', error);
-          }
-        }
-
-        // Enviar notificação para admin
+      const notificationService = new NotificationService();
+      
+      // Enviar email de confirmação
+      if (send_email && client_email) {
         try {
-          await notificationService.sendAdminReservationNotification(newReservation[0]);
-          console.log('✅ Notificação admin enviada');
+          const emailResult = await notificationService.sendReservationConfirmationEmail(newReservation[0]);
+          if (emailResult.success) {
+            console.log('✅ Email de confirmação enviado');
+          } else {
+            console.error('❌ Erro ao enviar email:', emailResult.error);
+          }
         } catch (error) {
-          console.error('❌ Erro ao enviar notificação admin:', error);
+          console.error('❌ Erro ao enviar email:', error);
         }
+      }
+
+      // Enviar WhatsApp de confirmação
+      if (send_whatsapp && client_phone) {
+        try {
+          const whatsappResult = await notificationService.sendReservationConfirmationWhatsApp(newReservation[0]);
+          if (whatsappResult.success) {
+            console.log('✅ WhatsApp de confirmação enviado');
+          } else {
+            console.error('❌ Erro ao enviar WhatsApp:', whatsappResult.error);
+          }
+        } catch (error) {
+          console.error('❌ Erro ao enviar WhatsApp:', error);
+        }
+      }
+
+      // Enviar notificação para admin (sempre)
+      try {
+        await notificationService.sendAdminReservationNotification(newReservation[0]);
+        console.log('✅ Notificação admin enviada');
+      } catch (error) {
+        console.error('❌ Erro ao enviar notificação admin:', error);
       }
 
       res.status(201).json({
