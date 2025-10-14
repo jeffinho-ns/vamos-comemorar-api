@@ -54,7 +54,7 @@ class NotificationService {
           <div style="text-align: left; padding: 0 30px 20px 30px;">
             <h2 style="font-size: 20px; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 10px; font-weight: bold; text-align: center;">Detalhes da Reserva:</h2>
             <ul style="list-style-type: none; padding: 10px 0 0 0; font-size: 16px;">
-              <li style="padding: 8px 0;"><strong>Data:</strong> ${new Date(reservation_date).toLocaleDateString('pt-BR')}</li>
+              <li style="padding: 8px 0;"><strong>Data:</strong> ${new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR')}</li>
               <li style="padding: 8px 0;"><strong>Horário:</strong> ${reservation_time}</li>
               <li style="padding: 8px 0;"><strong>Pessoas:</strong> ${number_of_people}</li>
               <li style="padding: 8px 0;"><strong>Área:</strong> ${area_name || 'A definir'}</li>
@@ -121,7 +121,7 @@ class NotificationService {
               <li><strong>Cliente:</strong> ${client_name}</li>
               <li><strong>Telefone:</strong> ${client_phone}</li>
               <li><strong>Email:</strong> ${client_email}</li>
-              <li><strong>Data:</strong> ${new Date(reservation_date).toLocaleDateString('pt-BR')}</li>
+              <li><strong>Data:</strong> ${new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR')}</li>
               <li><strong>Horário:</strong> ${reservation_time}</li>
               <li><strong>Pessoas:</strong> ${number_of_people}</li>
               <li><strong>Estabelecimento:</strong> ${establishment_name}</li>
@@ -186,9 +186,9 @@ class NotificationService {
     let messageBody;
 
     if (isLargeReservation) {
-      messageBody = `Olá, ${client_name}! Sua reserva grande (para ${number_of_people} pessoas) no *${establishment_name}* foi confirmada! 🥳\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date).toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\n\nPara reservas deste tamanho, poderemos entrar em contato para alinhar outros detalhes. Obrigado pela preferência!`;
+      messageBody = `Olá, ${client_name}! Sua reserva grande (para ${number_of_people} pessoas) no *${establishment_name}* foi confirmada! 🥳\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\n\nPara reservas deste tamanho, poderemos entrar em contato para alinhar outros detalhes. Obrigado pela preferência!`;
     } else {
-      messageBody = `Olá, ${client_name}! Sua reserva no *${establishment_name}* foi confirmada com sucesso! 🎉\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date).toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nObrigado por escolher o ${establishment_name}!`;
+      messageBody = `Olá, ${client_name}! Sua reserva no *${establishment_name}* foi confirmada com sucesso! 🎉\n\n*Detalhes da Reserva:*\nData: ${new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR')}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nObrigado por escolher o ${establishment_name}!`;
     }
 
     try {
