@@ -114,3 +114,4 @@ Para testar se as notificações estão funcionando:
 - Verifique os logs do servidor para erros
 - As notificações são enviadas de forma assíncrona
 - Falhas não impedem a criação da reserva
+

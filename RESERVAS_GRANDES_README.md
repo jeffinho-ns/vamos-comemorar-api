@@ -144,3 +144,4 @@ Execute o script de migração para criar a tabela:
 - Execute a migração da tabela `large_reservations`
 - Verifique se as tabelas `restaurant_areas` e `restaurant_tables` existem
 - Confirme as permissões do usuário do banco
+

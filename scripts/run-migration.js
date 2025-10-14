@@ -55,3 +55,4 @@ async function runMigration() {
 
 // Executar migração
 runMigration();
+
