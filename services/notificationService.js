@@ -26,6 +26,37 @@ class NotificationService {
   }
 
   /**
+   * Formata data no formato brasileiro (DD/MM/YYYY)
+   * @param {string} dateString - Data no formato YYYY-MM-DD
+   * @returns {string} Data formatada em DD/MM/YYYY
+   */
+  formatDateBR(dateString) {
+    if (!dateString) return 'Data não informada';
+    
+    try {
+      // Se a data vier no formato YYYY-MM-DD
+      const [year, month, day] = dateString.split('T')[0].split('-');
+      return `${day}/${month}/${year}`;
+    } catch (error) {
+      console.error('Erro ao formatar data:', error);
+      return dateString;
+    }
+  }
+
+  /**
+   * Formata horário removendo os segundos se necessário
+   * @param {string} timeString - Horário no formato HH:MM:SS ou HH:MM
+   * @returns {string} Horário formatado em HH:MM
+   */
+  formatTime(timeString) {
+    if (!timeString) return 'Horário não informado';
+    
+    // Remove os segundos se existirem (20:00:00 -> 20:00)
+    const parts = timeString.split(':');
+    return `${parts[0]}:${parts[1]}`;
+  }
+
+  /**
    * Envia email de confirmação para o cliente (funciona para reservas normais e grandes)
    */
   async sendReservationConfirmationEmail(reservation) {
@@ -33,6 +64,10 @@ class NotificationService {
     
     const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name, table_number } = reservation;
     const isLargeReservation = number_of_people >= 16;
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(reservation_date);
+    const formattedTime = this.formatTime(reservation_time);
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -45,38 +80,72 @@ class NotificationService {
           <img src="https://grupoideiaum.com.br/emails/highline/header.png" alt="High Line" style="width: 100%; max-width: 600px; height: auto;">
 
           <div style="padding: 20px;">
-            <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✨ Obrigado pela sua reserva ✨</h1>
+            <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✨ Obrigado pela sua reserva${client_name ? ', ' + client_name : ''}! ✨</h1>
             
             <p style="font-size: 16px; line-height: 1.5;">Sua experiência no <strong>${establishment_name}</strong> já está garantida.</p>
-            <p style="font-size: 16px; line-height: 1.5;">É um prazer receber você! Estamos ansiosos para proporcionar uma experiência única, repleta de sabor e momentos especiais. Confira abaixo os detalhes da sua reserva:</p>
+            <p style="font-size: 16px; line-height: 1.5;">É um prazer receber você! Estamos ansiosos para proporcionar uma experiência única, repleta de sabor e momentos especiais.</p>
           </div>
 
-          <div style="text-align: left; padding: 0 30px 20px 30px;">
-            <h2 style="font-size: 20px; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 10px; font-weight: bold; text-align: center;">Detalhes da Reserva:</h2>
-            <ul style="list-style-type: none; padding: 10px 0 0 0; font-size: 16px;">
-              <li style="padding: 8px 0;"><strong>Data:</strong> ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}</li>
-              <li style="padding: 8px 0;"><strong>Horário:</strong> ${reservation_time}</li>
-              <li style="padding: 8px 0;"><strong>Pessoas:</strong> ${number_of_people}</li>
-              <li style="padding: 8px 0;"><strong>Área:</strong> ${area_name || 'A definir'}</li>
-              ${table_number ? `<li style="padding: 8px 0;"><strong>Mesa:</strong> ${table_number}</li>` : ''}
-            </ul>
+          <!-- Detalhes da Reserva com Destaque -->
+          <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 30px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h2 style="font-size: 22px; color: #fff; margin: 0 0 20px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">📋 Detalhes da Sua Reserva</h2>
+            
+            <div style="background-color: rgba(255,255,255,0.95); border-radius: 8px; padding: 25px; text-align: left;">
+              
+              <!-- Data -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📅 Data</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedDate}</div>
+              </div>
+              
+              <!-- Horário -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🕐 Horário</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedTime}</div>
+              </div>
+              
+              <!-- Número de Pessoas -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">👥 Número de Pessoas</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${number_of_people} ${number_of_people === 1 ? 'pessoa' : 'pessoas'}</div>
+              </div>
+              
+              <!-- Área -->
+              <div style="margin-bottom: ${table_number ? '20px' : '0'}; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">${area_name || 'A definir'}</div>
+              </div>
+              
+              ${table_number ? `
+              <!-- Mesa -->
+              <div style="padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🪑 Mesa</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">Mesa ${table_number}</div>
+              </div>
+              ` : ''}
+            </div>
           </div>
 
           <div style="background-color: #333; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: left; border-radius: 8px;">
-              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">Informações importantes</h2>
-              <p style="font-size: 14px; line-height: 1.6;">※ Chegue com 10 minutos de antecedência para garantir sua mesa.</p>
-              <p style="font-size: 14px; line-height: 1.6;">※ Em caso de atraso superior a 15 minutos, sua reserva poderá ser cancelada.</p>
-              <p style="font-size: 14px; line-height: 1.6;">※ Para alterações, entre em contato pelo telefone [telefone do restaurante].</p>
+              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">⚠️ Informações Importantes</h2>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Chegue com <strong>10 minutos de antecedência</strong> para garantir sua mesa.</p>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Em caso de atraso superior a <strong>15 minutos</strong>, sua reserva poderá ser cancelada.</p>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Para alterações ou cancelamentos, entre em contato conosco.</p>
           </div>
           
-          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto;">
+          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto; margin: 20px 0;">
 
           <div style="padding: 30px 20px;">
-            <p style="font-size: 16px;">👉 Aproveite para conhecer nosso cardápio completo e novidades em nosso site.</p>
+            <p style="font-size: 16px; color: #666;">Estamos aguardando você! 🎉</p>
             
-            <a href="#" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
+            <a href="https://agilizaiapp.com.br" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
                 Visitar o Site
             </a>
+          </div>
+
+          <div style="padding: 20px; background-color: #f8f9fa; margin-top: 30px; border-top: 3px solid #FF6B35;">
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">© ${new Date().getFullYear()} ${establishment_name}</p>
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">Grupo Ideia Um</p>
           </div>
 
         </div>
@@ -103,9 +172,13 @@ class NotificationService {
   async sendAdminReservationNotification(reservation) {
     if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
 
-    const { client_name, client_phone, client_email, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
+    const { client_name, client_phone, client_email, reservation_date, reservation_time, number_of_people, establishment_name, area_name } = reservation;
     const isLargeReservation = number_of_people >= 16;
     const adminEmail = process.env.ADMIN_EMAIL || 'reservas@grupoideiaum.com.br';
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(reservation_date);
+    const formattedTime = this.formatTime(reservation_time);
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -113,19 +186,63 @@ class NotificationService {
         to: [adminEmail],
         subject: isLargeReservation ? `🔔 Nova Reserva Grande - ${establishment_name}` : `🔔 Nova Reserva Recebida - ${establishment_name}`,
         html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2>🔔 Nova Reserva Recebida! ${isLargeReservation ? '(GRANDE)' : ''}</h2>
-            <p>Uma nova reserva foi criada.</p>
-            <h3>Detalhes:</h3>
-            <ul>
-              <li><strong>Cliente:</strong> ${client_name}</li>
-              <li><strong>Telefone:</strong> ${client_phone}</li>
-              <li><strong>Email:</strong> ${client_email}</li>
-              <li><strong>Data:</strong> ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}</li>
-              <li><strong>Horário:</strong> ${reservation_time}</li>
-              <li><strong>Pessoas:</strong> ${number_of_people}</li>
-              <li><strong>Estabelecimento:</strong> ${establishment_name}</li>
-            </ul>
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
+            <div style="background-color: #fff; border-radius: 8px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <h2 style="color: #FF6B35; margin-top: 0;">🔔 Nova Reserva Recebida! ${isLargeReservation ? '<span style="background-color: #ffd700; color: #000; padding: 5px 10px; border-radius: 4px; font-size: 14px;">GRANDE</span>' : ''}</h2>
+              <p style="font-size: 16px; color: #666;">Uma nova reserva foi criada no sistema.</p>
+              
+              <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="color: #333; margin-top: 0;">📋 Detalhes da Reserva:</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Cliente:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${client_name}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Telefone:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;"><a href="tel:${client_phone}">${client_phone}</a></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Email:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;"><a href="mailto:${client_email}">${client_email}</a></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>📅 Data:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${formattedDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>🕐 Horário:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${formattedTime}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>👥 Pessoas:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${number_of_people}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>📍 Área:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${area_name || 'A definir'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0;"><strong>🏢 Estabelecimento:</strong></td>
+                    <td style="padding: 10px 0; text-align: right;">${establishment_name}</td>
+                  </tr>
+                </table>
+              </div>
+              
+              <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0; color: #856404;"><strong>⚠️ Ação Necessária:</strong> Confirme ou ajuste esta reserva no painel administrativo.</p>
+              </div>
+              
+              <div style="text-align: center; margin-top: 30px;">
+                <a href="https://agilizaiapp.com.br/admin/restaurant-reservations" style="background-color: #FF6B35; color: #fff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  Ver no Sistema
+                </a>
+              </div>
+            </div>
+            
+            <div style="text-align: center; padding: 20px; color: #999; font-size: 12px;">
+              <p>Sistema de Reservas - Grupo Ideia Um</p>
+            </div>
           </div>
         `
       });
@@ -159,6 +276,10 @@ class NotificationService {
 
     const { client_name, client_phone, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
     const isLargeReservation = number_of_people >= 16;
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(reservation_date);
+    const formattedTime = this.formatTime(reservation_time);
 
     // --- LÓGICA DE FORMATAÇÃO CORRIGIDA ---
     // 1. Remove todos os caracteres que não são dígitos do número.
@@ -186,9 +307,9 @@ class NotificationService {
     let messageBody;
 
     if (isLargeReservation) {
-      messageBody = `Olá, ${client_name}! Sua reserva grande (para ${number_of_people} pessoas) no *${establishment_name}* foi confirmada! 🥳\n\n*Detalhes da Reserva:*\nData: ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}\nHorário: ${reservation_time}\n\nPara reservas deste tamanho, poderemos entrar em contato para alinhar outros detalhes. Obrigado pela preferência!`;
+      messageBody = `Olá, ${client_name}! Sua reserva grande (para ${number_of_people} pessoas) no *${establishment_name}* foi confirmada! 🥳\n\n*Detalhes da Reserva:*\n📅 Data: ${formattedDate}\n🕐 Horário: ${formattedTime}\n👥 Pessoas: ${number_of_people}\n\nPara reservas deste tamanho, poderemos entrar em contato para alinhar outros detalhes. Obrigado pela preferência!`;
     } else {
-      messageBody = `Olá, ${client_name}! Sua reserva no *${establishment_name}* foi confirmada com sucesso! 🎉\n\n*Detalhes da Reserva:*\nData: ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nObrigado por escolher o ${establishment_name}!`;
+      messageBody = `Olá, ${client_name}! Sua reserva no *${establishment_name}* foi confirmada com sucesso! 🎉\n\n*Detalhes da Reserva:*\n📅 Data: ${formattedDate}\n🕐 Horário: ${formattedTime}\n👥 Pessoas: ${number_of_people}\n\nObrigado por escolher o ${establishment_name}!`;
     }
 
     try {
@@ -237,6 +358,10 @@ class NotificationService {
     if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
     
     const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name, table_number } = reservation;
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(reservation_date);
+    const formattedTime = this.formatTime(reservation_time);
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -256,37 +381,72 @@ class NotificationService {
             <p style="font-size: 16px; line-height: 1.5;">Estamos ansiosos para receber você. Confira os detalhes confirmados:</p>
           </div>
 
-          <div style="text-align: left; padding: 0 30px 20px 30px;">
-            <h2 style="font-size: 20px; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 10px; font-weight: bold; text-align: center;">Detalhes da Reserva:</h2>
-            <ul style="list-style-type: none; padding: 10px 0 0 0; font-size: 16px;">
-              <li style="padding: 8px 0;"><strong>Data:</strong> ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}</li>
-              <li style="padding: 8px 0;"><strong>Horário:</strong> ${reservation_time}</li>
-              <li style="padding: 8px 0;"><strong>Pessoas:</strong> ${number_of_people}</li>
-              <li style="padding: 8px 0;"><strong>Área:</strong> ${area_name || 'A definir'}</li>
-              ${table_number ? `<li style="padding: 8px 0;"><strong>Mesa:</strong> ${table_number}</li>` : ''}
-            </ul>
+          <!-- Status Confirmada -->
+          <div style="background-color: #28a745; color: #fff; padding: 20px 30px; margin: 20px; text-align: center; border-radius: 12px; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
+              <h2 style="font-size: 24px; margin: 0; font-weight: bold;">✅ STATUS: CONFIRMADA ✅</h2>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0 0 0;">Sua mesa está garantida! Nos vemos em breve.</p>
           </div>
 
-          <div style="background-color: #28a745; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: center; border-radius: 8px;">
-              <h2 style="font-size: 20px; margin-top: 0; font-weight: bold;">✅ Status: CONFIRMADA</h2>
-              <p style="font-size: 14px; line-height: 1.6;">Sua mesa está garantida! Nos vemos em breve.</p>
+          <!-- Detalhes da Reserva com Destaque -->
+          <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 30px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h2 style="font-size: 22px; color: #fff; margin: 0 0 20px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">📋 Detalhes da Sua Reserva</h2>
+            
+            <div style="background-color: rgba(255,255,255,0.95); border-radius: 8px; padding: 25px; text-align: left;">
+              
+              <!-- Data -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📅 Data</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedDate}</div>
+              </div>
+              
+              <!-- Horário -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🕐 Horário</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedTime}</div>
+              </div>
+              
+              <!-- Número de Pessoas -->
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">👥 Número de Pessoas</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${number_of_people} ${number_of_people === 1 ? 'pessoa' : 'pessoas'}</div>
+              </div>
+              
+              <!-- Área -->
+              <div style="margin-bottom: ${table_number ? '20px' : '0'}; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">${area_name || 'A definir'}</div>
+              </div>
+              
+              ${table_number ? `
+              <!-- Mesa -->
+              <div style="padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🪑 Mesa</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">Mesa ${table_number}</div>
+              </div>
+              ` : ''}
+            </div>
           </div>
 
           <div style="background-color: #333; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: left; border-radius: 8px;">
-              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">Informações importantes</h2>
-              <p style="font-size: 14px; line-height: 1.6;">※ Chegue com 10 minutos de antecedência para garantir sua mesa.</p>
-              <p style="font-size: 14px; line-height: 1.6;">※ Em caso de atraso superior a 15 minutos, sua reserva poderá ser cancelada.</p>
-              <p style="font-size: 14px; line-height: 1.6;">※ Para alterações, entre em contato pelo telefone [telefone do restaurante].</p>
+              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">⚠️ Informações Importantes</h2>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Chegue com <strong>10 minutos de antecedência</strong> para garantir sua mesa.</p>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Em caso de atraso superior a <strong>15 minutos</strong>, sua reserva poderá ser cancelada.</p>
+              <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Para alterações ou cancelamentos, entre em contato conosco.</p>
           </div>
           
-          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto;">
+          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto; margin: 20px 0;">
 
           <div style="padding: 30px 20px;">
-            <p style="font-size: 16px;">👉 Aproveite para conhecer nosso cardápio completo e novidades em nosso site.</p>
+            <p style="font-size: 16px; color: #666;">Estamos aguardando você! 🎉</p>
             
-            <a href="#" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
+            <a href="https://agilizaiapp.com.br" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
                 Visitar o Site
             </a>
+          </div>
+
+          <div style="padding: 20px; background-color: #f8f9fa; margin-top: 30px; border-top: 3px solid #28a745;">
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">© ${new Date().getFullYear()} ${establishment_name}</p>
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">Grupo Ideia Um</p>
           </div>
 
         </div>
@@ -317,6 +477,10 @@ class NotificationService {
     }
 
     const { client_name, client_phone, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(reservation_date);
+    const formattedTime = this.formatTime(reservation_time);
 
     // Formatação do telefone
     const digitsOnlyPhone = (client_phone || '').replace(/\D/g, '');
@@ -335,7 +499,7 @@ class NotificationService {
     const to = `whatsapp:${e164Phone}`;
     const from = `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`;
 
-    const messageBody = `✅ *RESERVA CONFIRMADA!*\n\nOlá, ${client_name}!\n\nSua reserva no *${establishment_name}* foi confirmada pelo nosso time! 🎉\n\n*Detalhes:*\nData: ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nNos vemos em breve! 🍽️`;
+    const messageBody = `✅ *RESERVA CONFIRMADA!*\n\nOlá, ${client_name}!\n\nSua reserva no *${establishment_name}* foi confirmada pelo nosso time! 🎉\n\n*Detalhes:*\n📅 Data: ${formattedDate}\n🕐 Horário: ${formattedTime}\n👥 Pessoas: ${number_of_people}\n\nNos vemos em breve! 🍽️`;
 
     try {
       const message = await this.whatsappClient.messages.create({
