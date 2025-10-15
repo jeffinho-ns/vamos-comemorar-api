@@ -206,6 +206,152 @@ class NotificationService {
       return { success: false, error: error.message };
     }
   }
+
+  /**
+   * Envia email de confirmação para reservas grandes (11+ pessoas)
+   */
+  async sendLargeReservationConfirmationEmail(reservation) {
+    // Reutiliza a mesma função de confirmação que já adapta o conteúdo baseado no número de pessoas
+    return this.sendReservationConfirmationEmail(reservation);
+  }
+
+  /**
+   * Envia WhatsApp de confirmação para reservas grandes (11+ pessoas)
+   */
+  async sendLargeReservationConfirmationWhatsApp(reservation) {
+    // Reutiliza a mesma função de confirmação que já adapta o conteúdo baseado no número de pessoas
+    return this.sendReservationConfirmationWhatsApp(reservation);
+  }
+
+  /**
+   * Envia notificação para admin sobre nova reserva (alias para sendAdminReservationNotification)
+   */
+  async sendAdminNotification(reservation) {
+    return this.sendAdminReservationNotification(reservation);
+  }
+
+  /**
+   * Envia email quando a reserva é confirmada pelo admin
+   */
+  async sendReservationConfirmedEmail(reservation) {
+    if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
+    
+    const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name, table_number } = reservation;
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: `"${establishment_name}" <reservas@grupoideiaum.com.br>`,
+        to: [client_email],
+        subject: `✅ Reserva Confirmada - ${establishment_name}`,
+        html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #333; text-align: center;">
+
+          <img src="https://grupoideiaum.com.br/emails/highline/header.png" alt="High Line" style="width: 100%; max-width: 600px; height: auto;">
+
+          <div style="padding: 20px;">
+            <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✅ Sua Reserva Foi Confirmada! ✅</h1>
+            
+            <p style="font-size: 16px; line-height: 1.5;">Olá <strong>${client_name}</strong>,</p>
+            <p style="font-size: 16px; line-height: 1.5;">Temos o prazer de informar que sua reserva no <strong>${establishment_name}</strong> foi <strong>confirmada pelo nosso time</strong>!</p>
+            <p style="font-size: 16px; line-height: 1.5;">Estamos ansiosos para receber você. Confira os detalhes confirmados:</p>
+          </div>
+
+          <div style="text-align: left; padding: 0 30px 20px 30px;">
+            <h2 style="font-size: 20px; color: #000; border-bottom: 1px solid #ccc; padding-bottom: 10px; font-weight: bold; text-align: center;">Detalhes da Reserva:</h2>
+            <ul style="list-style-type: none; padding: 10px 0 0 0; font-size: 16px;">
+              <li style="padding: 8px 0;"><strong>Data:</strong> ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}</li>
+              <li style="padding: 8px 0;"><strong>Horário:</strong> ${reservation_time}</li>
+              <li style="padding: 8px 0;"><strong>Pessoas:</strong> ${number_of_people}</li>
+              <li style="padding: 8px 0;"><strong>Área:</strong> ${area_name || 'A definir'}</li>
+              ${table_number ? `<li style="padding: 8px 0;"><strong>Mesa:</strong> ${table_number}</li>` : ''}
+            </ul>
+          </div>
+
+          <div style="background-color: #28a745; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: center; border-radius: 8px;">
+              <h2 style="font-size: 20px; margin-top: 0; font-weight: bold;">✅ Status: CONFIRMADA</h2>
+              <p style="font-size: 14px; line-height: 1.6;">Sua mesa está garantida! Nos vemos em breve.</p>
+          </div>
+
+          <div style="background-color: #333; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: left; border-radius: 8px;">
+              <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">Informações importantes</h2>
+              <p style="font-size: 14px; line-height: 1.6;">※ Chegue com 10 minutos de antecedência para garantir sua mesa.</p>
+              <p style="font-size: 14px; line-height: 1.6;">※ Em caso de atraso superior a 15 minutos, sua reserva poderá ser cancelada.</p>
+              <p style="font-size: 14px; line-height: 1.6;">※ Para alterações, entre em contato pelo telefone [telefone do restaurante].</p>
+          </div>
+          
+          <img src="https://grupoideiaum.com.br/emails/highline/banner-regua.jpg" alt="Comemore seu aniversário com a gente!" style="width: 100%; max-width: 600px; height: auto;">
+
+          <div style="padding: 30px 20px;">
+            <p style="font-size: 16px;">👉 Aproveite para conhecer nosso cardápio completo e novidades em nosso site.</p>
+            
+            <a href="#" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
+                Visitar o Site
+            </a>
+          </div>
+
+        </div>
+        `
+      });
+
+      if (error) {
+        console.error('❌ Erro ao enviar email de confirmação pelo Resend:', error);
+        return { success: false, error: error.message };
+      }
+
+      console.log('✅ Email de confirmação da reserva enviado via Resend! ID:', data.id);
+      return { success: true, messageId: data.id };
+
+    } catch (error) {
+      console.error('❌ Erro CRÍTICO na função sendReservationConfirmedEmail:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envia WhatsApp quando a reserva é confirmada pelo admin
+   */
+  async sendReservationConfirmedWhatsApp(reservation) {
+    if (!this.whatsappClient) {
+      console.warn('⚠️ AVISO: Cliente do WhatsApp (Twilio) não está configurado.');
+      return { success: false, error: 'Serviço de WhatsApp não configurado.' };
+    }
+
+    const { client_name, client_phone, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
+
+    // Formatação do telefone
+    const digitsOnlyPhone = (client_phone || '').replace(/\D/g, '');
+    let e164Phone;
+
+    if (digitsOnlyPhone.length === 10 || digitsOnlyPhone.length === 11) {
+      e164Phone = `+55${digitsOnlyPhone}`;
+    } 
+    else if (digitsOnlyPhone.startsWith('55') && (digitsOnlyPhone.length === 12 || digitsOnlyPhone.length === 13)) {
+      e164Phone = `+${digitsOnlyPhone}`;
+    }
+    else {
+      e164Phone = client_phone.startsWith('+') ? client_phone : `+${client_phone}`;
+    }
+
+    const to = `whatsapp:${e164Phone}`;
+    const from = `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`;
+
+    const messageBody = `✅ *RESERVA CONFIRMADA!*\n\nOlá, ${client_name}!\n\nSua reserva no *${establishment_name}* foi confirmada pelo nosso time! 🎉\n\n*Detalhes:*\nData: ${reservation_date ? new Date(reservation_date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Data não informada'}\nHorário: ${reservation_time}\nPessoas: ${number_of_people}\n\nNos vemos em breve! 🍽️`;
+
+    try {
+      const message = await this.whatsappClient.messages.create({
+        from: from,
+        body: messageBody,
+        to: to
+      });
+
+      console.log(`✅ WhatsApp de confirmação enviado para ${to}! SID: ${message.sid}`);
+      return { success: true, messageSid: message.sid };
+
+    } catch (error) {
+      console.error(`❌ Erro ao enviar WhatsApp de confirmação para ${to}:`, error.message);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = NotificationService;
