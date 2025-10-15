@@ -3,6 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const NotificationService = require('../services/notificationService');
+const authenticateToken = require('../middleware/auth');
+const { logAction } = require('../middleware/actionLogger');
 
 module.exports = (pool) => {
   /**
@@ -256,6 +258,37 @@ module.exports = (pool) => {
         console.error('❌ Erro ao enviar notificação admin:', error);
       }
 
+      // Registrar log de ação
+      if (created_by) {
+        try {
+          const [userInfo] = await pool.execute('SELECT id, name, email, role FROM users WHERE id = ?', [created_by]);
+          if (userInfo.length > 0) {
+            const user = userInfo[0];
+            await logAction(pool, {
+              userId: user.id,
+              userName: user.name,
+              userEmail: user.email,
+              userRole: user.role,
+              actionType: 'create_reservation',
+              actionDescription: `Criou reserva para ${client_name} - ${reservation_date} às ${reservation_time}`,
+              resourceType: 'restaurant_reservation',
+              resourceId: reservationId,
+              establishmentId: establishment_id,
+              establishmentName: newReservation[0].establishment_name,
+              status: 'success',
+              additionalData: {
+                client_name,
+                number_of_people,
+                area_name: newReservation[0].area_name,
+                table_number
+              }
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Erro ao registrar log:', logError);
+        }
+      }
+
       res.status(201).json({
         success: true,
         message: 'Reserva criada com sucesso',
@@ -432,6 +465,40 @@ module.exports = (pool) => {
         }
       } catch (e) {
         console.error('❌ Erro ao processar notificações de confirmação:', e);
+      }
+
+      // Registrar log de ação de atualização
+      if (updatedReservation[0].created_by) {
+        try {
+          const [userInfo] = await pool.execute('SELECT id, name, email, role FROM users WHERE id = ?', [updatedReservation[0].created_by]);
+          if (userInfo.length > 0) {
+            const user = userInfo[0];
+            const changedFields = [];
+            if (status !== undefined) changedFields.push(`status: ${status}`);
+            if (table_number !== undefined) changedFields.push(`mesa: ${table_number}`);
+            if (reservation_date !== undefined) changedFields.push(`data: ${reservation_date}`);
+            
+            await logAction(pool, {
+              userId: user.id,
+              userName: user.name,
+              userEmail: user.email,
+              userRole: user.role,
+              actionType: 'update_reservation',
+              actionDescription: `Atualizou reserva #${id} - ${changedFields.join(', ')}`,
+              resourceType: 'restaurant_reservation',
+              resourceId: id,
+              establishmentId: updatedReservation[0].establishment_id,
+              establishmentName: updatedReservation[0].establishment_name,
+              status: 'success',
+              additionalData: {
+                changed_fields: changedFields,
+                client_name: updatedReservation[0].client_name
+              }
+            });
+          }
+        } catch (logError) {
+          console.error('❌ Erro ao registrar log:', logError);
+        }
       }
 
       res.json({

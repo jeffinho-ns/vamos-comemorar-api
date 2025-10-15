@@ -92,6 +92,7 @@ const restaurantTablesRoutes = require('./routes/restaurantTables');
 const largeReservationsRoutes = require('./routes/largeReservations');
 const guestListPublicRoutes = require('./routes/guestListPublic');
 const guestListsAdminRoutes = require('./routes/guestListsAdmin');
+const actionLogsRoutes = require('./routes/actionLogs');
 
 
 // Usando as Rotas
@@ -129,6 +130,8 @@ app.use('/api/large-reservations', largeReservationsRoutes(pool));
 // Rotas de lista de convidados
 app.use('/api/guest-list', guestListPublicRoutes(pool));
 app.use('/api/admin', guestListsAdminRoutes(pool));
+// Rota de logs de ações
+app.use('/api/action-logs', actionLogsRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {
