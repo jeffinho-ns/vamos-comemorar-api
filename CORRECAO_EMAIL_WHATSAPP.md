@@ -135,3 +135,4 @@ Se após seguir todos os passos os e-mails ainda não estiverem sendo enviados:
 - Veja `CONFIGURACAO_NOTIFICACOES.md` para mais detalhes sobre configuração
 - Veja `config/production.env.example` para o arquivo de exemplo completo
 
+

@@ -1,30 +1,7 @@
 // routes/events.js
 
-const fs = require('fs');
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-
 const auth = require('../middleware/auth');
-const rootPath = path.resolve(__dirname, '..');
-const uploadDir = path.join(rootPath, 'uploads/events');
-
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
- 
-const upload = multer({
-    storage: multer.diskStorage({
-        destination: (req, file, cb) => cb(null, uploadDir),
-        filename: (req, file, cb) => {
-            const timestamp = Date.now();
-            const ext = path.extname(file.originalname);
-            const filename = `${timestamp}${ext}`;
-            cb(null, filename);
-        },
-    }),
-    limits: { fileSize: 20 * 1024 * 1024 },
-});
 
 // Helper function to calculate distance between two lat/lon points in km
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -44,16 +21,18 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 module.exports = (pool, checkAndAwardBrindes) => {
     const router = express.Router();
 
+    // URL base das imagens (mesma do cardápio - FTP)
+    const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+
     const addFullImageUrls = (event) => {
-        const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
         if (!event) return null;
         return {
             ...event,
             imagem_do_evento_url: event.imagem_do_evento
-                ? `${baseUrl}/uploads/events/${event.imagem_do_evento}`
+                ? `${BASE_IMAGE_URL}${event.imagem_do_evento}`
                 : null,
             imagem_do_combo_url: event.imagem_do_combo
-                ? `${baseUrl}/uploads/events/${event.imagem_do_combo}`
+                ? `${BASE_IMAGE_URL}${event.imagem_do_combo}`
                 : null,
         };
     };
@@ -118,23 +97,15 @@ module.exports = (pool, checkAndAwardBrindes) => {
         }
     });
 
-    router.post('/', auth, upload.fields([
-        { name: 'imagem_do_evento', maxCount: 1 },
-        { name: 'imagem_do_combo', maxCount: 1 }
-    ]), async (req, res) => {
+    router.post('/', auth, async (req, res) => {
         console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
         try {
-            const imagemDoEventoFile = req.files?.['imagem_do_evento']?.[0];
-            const imagemDoComboFile = req.files?.['imagem_do_combo']?.[0];
-
-            const imagemDoEvento = imagemDoEventoFile ? imagemDoEventoFile.filename : null;
-            const imagemDoCombo = imagemDoComboFile ? imagemDoComboFile.filename : null;
-            
             const {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
-                tipo_evento, dia_da_semana, id_place // Adicionado id_place aqui
+                tipo_evento, dia_da_semana, id_place,
+                imagem_do_evento, imagem_do_combo // Agora recebe os filenames no body
             } = req.body;
 
             if (!nome_do_evento || !casa_do_evento) {
@@ -155,7 +126,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 tipo_evento === 'unico' ? data_do_evento : null,
                 hora_do_evento, local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada,
-                imagemDoEvento, imagemDoCombo, observacao,
+                imagem_do_evento || null, imagem_do_combo || null, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
                 id_place, req.user.id // Adiciona o ID do usuário que criou o evento
             ];
@@ -225,42 +196,26 @@ module.exports = (pool, checkAndAwardBrindes) => {
     });
 
     // ---- ROTA PUT (EDITAR) ----
-    router.put('/:id', auth, upload.fields([
-        { name: 'imagem_do_evento', maxCount: 1 },
-        { name: 'imagem_do_combo', maxCount: 1 }
-    ]), async (req, res) => {
+    router.put('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
             const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
             if (eventosAtuais.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado.' });
             }
-            const eventoAntigo = eventosAtuais[0];
-            let imagemDoEventoFinal = eventoAntigo.imagem_do_evento;
-            let imagemDoComboFinal = eventoAntigo.imagem_do_combo;
-
-            const imagemDoEventoFile = req.files?.['imagem_do_evento']?.[0];
-            const imagemDoComboFile = req.files?.['imagem_do_combo']?.[0];
-
-            if (imagemDoEventoFile) {
-                imagemDoEventoFinal = imagemDoEventoFile.filename;
-                if (eventoAntigo.imagem_do_evento && fs.existsSync(path.join(uploadDir, eventoAntigo.imagem_do_evento))) {
-                    fs.unlinkSync(path.join(uploadDir, eventoAntigo.imagem_do_evento));
-                }
-            }
-            if (imagemDoComboFile) {
-                imagemDoComboFinal = imagemDoComboFile.filename;
-                if (eventoAntigo.imagem_do_combo && fs.existsSync(path.join(uploadDir, eventoAntigo.imagem_do_combo))) {
-                    fs.unlinkSync(path.join(uploadDir, eventoAntigo.imagem_do_combo));
-                }
-            }
-
+            
             const {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
-                tipo_evento, dia_da_semana, id_place
+                tipo_evento, dia_da_semana, id_place,
+                imagem_do_evento, imagem_do_combo // Agora recebe os filenames no body
             } = req.body;
+
+            // Usa as imagens fornecidas ou mantém as antigas
+            const eventoAntigo = eventosAtuais[0];
+            const imagemDoEventoFinal = imagem_do_evento || eventoAntigo.imagem_do_evento;
+            const imagemDoComboFinal = imagem_do_combo || eventoAntigo.imagem_do_combo;
 
             const updateQuery = `
                 UPDATE eventos SET
@@ -306,16 +261,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 return res.status(403).json({ message: 'Acesso negado. Somente administradores ou gerentes podem excluir eventos.' });
             }
             
-            const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
-            if (eventosAtuais.length > 0) {
-                const evento = eventosAtuais[0];
-                if (evento.imagem_do_evento && fs.existsSync(path.join(uploadDir, evento.imagem_do_evento))) {
-                    fs.unlinkSync(path.join(uploadDir, evento.imagem_do_evento));
-                }
-                if (evento.imagem_do_combo && fs.existsSync(path.join(uploadDir, evento.imagem_do_combo))) {
-                    fs.unlinkSync(path.join(uploadDir, evento.imagem_do_combo));
-                }
-            }
+            // As imagens agora estão no FTP, não precisamos deletar localmente
+            // Se necessário, implementar lógica de deleção via FTP no futuro
             
             const [result] = await pool.query(`DELETE FROM eventos WHERE id = ?`, [eventId]);
             if (result.affectedRows === 0) {

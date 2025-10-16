@@ -229,3 +229,4 @@ Após o deploy:
 
 *Última atualização: 15 de outubro de 2025*
 
+

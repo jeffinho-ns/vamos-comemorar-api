@@ -174,3 +174,4 @@ Se tiver problemas:
 **Desenvolvido para o sistema Vamos Comemorar**  
 *Última atualização: 15 de outubro de 2025*
 
+
