@@ -145,3 +145,4 @@ Execute o script de migração para criar a tabela:
 - Verifique se as tabelas `restaurant_areas` e `restaurant_tables` existem
 - Confirme as permissões do usuário do banco
 
+

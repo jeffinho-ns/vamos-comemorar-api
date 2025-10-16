@@ -93,6 +93,7 @@ const largeReservationsRoutes = require('./routes/largeReservations');
 const guestListPublicRoutes = require('./routes/guestListPublic');
 const guestListsAdminRoutes = require('./routes/guestListsAdmin');
 const actionLogsRoutes = require('./routes/actionLogs');
+const eventosRoutes = require('./routes/eventos');
 
 
 // Usando as Rotas
@@ -132,6 +133,9 @@ app.use('/api/guest-list', guestListPublicRoutes(pool));
 app.use('/api/admin', guestListsAdminRoutes(pool));
 // Rota de logs de ações
 app.use('/api/action-logs', actionLogsRoutes(pool));
+// Rotas do módulo de Eventos e Listas
+// Nota: Todas as rotas estão no mesmo router com prefixo /api/v1/eventos
+app.use('/api/v1/eventos', eventosRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {
