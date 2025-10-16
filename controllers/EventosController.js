@@ -12,6 +12,91 @@ class EventosController {
   }
 
   /**
+   * GET /api/v1/eventos/todos
+   * Lista TODOS os eventos (sistema antigo) para habilitar uso com listas
+   */
+  async getTodosEventos(req, res) {
+    try {
+      const { establishment_id } = req.query;
+      
+      let query = `
+        SELECT 
+          id as evento_id,
+          nome_do_evento as nome,
+          data_do_evento as data_evento,
+          hora_do_evento as horario_funcionamento,
+          tipo_evento,
+          dia_da_semana,
+          usado_para_listas,
+          casa_do_evento,
+          id_place as establishment_id
+        FROM eventos
+        WHERE 1=1
+      `;
+      
+      const params = [];
+      
+      if (establishment_id) {
+        query += ` AND id_place = ?`;
+        params.push(establishment_id);
+      }
+      
+      query += ` ORDER BY 
+        CASE WHEN tipo_evento = 'unico' THEN data_do_evento END DESC,
+        CASE WHEN tipo_evento = 'semanal' THEN dia_da_semana END ASC
+      `;
+      
+      const [eventos] = await this.pool.execute(query, params);
+      
+      res.json({
+        success: true,
+        eventos
+      });
+    } catch (error) {
+      console.error('❌ Erro ao listar todos os eventos:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao listar eventos',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * PUT /api/v1/eventos/:eventoId/habilitar-listas
+   * Habilita um evento existente para usar sistema de listas
+   */
+  async habilitarParaListas(req, res) {
+    try {
+      const { eventoId } = req.params;
+      const { habilitar } = req.body;
+      
+      await this.pool.execute(`
+        UPDATE eventos
+        SET usado_para_listas = ?
+        WHERE id = ?
+      `, [habilitar ? 1 : 0, eventoId]);
+      
+      const [evento] = await this.pool.execute(`
+        SELECT * FROM eventos WHERE id = ?
+      `, [eventoId]);
+      
+      res.json({
+        success: true,
+        message: `Evento ${habilitar ? 'habilitado' : 'desabilitado'} para sistema de listas`,
+        evento: evento[0]
+      });
+    } catch (error) {
+      console.error('❌ Erro ao habilitar evento:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao habilitar evento',
+        details: error.message
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/eventos/dashboard
    * Retorna dados consolidados para o dashboard de eventos
    * Suporta eventos únicos e semanais
@@ -19,6 +104,8 @@ class EventosController {
   async getDashboard(req, res) {
     try {
       const { establishment_id } = req.query;
+      
+      console.log('📊 Dashboard request - establishment_id:', establishment_id);
       
       // Query para buscar o próximo evento único
       const [proximoEventoUnico] = await this.pool.execute(`
@@ -106,6 +193,12 @@ class EventosController {
         GROUP BY l.tipo
       `, establishment_id ? [establishment_id] : []);
 
+      console.log('✅ Dashboard data:', {
+        proximoEvento: proximoEventoUnico.length,
+        eventosSemanais: eventosSemanais.length,
+        totalConvidados: totalConvidados[0]?.total || 0
+      });
+
       res.json({
         success: true,
         dashboard: {
@@ -119,9 +212,11 @@ class EventosController {
       });
     } catch (error) {
       console.error('❌ Erro ao buscar dashboard:', error);
+      console.error('Stack trace:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Erro ao buscar dados do dashboard'
+        error: 'Erro ao buscar dados do dashboard',
+        details: error.message
       });
     }
   }

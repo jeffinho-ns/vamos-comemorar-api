@@ -10,6 +10,18 @@ module.exports = (pool) => {
   const controller = new EventosController(pool);
 
   /**
+   * @route   GET /api/v1/eventos/todos
+   * @desc    Lista TODOS os eventos para habilitar uso com listas
+   * @access  Private (Admin, Gerente)
+   */
+  router.get(
+    '/todos',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    (req, res) => controller.getTodosEventos(req, res)
+  );
+
+  /**
    * @route   GET /api/v1/eventos/dashboard
    * @desc    Retorna dados consolidados para o dashboard de eventos
    * @access  Private (Admin, Gerente, Promoter)
@@ -67,6 +79,18 @@ module.exports = (pool) => {
     authenticateToken,
     authorizeRoles('admin', 'gerente'),
     (req, res) => controller.updateEvento(req, res)
+  );
+
+  /**
+   * @route   PUT /api/v1/eventos/:eventoId/habilitar-listas
+   * @desc    Habilita/desabilita evento para usar sistema de listas
+   * @access  Private (Admin, Gerente)
+   */
+  router.put(
+    '/:eventoId/habilitar-listas',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    (req, res) => controller.habilitarParaListas(req, res)
   );
 
   /**
