@@ -289,11 +289,54 @@ module.exports = (pool) => {
         }
       }
 
-      res.status(201).json({
+      // NOVO: Gerar lista de convidados se for reserva grande (11+ pessoas)
+      let guestListLink = null;
+      if (number_of_people >= 11) {
+        try {
+          const crypto = require('crypto');
+          const token = crypto.randomBytes(24).toString('hex');
+          const expiresAt = `${reservation_date} 23:59:59`;
+
+          // Detectar tipo de evento baseado no dia da semana
+          const reservationDateObj = new Date(reservation_date + 'T00:00:00');
+          const dayOfWeek = reservationDateObj.getDay();
+          let eventType = req.body.event_type || null;
+          
+          // Se for sexta-feira, define automaticamente como 'lista_sexta'
+          if (dayOfWeek === 5) {
+            eventType = 'lista_sexta';
+          }
+
+          // Criar a guest list vinculada à reserva
+          await pool.execute(
+            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
+             VALUES (?, 'restaurant', ?, ?, ?)`,
+            [reservationId, eventType, token, expiresAt]
+          );
+
+          const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+          guestListLink = `${baseUrl}/lista/${token}`;
+          
+          console.log('✅ Lista de convidados criada automaticamente para reserva grande:', guestListLink);
+        } catch (guestListError) {
+          console.error('❌ Erro ao criar lista de convidados:', guestListError);
+          // Não falha a reserva se houver erro na lista de convidados
+        }
+      }
+
+      const responseBody = {
         success: true,
         message: 'Reserva criada com sucesso',
         reservation: newReservation[0]
-      });
+      };
+
+      // Adicionar o link da lista de convidados se foi criado
+      if (guestListLink) {
+        responseBody.guest_list_link = guestListLink;
+        responseBody.has_guest_list = true;
+      }
+
+      res.status(201).json(responseBody);
 
     } catch (error) {
       console.error('❌ Erro ao criar reserva:', error);
@@ -738,6 +781,134 @@ module.exports = (pool) => {
       console.error('❌ Erro ao recalcular posições:', error);
     }
   }
+
+  /**
+   * @route   POST /api/restaurant-reservations/:id/add-guest-list
+   * @desc    Adiciona uma lista de convidados a uma reserva existente
+   * @access  Private (Admin)
+   */
+  router.post('/:id/add-guest-list', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { event_type } = req.body;
+
+      // Verificar se a reserva existe
+      const [reservation] = await pool.execute(
+        'SELECT * FROM restaurant_reservations WHERE id = ?',
+        [id]
+      );
+
+      if (reservation.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      const reservationData = reservation[0];
+
+      // Verificar se já existe uma guest list para esta reserva
+      const [existingGuestList] = await pool.execute(
+        `SELECT id FROM guest_lists WHERE reservation_id = ? AND reservation_type = 'restaurant'`,
+        [id]
+      );
+
+      if (existingGuestList.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Esta reserva já possui uma lista de convidados'
+        });
+      }
+
+      // Criar a lista de convidados
+      const crypto = require('crypto');
+      const token = crypto.randomBytes(24).toString('hex');
+      const expiresAt = `${reservationData.reservation_date} 23:59:59`;
+
+      await pool.execute(
+        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
+         VALUES (?, 'restaurant', ?, ?, ?)`,
+        [id, event_type || null, token, expiresAt]
+      );
+
+      const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+      const guestListLink = `${baseUrl}/lista/${token}`;
+
+      console.log('✅ Lista de convidados adicionada à reserva:', id);
+
+      res.status(201).json({
+        success: true,
+        message: 'Lista de convidados criada com sucesso',
+        guest_list_link: guestListLink,
+        shareable_link_token: token
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao adicionar lista de convidados:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/restaurant-reservations/:id/guest-list
+   * @desc    Busca a lista de convidados de uma reserva
+   * @access  Private
+   */
+  router.get('/:id/guest-list', async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Buscar a guest list da reserva
+      const [guestList] = await pool.execute(
+        `SELECT gl.*, COUNT(g.id) as total_guests
+         FROM guest_lists gl
+         LEFT JOIN guests g ON g.guest_list_id = gl.id
+         WHERE gl.reservation_id = ? AND gl.reservation_type = 'restaurant'
+         GROUP BY gl.id`,
+        [id]
+      );
+
+      if (guestList.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Esta reserva não possui lista de convidados'
+        });
+      }
+
+      const guestListData = guestList[0];
+      const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+      const guestListLink = `${baseUrl}/lista/${guestListData.shareable_link_token}`;
+
+      // Buscar os convidados
+      const [guests] = await pool.execute(
+        'SELECT id, name, whatsapp, created_at FROM guests WHERE guest_list_id = ? ORDER BY created_at DESC',
+        [guestListData.id]
+      );
+
+      res.json({
+        success: true,
+        guest_list: {
+          id: guestListData.id,
+          event_type: guestListData.event_type,
+          shareable_link_token: guestListData.shareable_link_token,
+          expires_at: guestListData.expires_at,
+          total_guests: guestListData.total_guests,
+          guest_list_link: guestListLink
+        },
+        guests: guests
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao buscar lista de convidados:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
 
   return router;
 };
