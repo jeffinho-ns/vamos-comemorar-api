@@ -30,32 +30,31 @@ module.exports = (pool) => {
    */
   router.get('/guest-lists', optionalAuth, async (req, res) => {
     try {
-      // ... (lógica de filtros permanece a mesma)
       const { date, month, establishment_id } = req.query;
       let whereClauses = [];
       let params = [];
 
+      // Construir os filtros usando COALESCE desde o início
       if (date) {
-        whereClauses.push('lr.reservation_date = ?');
+        whereClauses.push('COALESCE(lr.reservation_date, rr.reservation_date) = ?');
         params.push(date);
       } else if (month) {
-        // Corrigir o filtro de mês para usar YEAR() e MONTH() separadamente
         const year = month.split('-')[0];
         const monthNum = month.split('-')[1];
-        whereClauses.push('YEAR(lr.reservation_date) = ? AND MONTH(lr.reservation_date) = ?');
+        whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
         params.push(year, monthNum);
       } else {
         const currentMonth = new Date().toISOString().slice(0, 7);
         const year = currentMonth.split('-')[0];
         const monthNum = currentMonth.split('-')[1];
-        whereClauses.push('YEAR(lr.reservation_date) = ? AND MONTH(lr.reservation_date) = ?');
+        whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
         params.push(year, monthNum);
       }
+      
       if (establishment_id) {
-          whereClauses.push('lr.establishment_id = ?');
-          params.push(establishment_id);
+        whereClauses.push('COALESCE(lr.establishment_id, rr.establishment_id) = ?');
+        params.push(establishment_id);
       }
-      const whereClauseString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
       
       // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant)
       const [rows] = await pool.execute(`
@@ -75,19 +74,11 @@ module.exports = (pool) => {
         LEFT JOIN users u1 ON lr.created_by = u1.id
         LEFT JOIN users u2 ON rr.created_by = u2.id
         WHERE (lr.id IS NOT NULL OR rr.id IS NOT NULL)
-        ${whereClauses.length > 0 ? 'AND ' + whereClauses.map(clause => {
-          // Substituir lr. por COALESCE para funcionar com ambas as tabelas
-          if (clause.includes('lr.reservation_date')) {
-            return clause.replace('lr.reservation_date', 'COALESCE(lr.reservation_date, rr.reservation_date)');
-          }
-          if (clause.includes('lr.establishment_id')) {
-            return clause.replace('lr.establishment_id', 'COALESCE(lr.establishment_id, rr.establishment_id)');
-          }
-          return clause;
-        }).join(' AND ') : ''}
+        ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
         ORDER BY COALESCE(lr.reservation_date, rr.reservation_date) DESC, gl.id ASC
       `, params);
 
+      console.log(`✅ Guest Lists encontradas: ${rows.length}`);
       res.json({ success: true, guestLists: rows });
     } catch (error) {
       console.error('❌ Erro ao listar guest lists:', error);
