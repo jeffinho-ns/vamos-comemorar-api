@@ -108,37 +108,64 @@ class EventosController {
       console.log('📊 Dashboard request - establishment_id:', establishment_id);
       console.log('📊 Buscando TODOS os eventos (únicos e semanais) para o estabelecimento:', establishment_id || 'TODOS');
       
-      // Query para buscar o próximo evento único (TODOS os eventos, não apenas os habilitados para listas)
+      // Query para buscar o próximo evento único
       const [proximoEventoUnico] = await this.pool.execute(`
         SELECT 
-          id as evento_id,
-          nome_do_evento as nome,
-          data_do_evento as data_evento,
-          hora_do_evento as horario_funcionamento,
-          descricao,
-          tipo_evento,
-          dia_da_semana,
-          usado_para_listas
-        FROM eventos
-        WHERE tipo_evento = 'unico' 
-        AND data_do_evento >= CURDATE()
-        ${establishment_id ? 'AND id_place = ?' : ''}
-        ORDER BY data_do_evento ASC
+          e.id as evento_id,
+          e.nome_do_evento as nome,
+          e.data_do_evento as data_evento,
+          e.hora_do_evento as horario_funcionamento,
+          e.descricao,
+          e.tipo_evento,
+          e.dia_da_semana,
+          e.usado_para_listas,
+          p.name as establishment_name,
+          e.id_place
+        FROM eventos e
+        LEFT JOIN places p ON e.id_place = p.id
+        WHERE e.tipo_evento = 'unico' 
+        AND e.data_do_evento >= CURDATE()
+        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        ORDER BY e.data_do_evento ASC
         LIMIT 1
+      `, establishment_id ? [establishment_id] : []);
+
+      // Query para TODOS os eventos únicos futuros (para listar todos)
+      const [todosEventosUnicos] = await this.pool.execute(`
+        SELECT 
+          e.id as evento_id,
+          e.nome_do_evento as nome,
+          e.data_do_evento as data_evento,
+          e.hora_do_evento as horario_funcionamento,
+          e.descricao,
+          e.tipo_evento,
+          e.usado_para_listas,
+          p.name as establishment_name,
+          e.id_place
+        FROM eventos e
+        LEFT JOIN places p ON e.id_place = p.id
+        WHERE e.tipo_evento = 'unico' 
+        AND e.data_do_evento >= CURDATE()
+        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        ORDER BY e.data_do_evento ASC
+        LIMIT 10
       `, establishment_id ? [establishment_id] : []);
 
       // Query para eventos semanais ativos (TODOS os eventos semanais)
       const [eventosSemanais] = await this.pool.execute(`
         SELECT 
-          id as evento_id,
-          nome_do_evento as nome,
-          hora_do_evento as horario_funcionamento,
-          dia_da_semana,
-          tipo_evento
-        FROM eventos
-        WHERE tipo_evento = 'semanal'
-        ${establishment_id ? 'AND id_place = ?' : ''}
-        ORDER BY dia_da_semana ASC
+          e.id as evento_id,
+          e.nome_do_evento as nome,
+          e.hora_do_evento as horario_funcionamento,
+          e.dia_da_semana,
+          e.tipo_evento,
+          p.name as establishment_name,
+          e.id_place
+        FROM eventos e
+        LEFT JOIN places p ON e.id_place = p.id
+        WHERE e.tipo_evento = 'semanal'
+        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        ORDER BY e.dia_da_semana ASC
       `, establishment_id ? [establishment_id] : []);
 
       // Query para total de convidados (eventos únicos futuros + semanais)
@@ -194,6 +221,10 @@ class EventosController {
 
       console.log('✅ Dashboard data encontrada:');
       console.log('   - Próximo evento único:', proximoEventoUnico.length > 0 ? proximoEventoUnico[0].nome : 'Nenhum');
+      console.log('   - Total de eventos únicos futuros:', todosEventosUnicos.length);
+      if (todosEventosUnicos.length > 0) {
+        console.log('   - Eventos únicos:', todosEventosUnicos.map(e => `${e.nome} (${e.data_evento})`).join(', '));
+      }
       console.log('   - Eventos semanais:', eventosSemanais.length);
       if (eventosSemanais.length > 0) {
         console.log('   - Nomes dos eventos semanais:', eventosSemanais.map(e => e.nome).join(', '));
@@ -204,6 +235,7 @@ class EventosController {
         success: true,
         dashboard: {
           proximoEvento: proximoEventoUnico.length > 0 ? proximoEventoUnico[0] : null,
+          todosEventosUnicos: todosEventosUnicos,
           eventosSemanais: eventosSemanais,
           totalConvidados: totalConvidados[0]?.total || 0,
           totalCheckins: totalCheckins[0]?.total || 0,
