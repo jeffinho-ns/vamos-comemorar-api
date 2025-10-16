@@ -295,11 +295,17 @@ module.exports = (pool) => {
         try {
           const crypto = require('crypto');
           const token = crypto.randomBytes(24).toString('hex');
-          const expiresAt = `${reservation_date} 23:59:59`;
-
-          // Detectar tipo de evento baseado no dia da semana
+          
+          // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
           const reservationDateObj = new Date(reservation_date + 'T00:00:00');
           const dayOfWeek = reservationDateObj.getDay();
+          
+          // Data de expiração: 1 dia após a reserva às 23:59:59
+          const expirationDate = new Date(reservation_date + 'T00:00:00');
+          expirationDate.setDate(expirationDate.getDate() + 1); // +1 dia
+          expirationDate.setHours(23, 59, 59, 0);
+          const expiresAt = expirationDate.toISOString().slice(0, 19).replace('T', ' ');
+
           let eventType = req.body.event_type || null;
           
           // Se for sexta-feira, define automaticamente como 'lista_sexta'
@@ -823,7 +829,12 @@ module.exports = (pool) => {
       // Criar a lista de convidados
       const crypto = require('crypto');
       const token = crypto.randomBytes(24).toString('hex');
-      const expiresAt = `${reservationData.reservation_date} 23:59:59`;
+      
+      // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
+      const reservationDateObj = new Date(reservationData.reservation_date + 'T00:00:00');
+      reservationDateObj.setDate(reservationDateObj.getDate() + 1); // +1 dia
+      reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
+      const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
 
       await pool.execute(
         `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)

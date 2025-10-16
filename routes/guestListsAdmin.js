@@ -57,22 +57,35 @@ module.exports = (pool) => {
       }
       const whereClauseString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
       
-      // ### CORREÇÃO AQUI: Adicione shareable_link_token ###
+      // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant)
       const [rows] = await pool.execute(`
         SELECT 
           gl.id as guest_list_id, 
-          gl.event_type, 
+          gl.event_type,
+          gl.reservation_type,
           gl.expires_at,
-          gl.shareable_link_token, -- ADICIONADO ESTE CAMPO
+          gl.shareable_link_token,
           CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
-          lr.client_name as owner_name,
-          lr.reservation_date,
-          u.name as created_by_name
+          COALESCE(lr.client_name, rr.client_name) as owner_name,
+          COALESCE(lr.reservation_date, rr.reservation_date) as reservation_date,
+          COALESCE(u1.name, u2.name) as created_by_name
         FROM guest_lists gl
-        INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
-        LEFT JOIN users u ON lr.created_by = u.id
-        ${whereClauseString}
-        ORDER BY lr.reservation_date DESC, gl.id ASC
+        LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+        LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+        LEFT JOIN users u1 ON lr.created_by = u1.id
+        LEFT JOIN users u2 ON rr.created_by = u2.id
+        WHERE (lr.id IS NOT NULL OR rr.id IS NOT NULL)
+        ${whereClauses.length > 0 ? 'AND ' + whereClauses.map(clause => {
+          // Substituir lr. por COALESCE para funcionar com ambas as tabelas
+          if (clause.includes('lr.reservation_date')) {
+            return clause.replace('lr.reservation_date', 'COALESCE(lr.reservation_date, rr.reservation_date)');
+          }
+          if (clause.includes('lr.establishment_id')) {
+            return clause.replace('lr.establishment_id', 'COALESCE(lr.establishment_id, rr.establishment_id)');
+          }
+          return clause;
+        }).join(' AND ') : ''}
+        ORDER BY COALESCE(lr.reservation_date, rr.reservation_date) DESC, gl.id ASC
       `, params);
 
       res.json({ success: true, guestLists: rows });
