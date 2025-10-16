@@ -106,8 +106,9 @@ class EventosController {
       const { establishment_id } = req.query;
       
       console.log('📊 Dashboard request - establishment_id:', establishment_id);
+      console.log('📊 Buscando TODOS os eventos (únicos e semanais) para o estabelecimento:', establishment_id || 'TODOS');
       
-      // Query para buscar o próximo evento único
+      // Query para buscar o próximo evento único (TODOS os eventos, não apenas os habilitados para listas)
       const [proximoEventoUnico] = await this.pool.execute(`
         SELECT 
           id as evento_id,
@@ -121,13 +122,12 @@ class EventosController {
         FROM eventos
         WHERE tipo_evento = 'unico' 
         AND data_do_evento >= CURDATE()
-        AND usado_para_listas = TRUE
         ${establishment_id ? 'AND id_place = ?' : ''}
         ORDER BY data_do_evento ASC
         LIMIT 1
       `, establishment_id ? [establishment_id] : []);
 
-      // Query para eventos semanais ativos
+      // Query para eventos semanais ativos (TODOS os eventos semanais)
       const [eventosSemanais] = await this.pool.execute(`
         SELECT 
           id as evento_id,
@@ -137,7 +137,6 @@ class EventosController {
           tipo_evento
         FROM eventos
         WHERE tipo_evento = 'semanal'
-        AND usado_para_listas = TRUE
         ${establishment_id ? 'AND id_place = ?' : ''}
         ORDER BY dia_da_semana ASC
       `, establishment_id ? [establishment_id] : []);
@@ -193,11 +192,13 @@ class EventosController {
         GROUP BY l.tipo
       `, establishment_id ? [establishment_id] : []);
 
-      console.log('✅ Dashboard data:', {
-        proximoEvento: proximoEventoUnico.length,
-        eventosSemanais: eventosSemanais.length,
-        totalConvidados: totalConvidados[0]?.total || 0
-      });
+      console.log('✅ Dashboard data encontrada:');
+      console.log('   - Próximo evento único:', proximoEventoUnico.length > 0 ? proximoEventoUnico[0].nome : 'Nenhum');
+      console.log('   - Eventos semanais:', eventosSemanais.length);
+      if (eventosSemanais.length > 0) {
+        console.log('   - Nomes dos eventos semanais:', eventosSemanais.map(e => e.nome).join(', '));
+      }
+      console.log('   - Total de convidados:', totalConvidados[0]?.total || 0);
 
       res.json({
         success: true,

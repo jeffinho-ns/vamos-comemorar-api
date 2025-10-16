@@ -144,10 +144,17 @@ module.exports = (pool) => {
         params.push(userId);
       }
 
-      // Filtro por role
+      // Filtro por role (aceita múltiplos valores separados por vírgula)
       if (userRole) {
-        query += ' AND user_role = ?';
-        params.push(userRole);
+        const roles = userRole.split(',').map(r => r.trim());
+        if (roles.length === 1) {
+          query += ' AND user_role = ?';
+          params.push(roles[0]);
+        } else {
+          const placeholders = roles.map(() => '?').join(',');
+          query += ` AND user_role IN (${placeholders})`;
+          params.push(...roles);
+        }
       }
 
       // Filtro por tipo de ação
