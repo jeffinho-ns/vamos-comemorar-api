@@ -57,6 +57,70 @@ class NotificationService {
   }
 
   /**
+   * Obtém o nome correto da subárea do High Line baseado no número da mesa
+   * @param {string|number} tableNumber - Número da mesa
+   * @param {string} defaultAreaName - Nome da área padrão do banco
+   * @returns {string} Nome específico da subárea
+   */
+  getHighlineSubareaName(tableNumber, defaultAreaName) {
+    if (!tableNumber) return defaultAreaName;
+    
+    const n = String(tableNumber);
+    
+    // Mapeamento das mesas para subáreas específicas
+    const subareaMap = {
+      '05': 'Área Deck - Frente',
+      '06': 'Área Deck - Frente',
+      '07': 'Área Deck - Frente',
+      '08': 'Área Deck - Frente',
+      
+      '01': 'Área Deck - Esquerdo',
+      '02': 'Área Deck - Esquerdo',
+      '03': 'Área Deck - Esquerdo',
+      '04': 'Área Deck - Esquerdo',
+      
+      '09': 'Área Deck - Direito',
+      '10': 'Área Deck - Direito',
+      '11': 'Área Deck - Direito',
+      '12': 'Área Deck - Direito',
+      
+      '15': 'Área Bar',
+      '16': 'Área Bar',
+      '17': 'Área Bar',
+      
+      '50': 'Área Rooftop - Direito',
+      '51': 'Área Rooftop - Direito',
+      '52': 'Área Rooftop - Direito',
+      '53': 'Área Rooftop - Direito',
+      '54': 'Área Rooftop - Direito',
+      '55': 'Área Rooftop - Direito',
+      
+      '70': 'Área Rooftop - Bistrô',
+      '71': 'Área Rooftop - Bistrô',
+      '72': 'Área Rooftop - Bistrô',
+      '73': 'Área Rooftop - Bistrô',
+      
+      '44': 'Área Rooftop - Centro',
+      '45': 'Área Rooftop - Centro',
+      '46': 'Área Rooftop - Centro',
+      '47': 'Área Rooftop - Centro',
+      
+      '60': 'Área Rooftop - Esquerdo',
+      '61': 'Área Rooftop - Esquerdo',
+      '62': 'Área Rooftop - Esquerdo',
+      '63': 'Área Rooftop - Esquerdo',
+      '64': 'Área Rooftop - Esquerdo',
+      '65': 'Área Rooftop - Esquerdo',
+      
+      '40': 'Área Rooftop - Vista',
+      '41': 'Área Rooftop - Vista',
+      '42': 'Área Rooftop - Vista'
+    };
+    
+    return subareaMap[n] || defaultAreaName;
+  }
+
+  /**
    * Envia email de confirmação para o cliente (funciona para reservas normais e grandes)
    */
   async sendReservationConfirmationEmail(reservation) {
@@ -68,6 +132,10 @@ class NotificationService {
     // Formata data e horário
     const formattedDate = this.formatDateBR(reservation_date);
     const formattedTime = this.formatTime(reservation_time);
+    
+    // Verifica se é High Line e obtém o nome correto da subárea baseado na mesa
+    const isHighLine = establishment_name && establishment_name.toLowerCase().includes('high');
+    const displayAreaName = isHighLine ? this.getHighlineSubareaName(table_number, area_name) : area_name;
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -113,7 +181,7 @@ class NotificationService {
               <!-- Área -->
               <div style="margin-bottom: ${table_number ? '20px' : '0'}; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
                 <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área</div>
-                <div style="font-size: 20px; font-weight: bold; color: #000;">${area_name || 'A definir'}</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">${displayAreaName || 'A definir'}</div>
               </div>
               
               ${table_number ? `
@@ -172,13 +240,17 @@ class NotificationService {
   async sendAdminReservationNotification(reservation) {
     if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
 
-    const { client_name, client_phone, client_email, reservation_date, reservation_time, number_of_people, establishment_name, area_name } = reservation;
+    const { client_name, client_phone, client_email, reservation_date, reservation_time, number_of_people, establishment_name, area_name, table_number } = reservation;
     const isLargeReservation = number_of_people >= 16;
     const adminEmail = process.env.ADMIN_EMAIL || 'reservas@grupoideiaum.com.br';
     
     // Formata data e horário
     const formattedDate = this.formatDateBR(reservation_date);
     const formattedTime = this.formatTime(reservation_time);
+    
+    // Verifica se é High Line e obtém o nome correto da subárea baseado na mesa
+    const isHighLine = establishment_name && establishment_name.toLowerCase().includes('high');
+    const displayAreaName = isHighLine ? this.getHighlineSubareaName(table_number, area_name) : area_name;
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -220,7 +292,7 @@ class NotificationService {
                   </tr>
                   <tr>
                     <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>📍 Área:</strong></td>
-                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${area_name || 'A definir'}</td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${displayAreaName || 'A definir'}</td>
                   </tr>
                   <tr>
                     <td style="padding: 10px 0;"><strong>🏢 Estabelecimento:</strong></td>
@@ -362,6 +434,10 @@ class NotificationService {
     // Formata data e horário
     const formattedDate = this.formatDateBR(reservation_date);
     const formattedTime = this.formatTime(reservation_time);
+    
+    // Verifica se é High Line e obtém o nome correto da subárea baseado na mesa
+    const isHighLine = establishment_name && establishment_name.toLowerCase().includes('high');
+    const displayAreaName = isHighLine ? this.getHighlineSubareaName(table_number, area_name) : area_name;
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -414,7 +490,7 @@ class NotificationService {
               <!-- Área -->
               <div style="margin-bottom: ${table_number ? '20px' : '0'}; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #28a745; border-radius: 4px;">
                 <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área</div>
-                <div style="font-size: 20px; font-weight: bold; color: #000;">${area_name || 'A definir'}</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">${displayAreaName || 'A definir'}</div>
               </div>
               
               ${table_number ? `
