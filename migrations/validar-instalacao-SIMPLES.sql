@@ -74,3 +74,5 @@ SELECT
     ELSE '⚠️ VERIFICAR - Algo pode estar faltando'
   END as status_final;
 
+
+

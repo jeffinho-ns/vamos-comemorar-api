@@ -319,3 +319,5 @@ Antes de considerar concluído:
 
 Execute: `./executar-migracao.sh`
 
+
+

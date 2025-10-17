@@ -146,3 +146,5 @@ Execute o script de migração para criar a tabela:
 - Confirme as permissões do usuário do banco
 
 
+
+

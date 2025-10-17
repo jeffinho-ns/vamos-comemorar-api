@@ -39,3 +39,5 @@ CREATE INDEX idx_large_reservations_establishment_date ON large_reservations(est
 ALTER TABLE `large_reservations` COMMENT = 'Reservas grandes (acima de 15 pessoas) que podem usar múltiplas mesas';
 
 
+
+

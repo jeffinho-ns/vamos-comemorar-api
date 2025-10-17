@@ -245,3 +245,5 @@ INTEGRAÇÃO COM SISTEMA EXISTENTE:
 SELECT '✅ Script executado com sucesso!' AS status;
 SELECT 'Módulo de Eventos e Listas integrado com tabela eventos existente' AS info;
 
+
+

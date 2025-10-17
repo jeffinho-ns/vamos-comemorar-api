@@ -240,3 +240,5 @@ SELECT '3. Acesse /admin/eventos/dashboard no frontend' AS '';
 SELECT '' AS '';
 SELECT '✅ FIM DOS TESTES' AS '';
 
+
+

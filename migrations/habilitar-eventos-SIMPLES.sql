@@ -51,3 +51,5 @@ ORDER BY dia_da_semana ASC;
 
 SELECT '✅ Eventos habilitados com sucesso!' AS status;
 
+
+
