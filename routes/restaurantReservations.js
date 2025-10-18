@@ -14,7 +14,7 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
+      const { date, status, area_id, establishment_id, limit, sort, order, include_cancelled } = req.query;
       let query = `
         SELECT
           rr.*, ra.name as area_name, u.name as created_by_name,
@@ -27,6 +27,12 @@ module.exports = (pool) => {
         WHERE 1=1
       `;
       const params = [];
+      
+      // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
+      if (include_cancelled !== 'true') {
+        query += ` AND rr.status NOT IN ('cancelled', 'CANCELADA')`;
+      }
+      
       if (date) { query += ` AND rr.reservation_date = ?`; params.push(date); }
       if (status) { query += ` AND rr.status = ?`; params.push(status); }
       if (area_id) { query += ` AND rr.area_id = ?`; params.push(area_id); }

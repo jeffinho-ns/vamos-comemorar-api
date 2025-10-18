@@ -12,7 +12,7 @@ module.exports = (pool) => {
    */
     router.get('/', async (req, res) => {
     try {
-      const { date, status, area_id, establishment_id, limit, sort, order } = req.query;
+      const { date, status, area_id, establishment_id, limit, sort, order, include_cancelled } = req.query;
 
       let query = `
         SELECT
@@ -28,6 +28,12 @@ module.exports = (pool) => {
         WHERE 1=1
       `;
       const params = [];
+      
+      // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
+      if (include_cancelled !== 'true') {
+        query += ` AND lr.status NOT IN ('cancelled', 'CANCELADA')`;
+      }
+      
       if (date) {
         query += ` AND lr.reservation_date = ?`;
         params.push(date);
@@ -55,7 +61,7 @@ module.exports = (pool) => {
         params.push(parseInt(limit));
       }
       const [reservations] = await pool.execute(query, params);
-      console.log(`✅ ${reservations.length} reservas grandes encontradas`);
+      console.log(`✅ ${reservations.length} reservas grandes encontradas (canceladas excluídas: ${include_cancelled !== 'true'})`);
       res.json({
         success: true,
         reservations: reservations
