@@ -246,3 +246,4 @@ if (response.status === 403) { /* ... */ }
 **Última atualização:** 15 de outubro de 2025
 
 
+

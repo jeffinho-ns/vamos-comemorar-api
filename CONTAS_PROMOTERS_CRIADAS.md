@@ -53,3 +53,4 @@ O script usado para criar essas contas está localizado em:
 Este script pode ser reutilizado no futuro para criar novas contas de promoters.
 
 
+

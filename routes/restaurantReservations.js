@@ -50,6 +50,118 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   GET /api/restaurant-reservations/capacity/check
+   * @desc    Verifica capacidade disponível para uma data específica
+   * @access  Private
+   */
+  router.get('/capacity/check', async (req, res) => {
+    try {
+      const { date, establishment_id, new_reservation_people } = req.query;
+
+      if (!date || !establishment_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetros obrigatórios: date, establishment_id'
+        });
+      }
+
+      // Calcular capacidade total do estabelecimento
+      const [areas] = await pool.execute(
+        'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
+      );
+      const totalCapacity = areas[0].total_capacity || 0;
+
+      // Contar pessoas das reservas ativas para a data
+      const [activeReservations] = await pool.execute(`
+        SELECT SUM(number_of_people) as total_people
+        FROM restaurant_reservations
+        WHERE reservation_date = ?
+        AND establishment_id = ?
+        AND status IN ('confirmed', 'checked-in')
+      `, [date, establishment_id]);
+
+      const currentPeople = activeReservations[0].total_people || 0;
+      const newPeople = parseInt(new_reservation_people) || 0;
+      const totalWithNew = currentPeople + newPeople;
+
+      // Verificar se há pessoas na lista de espera
+      const [waitlistCount] = await pool.execute(
+        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      );
+      const hasWaitlist = waitlistCount[0].count > 0;
+
+      const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
+
+      res.json({
+        success: true,
+        capacity: {
+          totalCapacity,
+          currentPeople,
+          newPeople,
+          totalWithNew,
+          availableCapacity: totalCapacity - currentPeople,
+          hasWaitlist,
+          canMakeReservation,
+          occupancyPercentage: totalCapacity > 0 ? Math.round((currentPeople / totalCapacity) * 100) : 0
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao verificar capacidade:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/restaurant-reservations/stats/dashboard
+   * @desc    Busca estatísticas para o dashboard
+   * @access  Private
+   */
+  router.get('/stats/dashboard', async (req, res) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+
+      // Total de reservas
+      const [totalReservations] = await pool.execute(
+        'SELECT COUNT(*) as count FROM restaurant_reservations'
+      );
+
+      // Reservas de hoje
+      const [todayReservations] = await pool.execute(
+        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = ?',
+        [today]
+      );
+
+      // Taxa de ocupação (simplificada)
+      const [occupancyRate] = await pool.execute(`
+        SELECT
+          (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / COUNT(*)) as rate
+        FROM restaurant_reservations
+        WHERE reservation_date = ?
+      `, [today]);
+
+      res.json({
+        success: true,
+        stats: {
+          totalReservations: totalReservations[0].count,
+          todayReservations: todayReservations[0].count,
+          occupancyRate: Math.round(occupancyRate[0].rate || 0)
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao buscar estatísticas:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/:id
    * @desc    Busca uma reserva específica
    * @access  Private
@@ -604,122 +716,6 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao deletar reserva:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Erro interno do servidor'
-      });
-    }
-  });
-
-
-
-  /**
-   * @route   GET /api/restaurant-reservations/capacity/check
-   * @desc    Verifica capacidade disponível para uma data específica
-   * @access  Private
-   */
-  router.get('/capacity/check', async (req, res) => {
-    try {
-      const { date, establishment_id, new_reservation_people } = req.query;
-
-      if (!date || !establishment_id) {
-        return res.status(400).json({
-          success: false,
-          error: 'Parâmetros obrigatórios: date, establishment_id'
-        });
-      }
-
-      // Calcular capacidade total do estabelecimento
-      const [areas] = await pool.execute(
-        'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
-      );
-      const totalCapacity = areas[0].total_capacity || 0;
-
-      // Contar pessoas das reservas ativas para a data
-      const [activeReservations] = await pool.execute(`
-        SELECT SUM(number_of_people) as total_people
-        FROM restaurant_reservations
-        WHERE reservation_date = ?
-        AND establishment_id = ?
-        AND status IN ('confirmed', 'checked-in')
-      `, [date, establishment_id]);
-
-      const currentPeople = activeReservations[0].total_people || 0;
-      const newPeople = parseInt(new_reservation_people) || 0;
-      const totalWithNew = currentPeople + newPeople;
-
-      // Verificar se há pessoas na lista de espera
-      const [waitlistCount] = await pool.execute(
-        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
-      );
-      const hasWaitlist = waitlistCount[0].count > 0;
-
-      const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
-
-      res.json({
-        success: true,
-        capacity: {
-          totalCapacity,
-          currentPeople,
-          newPeople,
-          totalWithNew,
-          availableCapacity: totalCapacity - currentPeople,
-          hasWaitlist,
-          canMakeReservation,
-          occupancyPercentage: totalCapacity > 0 ? Math.round((currentPeople / totalCapacity) * 100) : 0
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Erro ao verificar capacidade:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Erro interno do servidor'
-      });
-    }
-  });
-
-
-
-  /**
-   * @route   GET /api/restaurant-reservations/stats/dashboard
-   * @desc    Busca estatísticas para o dashboard
-   * @access  Private
-   */
-  router.get('/stats/dashboard', async (req, res) => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-
-      // Total de reservas
-      const [totalReservations] = await pool.execute(
-        'SELECT COUNT(*) as count FROM restaurant_reservations'
-      );
-
-      // Reservas de hoje
-      const [todayReservations] = await pool.execute(
-        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = ?',
-        [today]
-      );
-
-      // Taxa de ocupação (simplificada)
-      const [occupancyRate] = await pool.execute(`
-        SELECT
-          (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / COUNT(*)) as rate
-        FROM restaurant_reservations
-        WHERE reservation_date = ?
-      `, [today]);
-
-      res.json({
-        success: true,
-        stats: {
-          totalReservations: totalReservations[0].count,
-          todayReservations: todayReservations[0].count,
-          occupancyRate: Math.round(occupancyRate[0].rate || 0)
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Erro ao buscar estatísticas:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor'
