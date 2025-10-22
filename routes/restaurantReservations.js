@@ -866,6 +866,64 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   POST /api/restaurant-reservations/:id/checkin-owner
+   * @desc    Faz check-in do dono da lista de convidados
+   * @access  Private (Admin)
+   */
+  router.post('/:id/checkin-owner', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { owner_name } = req.body;
+
+      // Verificar se a reserva existe
+      const [reservation] = await pool.execute(
+        'SELECT * FROM restaurant_reservations WHERE id = ?',
+        [id]
+      );
+
+      if (reservation.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      // Buscar a guest list da reserva
+      const [guestList] = await pool.execute(
+        `SELECT * FROM guest_lists WHERE reservation_id = ? AND reservation_type = 'restaurant'`,
+        [id]
+      );
+
+      if (guestList.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Esta reserva não possui lista de convidados'
+        });
+      }
+
+      // Atualizar check-in do dono na guest list
+      await pool.execute(
+        `UPDATE guest_lists SET owner_checked_in = 1, owner_checkin_time = CURRENT_TIMESTAMP WHERE id = ?`,
+        [guestList[0].id]
+      );
+
+      console.log(`✅ Check-in do dono confirmado: ${owner_name} (Reserva #${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-in do dono da lista confirmado com sucesso'
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-in do dono:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/:id/guest-list
    * @desc    Busca a lista de convidados de uma reserva
    * @access  Private

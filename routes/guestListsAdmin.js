@@ -251,5 +251,125 @@ module.exports = (pool) => {
     }
   });
 
+  /**
+   * @route   POST /api/admin/guests/:id/checkin
+   * @desc    Faz check-in de um convidado específico
+   * @access  Private (Admin)
+   */
+  router.post('/guests/:id/checkin', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se o convidado existe
+      const [guest] = await pool.execute(
+        'SELECT * FROM guests WHERE id = ?',
+        [id]
+      );
+
+      if (guest.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Convidado não encontrado'
+        });
+      }
+
+      // Verificar se já fez check-in
+      if (guest[0].checked_in) {
+        return res.status(400).json({
+          success: false,
+          error: 'Este convidado já fez check-in'
+        });
+      }
+
+      // Atualizar check-in do convidado
+      await pool.execute(
+        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = ?',
+        [id]
+      );
+
+      console.log(`✅ Check-in do convidado confirmado: ${guest[0].name} (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-in do convidado confirmado com sucesso',
+        guest: {
+          id: guest[0].id,
+          name: guest[0].name,
+          checked_in: true,
+          checkin_time: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-in do convidado:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/admin/guest-lists/:id/checkin-status
+   * @desc    Busca o status de check-in de uma lista de convidados
+   * @access  Private (Admin)
+   */
+  router.get('/guest-lists/:id/checkin-status', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Buscar informações da guest list
+      const [guestList] = await pool.execute(
+        `SELECT gl.*, rr.client_name as owner_name, rr.reservation_date
+         FROM guest_lists gl
+         LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id
+         WHERE gl.id = ?`,
+        [id]
+      );
+
+      if (guestList.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Lista de convidados não encontrada'
+        });
+      }
+
+      // Contar convidados e check-ins
+      const [guestStats] = await pool.execute(
+        `SELECT 
+           COUNT(*) as total_guests,
+           SUM(CASE WHEN checked_in = 1 THEN 1 ELSE 0 END) as checked_in_count
+         FROM guests 
+         WHERE guest_list_id = ?`,
+        [id]
+      );
+
+      const stats = guestStats[0];
+
+      res.json({
+        success: true,
+        checkin_status: {
+          guest_list_id: id,
+          owner_name: guestList[0].owner_name,
+          reservation_date: guestList[0].reservation_date,
+          owner_checked_in: guestList[0].owner_checked_in || false,
+          owner_checkin_time: guestList[0].owner_checkin_time,
+          total_guests: stats.total_guests,
+          guests_checked_in: stats.checked_in_count,
+          attendance_percentage: stats.total_guests > 0 
+            ? Math.round((stats.checked_in_count / stats.total_guests) * 100) 
+            : 0
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao buscar status de check-in:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
   return router;
 };
