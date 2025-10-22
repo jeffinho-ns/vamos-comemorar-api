@@ -56,7 +56,7 @@ module.exports = (pool) => {
         params.push(establishment_id);
       }
       
-      // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant)
+      // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant) com campos de check-in
       const [rows] = await pool.execute(`
         SELECT 
           gl.id as guest_list_id, 
@@ -64,6 +64,8 @@ module.exports = (pool) => {
           gl.reservation_type,
           gl.expires_at,
           gl.shareable_link_token,
+          gl.owner_checked_in,
+          gl.owner_checkin_time,
           CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
           COALESCE(lr.client_name, rr.client_name) as owner_name,
           COALESCE(lr.reservation_date, rr.reservation_date) as reservation_date,
@@ -130,7 +132,7 @@ module.exports = (pool) => {
       if (!lists.length) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
-      const [rows] = await pool.execute('SELECT id, name, whatsapp FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
+      const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
       res.json({ success: true, guests: rows });
     } catch (error) {
       console.error('❌ Erro ao listar convidados:', error);
