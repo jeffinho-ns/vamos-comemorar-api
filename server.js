@@ -137,6 +137,10 @@ app.use('/api/action-logs', actionLogsRoutes(pool));
 // Nota: Todas as rotas estão no mesmo router com prefixo /api/v1/eventos
 app.use('/api/v1/eventos', eventosRoutes(pool));
 
+// Rotas do sistema avançado de Promoters
+const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
+app.use('/api/v1/promoters', promotersAdvancedRoutes(pool));
+
 // Health check para o Render
 app.get('/health', (req, res) => {
   res.status(200).json({ 
