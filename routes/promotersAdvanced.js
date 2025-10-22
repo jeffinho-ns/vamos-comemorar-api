@@ -929,5 +929,77 @@ module.exports = (pool) => {
     }
   );
 
+  /**
+   * @route   GET /api/v1/promoters/:id/convidados
+   * @desc    Busca todos os convidados de um promoter específico
+   * @access  Private (Admin, Gerente)
+   */
+  router.get(
+    '/:id/convidados',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { evento_id, data_evento, status } = req.query;
+        
+        let query = `
+          SELECT 
+            c.id as convidado_id,
+            c.nome,
+            c.telefone,
+            c.email,
+            c.status,
+            c.checkin_realizado,
+            c.mesa,
+            c.created_at as data_cadastro,
+            e.id as evento_id,
+            e.nome_do_evento as evento_nome,
+            e.data_do_evento,
+            e.hora_do_evento,
+            p.nome as promoter_nome,
+            p.codigo_identificador as promoter_codigo
+          FROM convidados c
+          LEFT JOIN eventos e ON c.evento_id = e.id
+          LEFT JOIN promoters p ON c.promoter_id = p.promoter_id
+          WHERE c.promoter_id = ?
+        `;
+        
+        const params = [id];
+        
+        if (evento_id) {
+          query += ` AND c.evento_id = ?`;
+          params.push(evento_id);
+        }
+        
+        if (data_evento) {
+          query += ` AND e.data_do_evento = ?`;
+          params.push(data_evento);
+        }
+        
+        if (status) {
+          query += ` AND c.status = ?`;
+          params.push(status);
+        }
+        
+        query += ` ORDER BY e.data_do_evento DESC, c.created_at DESC`;
+        
+        const [convidados] = await pool.execute(query, params);
+        
+        res.json({
+          success: true,
+          convidados
+        });
+        
+      } catch (error) {
+        console.error('❌ Erro ao buscar convidados do promoter:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Erro ao buscar convidados do promoter'
+        });
+      }
+    }
+  );
+
   return router;
 };
