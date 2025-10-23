@@ -145,6 +145,10 @@ app.use('/api/v1/promoters', promotersAdvancedRoutes(pool));
 const promoterPublicRoutes = require('./routes/promoterPublic');
 app.use('/api/promoter', promoterPublicRoutes(pool));
 
+// Rotas de relacionamento promoter-eventos
+const promoterEventosRoutes = require('./routes/promoterEventos');
+app.use('/api/promoter-eventos', promoterEventosRoutes(pool));
+
 // Health check para o Render
 app.get('/health', (req, res) => {
   res.status(200).json({ 
