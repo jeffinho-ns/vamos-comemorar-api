@@ -993,11 +993,10 @@ module.exports = (pool) => {
           SELECT 
             c.id as convidado_id,
             c.nome,
-            c.telefone,
-            c.email,
+            c.whatsapp as telefone,
+            c.whatsapp,
             c.status,
             c.checkin_realizado,
-            c.mesa,
             c.created_at as data_cadastro,
             e.id as evento_id,
             e.nome_do_evento as evento_nome,
@@ -1005,7 +1004,7 @@ module.exports = (pool) => {
             e.hora_do_evento,
             p.nome as promoter_nome,
             p.codigo_identificador as promoter_codigo
-          FROM convidados c
+          FROM promoter_convidados c
           LEFT JOIN eventos e ON c.evento_id = e.id
           LEFT JOIN promoters p ON c.promoter_id = p.promoter_id
           WHERE c.promoter_id = ?

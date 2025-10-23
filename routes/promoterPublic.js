@@ -46,7 +46,7 @@ module.exports = (pool) => {
         `SELECT 
           COUNT(DISTINCT c.id) as total_convidados,
           COUNT(DISTINCT CASE WHEN c.status = 'confirmado' THEN c.id END) as total_confirmados
-         FROM convidados c
+         FROM promoter_convidados c
          WHERE c.promoter_id = ?`,
         [promoter.promoter_id]
       );
@@ -119,9 +119,9 @@ module.exports = (pool) => {
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
       const [existingGuests] = await pool.execute(
-        `SELECT id FROM convidados 
+        `SELECT id FROM promoter_convidados 
          WHERE promoter_id = ? AND whatsapp = ?
-         ${evento_id ? 'AND evento_id = ?' : ''}
+         ${evento_id ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
          LIMIT 1`,
         evento_id ? [promoter.promoter_id, whatsapp.trim(), evento_id] : [promoter.promoter_id, whatsapp.trim()]
       );
@@ -135,14 +135,13 @@ module.exports = (pool) => {
 
       // Adicionar o convidado
       const [result] = await pool.execute(
-        `INSERT INTO convidados (
+        `INSERT INTO promoter_convidados (
           promoter_id, 
           nome, 
           whatsapp,
           evento_id,
-          status, 
-          created_at
-        ) VALUES (?, ?, ?, ?, 'pendente', NOW())`,
+          status
+        ) VALUES (?, ?, ?, ?, 'pendente')`,
         [promoter.promoter_id, nome.trim(), whatsapp.trim(), evento_id || null]
       );
 
@@ -260,7 +259,7 @@ module.exports = (pool) => {
           c.created_at,
           e.nome_do_evento as evento_nome,
           e.data_do_evento as evento_data
-        FROM convidados c
+        FROM promoter_convidados c
         LEFT JOIN eventos e ON c.evento_id = e.id
         WHERE c.promoter_id = ?
       `;
