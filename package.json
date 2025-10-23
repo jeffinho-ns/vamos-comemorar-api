@@ -14,7 +14,8 @@
     "test-db": "node -e \"const pool = require('./config/database'); pool.execute('SELECT 1').then(() => { console.log('✅ Database connection OK'); process.exit(0); }).catch((err) => { console.error('❌ Database connection failed:', err.message); process.exit(1); });\"",
     "health-check": "curl -f http://localhost:10000/health || exit 1",
     "fix-promoter-links": "node scripts/fix-promoter-links.js",
-    "migrate-promoter-convidados": "node scripts/run-promoter-convidados-migration.js"
+    "migrate-promoter-convidados": "node scripts/run-promoter-convidados-migration.js",
+    "diagnose-promoters": "node scripts/diagnose-promoter-system.js"
   },
   "keywords": [],
   "author": "",

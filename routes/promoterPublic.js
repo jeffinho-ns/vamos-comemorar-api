@@ -12,6 +12,7 @@ module.exports = (pool) => {
   router.get('/:codigo', async (req, res) => {
     try {
       const { codigo } = req.params;
+      console.log('🔍 Buscando promoter público com código:', codigo);
 
       // Buscar promoter
       const [promoters] = await pool.execute(
@@ -32,7 +33,10 @@ module.exports = (pool) => {
         [codigo]
       );
 
+      console.log('📊 Promoters encontrados:', promoters.length);
+
       if (promoters.length === 0) {
+        console.log('❌ Promoter não encontrado com código:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -40,8 +44,10 @@ module.exports = (pool) => {
       }
 
       const promoter = promoters[0];
+      console.log('✅ Promoter encontrado:', { id: promoter.promoter_id, nome: promoter.nome });
 
       // Buscar estatísticas do promoter
+      console.log('📊 Buscando estatísticas...');
       const [stats] = await pool.execute(
         `SELECT 
           COUNT(DISTINCT c.id) as total_convidados,
@@ -50,6 +56,7 @@ module.exports = (pool) => {
          WHERE c.promoter_id = ?`,
         [promoter.promoter_id]
       );
+      console.log('✅ Estatísticas obtidas:', stats[0]);
 
       res.json({
         success: true,
@@ -68,9 +75,12 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao buscar promoter público:', error);
+      console.error('❌ Stack:', error.stack);
+      console.error('❌ SQL Message:', error.sqlMessage);
       res.status(500).json({ 
         success: false, 
-        error: 'Erro interno do servidor' 
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
@@ -173,6 +183,7 @@ module.exports = (pool) => {
   router.get('/:codigo/eventos', async (req, res) => {
     try {
       const { codigo } = req.params;
+      console.log('🔍 Buscando eventos para promoter:', codigo);
 
       // Buscar promoter
       const [promoters] = await pool.execute(
@@ -182,7 +193,10 @@ module.exports = (pool) => {
         [codigo]
       );
 
+      console.log('📊 Promoters encontrados para eventos:', promoters.length);
+
       if (promoters.length === 0) {
+        console.log('❌ Promoter não encontrado para eventos:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -190,8 +204,10 @@ module.exports = (pool) => {
       }
 
       const promoter = promoters[0];
+      console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id);
 
       // Buscar eventos futuros que o promoter está associado
+      console.log('📊 Buscando eventos futuros...');
       const [eventos] = await pool.execute(
         `SELECT 
           e.id,
@@ -208,6 +224,7 @@ module.exports = (pool) => {
          LIMIT 10`,
         []
       );
+      console.log('✅ Eventos encontrados:', eventos.length);
 
       res.json({
         success: true,
@@ -216,9 +233,12 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao buscar eventos do promoter:', error);
+      console.error('❌ Stack:', error.stack);
+      console.error('❌ SQL Message:', error.sqlMessage);
       res.status(500).json({ 
         success: false, 
-        error: 'Erro interno do servidor' 
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
@@ -232,6 +252,7 @@ module.exports = (pool) => {
     try {
       const { codigo } = req.params;
       const { evento_id } = req.query;
+      console.log('🔍 Buscando convidados para promoter:', codigo);
 
       // Buscar promoter
       const [promoters] = await pool.execute(
@@ -241,7 +262,10 @@ module.exports = (pool) => {
         [codigo]
       );
 
+      console.log('📊 Promoters encontrados para convidados:', promoters.length);
+
       if (promoters.length === 0) {
+        console.log('❌ Promoter não encontrado para convidados:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -249,6 +273,7 @@ module.exports = (pool) => {
       }
 
       const promoter = promoters[0];
+      console.log('✅ Promoter encontrado para convidados:', promoter.promoter_id);
 
       // Buscar convidados
       let query = `
@@ -273,7 +298,9 @@ module.exports = (pool) => {
 
       query += ` ORDER BY c.created_at DESC`;
 
+      console.log('📊 Executando query de convidados...');
       const [convidados] = await pool.execute(query, params);
+      console.log('✅ Convidados encontrados:', convidados.length);
 
       // Ocultar informações sensíveis (WhatsApp) na listagem pública
       const convidadosPublicos = convidados.map(c => ({
@@ -291,9 +318,12 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao buscar convidados do promoter:', error);
+      console.error('❌ Stack:', error.stack);
+      console.error('❌ SQL Message:', error.sqlMessage);
       res.status(500).json({ 
         success: false, 
-        error: 'Erro interno do servidor' 
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
