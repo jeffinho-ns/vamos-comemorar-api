@@ -315,6 +315,12 @@ module.exports = (pool) => {
         const frontendUrl = process.env.FRONTEND_URL || 'https://vamoscomemorar.vercel.app';
         const linkConviteGerado = `${frontendUrl}/promoter/${finalCodigoIdentificador}`;
         
+        console.log('📝 Dados do promoter a serem inseridos:', {
+          nome, apelido, email, telefone, whatsapp, 
+          codigo: finalCodigoIdentificador, 
+          link: linkConviteGerado
+        });
+        
         // Inserir promoter
         const [result] = await connection.execute(
           `INSERT INTO promoters (
@@ -330,6 +336,13 @@ module.exports = (pool) => {
         );
         
         const promoterId = result.insertId;
+        console.log('✅ Promoter criado com ID:', promoterId);
+        
+        console.log('📝 Inserindo condições:', {
+          max_convidados_por_evento, max_convidados_por_data,
+          quota_mesas, quota_entradas, entradas_gratuitas,
+          desconto_especial_percentual, valor_minimo_consumo
+        });
         
         // Inserir condições padrão
         await connection.execute(
@@ -341,16 +354,27 @@ module.exports = (pool) => {
             areas_permitidas, mesas_reservadas, ativo
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
           [
-            promoterId, max_convidados_por_evento, max_convidados_por_data,
-            quota_mesas, quota_entradas, entradas_gratuitas, desconto_especial_percentual,
-            valor_minimo_consumo, horario_checkin_inicio, horario_checkin_fim,
-            politica_no_show, pode_reservar_mesas_vip || false, pode_selecionar_areas || false,
+            promoterId, 
+            max_convidados_por_evento !== undefined ? max_convidados_por_evento : null, 
+            max_convidados_por_data !== undefined ? max_convidados_por_data : null,
+            quota_mesas !== undefined ? quota_mesas : null, 
+            quota_entradas !== undefined ? quota_entradas : null, 
+            entradas_gratuitas !== undefined ? entradas_gratuitas : null, 
+            desconto_especial_percentual !== undefined ? desconto_especial_percentual : null,
+            valor_minimo_consumo !== undefined ? valor_minimo_consumo : null, 
+            horario_checkin_inicio || null, 
+            horario_checkin_fim || null,
+            politica_no_show || null, 
+            pode_reservar_mesas_vip || false, 
+            pode_selecionar_areas || false,
             areas_permitidas ? JSON.stringify(areas_permitidas) : null,
             mesas_reservadas ? JSON.stringify(mesas_reservadas) : null
           ]
         );
+        console.log('✅ Condições inseridas');
         
         // Inserir permissões padrão
+        console.log('📝 Inserindo permissões...');
         await connection.execute(
           `INSERT INTO promoter_permissoes (
             promoter_id, pode_ver_lista_convidados, pode_adicionar_convidados,
@@ -373,8 +397,10 @@ module.exports = (pool) => {
             permissoes?.pode_criar_eventos || false
           ]
         );
+        console.log('✅ Permissões inseridas');
         
         await connection.commit();
+        console.log('✅ Transaction committed com sucesso');
         
         res.status(201).json({
           success: true,
@@ -387,9 +413,12 @@ module.exports = (pool) => {
       } catch (error) {
         await connection.rollback();
         console.error('❌ Erro ao criar promoter:', error);
+        console.error('❌ Stack trace:', error.stack);
+        console.error('❌ SQL Error:', error.sqlMessage);
         res.status(500).json({
           success: false,
-          error: 'Erro ao criar promoter'
+          error: 'Erro ao criar promoter',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       } finally {
         connection.release();
