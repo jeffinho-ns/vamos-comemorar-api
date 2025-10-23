@@ -87,18 +87,36 @@ module.exports = (pool) => {
         observacoes
       } = req.body;
       
-      console.log('➕ Adicionando promoter ao evento:', {
+      console.log('➕ Adicionando promoter ao evento - Dados recebidos:', {
         promoter_id,
         evento_id,
         data_evento,
-        funcao
+        funcao,
+        observacoes,
+        body_completo: req.body
       });
       
       // Validar dados obrigatórios
-      if (!promoter_id || !evento_id || !data_evento) {
+      const missingFields = [];
+      if (!promoter_id) missingFields.push('promoter_id');
+      if (!evento_id) missingFields.push('evento_id');
+      if (!data_evento) missingFields.push('data_evento');
+      
+      if (missingFields.length > 0) {
+        console.log('❌ Dados obrigatórios faltando:', {
+          missingFields,
+          promoter_id: promoter_id,
+          evento_id: evento_id,
+          data_evento: data_evento,
+          promoter_id_type: typeof promoter_id,
+          evento_id_type: typeof evento_id,
+          data_evento_type: typeof data_evento
+        });
         return res.status(400).json({
           success: false,
-          error: 'promoter_id, evento_id e data_evento são obrigatórios'
+          error: `Campos obrigatórios faltando: ${missingFields.join(', ')}`,
+          missingFields,
+          received: { promoter_id, evento_id, data_evento }
         });
       }
       
