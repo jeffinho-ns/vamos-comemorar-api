@@ -407,9 +407,20 @@ module.exports = (pool) => {
         }
       }
 
-      // NOVO: Gerar lista de convidados se for reserva grande (11+ pessoas)
+      // NOVO: Gerar lista de convidados se for reserva grande (4+ pessoas) OU aniversário no HighLine
       let guestListLink = null;
-      if (number_of_people >= 11) {
+      
+      // Critérios para criar lista:
+      // 1. Reserva grande (4+ pessoas) OU
+      // 2. Aniversário no HighLine (sexta/sábado + establishment_id = 1)
+      const reservationDateObj = new Date(reservation_date + 'T00:00:00');
+      const dayOfWeek = reservationDateObj.getDay(); // Domingo = 0, Sexta = 5, Sábado = 6
+      const isWeekend = dayOfWeek === 5 || dayOfWeek === 6; // Sexta ou Sábado
+      const isHighLine = establishment_id === 1;
+      const isLargeGroup = number_of_people >= 4;
+      const isBirthdayReservation = isWeekend && isHighLine;
+      
+      if (isLargeGroup || isBirthdayReservation) {
         try {
           const crypto = require('crypto');
           const token = crypto.randomBytes(24).toString('hex');
@@ -426,9 +437,16 @@ module.exports = (pool) => {
 
           let eventType = req.body.event_type || null;
           
-          // Se for sexta-feira, define automaticamente como 'lista_sexta'
-          if (dayOfWeek === 5) {
+          // Determinar tipo de evento baseado nos critérios
+          if (isBirthdayReservation) {
+            // Aniversário no HighLine (sexta/sábado)
+            eventType = 'aniversario';
+          } else if (dayOfWeek === 5) {
+            // Sexta-feira para reservas grandes
             eventType = 'lista_sexta';
+          } else if (isLargeGroup) {
+            // Reserva grande em outros dias
+            eventType = eventType || 'despedida';
           }
 
           // Criar a guest list vinculada à reserva
@@ -441,7 +459,10 @@ module.exports = (pool) => {
           const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
           guestListLink = `${baseUrl}/lista/${token}`;
           
-          console.log('✅ Lista de convidados criada automaticamente para reserva grande:', guestListLink);
+          const logMessage = isBirthdayReservation 
+            ? `✅ Lista de convidados criada automaticamente para ANIVERSÁRIO no HighLine: ${guestListLink}`
+            : `✅ Lista de convidados criada automaticamente para RESERVA GRANDE: ${guestListLink}`;
+          console.log(logMessage);
         } catch (guestListError) {
           console.error('❌ Erro ao criar lista de convidados:', guestListError);
           // Não falha a reserva se houver erro na lista de convidados
