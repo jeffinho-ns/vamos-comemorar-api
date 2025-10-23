@@ -312,7 +312,7 @@ module.exports = (pool) => {
         }
         
         // Gerar link de convite público
-        const frontendUrl = process.env.FRONTEND_URL || 'https://vamoscomemorar.vercel.app';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://www.agilizaiapp.com.br';
         const linkConviteGerado = `${frontendUrl}/promoter/${finalCodigoIdentificador}`;
         
         console.log('📝 Dados do promoter a serem inseridos:', {
@@ -856,7 +856,7 @@ module.exports = (pool) => {
         
         // Gerar código único
         const codigo_convite = `PROMO${id}_${Date.now()}`;
-        const link_convite = `${process.env.FRONTEND_URL || 'https://vamos-comemorar.com.br'}/convite/${codigo_convite}`;
+        const link_convite = `${process.env.FRONTEND_URL || 'https://www.agilizaiapp.com.br'}/convite/${codigo_convite}`;
         
         // Inserir convite
         const [result] = await pool.execute(
