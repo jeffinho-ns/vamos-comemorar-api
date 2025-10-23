@@ -285,20 +285,35 @@ module.exports = (pool) => {
           });
         }
         
-        // Verificar se código identificador já existe
-        if (codigo_identificador) {
-          const [existingCode] = await connection.execute(
-            'SELECT promoter_id FROM promoters WHERE codigo_identificador = ?',
-            [codigo_identificador]
-          );
-          
-          if (existingCode.length > 0) {
-            return res.status(400).json({
-              success: false,
-              error: 'Código identificador já está em uso'
-            });
-          }
+        // Gerar código identificador único se não fornecido
+        let finalCodigoIdentificador = codigo_identificador;
+        
+        if (!finalCodigoIdentificador) {
+          // Gerar código baseado no nome e timestamp
+          const nomeSlug = nome.toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+            .replace(/[^a-z0-9]/g, '-')
+            .replace(/-+/g, '-')
+            .substring(0, 20);
+          const timestamp = Date.now().toString().slice(-6);
+          finalCodigoIdentificador = `${nomeSlug}-${timestamp}`;
         }
+        
+        // Verificar se código identificador já existe
+        const [existingCode] = await connection.execute(
+          'SELECT promoter_id FROM promoters WHERE codigo_identificador = ?',
+          [finalCodigoIdentificador]
+        );
+        
+        if (existingCode.length > 0) {
+          // Se existir, adicionar timestamp adicional
+          finalCodigoIdentificador = `${finalCodigoIdentificador}-${Date.now().toString().slice(-4)}`;
+        }
+        
+        // Gerar link de convite público
+        const frontendUrl = process.env.FRONTEND_URL || 'https://vamoscomemorar.vercel.app';
+        const linkConviteGerado = `${frontendUrl}/promoter/${finalCodigoIdentificador}`;
         
         // Inserir promoter
         const [result] = await connection.execute(
@@ -308,8 +323,8 @@ module.exports = (pool) => {
             establishment_id, foto_url, instagram, data_cadastro, status, ativo
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), 'Ativo', TRUE)`,
           [
-            nome, apelido, email, telefone, whatsapp, codigo_identificador,
-            tipo_categoria || 'Standard', comissao_percentual || 0, link_convite, observacoes,
+            nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
+            tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
             establishment_id, foto_url, instagram
           ]
         );
@@ -364,7 +379,9 @@ module.exports = (pool) => {
         res.status(201).json({
           success: true,
           message: 'Promoter criado com sucesso',
-          promoter_id: promoterId
+          promoter_id: promoterId,
+          codigo_identificador: finalCodigoIdentificador,
+          link_convite: linkConviteGerado
         });
         
       } catch (error) {
