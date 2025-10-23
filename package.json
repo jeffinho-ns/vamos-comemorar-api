@@ -15,7 +15,8 @@
     "health-check": "curl -f http://localhost:10000/health || exit 1",
     "fix-promoter-links": "node scripts/fix-promoter-links.js",
     "migrate-promoter-convidados": "node scripts/run-promoter-convidados-migration.js",
-    "diagnose-promoters": "node scripts/diagnose-promoter-system.js"
+    "diagnose-promoters": "node scripts/diagnose-promoter-system.js",
+    "check-db": "node scripts/check-remote-db.js"
   },
   "keywords": [],
   "author": "",

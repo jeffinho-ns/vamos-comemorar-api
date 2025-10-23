@@ -5,6 +5,19 @@ const router = express.Router();
 
 module.exports = (pool) => {
   /**
+   * @route   GET /api/promoter/test
+   * @desc    Endpoint de teste
+   * @access  Public
+   */
+  router.get('/test', (req, res) => {
+    res.json({ 
+      success: true, 
+      message: 'Rota de promoter pública funcionando!',
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  /**
    * @route   GET /api/promoter/:codigo
    * @desc    Retorna dados públicos do promoter por código
    * @access  Public
@@ -24,8 +37,7 @@ module.exports = (pool) => {
           p.instagram,
           p.observacoes,
           p.status,
-          pl.name as establishment_name,
-          pl.tipo as establishment_tipo
+          pl.name as establishment_name
          FROM promoters p
          LEFT JOIN places pl ON p.establishment_id = pl.id
          WHERE p.codigo_identificador = ? AND p.ativo = TRUE AND p.status = 'Ativo'
@@ -68,7 +80,6 @@ module.exports = (pool) => {
           instagram: promoter.instagram,
           observacoes: promoter.observacoes,
           establishment_name: promoter.establishment_name,
-          establishment_tipo: promoter.establishment_tipo,
           stats: stats[0] || { total_convidados: 0, total_confirmados: 0 }
         }
       });
