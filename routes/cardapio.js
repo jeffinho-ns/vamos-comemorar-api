@@ -603,6 +603,7 @@ module.exports = (pool) => {
                         mc.name as category,
                         mi.subCategory as subCategoryName,
                         mi.seals,
+                        COALESCE(mi.visible, 1) AS visible,
                         GROUP_CONCAT(
                             CONCAT(t.id, ':', t.name, ':', t.price) 
                             SEPARATOR '|'
@@ -613,7 +614,7 @@ module.exports = (pool) => {
                     LEFT JOIN toppings t ON it.topping_id = t.id
                     ${barId ? 'WHERE mi.barId = ?' : ''}
                     GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.seals
+                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.seals, mi.visible
                     ORDER BY mi.barId, mi.categoryId, mi.order
                 `;
                 await pool.query(query, barId ? [barId] : []);
@@ -634,6 +635,7 @@ module.exports = (pool) => {
                         mi.order, 
                         mc.name as category,
                         mi.subCategory as subCategoryName,
+                        COALESCE(mi.visible, 1) AS visible,
                         GROUP_CONCAT(
                             CONCAT(t.id, ':', t.name, ':', t.price) 
                             SEPARATOR '|'
@@ -644,7 +646,7 @@ module.exports = (pool) => {
                     LEFT JOIN toppings t ON it.topping_id = t.id
                     ${barId ? 'WHERE mi.barId = ?' : ''}
                     GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory
+                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.visible
                     ORDER BY mi.barId, mi.categoryId, mi.order
                 `;
             }
@@ -820,7 +822,43 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para deletar um item
+    // ============================================
+    // NOVO: Rota para alternar visibilidade de um item (ocultar/mostrar)
+    // ============================================
+    router.patch('/items/:id/visibility', async (req, res) => {
+        const { id } = req.params;
+        const { visible } = req.body; // true (1) ou false (0)
+        
+        try {
+            // Verificar se o item existe
+            const [items] = await pool.query('SELECT id, name, visible FROM menu_items WHERE id = ?', [id]);
+            
+            if (items.length === 0) {
+                return res.status(404).json({ error: 'Item não encontrado.' });
+            }
+            
+            const currentItem = items[0];
+            const newVisibility = visible !== undefined ? (visible ? 1 : 0) : (currentItem.visible === 1 ? 0 : 1);
+            
+            // Atualizar visibilidade
+            await pool.query('UPDATE menu_items SET visible = ? WHERE id = ?', [newVisibility, id]);
+            
+            res.json({ 
+                message: newVisibility === 1 ? 'Item tornado visível com sucesso.' : 'Item ocultado com sucesso.',
+                item: {
+                    id,
+                    name: currentItem.name,
+                    visible: newVisibility === 1,
+                    status: newVisibility === 1 ? 'visível' : 'oculto'
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao alternar visibilidade do item:', error);
+            res.status(500).json({ error: 'Erro ao alternar visibilidade do item.' });
+        }
+    });
+    
+    // Rota para deletar um item (permanente)
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
         try {
@@ -828,7 +866,7 @@ module.exports = (pool) => {
             await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
             await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
             await pool.query('COMMIT');
-            res.json({ message: 'Item deletado com sucesso.' });
+            res.json({ message: 'Item deletado permanentemente com sucesso.' });
         } catch (error) {
             await pool.query('ROLLBACK');
             console.error('Erro ao deletar item:', error);
