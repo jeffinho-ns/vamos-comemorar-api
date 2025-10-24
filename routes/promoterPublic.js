@@ -223,7 +223,7 @@ module.exports = (pool) => {
         `SELECT 
           e.id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data,
+          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data,
           e.hora_do_evento as hora,
           pl.name as local_nome,
           pl.endereco as local_endereco

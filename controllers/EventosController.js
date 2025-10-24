@@ -113,7 +113,7 @@ class EventosController {
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data_evento,
+          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
@@ -135,7 +135,7 @@ class EventosController {
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data_evento,
+          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
@@ -266,7 +266,7 @@ class EventosController {
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data_evento,
+          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,

@@ -150,7 +150,9 @@ module.exports = (pool, checkAndAwardBrindes) => {
             const { tipo } = req.query;
             let query = `
                 SELECT
-                    id, casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
+                    id, casa_do_evento, nome_do_evento, 
+                    DATE_FORMAT(data_do_evento, '%Y-%m-%d') as data_do_evento, 
+                    hora_do_evento,
                     local_do_evento, criado_em, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
