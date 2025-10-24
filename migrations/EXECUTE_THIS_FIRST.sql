@@ -42,3 +42,4 @@ DESCRIBE promoter_convidados;
 -- Contar registros (deve ser 0 no início)
 SELECT COUNT(*) as total_convidados FROM promoter_convidados;
 
+

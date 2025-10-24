@@ -195,3 +195,4 @@ Antes de testar, confirme:
 2. Screenshot dos logs do Render
 3. O `codigo_identificador` exato do promoter que você está testando
 
+

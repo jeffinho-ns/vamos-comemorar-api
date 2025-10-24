@@ -29,3 +29,4 @@ COMMENT='Convidados cadastrados via link público do promoter';
 -- Índice composto para verificar duplicatas
 CREATE UNIQUE INDEX `idx_promoter_whatsapp_evento` ON `promoter_convidados` (`promoter_id`, `whatsapp`, `evento_id`);
 
+

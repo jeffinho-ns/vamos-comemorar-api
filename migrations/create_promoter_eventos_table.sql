@@ -77,3 +77,4 @@ Evento Semanal "Sexta da Balada":
 - promoter_id: 1, evento_id: 3, data_evento: '2025-02-07', funcao: 'responsavel'
 - promoter_id: 2, evento_id: 3, data_evento: '2025-02-14', funcao: 'responsavel'
 */
+
