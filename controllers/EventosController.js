@@ -531,6 +531,8 @@ class EventosController {
     try {
       const { eventoId } = req.params;
       
+      console.log('🔍 [getListasEvento] Buscando listas para evento_id:', eventoId);
+      
       // Buscar listas do evento
       const [listas] = await this.pool.execute(`
         SELECT 
@@ -550,8 +552,22 @@ class EventosController {
         ORDER BY l.tipo, l.nome
       `, [eventoId]);
       
+      console.log(`✅ [getListasEvento] Encontradas ${listas.length} listas`);
+      
+      if (listas.length > 0) {
+        console.log('📋 [getListasEvento] Listas encontradas:', listas.map(l => ({
+          lista_id: l.lista_id,
+          nome: l.nome,
+          tipo: l.tipo,
+          promoter: l.promoter_nome,
+          total_convidados: l.total_convidados
+        })));
+      }
+      
       // Buscar convidados de cada lista
       for (let lista of listas) {
+        console.log(`🔍 [getListasEvento] Buscando convidados para lista_id: ${lista.lista_id} (${lista.nome})`);
+        
         const [convidados] = await this.pool.execute(`
           SELECT 
             lc.*,
@@ -564,18 +580,24 @@ class EventosController {
           ORDER BY lc.nome_convidado
         `, [lista.lista_id]);
         
+        console.log(`✅ [getListasEvento] Lista ${lista.lista_id}: ${convidados.length} convidados`);
+        
         lista.convidados = convidados;
       }
+      
+      console.log('🎉 [getListasEvento] Retornando dados completos');
       
       res.json({
         success: true,
         listas
       });
     } catch (error) {
-      console.error('❌ Erro ao buscar listas do evento:', error);
+      console.error('❌ [getListasEvento] Erro ao buscar listas do evento:', error);
+      console.error('Stack:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Erro ao buscar listas do evento'
+        error: 'Erro ao buscar listas do evento',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
