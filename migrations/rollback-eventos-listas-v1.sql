@@ -20,3 +20,4 @@ SELECT '✅ Rollback executado - agora usar eventos-listas-module-v2.sql' AS sta
 
 
 
+

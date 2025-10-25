@@ -119,10 +119,11 @@ class EventosController {
           e.tipo_evento,
           e.dia_da_semana,
           e.usado_para_listas,
-          p.name as establishment_name,
+          COALESCE(p.name, b.name) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
+        LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
         AND e.data_do_evento >= CURDATE()
         ${establishment_id ? 'AND e.id_place = ?' : ''}
@@ -140,10 +141,11 @@ class EventosController {
           e.descricao,
           e.tipo_evento,
           e.usado_para_listas,
-          p.name as establishment_name,
+          COALESCE(p.name, b.name) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
+        LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
         AND e.data_do_evento >= CURDATE()
         ${establishment_id ? 'AND e.id_place = ?' : ''}
@@ -159,10 +161,11 @@ class EventosController {
           e.hora_do_evento as horario_funcionamento,
           e.dia_da_semana,
           e.tipo_evento,
-          p.name as establishment_name,
+          COALESCE(p.name, b.name) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
+        LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'semanal'
         ${establishment_id ? 'AND e.id_place = ?' : ''}
         ORDER BY e.dia_da_semana ASC
@@ -285,7 +288,7 @@ class EventosController {
         LEFT JOIN bars b ON e.id_place = b.id
         LEFT JOIN listas l ON e.id = l.evento_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
-        WHERE e.usado_para_listas = TRUE
+        WHERE 1=1
       `;
       
       const params = [];
@@ -533,6 +536,30 @@ class EventosController {
       
       console.log('🔍 [getListasEvento] Buscando listas para evento_id:', eventoId);
       
+      // Primeiro, verificar se o evento existe
+      const [evento] = await this.pool.execute(`
+        SELECT 
+          e.id,
+          e.nome_do_evento,
+          e.usado_para_listas,
+          e.tipo_evento,
+          e.data_do_evento,
+          COALESCE(p.name, b.name) as establishment_name
+        FROM eventos e
+        LEFT JOIN places p ON e.id_place = p.id
+        LEFT JOIN bars b ON e.id_place = b.id
+        WHERE e.id = ?
+      `, [eventoId]);
+      
+      if (evento.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Evento não encontrado'
+        });
+      }
+      
+      console.log('📋 [getListasEvento] Evento encontrado:', evento[0]);
+      
       // Buscar listas do evento
       const [listas] = await this.pool.execute(`
         SELECT 
@@ -589,6 +616,7 @@ class EventosController {
       
       res.json({
         success: true,
+        evento: evento[0],
         listas
       });
     } catch (error) {
