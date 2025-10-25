@@ -169,6 +169,46 @@ module.exports = (pool) => {
       
       console.log('✅ Relacionamento criado com ID:', result.insertId);
       
+      // 🎯 NOVA FUNCIONALIDADE: Criar lista automaticamente para o promoter
+      console.log('📋 Criando lista automaticamente para o promoter...');
+      
+      try {
+        // Verificar se já existe uma lista para este promoter neste evento
+        const [listaExistente] = await pool.execute(`
+          SELECT lista_id FROM listas 
+          WHERE evento_id = ? AND promoter_responsavel_id = ?
+        `, [evento_id, promoter_id]);
+        
+        let listaId = null;
+        
+        if (listaExistente.length === 0) {
+          // Criar nova lista para o promoter
+          const nomeLista = `Lista de ${promoterCheck[0].nome}`;
+          const [listaResult] = await pool.execute(`
+            INSERT INTO listas 
+            (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
+            VALUES (?, ?, ?, 'Promoter', ?)
+          `, [evento_id, promoter_id, nomeLista, observacoes || 'Lista criada automaticamente']);
+          
+          listaId = listaResult.insertId;
+          console.log('✅ Lista criada automaticamente com ID:', listaId);
+        } else {
+          listaId = listaExistente[0].lista_id;
+          console.log('ℹ️ Lista já existe com ID:', listaId);
+        }
+        
+        // Adicionar informações da lista na resposta
+        const [listaInfo] = await pool.execute(`
+          SELECT lista_id, nome, tipo FROM listas WHERE lista_id = ?
+        `, [listaId]);
+        
+        console.log('📋 Informações da lista:', listaInfo[0]);
+        
+      } catch (listaError) {
+        console.error('⚠️ Erro ao criar lista automaticamente:', listaError);
+        // Não falha a operação principal se der erro na criação da lista
+      }
+      
       // Buscar dados completos do relacionamento criado
       const [newRelacionamento] = await pool.execute(`
         SELECT 
