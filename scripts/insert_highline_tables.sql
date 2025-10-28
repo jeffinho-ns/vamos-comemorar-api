@@ -78,3 +78,4 @@ INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, desc
 
 
 
+

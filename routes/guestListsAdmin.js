@@ -30,30 +30,39 @@ module.exports = (pool) => {
    */
   router.get('/guest-lists', optionalAuth, async (req, res) => {
     try {
-      const { date, month, establishment_id } = req.query;
+      const { date, month, establishment_id, show_all } = req.query;
       let whereClauses = [];
       let params = [];
+
+      console.log('🔍 [GET /guest-lists] Parâmetros recebidos:', { date, month, establishment_id, show_all });
 
       // Construir os filtros usando COALESCE desde o início
       if (date) {
         whereClauses.push('COALESCE(lr.reservation_date, rr.reservation_date) = ?');
         params.push(date);
+        console.log('📅 Filtrando por data específica:', date);
       } else if (month) {
         const year = month.split('-')[0];
         const monthNum = month.split('-')[1];
         whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
         params.push(year, monthNum);
-      } else {
+        console.log('📅 Filtrando por mês:', month);
+      } else if (show_all !== 'true') {
+        // CORREÇÃO: Apenas filtrar por mês atual se show_all não for true
         const currentMonth = new Date().toISOString().slice(0, 7);
         const year = currentMonth.split('-')[0];
         const monthNum = currentMonth.split('-')[1];
         whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
         params.push(year, monthNum);
+        console.log('📅 Filtrando por mês atual (padrão):', currentMonth);
+      } else {
+        console.log('📅 Mostrando TODAS as listas (show_all=true)');
       }
       
       if (establishment_id) {
         whereClauses.push('COALESCE(lr.establishment_id, rr.establishment_id) = ?');
         params.push(establishment_id);
+        console.log('🏢 Filtrando por estabelecimento:', establishment_id);
       }
       
       // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant) com campos de check-in
@@ -81,10 +90,29 @@ module.exports = (pool) => {
       `, params);
 
       console.log(`✅ Guest Lists encontradas: ${rows.length}`);
-      res.json({ success: true, guestLists: rows });
+      
+      // Log adicional para debug
+      if (rows.length === 0) {
+        console.log('⚠️ Nenhuma guest list encontrada com os filtros aplicados');
+        console.log('💡 Dica: Verifique se as datas das reservas estão corretas');
+      } else {
+        console.log('📋 Primeiras 3 listas:', rows.slice(0, 3).map(r => ({
+          id: r.guest_list_id,
+          owner: r.owner_name,
+          date: r.reservation_date,
+          type: r.reservation_type
+        })));
+      }
+      
+      res.json({ 
+        success: true, 
+        guestLists: rows,
+        totalFound: rows.length,
+        filters: { date: req.query.date, month: req.query.month, establishment_id: req.query.establishment_id }
+      });
     } catch (error) {
       console.error('❌ Erro ao listar guest lists:', error);
-      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+      res.status(500).json({ success: false, error: 'Erro interno do servidor', message: error.message });
     }
   });
   // --- O RESTANTE DO ARQUIVO PERMANECE IGUAL ---

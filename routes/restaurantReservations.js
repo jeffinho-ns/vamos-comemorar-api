@@ -15,6 +15,11 @@ module.exports = (pool) => {
   router.get('/', async (req, res) => {
     try {
       const { date, status, area_id, establishment_id, limit, sort, order, include_cancelled } = req.query;
+      
+      console.log('🔍 [GET /restaurant-reservations] Parâmetros:', { 
+        date, status, area_id, establishment_id, limit, include_cancelled 
+      });
+      
       let query = `
         SELECT
           rr.*, ra.name as area_name, u.name as created_by_name,
@@ -42,10 +47,20 @@ module.exports = (pool) => {
       if (limit) { query += ` LIMIT ?`; params.push(parseInt(limit)); }
 
       const [reservations] = await pool.execute(query, params);
-      res.json({ success: true, reservations });
+      
+      console.log(`✅ [GET /restaurant-reservations] ${reservations.length} reservas encontradas`);
+      
+      if (reservations.length === 0) {
+        console.log('⚠️ Nenhuma reserva encontrada. Verifique:');
+        console.log('   1. Se há reservas no banco para este estabelecimento');
+        console.log('   2. Se as datas estão corretas (ano atual)');
+        console.log('   3. Se o establishment_id está correto');
+      }
+      
+      res.json({ success: true, reservations, totalFound: reservations.length });
     } catch (error) {
       console.error('❌ Erro ao buscar reservas:', error);
-      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+      res.status(500).json({ success: false, error: 'Erro interno do servidor', message: error.message });
     }
   });
 

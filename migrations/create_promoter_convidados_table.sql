@@ -32,3 +32,4 @@ CREATE UNIQUE INDEX `idx_promoter_whatsapp_evento` ON `promoter_convidados` (`pr
 
 
 
+
