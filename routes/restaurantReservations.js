@@ -958,6 +958,65 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   POST /api/restaurant-reservations/:id/checkin
+   * @desc    Faz check-in da reserva
+   * @access  Private (Admin)
+   */
+  router.post('/:id/checkin', async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se a reserva existe
+      const [reservation] = await pool.execute(
+        'SELECT * FROM restaurant_reservations WHERE id = ?',
+        [id]
+      );
+
+      if (reservation.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      // Verificar se já fez check-in
+      if (reservation[0].checked_in) {
+        return res.status(400).json({
+          success: false,
+          error: 'Check-in já foi realizado para esta reserva',
+          checkin_time: reservation[0].checkin_time
+        });
+      }
+
+      // Atualizar check-in da reserva
+      await pool.execute(
+        'UPDATE restaurant_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = ?',
+        [id]
+      );
+
+      console.log(`✅ Check-in da reserva confirmado: ${reservation[0].client_name} (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-in da reserva confirmado com sucesso',
+        reservation: {
+          id: reservation[0].id,
+          client_name: reservation[0].client_name,
+          checked_in: true,
+          checkin_time: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-in da reserva:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/:id/guest-list
    * @desc    Busca a lista de convidados de uma reserva
    * @access  Private
