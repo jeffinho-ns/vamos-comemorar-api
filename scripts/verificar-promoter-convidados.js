@@ -145,3 +145,4 @@ async function verificarPromoterConvidados() {
 
 verificarPromoterConvidados();
 
+

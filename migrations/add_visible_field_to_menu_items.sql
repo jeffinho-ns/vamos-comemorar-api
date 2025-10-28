@@ -113,3 +113,4 @@ SELECT 'Campo "visible" adicionado à tabela menu_items' AS '';
 SELECT 'Todos os itens existentes estão visíveis por padrão' AS '';
 
 
+
