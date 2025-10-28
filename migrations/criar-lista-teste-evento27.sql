@@ -123,3 +123,4 @@ DELETE FROM listas WHERE lista_id = @lista_teste;
 SELECT 'Lista de teste removida com sucesso!' as status;
 */
 
+

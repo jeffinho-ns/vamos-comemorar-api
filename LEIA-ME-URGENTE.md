@@ -163,3 +163,4 @@ Depois de reiniciar o backend:
 **Status:** 🔴 URGENTE - Reiniciar backend agora  
 **Prioridade:** ALTA
 
+

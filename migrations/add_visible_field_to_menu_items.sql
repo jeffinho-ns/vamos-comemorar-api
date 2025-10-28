@@ -112,3 +112,4 @@ SELECT '✅ Migration concluída com sucesso!' AS '';
 SELECT 'Campo "visible" adicionado à tabela menu_items' AS '';
 SELECT 'Todos os itens existentes estão visíveis por padrão' AS '';
 
+

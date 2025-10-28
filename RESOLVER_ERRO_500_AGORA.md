@@ -196,3 +196,4 @@ Antes de testar, confirme:
 3. O `codigo_identificador` exato do promoter que você está testando
 
 
+

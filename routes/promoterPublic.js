@@ -154,7 +154,7 @@ module.exports = (pool) => {
         });
       }
 
-      // Adicionar o convidado
+      // Adicionar o convidado na tabela promoter_convidados
       const [result] = await pool.execute(
         `INSERT INTO promoter_convidados (
           promoter_id, 
@@ -165,6 +165,49 @@ module.exports = (pool) => {
         ) VALUES (?, ?, ?, ?, 'pendente')`,
         [promoter.promoter_id, nome.trim(), whatsapp.trim(), evento_id || null]
       );
+
+      // NOVO: Também adicionar na tabela listas_convidados se houver uma lista para este promoter/evento
+      try {
+        if (evento_id) {
+          // Buscar lista do promoter para este evento
+          const [listas] = await pool.execute(
+            `SELECT lista_id FROM listas 
+             WHERE promoter_responsavel_id = ? AND evento_id = ?
+             LIMIT 1`,
+            [promoter.promoter_id, evento_id]
+          );
+
+          if (listas.length > 0) {
+            const lista_id = listas[0].lista_id;
+
+            // Verificar se já existe na lista (evitar duplicatas)
+            const [existeNaLista] = await pool.execute(
+              `SELECT lista_convidado_id FROM listas_convidados 
+               WHERE lista_id = ? AND nome_convidado = ? AND telefone_convidado = ?`,
+              [lista_id, nome.trim(), whatsapp.trim()]
+            );
+
+            if (existeNaLista.length === 0) {
+              // Inserir na tabela listas_convidados
+              await pool.execute(
+                `INSERT INTO listas_convidados (
+                  lista_id,
+                  nome_convidado,
+                  telefone_convidado,
+                  status_checkin,
+                  is_vip
+                ) VALUES (?, ?, ?, 'Pendente', FALSE)`,
+                [lista_id, nome.trim(), whatsapp.trim()]
+              );
+
+              console.log(`✅ Convidado também adicionado à lista ${lista_id}`);
+            }
+          }
+        }
+      } catch (listaError) {
+        // Log do erro mas não falha a operação principal
+        console.error('⚠️ Erro ao adicionar convidado à lista:', listaError);
+      }
 
       res.status(201).json({ 
         success: true, 

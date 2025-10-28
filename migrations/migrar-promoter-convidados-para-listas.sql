@@ -150,3 +150,4 @@ AND observacoes NOT LIKE '%MIGRADO PARA SISTEMA DE LISTAS%';
 -- 3. Você poderá fazer check-in normalmente
 -- ========================================
 
+

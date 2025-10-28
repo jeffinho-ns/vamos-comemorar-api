@@ -232,3 +232,4 @@ TESTE 10: Estatísticas gerais
 
 SELECT '✅ Testes concluídos! Verifique os resultados acima.' AS '';
 
+
