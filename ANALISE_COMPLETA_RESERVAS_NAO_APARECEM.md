@@ -223,3 +223,4 @@ console.log(`✅ Guest Lists encontradas: ${rows.length}`);
 
 Verifique o console do navegador e os logs do servidor para confirmar que os dados estão sendo buscados e retornados corretamente.
 
+

@@ -1012,6 +1012,200 @@ class EventosController {
       });
     }
   }
+  /**
+   * GET /api/v1/eventos/:eventoId/checkins
+   * Retorna todas as listas de check-ins consolidadas para um evento específico
+   * Inclui: reservas de mesas, convidados de listas, promoters e convidados VIP
+   */
+  async getCheckinsConsolidados(req, res) {
+    try {
+      const { eventoId } = req.params;
+      
+      console.log('🔍 Buscando check-ins consolidados para evento:', eventoId);
+      
+      // 1. Buscar informações do evento
+      const [evento] = await this.pool.execute(`
+        SELECT 
+          e.id as evento_id,
+          e.nome_do_evento as nome,
+          e.data_do_evento as data_evento,
+          e.hora_do_evento as horario,
+          e.tipo_evento,
+          e.id_place as establishment_id,
+          COALESCE(pl.name, b.name) as establishment_name
+        FROM eventos e
+        LEFT JOIN places pl ON e.id_place = pl.id
+        LEFT JOIN bars b ON e.id_place = b.id
+        WHERE e.id = ?
+      `, [eventoId]);
+      
+      if (evento.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Evento não encontrado'
+        });
+      }
+      
+      const eventoInfo = evento[0];
+      
+      // 2. Buscar reservas de mesa vinculadas ao evento (via convidados)
+      const [reservasMesa] = await this.pool.execute(`
+        SELECT DISTINCT
+          r.id as id,
+          'reserva_mesa' as tipo,
+          r.nome_lista as origem,
+          u.name as responsavel,
+          r.data_reserva,
+          r.quantidade_convidados,
+          r.created_at,
+          COUNT(c.id) as total_convidados,
+          SUM(CASE WHEN c.status = 'CHECK-IN' THEN 1 ELSE 0 END) as convidados_checkin
+        FROM reservas r
+        LEFT JOIN users u ON r.user_id = u.id
+        LEFT JOIN convidados c ON r.id = c.reserva_id
+        WHERE r.evento_id = ?
+        GROUP BY r.id
+        ORDER BY r.data_reserva DESC
+      `, [eventoId]);
+      
+      // 3. Buscar convidados de reservas
+      const [convidadosReservas] = await this.pool.execute(`
+        SELECT 
+          c.id,
+          'convidado_reserva' as tipo,
+          c.nome,
+          c.email,
+          c.documento,
+          c.status,
+          c.data_checkin,
+          r.nome_lista as origem,
+          u.name as responsavel
+        FROM convidados c
+        INNER JOIN reservas r ON c.reserva_id = r.id
+        LEFT JOIN users u ON r.user_id = u.id
+        WHERE r.evento_id = ?
+        ORDER BY c.nome ASC
+      `, [eventoId]);
+      
+      // 4. Buscar listas e convidados de promoters
+      const [listasPromoters] = await this.pool.execute(`
+        SELECT 
+          lc.lista_convidado_id as id,
+          'convidado_promoter' as tipo,
+          lc.nome_convidado as nome,
+          lc.telefone_convidado as telefone,
+          lc.status_checkin,
+          lc.data_checkin,
+          lc.is_vip,
+          lc.observacoes,
+          l.nome as origem,
+          l.tipo as tipo_lista,
+          p.nome as responsavel,
+          p.promoter_id
+        FROM listas_convidados lc
+        INNER JOIN listas l ON lc.lista_id = l.lista_id
+        LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+        WHERE l.evento_id = ?
+        ORDER BY lc.nome_convidado ASC
+      `, [eventoId]);
+      
+      // 5. Buscar promoters vinculados ao evento
+      const [promoters] = await this.pool.execute(`
+        SELECT DISTINCT
+          p.promoter_id as id,
+          'promoter' as tipo,
+          p.nome,
+          p.email,
+          p.telefone,
+          p.tipo_categoria,
+          COUNT(DISTINCT l.lista_id) as total_listas,
+          COUNT(DISTINCT lc.lista_convidado_id) as total_convidados,
+          SUM(CASE WHEN lc.status_checkin = 'Check-in' THEN 1 ELSE 0 END) as convidados_checkin
+        FROM promoters p
+        LEFT JOIN listas l ON p.promoter_id = l.promoter_responsavel_id AND l.evento_id = ?
+        LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
+        WHERE EXISTS (
+          SELECT 1 FROM listas WHERE promoter_responsavel_id = p.promoter_id AND evento_id = ?
+        )
+        GROUP BY p.promoter_id
+        ORDER BY p.nome ASC
+      `, [eventoId, eventoId]);
+      
+      // 6. Buscar reservas grandes (camarotes) do estabelecimento na mesma data
+      const [camarotes] = await this.pool.execute(`
+        SELECT 
+          lr.id,
+          'camarote' as tipo,
+          lr.client_name as responsavel,
+          lr.event_type as origem,
+          lr.reservation_date,
+          lr.reservation_time,
+          lr.number_of_people,
+          lr.checked_in,
+          lr.checkin_time,
+          COUNT(g.id) as total_convidados,
+          SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
+        FROM large_reservations lr
+        LEFT JOIN guest_lists gl ON lr.id = gl.reservation_id AND gl.reservation_type = 'large'
+        LEFT JOIN guests g ON gl.id = g.guest_list_id
+        WHERE lr.establishment_id = ?
+        AND DATE(lr.reservation_date) = DATE(?)
+        GROUP BY lr.id
+        ORDER BY lr.reservation_time ASC
+      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+      
+      // 7. Calcular estatísticas gerais
+      const totalReservasMesa = reservasMesa.length;
+      const totalConvidadosReservas = convidadosReservas.length;
+      const checkinConvidadosReservas = convidadosReservas.filter(c => c.status === 'CHECK-IN').length;
+      
+      const totalPromoters = promoters.length;
+      const totalConvidadosPromoters = listasPromoters.length;
+      const checkinConvidadosPromoters = listasPromoters.filter(c => c.status_checkin === 'Check-in').length;
+      
+      const totalCamarotes = camarotes.length;
+      const checkinCamarotes = camarotes.filter(c => c.checked_in).length;
+      
+      console.log('✅ Check-ins consolidados encontrados:');
+      console.log(`   - Reservas de mesa: ${totalReservasMesa}`);
+      console.log(`   - Convidados de reservas: ${totalConvidadosReservas} (${checkinConvidadosReservas} check-ins)`);
+      console.log(`   - Promoters: ${totalPromoters}`);
+      console.log(`   - Convidados de promoters: ${totalConvidadosPromoters} (${checkinConvidadosPromoters} check-ins)`);
+      console.log(`   - Camarotes: ${totalCamarotes} (${checkinCamarotes} check-ins)`);
+      
+      res.json({
+        success: true,
+        evento: eventoInfo,
+        dados: {
+          reservasMesa: reservasMesa,
+          convidadosReservas: convidadosReservas,
+          promoters: promoters,
+          convidadosPromoters: listasPromoters,
+          camarotes: camarotes
+        },
+        estatisticas: {
+          totalReservasMesa,
+          totalConvidadosReservas,
+          checkinConvidadosReservas,
+          totalPromoters,
+          totalConvidadosPromoters,
+          checkinConvidadosPromoters,
+          totalCamarotes,
+          checkinCamarotes,
+          totalGeral: totalConvidadosReservas + totalConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.total_convidados, 0),
+          checkinGeral: checkinConvidadosReservas + checkinConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.convidados_checkin, 0)
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao buscar check-ins consolidados:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao buscar check-ins consolidados',
+        details: error.message
+      });
+    }
+  }
+
 }
 
 module.exports = EventosController;

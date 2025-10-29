@@ -142,6 +142,18 @@ module.exports = (pool) => {
   );
 
   /**
+   * @route   GET /api/v1/eventos/:eventoId/checkins
+   * @desc    Retorna check-ins consolidados de um evento (reservas, promoters, camarotes)
+   * @access  Private (Admin, Gerente, Hostess)
+   */
+  router.get(
+    '/:eventoId/checkins',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente', 'hostess'),
+    (req, res) => controller.getCheckinsConsolidados(req, res)
+  );
+
+  /**
    * @route   PUT /api/v1/checkin/:listaConvidadoId
    * @desc    Atualiza o status de check-in de um convidado
    * @access  Private (Admin, Gerente, Promoter, Hostess)
