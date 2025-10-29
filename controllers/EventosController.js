@@ -1057,7 +1057,6 @@ class EventosController {
           u.name as responsavel,
           r.data_reserva,
           r.quantidade_convidados,
-          r.created_at,
           COUNT(c.id) as total_convidados,
           SUM(CASE WHEN c.status = 'CHECK-IN' THEN 1 ELSE 0 END) as convidados_checkin
         FROM reservas r
