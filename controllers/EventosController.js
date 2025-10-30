@@ -1047,6 +1047,13 @@ class EventosController {
       }
       
       const eventoInfo = evento[0];
+      console.log('📋 Evento Info:', {
+        evento_id: eventoInfo.evento_id,
+        nome: eventoInfo.nome,
+        data_evento: eventoInfo.data_evento,
+        establishment_id: eventoInfo.establishment_id,
+        establishment_name: eventoInfo.establishment_name
+      });
       
       // 2. Buscar reservas de mesa vinculadas ao evento (via convidados)
       const [reservasMesa] = await this.pool.execute(`
@@ -1163,36 +1170,66 @@ class EventosController {
         }
       }
 
-      // 7. Buscar reservas de restaurante (restaurant_reservations) do estabelecimento na mesma data
+      // 7. Buscar guest_lists de reservas de restaurante (estilo Sistema de Reservas)
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
       let reservasRestaurante = [];
+      let guestListsRestaurante = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
-          const [reservasRestauranteResult] = await this.pool.execute(`
+          // Buscar guest_lists completas (estrutura igual ao Sistema de Reservas)
+          const [guestListsResult] = await this.pool.execute(`
             SELECT 
-              rr.id,
-              'reserva_restaurante' as tipo,
-              rr.client_name as responsavel,
-              rr.origin as origem,
+              gl.id as guest_list_id,
+              gl.reservation_type,
+              gl.event_type,
+              gl.shareable_link_token,
+              gl.expires_at,
+              gl.owner_checked_in,
+              gl.owner_checkin_time,
+              CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+              rr.client_name as owner_name,
+              rr.id as reservation_id,
               rr.reservation_date,
               rr.reservation_time,
               rr.number_of_people,
-              rr.checked_in,
-              rr.checkin_time,
-              COUNT(g.id) as total_convidados,
-              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
-            FROM restaurant_reservations rr
-            LEFT JOIN guest_lists gl ON rr.id = gl.reservation_id AND gl.reservation_type = 'restaurant'
+              rr.origin,
+              rr.checked_in as reservation_checked_in,
+              rr.checkin_time as reservation_checkin_time,
+              COALESCE(u.name, 'Sistema') as created_by_name,
+              COUNT(DISTINCT g.id) as total_guests,
+              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
+            FROM guest_lists gl
+            INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+            LEFT JOIN users u ON rr.created_by = u.id
             LEFT JOIN guests g ON gl.id = g.guest_list_id
             WHERE rr.establishment_id = ?
             AND DATE(rr.reservation_date) = DATE(?)
-            GROUP BY rr.id
+            GROUP BY gl.id
             ORDER BY rr.reservation_time ASC
           `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-          reservasRestaurante = reservasRestauranteResult;
+          
+          guestListsRestaurante = guestListsResult;
+          console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
+          
+          // Para compatibilidade: também retornar no formato antigo
+          reservasRestaurante = guestListsResult.map(gl => ({
+            id: gl.reservation_id,
+            tipo: 'reserva_restaurante',
+            responsavel: gl.owner_name,
+            origem: gl.origin,
+            reservation_date: gl.reservation_date,
+            reservation_time: gl.reservation_time,
+            number_of_people: gl.number_of_people,
+            checked_in: gl.reservation_checked_in,
+            checkin_time: gl.reservation_checkin_time,
+            total_convidados: gl.total_guests || 0,
+            convidados_checkin: gl.guests_checked_in || 0,
+            guest_list_id: gl.guest_list_id
+          }));
         } catch (err) {
-          console.error('Erro ao buscar reservas de restaurante:', err);
+          console.error('❌ Erro ao buscar guest_lists de reservas restaurante:', err);
           reservasRestaurante = [];
+          guestListsRestaurante = [];
         }
       }
 
@@ -1201,13 +1238,18 @@ class EventosController {
       let convidadosReservasRestaurante = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
+          console.log('🔍 Buscando convidados de reservas restaurante:', {
+            establishment_id: eventoInfo.establishment_id,
+            data_evento: eventoInfo.data_evento
+          });
+          
           const [convidadosReservasRestauranteResult] = await this.pool.execute(`
             SELECT 
               g.id,
               'convidado_reserva_restaurante' as tipo,
               g.name as nome,
               g.whatsapp as telefone,
-              g.date_of_birth as data_nascimento,
+              NULL as data_nascimento,
               g.checked_in as status_checkin,
               g.checkin_time as data_checkin,
               rr.client_name as responsavel,
@@ -1220,11 +1262,34 @@ class EventosController {
             AND DATE(rr.reservation_date) = DATE(?)
             ORDER BY g.name ASC
           `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          
           convidadosReservasRestaurante = convidadosReservasRestauranteResult;
+          console.log(`✅ Convidados de reservas restaurante encontrados: ${convidadosReservasRestaurante.length}`);
+          
+          if (convidadosReservasRestaurante.length > 0) {
+            console.log('📋 Primeiros convidados:', convidadosReservasRestaurante.slice(0, 3));
+          } else {
+            // Debug: verificar se há reservas no establishment/date
+            const [reservasDebug] = await this.pool.execute(`
+              SELECT COUNT(*) as total FROM restaurant_reservations 
+              WHERE establishment_id = ? AND DATE(reservation_date) = DATE(?)
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            console.log('🔍 Reservas no establishment/date:', reservasDebug[0].total);
+            
+            // Debug: verificar se há guest_lists para essas reservas
+            const [guestListsDebug] = await this.pool.execute(`
+              SELECT COUNT(*) as total FROM guest_lists gl
+              INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              WHERE rr.establishment_id = ? AND DATE(rr.reservation_date) = DATE(?)
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            console.log('🔍 Guest lists encontradas:', guestListsDebug[0].total);
+          }
         } catch (err) {
-          console.error('Erro ao buscar convidados de reservas restaurante:', err);
+          console.error('❌ Erro ao buscar convidados de reservas restaurante:', err);
           convidadosReservasRestaurante = [];
         }
+      } else {
+        console.log('⚠️ Evento não possui establishment_id ou data_evento, pulando busca de convidados de reservas restaurante');
       }
       
       // 9. Calcular estatísticas gerais
@@ -1252,6 +1317,16 @@ class EventosController {
       console.log(`   - Convidados de promoters: ${totalConvidadosPromoters} (${checkinConvidadosPromoters} check-ins)`);
       console.log(`   - Camarotes: ${totalCamarotes} (${checkinCamarotes} check-ins)`);
       
+      console.log('📊 Resumo final dos dados:', {
+        reservasMesa: reservasMesa.length,
+        convidadosReservas: convidadosReservas.length,
+        reservasRestaurante: reservasRestaurante.length,
+        convidadosReservasRestaurante: convidadosReservasRestaurante.length,
+        promoters: promoters.length,
+        convidadosPromoters: listasPromoters.length,
+        camarotes: camarotes.length
+      });
+
       res.json({
         success: true,
         evento: eventoInfo,
@@ -1260,6 +1335,7 @@ class EventosController {
           convidadosReservas: convidadosReservas,
           reservasRestaurante: reservasRestaurante,
           convidadosReservasRestaurante: convidadosReservasRestaurante,
+          guestListsRestaurante: guestListsRestaurante,
           promoters: promoters,
           convidadosPromoters: listasPromoters,
           camarotes: camarotes
