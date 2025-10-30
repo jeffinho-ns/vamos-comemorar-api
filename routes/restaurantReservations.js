@@ -247,6 +247,7 @@ module.exports = (pool) => {
         notes,
         created_by,
         establishment_id,
+        evento_id,
         send_email = true,
         send_whatsapp = true
       } = req.body;
@@ -310,8 +311,8 @@ module.exports = (pool) => {
         INSERT INTO restaurant_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
-          status, origin, notes, created_by, establishment_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, origin, notes, created_by, establishment_id, evento_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // Garantir que todos os parâmetros sejam válidos
@@ -329,7 +330,8 @@ module.exports = (pool) => {
         origin || 'PESSOAL',
         notes || null,
         created_by || null,
-        establishment_id
+        establishment_id,
+        evento_id || null
       ];
 
       console.log('📝 Parâmetros de inserção:', insertParams);
@@ -531,7 +533,8 @@ module.exports = (pool) => {
         origin,
         notes,
         check_in_time,
-        check_out_time
+        check_out_time,
+        evento_id
       } = req.body;
 
       // Verificar se a reserva existe
@@ -606,6 +609,10 @@ module.exports = (pool) => {
       if (check_out_time !== undefined) {
         updateFields.push('check_out_time = ?');
         params.push(check_out_time);
+      }
+      if (evento_id !== undefined) {
+        updateFields.push('evento_id = ?');
+        params.push(evento_id);
       }
 
       // Sempre atualizar o timestamp
@@ -1082,6 +1089,89 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao buscar lista de convidados:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   PUT /api/restaurant-reservations/:id/link-event
+   * @desc    Vincula uma reserva a um evento
+   * @access  Private
+   */
+  router.put('/:id/link-event', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { evento_id } = req.body;
+
+      if (!evento_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'evento_id é obrigatório'
+        });
+      }
+
+      // Verificar se a reserva existe
+      const [reservations] = await pool.execute(
+        'SELECT * FROM restaurant_reservations WHERE id = ?',
+        [id]
+      );
+
+      if (reservations.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      const reservation = reservations[0];
+
+      // Verificar se o evento existe
+      const [eventos] = await pool.execute(
+        'SELECT id FROM eventos WHERE id = ?',
+        [evento_id]
+      );
+
+      if (eventos.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Evento não encontrado'
+        });
+      }
+
+      // Verificar se o evento pertence ao mesmo estabelecimento
+      const evento = eventos[0];
+      const [eventoDetalhes] = await pool.execute(
+        'SELECT id_place as establishment_id FROM eventos WHERE id = ?',
+        [evento_id]
+      );
+
+      if (eventoDetalhes.length > 0 && eventoDetalhes[0].establishment_id !== reservation.establishment_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'O evento não pertence ao mesmo estabelecimento da reserva'
+        });
+      }
+
+      // Atualizar a reserva
+      await pool.execute(
+        'UPDATE restaurant_reservations SET evento_id = ? WHERE id = ?',
+        [evento_id, id]
+      );
+
+      console.log(`✅ Reserva ${id} vinculada ao evento ${evento_id}`);
+
+      res.json({
+        success: true,
+        message: 'Reserva vinculada ao evento com sucesso',
+        reservation_id: id,
+        evento_id: evento_id
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao vincular reserva ao evento:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor'

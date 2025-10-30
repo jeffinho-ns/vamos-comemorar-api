@@ -263,7 +263,7 @@ class EventosController {
    */
   async getEventos(req, res) {
     try {
-      const { establishment_id, status, tipo_evento, data_inicio, data_fim, limit } = req.query;
+      const { establishment_id, status, tipo_evento, data_inicio, data_fim, data_evento, limit } = req.query;
       
       let query = `
         SELECT 
@@ -301,6 +301,12 @@ class EventosController {
       if (tipo_evento) {
         query += ` AND e.tipo_evento = ?`;
         params.push(tipo_evento);
+      }
+      
+      // Novo: filtro por data específica (útil para vincular reservas)
+      if (data_evento && tipo_evento !== 'semanal') {
+        query += ` AND e.data_do_evento = ?`;
+        params.push(data_evento);
       }
       
       if (data_inicio && tipo_evento !== 'semanal') {
