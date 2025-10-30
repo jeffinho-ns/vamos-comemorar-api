@@ -78,12 +78,20 @@ module.exports = (pool) => {
           CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
           COALESCE(lr.client_name, rr.client_name) as owner_name,
           COALESCE(lr.reservation_date, rr.reservation_date) as reservation_date,
-          COALESCE(u1.name, u2.name) as created_by_name
+          COALESCE(u1.name, u2.name) as created_by_name,
+          COALESCE(lr.id, rr.id) as reservation_id,
+          COALESCE(lr.establishment_id, rr.establishment_id) as establishment_id,
+          COALESCE(pl1.name, pl2.name, b1.name, b2.name) as establishment_name,
+          COALESCE(lr.origin, rr.origin) as origin
         FROM guest_lists gl
         LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
         LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
         LEFT JOIN users u1 ON lr.created_by = u1.id
         LEFT JOIN users u2 ON rr.created_by = u2.id
+        LEFT JOIN places pl1 ON pl1.id = lr.establishment_id
+        LEFT JOIN places pl2 ON pl2.id = rr.establishment_id
+        LEFT JOIN bars b1 ON b1.id = lr.establishment_id
+        LEFT JOIN bars b2 ON b2.id = rr.establishment_id
         WHERE (lr.id IS NOT NULL OR rr.id IS NOT NULL)
         ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
         ORDER BY COALESCE(lr.reservation_date, rr.reservation_date) DESC, gl.id ASC
