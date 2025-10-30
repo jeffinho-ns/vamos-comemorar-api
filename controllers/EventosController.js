@@ -1055,6 +1055,25 @@ class EventosController {
         establishment_name: eventoInfo.establishment_name
       });
       
+      // Vincular automaticamente reservas de restaurante não vinculadas a este evento
+      // quando têm o mesmo establishment_id e data_evento
+      if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        try {
+          console.log('🔗 Vinculando reservas automaticamente ao evento:', eventoId);
+          const [updateResult] = await this.pool.execute(`
+            UPDATE restaurant_reservations 
+            SET evento_id = ? 
+            WHERE establishment_id = ? 
+            AND DATE(reservation_date) = DATE(?)
+            AND evento_id IS NULL
+          `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
+          console.log(`✅ ${updateResult.affectedRows} reservas vinculadas automaticamente`);
+        } catch (err) {
+          console.error('⚠️ Erro ao vincular reservas automaticamente:', err);
+          // Continua mesmo se falhar (coluna pode não existir ainda)
+        }
+      }
+      
       // 2. Buscar reservas de mesa vinculadas ao evento (via convidados)
       const [reservasMesa] = await this.pool.execute(`
         SELECT DISTINCT
@@ -1177,36 +1196,76 @@ class EventosController {
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
           // Buscar guest_lists completas (estrutura igual ao Sistema de Reservas)
-          const [guestListsResult] = await this.pool.execute(`
-            SELECT 
-              gl.id as guest_list_id,
-              gl.reservation_type,
-              gl.event_type,
-              gl.shareable_link_token,
-              gl.expires_at,
-              gl.owner_checked_in,
-              gl.owner_checkin_time,
-              CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
-              rr.client_name as owner_name,
-              rr.id as reservation_id,
-              rr.reservation_date,
-              rr.reservation_time,
-              rr.number_of_people,
-              rr.origin,
-              rr.checked_in as reservation_checked_in,
-              rr.checkin_time as reservation_checkin_time,
-              COALESCE(u.name, 'Sistema') as created_by_name,
-              COUNT(DISTINCT g.id) as total_guests,
-              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
-            FROM guest_lists gl
-            INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-            LEFT JOIN users u ON rr.created_by = u.id
-            LEFT JOIN guests g ON gl.id = g.guest_list_id
-            WHERE rr.establishment_id = ?
-            AND DATE(rr.reservation_date) = DATE(?)
-            GROUP BY gl.id
-            ORDER BY rr.reservation_time ASC
-          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          // Tenta filtrar por evento_id se a coluna existir, caso contrário usa filtro tradicional
+          let guestListsResult;
+          try {
+            const [result] = await this.pool.execute(`
+              SELECT 
+                gl.id as guest_list_id,
+                gl.reservation_type,
+                gl.event_type,
+                gl.shareable_link_token,
+                gl.expires_at,
+                gl.owner_checked_in,
+                gl.owner_checkin_time,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+                rr.client_name as owner_name,
+                rr.id as reservation_id,
+                rr.reservation_date,
+                rr.reservation_time,
+                rr.number_of_people,
+                rr.origin,
+                rr.checked_in as reservation_checked_in,
+                rr.checkin_time as reservation_checkin_time,
+                COALESCE(u.name, 'Sistema') as created_by_name,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
+              FROM guest_lists gl
+              INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              LEFT JOIN users u ON rr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
+              WHERE rr.establishment_id = ?
+              AND DATE(rr.reservation_date) = DATE(?)
+              AND (rr.evento_id = ? OR rr.evento_id IS NULL)
+              GROUP BY gl.id
+              ORDER BY rr.reservation_time ASC
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            guestListsResult = result;
+          } catch (err) {
+            // Fallback: se a coluna evento_id não existir, usa a query sem esse filtro
+            console.log('⚠️ Coluna evento_id não encontrada, usando filtro tradicional');
+            const [result] = await this.pool.execute(`
+              SELECT 
+                gl.id as guest_list_id,
+                gl.reservation_type,
+                gl.event_type,
+                gl.shareable_link_token,
+                gl.expires_at,
+                gl.owner_checked_in,
+                gl.owner_checkin_time,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+                rr.client_name as owner_name,
+                rr.id as reservation_id,
+                rr.reservation_date,
+                rr.reservation_time,
+                rr.number_of_people,
+                rr.origin,
+                rr.checked_in as reservation_checked_in,
+                rr.checkin_time as reservation_checkin_time,
+                COALESCE(u.name, 'Sistema') as created_by_name,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
+              FROM guest_lists gl
+              INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              LEFT JOIN users u ON rr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
+              WHERE rr.establishment_id = ?
+              AND DATE(rr.reservation_date) = DATE(?)
+              GROUP BY gl.id
+              ORDER BY rr.reservation_time ASC
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            guestListsResult = result;
+          }
           
           guestListsRestaurante = guestListsResult;
           console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
