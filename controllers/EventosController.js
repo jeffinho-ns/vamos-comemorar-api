@@ -1131,71 +1131,101 @@ class EventosController {
       `, [eventoId, eventoId]);
       
       // 6. Buscar reservas grandes (camarotes) do estabelecimento na mesma data
-      const [camarotes] = await this.pool.execute(`
-        SELECT 
-          lr.id,
-          'camarote' as tipo,
-          lr.client_name as responsavel,
-          lr.event_type as origem,
-          lr.reservation_date,
-          lr.reservation_time,
-          lr.number_of_people,
-          lr.checked_in,
-          lr.checkin_time,
-          COUNT(g.id) as total_convidados,
-          SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
-        FROM large_reservations lr
-        LEFT JOIN guest_lists gl ON lr.id = gl.reservation_id AND gl.reservation_type = 'large'
-        LEFT JOIN guests g ON gl.id = g.guest_list_id
-        WHERE lr.establishment_id = ?
-        AND DATE(lr.reservation_date) = DATE(?)
-        GROUP BY lr.id
-        ORDER BY lr.reservation_time ASC
-      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+      // Só busca se tiver establishment_id e data_evento (não é evento semanal)
+      let camarotes = [];
+      if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        try {
+          const [camarotesResult] = await this.pool.execute(`
+            SELECT 
+              lr.id,
+              'camarote' as tipo,
+              lr.client_name as responsavel,
+              lr.event_type as origem,
+              lr.reservation_date,
+              lr.reservation_time,
+              lr.number_of_people,
+              lr.checked_in,
+              lr.checkin_time,
+              COUNT(g.id) as total_convidados,
+              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
+            FROM large_reservations lr
+            LEFT JOIN guest_lists gl ON lr.id = gl.reservation_id AND gl.reservation_type = 'large'
+            LEFT JOIN guests g ON gl.id = g.guest_list_id
+            WHERE lr.establishment_id = ?
+            AND DATE(lr.reservation_date) = DATE(?)
+            GROUP BY lr.id
+            ORDER BY lr.reservation_time ASC
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          camarotes = camarotesResult;
+        } catch (err) {
+          console.error('Erro ao buscar camarotes:', err);
+          camarotes = [];
+        }
+      }
 
       // 7. Buscar reservas de restaurante (restaurant_reservations) do estabelecimento na mesma data
-      const [reservasRestaurante] = await this.pool.execute(`
-        SELECT 
-          rr.id,
-          'reserva_restaurante' as tipo,
-          rr.client_name as responsavel,
-          rr.origin as origem,
-          rr.reservation_date,
-          rr.reservation_time,
-          rr.number_of_people,
-          rr.checked_in,
-          rr.checkin_time,
-          COUNT(g.id) as total_convidados,
-          SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
-        FROM restaurant_reservations rr
-        LEFT JOIN guest_lists gl ON rr.id = gl.reservation_id AND gl.reservation_type = 'restaurant'
-        LEFT JOIN guests g ON gl.id = g.guest_list_id
-        WHERE rr.establishment_id = ?
-        AND DATE(rr.reservation_date) = DATE(?)
-        GROUP BY rr.id
-        ORDER BY rr.reservation_time ASC
-      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+      // Só busca se tiver establishment_id e data_evento (não é evento semanal)
+      let reservasRestaurante = [];
+      if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        try {
+          const [reservasRestauranteResult] = await this.pool.execute(`
+            SELECT 
+              rr.id,
+              'reserva_restaurante' as tipo,
+              rr.client_name as responsavel,
+              rr.origin as origem,
+              rr.reservation_date,
+              rr.reservation_time,
+              rr.number_of_people,
+              rr.checked_in,
+              rr.checkin_time,
+              COUNT(g.id) as total_convidados,
+              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
+            FROM restaurant_reservations rr
+            LEFT JOIN guest_lists gl ON rr.id = gl.reservation_id AND gl.reservation_type = 'restaurant'
+            LEFT JOIN guests g ON gl.id = g.guest_list_id
+            WHERE rr.establishment_id = ?
+            AND DATE(rr.reservation_date) = DATE(?)
+            GROUP BY rr.id
+            ORDER BY rr.reservation_time ASC
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          reservasRestaurante = reservasRestauranteResult;
+        } catch (err) {
+          console.error('Erro ao buscar reservas de restaurante:', err);
+          reservasRestaurante = [];
+        }
+      }
 
       // 8. Buscar convidados das reservas de restaurante
-      const [convidadosReservasRestaurante] = await this.pool.execute(`
-        SELECT 
-          g.id,
-          'convidado_reserva_restaurante' as tipo,
-          g.name as nome,
-          g.whatsapp as telefone,
-          g.date_of_birth as data_nascimento,
-          g.checked_in as status_checkin,
-          g.checkin_time as data_checkin,
-          rr.client_name as responsavel,
-          rr.origin as origem,
-          rr.id as reserva_id
-        FROM guests g
-        INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
-        INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-        WHERE rr.establishment_id = ?
-        AND DATE(rr.reservation_date) = DATE(?)
-        ORDER BY g.name ASC
-      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+      // Só busca se tiver establishment_id e data_evento (não é evento semanal)
+      let convidadosReservasRestaurante = [];
+      if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        try {
+          const [convidadosReservasRestauranteResult] = await this.pool.execute(`
+            SELECT 
+              g.id,
+              'convidado_reserva_restaurante' as tipo,
+              g.name as nome,
+              g.whatsapp as telefone,
+              g.date_of_birth as data_nascimento,
+              g.checked_in as status_checkin,
+              g.checkin_time as data_checkin,
+              rr.client_name as responsavel,
+              rr.origin as origem,
+              rr.id as reserva_id
+            FROM guests g
+            INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
+            INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+            WHERE rr.establishment_id = ?
+            AND DATE(rr.reservation_date) = DATE(?)
+            ORDER BY g.name ASC
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          convidadosReservasRestaurante = convidadosReservasRestauranteResult;
+        } catch (err) {
+          console.error('Erro ao buscar convidados de reservas restaurante:', err);
+          convidadosReservasRestaurante = [];
+        }
+      }
       
       // 9. Calcular estatísticas gerais
       const totalReservasMesa = reservasMesa.length;

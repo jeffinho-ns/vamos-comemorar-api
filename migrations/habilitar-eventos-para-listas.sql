@@ -1,3 +1,59 @@
+-- Migração: habilitar eventos para listas e corrigir id_place
+-- Objetivo: Preencher eventos.id_place com base em places/bars e garantir HighLine correto
+-- Seguro: Não remove dados, apenas atualiza campos NULL/inconsistentes
+
+START TRANSACTION;
+
+-- 1) Normalizar e vincular eventos a places por nome (casa_do_evento -> places.name)
+UPDATE eventos e
+LEFT JOIN places p
+  ON REPLACE(LOWER(p.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '')
+SET e.id_place = p.id
+WHERE e.id_place IS NULL;
+
+-- 2) Para remanescentes, tentar vincular a bars (fallback)
+UPDATE eventos e
+LEFT JOIN bars b
+  ON REPLACE(LOWER(b.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '')
+SET e.id_place = b.id
+WHERE e.id_place IS NULL;
+
+-- 3) Correção explícita para HighLine (places.id = 7)
+UPDATE eventos
+SET id_place = 7
+WHERE (casa_do_evento LIKE 'High Line%' OR casa_do_evento LIKE 'HighLine%')
+  AND (id_place IS NULL OR id_place <> 7);
+
+-- 4) (Opcional) Habilitar uso de listas nos eventos do HighLine
+-- Descomente se necessário
+-- UPDATE eventos
+-- SET usado_para_listas = 1
+-- WHERE id_place = 7;
+
+COMMIT;
+
+-- =========================================================
+-- Passo 2: Habilitar listas e criar 'Lista da Casa' quando ausente
+-- =========================================================
+
+START TRANSACTION;
+
+-- 5) Habilitar uso de listas para eventos do HighLine
+UPDATE eventos
+SET usado_para_listas = 1
+WHERE id_place = 7;
+
+-- 6) Criar uma 'Lista da Casa' para eventos habilitados que ainda não possuem nenhuma lista
+INSERT INTO listas (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
+SELECT e.id, NULL, 'Lista da Casa', 'Casa', 'Criada automaticamente'
+FROM eventos e
+WHERE e.usado_para_listas = 1
+  AND NOT EXISTS (
+    SELECT 1 FROM listas l WHERE l.evento_id = e.id
+  );
+
+COMMIT;
+
 -- Script para habilitar eventos existentes para usar o sistema de listas
 -- Execute este script se alguns eventos não estão aparecendo na página de listas
 
