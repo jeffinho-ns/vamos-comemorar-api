@@ -38,7 +38,7 @@ module.exports = (pool) => {
 
       // Construir os filtros usando COALESCE desde o início
       if (date) {
-        whereClauses.push('COALESCE(lr.reservation_date, rr.reservation_date) = ?');
+        whereClauses.push('DATE(COALESCE(lr.reservation_date, rr.reservation_date)) = DATE(?)');
         params.push(date);
         console.log('📅 Filtrando por data específica:', date);
       } else if (month) {
@@ -78,6 +78,10 @@ module.exports = (pool) => {
           CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
           COALESCE(lr.client_name, rr.client_name) as owner_name,
           COALESCE(lr.reservation_date, rr.reservation_date) as reservation_date,
+          COALESCE(lr.reservation_time, rr.reservation_time) as reservation_time,
+          COALESCE(lr.number_of_people, rr.number_of_people) as number_of_people,
+          COALESCE(lr.checked_in, rr.checked_in) as reservation_checked_in,
+          COALESCE(lr.checkin_time, rr.checkin_time) as reservation_checkin_time,
           COALESCE(u1.name, u2.name) as created_by_name,
           COALESCE(lr.id, rr.id) as reservation_id,
           COALESCE(lr.establishment_id, rr.establishment_id) as establishment_id,
@@ -96,6 +100,16 @@ module.exports = (pool) => {
         ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
         ORDER BY COALESCE(lr.reservation_date, rr.reservation_date) DESC, gl.id ASC
       `, params);
+      
+      // Adicionar contagem de guests para cada guest list
+      for (const row of rows) {
+        const [guests] = await pool.execute(
+          'SELECT id, checked_in FROM guests WHERE guest_list_id = ?',
+          [row.guest_list_id]
+        );
+        row.total_guests = guests.length;
+        row.guests_checked_in = guests.filter((g: any) => g.checked_in).length;
+      }
 
       console.log(`✅ Guest Lists encontradas: ${rows.length}`);
       
