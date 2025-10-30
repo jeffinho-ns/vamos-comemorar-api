@@ -149,7 +149,7 @@ module.exports = (pool) => {
   router.get(
     '/:eventoId/checkins',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'hostess'),
+    authorizeRoles('admin', 'gerente', 'hostess', 'promoter'),
     (req, res) => controller.getCheckinsConsolidados(req, res)
   );
 
