@@ -1152,8 +1152,52 @@ class EventosController {
         GROUP BY lr.id
         ORDER BY lr.reservation_time ASC
       `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+
+      // 7. Buscar reservas de restaurante (restaurant_reservations) do estabelecimento na mesma data
+      const [reservasRestaurante] = await this.pool.execute(`
+        SELECT 
+          rr.id,
+          'reserva_restaurante' as tipo,
+          rr.client_name as responsavel,
+          rr.origin as origem,
+          rr.reservation_date,
+          rr.reservation_time,
+          rr.number_of_people,
+          rr.checked_in,
+          rr.checkin_time,
+          COUNT(g.id) as total_convidados,
+          SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
+        FROM restaurant_reservations rr
+        LEFT JOIN guest_lists gl ON rr.id = gl.reservation_id AND gl.reservation_type = 'restaurant'
+        LEFT JOIN guests g ON gl.id = g.guest_list_id
+        WHERE rr.establishment_id = ?
+        AND DATE(rr.reservation_date) = DATE(?)
+        GROUP BY rr.id
+        ORDER BY rr.reservation_time ASC
+      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+
+      // 8. Buscar convidados das reservas de restaurante
+      const [convidadosReservasRestaurante] = await this.pool.execute(`
+        SELECT 
+          g.id,
+          'convidado_reserva_restaurante' as tipo,
+          g.name as nome,
+          g.whatsapp as telefone,
+          g.date_of_birth as data_nascimento,
+          g.checked_in as status_checkin,
+          g.checkin_time as data_checkin,
+          rr.client_name as responsavel,
+          rr.origin as origem,
+          rr.id as reserva_id
+        FROM guests g
+        INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
+        INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+        WHERE rr.establishment_id = ?
+        AND DATE(rr.reservation_date) = DATE(?)
+        ORDER BY g.name ASC
+      `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
       
-      // 7. Calcular estatísticas gerais
+      // 9. Calcular estatísticas gerais
       const totalReservasMesa = reservasMesa.length;
       const totalConvidadosReservas = convidadosReservas.length;
       const checkinConvidadosReservas = convidadosReservas.filter(c => c.status === 'CHECK-IN').length;
@@ -1165,9 +1209,15 @@ class EventosController {
       const totalCamarotes = camarotes.length;
       const checkinCamarotes = camarotes.filter(c => c.checked_in).length;
       
+      const totalReservasRestaurante = reservasRestaurante.length;
+      const totalConvidadosReservasRestaurante = convidadosReservasRestaurante.length;
+      const checkinConvidadosReservasRestaurante = convidadosReservasRestaurante.filter(c => c.status_checkin === 1 || c.status_checkin === true).length;
+      
       console.log('✅ Check-ins consolidados encontrados:');
       console.log(`   - Reservas de mesa: ${totalReservasMesa}`);
       console.log(`   - Convidados de reservas: ${totalConvidadosReservas} (${checkinConvidadosReservas} check-ins)`);
+      console.log(`   - Reservas de restaurante: ${totalReservasRestaurante}`);
+      console.log(`   - Convidados de reservas restaurante: ${totalConvidadosReservasRestaurante} (${checkinConvidadosReservasRestaurante} check-ins)`);
       console.log(`   - Promoters: ${totalPromoters}`);
       console.log(`   - Convidados de promoters: ${totalConvidadosPromoters} (${checkinConvidadosPromoters} check-ins)`);
       console.log(`   - Camarotes: ${totalCamarotes} (${checkinCamarotes} check-ins)`);
@@ -1178,6 +1228,8 @@ class EventosController {
         dados: {
           reservasMesa: reservasMesa,
           convidadosReservas: convidadosReservas,
+          reservasRestaurante: reservasRestaurante,
+          convidadosReservasRestaurante: convidadosReservasRestaurante,
           promoters: promoters,
           convidadosPromoters: listasPromoters,
           camarotes: camarotes
@@ -1186,13 +1238,16 @@ class EventosController {
           totalReservasMesa,
           totalConvidadosReservas,
           checkinConvidadosReservas,
+          totalReservasRestaurante,
+          totalConvidadosReservasRestaurante,
+          checkinConvidadosReservasRestaurante,
           totalPromoters,
           totalConvidadosPromoters,
           checkinConvidadosPromoters,
           totalCamarotes,
           checkinCamarotes,
-          totalGeral: totalConvidadosReservas + totalConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.total_convidados, 0),
-          checkinGeral: checkinConvidadosReservas + checkinConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.convidados_checkin, 0)
+          totalGeral: totalConvidadosReservas + totalConvidadosReservasRestaurante + totalConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.total_convidados, 0),
+          checkinGeral: checkinConvidadosReservas + checkinConvidadosReservasRestaurante + checkinConvidadosPromoters + camarotes.reduce((sum, c) => sum + c.convidados_checkin, 0)
         }
       });
     } catch (error) {

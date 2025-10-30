@@ -98,3 +98,4 @@ ORDER BY data_do_evento DESC;
 - ✅ Exibição de listas de promoters por evento
 - ✅ Script de habilitação de eventos criado
 - ✅ Melhorias na interface e tratamento de erros
+

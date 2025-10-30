@@ -91,3 +91,4 @@ SELECT '✅ Script executado! Eventos habilitados para sistema de listas.' AS st
 
 
 
+

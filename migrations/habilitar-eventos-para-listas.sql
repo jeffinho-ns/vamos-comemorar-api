@@ -52,3 +52,4 @@ LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
 WHERE e.usado_para_listas = TRUE
 GROUP BY e.id, e.nome_do_evento
 ORDER BY total_listas DESC, e.nome_do_evento ASC;
+
