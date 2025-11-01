@@ -108,7 +108,7 @@ module.exports = (pool) => {
           [row.guest_list_id]
         );
         row.total_guests = guests.length;
-        row.guests_checked_in = guests.filter((g: any) => g.checked_in).length;
+        row.guests_checked_in = guests.filter((g) => g.checked_in).length;
       }
 
       console.log(`✅ Guest Lists encontradas: ${rows.length}`);
