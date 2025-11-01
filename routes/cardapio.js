@@ -8,7 +8,12 @@ module.exports = (pool) => {
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
             // ✨ Adicionados os novos campos
-            facebook, instagram, whatsapp 
+            facebook, instagram, whatsapp,
+            // 🎨 Campos de personalização de cores
+            menu_category_bg_color, menu_category_text_color,
+            menu_subcategory_bg_color, menu_subcategory_text_color,
+            mobile_sidebar_bg_color, mobile_sidebar_text_color,
+            custom_seals
         } = req.body;
         
         try {
@@ -26,15 +31,29 @@ module.exports = (pool) => {
                 }
             }
             
+            let customSealsValue = null;
+            if (custom_seals) {
+                if (Array.isArray(custom_seals)) {
+                    customSealsValue = JSON.stringify(custom_seals);
+                } else if (typeof custom_seals === 'string') {
+                    customSealsValue = custom_seals;
+                }
+            }
+            
             // ✨ Query de INSERT atualizada para incluir as novas colunas
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
                     JSON.stringify(amenities), popupImageUrl, 
                     // ✨ Adicionados os valores dos novos campos
-                    facebook || null, instagram || null, whatsapp || null
+                    facebook || null, instagram || null, whatsapp || null,
+                    // 🎨 Valores dos campos de cores
+                    menu_category_bg_color || null, menu_category_text_color || null,
+                    menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
+                    mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
+                    customSealsValue
                 ]
             );
             
@@ -50,12 +69,25 @@ module.exports = (pool) => {
     router.get('/bars', async (req, res) => {
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars');
-            const barsFormatted = bars.map(bar => ({
-                ...bar,
-                amenities: bar.amenities ? JSON.parse(bar.amenities) : [],
-                coverImages: bar.coverImages ? JSON.parse(bar.coverImages) : []
-            }));
+            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages, JSON_UNQUOTE(custom_seals) as custom_seals FROM bars');
+            const barsFormatted = bars.map(bar => {
+                const formatted = {
+                    ...bar,
+                    amenities: bar.amenities ? JSON.parse(bar.amenities) : [],
+                    coverImages: bar.coverImages ? JSON.parse(bar.coverImages) : []
+                };
+                // 🎨 Parse custom_seals se existir
+                if (bar.custom_seals) {
+                    try {
+                        formatted.custom_seals = JSON.parse(bar.custom_seals);
+                    } catch (e) {
+                        formatted.custom_seals = [];
+                    }
+                } else {
+                    formatted.custom_seals = [];
+                }
+                return formatted;
+            });
             res.json(barsFormatted);
         } catch (error) {
             console.error('Erro ao listar estabelecimentos:', error);
@@ -68,13 +100,23 @@ module.exports = (pool) => {
         const { id } = req.params;
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars WHERE id = ?', [id]);
+            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages, JSON_UNQUOTE(custom_seals) as custom_seals FROM bars WHERE id = ?', [id]);
             if (bars.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
             const bar = bars[0];
             bar.amenities = bar.amenities ? JSON.parse(bar.amenities) : [];
             bar.coverImages = bar.coverImages ? JSON.parse(bar.coverImages) : [];
+            // 🎨 Parse custom_seals se existir
+            if (bar.custom_seals) {
+                try {
+                    bar.custom_seals = JSON.parse(bar.custom_seals);
+                } catch (e) {
+                    bar.custom_seals = [];
+                }
+            } else {
+                bar.custom_seals = [];
+            }
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
@@ -89,7 +131,12 @@ module.exports = (pool) => {
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
             // ✨ Adicionados os novos campos
-            facebook, instagram, whatsapp
+            facebook, instagram, whatsapp,
+            // 🎨 Campos de personalização de cores
+            menu_category_bg_color, menu_category_text_color,
+            menu_subcategory_bg_color, menu_subcategory_text_color,
+            mobile_sidebar_bg_color, mobile_sidebar_text_color,
+            custom_seals
         } = req.body;
         
         try {
@@ -107,15 +154,29 @@ module.exports = (pool) => {
                 }
             }
             
+            let customSealsValue = null;
+            if (custom_seals) {
+                if (Array.isArray(custom_seals)) {
+                    customSealsValue = JSON.stringify(custom_seals);
+                } else if (typeof custom_seals === 'string') {
+                    customSealsValue = custom_seals;
+                }
+            }
+            
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ? WHERE id = ?',
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ?, menu_category_bg_color = ?, menu_category_text_color = ?, menu_subcategory_bg_color = ?, menu_subcategory_text_color = ?, mobile_sidebar_bg_color = ?, mobile_sidebar_text_color = ?, custom_seals = ? WHERE id = ?',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
                     JSON.stringify(amenities), popupImageUrl, 
                     // ✨ Adicionados os valores dos novos campos
                     facebook || null, instagram || null, whatsapp || null,
+                    // 🎨 Valores dos campos de cores
+                    menu_category_bg_color || null, menu_category_text_color || null,
+                    menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
+                    mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
+                    customSealsValue,
                     id
                 ]
             );
