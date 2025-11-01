@@ -49,13 +49,29 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/', async (req, res) => {
         try {
-            // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars');
-            const barsFormatted = bars.map(bar => ({
-                ...bar,
-                amenities: bar.amenities ? JSON.parse(bar.amenities) : [],
-                coverImages: bar.coverImages ? JSON.parse(bar.coverImages) : []
-            }));
+            const [bars] = await pool.query('SELECT * FROM bars');
+            const barsFormatted = bars.map(bar => {
+                const formatted = { ...bar };
+                if (bar.amenities) {
+                    try {
+                        formatted.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
+                    } catch (e) {
+                        formatted.amenities = [];
+                    }
+                } else {
+                    formatted.amenities = [];
+                }
+                if (bar.coverImages) {
+                    try {
+                        formatted.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
+                    } catch (e) {
+                        formatted.coverImages = [];
+                    }
+                } else {
+                    formatted.coverImages = [];
+                }
+                return formatted;
+            });
             res.json(barsFormatted);
         } catch (error) {
             console.error('Erro ao listar estabelecimentos:', error);
@@ -67,14 +83,29 @@ module.exports = (pool) => {
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages FROM bars WHERE id = ?', [id]);
+            const [bars] = await pool.query('SELECT * FROM bars WHERE id = ?', [id]);
             if (bars.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
             const bar = bars[0];
-            bar.amenities = bar.amenities ? JSON.parse(bar.amenities) : [];
-            bar.coverImages = bar.coverImages ? JSON.parse(bar.coverImages) : [];
+            if (bar.amenities) {
+                try {
+                    bar.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
+                } catch (e) {
+                    bar.amenities = [];
+                }
+            } else {
+                bar.amenities = [];
+            }
+            if (bar.coverImages) {
+                try {
+                    bar.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
+                } catch (e) {
+                    bar.coverImages = [];
+                }
+            } else {
+                bar.coverImages = [];
+            }
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
