@@ -69,17 +69,36 @@ module.exports = (pool) => {
     router.get('/bars', async (req, res) => {
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages, JSON_UNQUOTE(custom_seals) as custom_seals FROM bars');
+            const [bars] = await pool.query('SELECT * FROM bars');
             const barsFormatted = bars.map(bar => {
-                const formatted = {
-                    ...bar,
-                    amenities: bar.amenities ? JSON.parse(bar.amenities) : [],
-                    coverImages: bar.coverImages ? JSON.parse(bar.coverImages) : []
-                };
+                const formatted = { ...bar };
+                
+                // Parse amenities se existir
+                if (bar.amenities) {
+                    try {
+                        formatted.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
+                    } catch (e) {
+                        formatted.amenities = [];
+                    }
+                } else {
+                    formatted.amenities = [];
+                }
+                
+                // Parse coverImages se existir
+                if (bar.coverImages) {
+                    try {
+                        formatted.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
+                    } catch (e) {
+                        formatted.coverImages = [];
+                    }
+                } else {
+                    formatted.coverImages = [];
+                }
+                
                 // 🎨 Parse custom_seals se existir
                 if (bar.custom_seals) {
                     try {
-                        formatted.custom_seals = JSON.parse(bar.custom_seals);
+                        formatted.custom_seals = typeof bar.custom_seals === 'string' ? JSON.parse(bar.custom_seals) : bar.custom_seals;
                     } catch (e) {
                         formatted.custom_seals = [];
                     }
@@ -100,17 +119,38 @@ module.exports = (pool) => {
         const { id } = req.params;
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT *, JSON_UNQUOTE(amenities) as amenities, JSON_UNQUOTE(coverImages) as coverImages, JSON_UNQUOTE(custom_seals) as custom_seals FROM bars WHERE id = ?', [id]);
+            const [bars] = await pool.query('SELECT * FROM bars WHERE id = ?', [id]);
             if (bars.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
             const bar = bars[0];
-            bar.amenities = bar.amenities ? JSON.parse(bar.amenities) : [];
-            bar.coverImages = bar.coverImages ? JSON.parse(bar.coverImages) : [];
+            
+            // Parse amenities se existir
+            if (bar.amenities) {
+                try {
+                    bar.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
+                } catch (e) {
+                    bar.amenities = [];
+                }
+            } else {
+                bar.amenities = [];
+            }
+            
+            // Parse coverImages se existir
+            if (bar.coverImages) {
+                try {
+                    bar.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
+                } catch (e) {
+                    bar.coverImages = [];
+                }
+            } else {
+                bar.coverImages = [];
+            }
+            
             // 🎨 Parse custom_seals se existir
             if (bar.custom_seals) {
                 try {
-                    bar.custom_seals = JSON.parse(bar.custom_seals);
+                    bar.custom_seals = typeof bar.custom_seals === 'string' ? JSON.parse(bar.custom_seals) : bar.custom_seals;
                 } catch (e) {
                     bar.custom_seals = [];
                 }
