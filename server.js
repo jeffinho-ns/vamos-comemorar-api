@@ -94,6 +94,7 @@ const guestListPublicRoutes = require('./routes/guestListPublic');
 const guestListsAdminRoutes = require('./routes/guestListsAdmin');
 const actionLogsRoutes = require('./routes/actionLogs');
 const eventosRoutes = require('./routes/eventos');
+const operationalDetailsRoutes = require('./routes/operationalDetails');
 
 
 // Usando as Rotas
@@ -136,6 +137,8 @@ app.use('/api/action-logs', actionLogsRoutes(pool));
 // Rotas do módulo de Eventos e Listas
 // Nota: Todas as rotas estão no mesmo router com prefixo /api/v1/eventos
 app.use('/api/v1/eventos', eventosRoutes(pool));
+// Rotas de Detalhes Operacionais
+app.use('/api/v1/operational-details', operationalDetailsRoutes(pool));
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
