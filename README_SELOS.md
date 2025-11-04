@@ -57,24 +57,28 @@ DB_NAME=u621081794_vamos
 
 ## 🚀 Como Usar
 
-### 1. Executar Migração
+### 1. Executar Migrações
+
+As migrações necessárias já foram executadas. Se precisar executar novamente:
 
 ```bash
+# Migração de selos em menu_items
 node scripts/run_migration_seals.js
+
+# Migração de custom_seals em bars (incluída em add_menu_colors_to_bars.sql)
+# Execute via script de migração de cores do menu ou diretamente no banco
 ```
 
-### 2. Testar Integração
-
-```bash
-node scripts/test_seals_integration.js
-```
-
-### 3. Usar no Frontend
+### 2. Usar no Frontend
 
 O sistema já está integrado no frontend (`vamos-comemorar-next`). Os selos aparecerão:
 
-- **No Admin**: Seção de selos no modal de edição de item
-- **Para Clientes**: Badges coloridos nos itens do cardápio
+- **No Admin**: 
+  - Seção de selos no modal de edição de item
+  - **Gerenciamento de selos customizados** no modal de edição do estabelecimento
+    - Alterar cores dos selos padrão
+    - Criar novos selos customizados
+- **Para Clientes**: Badges coloridos nos itens do cardápio com cores customizadas
 
 ## 📡 API Endpoints
 
@@ -149,11 +153,23 @@ Resposta:
 - Checkboxes com cores para seleção
 - Preview em tempo real dos selos selecionados
 - Organização por tipo (Comida/Bebida)
+- **Gerenciamento de selos customizados**:
+  - Editar cores dos selos padrão (comida e bebida)
+  - Criar novos selos customizados com nome e cor personalizados
+  - Remover selos customizados
 
 ### Para Clientes
 - Badges coloridos abaixo da descrição do item
+- Cores customizadas do estabelecimento (se configuradas)
 - Cores distintas para fácil identificação
 - Layout responsivo
+
+## 🏷️ Selos Customizados
+
+Cada estabelecimento pode personalizar:
+- **Cores dos selos padrão**: Alterar a cor de qualquer selo padrão (comida ou bebida)
+- **Novos selos**: Criar selos completamente personalizados com nome e cor próprios
+- Os selos customizados são salvos no campo `custom_seals` da tabela `bars` (tipo JSON)
 
 ## 🔍 Troubleshooting
 
@@ -184,15 +200,12 @@ tail -f logs/app.log
 tail -f logs/mysql.log
 ```
 
-## 🧪 Testes
+## 🧪 Verificação
 
-Execute os testes de integração:
+Para verificar se as migrações foram executadas corretamente:
 
 ```bash
-# Teste completo
-node scripts/test_seals_integration.js
-
-# Teste específico de banco
+# Verificar campo seals em menu_items
 node -e "
 const mysql = require('mysql2/promise');
 const dbConfig = { host: 'localhost', user: 'root', password: '', database: 'u621081794_vamos' };
@@ -200,6 +213,18 @@ mysql.createConnection(dbConfig).then(conn => {
   return conn.execute('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = \"menu_items\" AND COLUMN_NAME = \"seals\"');
 }).then(([rows]) => {
   console.log('Campo seals existe:', rows.length > 0);
+  process.exit(0);
+}).catch(console.error);
+"
+
+# Verificar campo custom_seals em bars
+node -e "
+const mysql = require('mysql2/promise');
+const dbConfig = { host: 'localhost', user: 'root', password: '', database: 'u621081794_vamos' };
+mysql.createConnection(dbConfig).then(conn => {
+  return conn.execute('SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = \"bars\" AND COLUMN_NAME = \"custom_seals\"');
+}).then(([rows]) => {
+  console.log('Campo custom_seals existe:', rows.length > 0);
   process.exit(0);
 }).catch(console.error);
 "
