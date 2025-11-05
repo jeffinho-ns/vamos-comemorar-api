@@ -1230,7 +1230,26 @@ module.exports = (pool) => {
         [evento_id]
       );
 
-      if (eventoDetalhes.length > 0 && eventoDetalhes[0].establishment_id !== reservation.establishment_id) {
+      // Converter para números para comparação (evita problemas de tipo string vs number)
+      const eventoEstablishmentId = eventoDetalhes.length > 0 ? Number(eventoDetalhes[0].establishment_id) : null;
+      const reservaEstablishmentId = Number(reservation.establishment_id);
+
+      console.log('🔍 Verificando estabelecimentos:', {
+        evento_id: evento_id,
+        evento_establishment_id: eventoEstablishmentId,
+        reserva_establishment_id: reservaEstablishmentId,
+        tipos: {
+          evento: typeof eventoEstablishmentId,
+          reserva: typeof reservaEstablishmentId
+        },
+        sao_iguais: eventoEstablishmentId === reservaEstablishmentId
+      });
+
+      if (eventoDetalhes.length > 0 && eventoEstablishmentId !== reservaEstablishmentId) {
+        console.log('❌ Estabelecimentos não correspondem:', {
+          evento: eventoEstablishmentId,
+          reserva: reservaEstablishmentId
+        });
         return res.status(400).json({
           success: false,
           error: 'O evento não pertence ao mesmo estabelecimento da reserva'
