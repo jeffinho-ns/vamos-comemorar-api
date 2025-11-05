@@ -1179,5 +1179,149 @@ module.exports = (pool) => {
     }
   });
 
+  /**
+   * @route   POST /api/restaurant-reservations/:id/link-to-event
+   * @desc    Vincula uma reserva a um evento e copia os convidados da guest_list para uma lista do evento
+   * @access  Private
+   */
+  router.post('/:id/link-to-event', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { evento_id } = req.body;
+
+      if (!evento_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'evento_id é obrigatório'
+        });
+      }
+
+      // Verificar se a reserva existe
+      const [reservations] = await pool.execute(
+        'SELECT * FROM restaurant_reservations WHERE id = ?',
+        [id]
+      );
+
+      if (reservations.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      const reservation = reservations[0];
+
+      // Verificar se o evento existe
+      const [eventos] = await pool.execute(
+        'SELECT id FROM eventos WHERE id = ?',
+        [evento_id]
+      );
+
+      if (eventos.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Evento não encontrado'
+        });
+      }
+
+      // Verificar se o evento pertence ao mesmo estabelecimento
+      const [eventoDetalhes] = await pool.execute(
+        'SELECT id_place as establishment_id FROM eventos WHERE id = ?',
+        [evento_id]
+      );
+
+      if (eventoDetalhes.length > 0 && eventoDetalhes[0].establishment_id !== reservation.establishment_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'O evento não pertence ao mesmo estabelecimento da reserva'
+        });
+      }
+
+      // Verificar se a reserva tem uma guest_list
+      const [guestLists] = await pool.execute(
+        'SELECT id FROM guest_lists WHERE reservation_id = ? AND reservation_type = ?',
+        [id, 'restaurant']
+      );
+
+      if (guestLists.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Esta reserva não possui uma lista de convidados. Adicione uma lista de convidados primeiro.'
+        });
+      }
+
+      const guestListId = guestLists[0].id;
+
+      // Buscar os convidados da guest_list
+      const [guests] = await pool.execute(
+        'SELECT name, whatsapp FROM guests WHERE guest_list_id = ?',
+        [guestListId]
+      );
+
+      // Atualizar a reserva para vincular ao evento
+      await pool.execute(
+        'UPDATE restaurant_reservations SET evento_id = ? WHERE id = ?',
+        [evento_id, id]
+      );
+
+      // Criar uma lista no evento se não existir uma para esta reserva
+      let [existingLista] = await pool.execute(
+        'SELECT lista_id FROM listas WHERE evento_id = ? AND nome LIKE ?',
+        [evento_id, `%${reservation.client_name}%`]
+      );
+
+      let listaId;
+      if (existingLista.length > 0) {
+        listaId = existingLista[0].lista_id;
+        console.log(`ℹ️ Lista já existe para esta reserva: ${listaId}`);
+      } else {
+        // Criar nova lista
+        const nomeLista = `Reserva - ${reservation.client_name}`;
+        const [listaResult] = await pool.execute(
+          'INSERT INTO listas (evento_id, nome, tipo, observacoes) VALUES (?, ?, ?, ?)',
+          [evento_id, nomeLista, 'Aniversário', `Lista de convidados da reserva #${id}`]
+        );
+        listaId = listaResult.insertId;
+        console.log(`✅ Lista criada para o evento: ${listaId}`);
+      }
+
+      // Copiar os convidados para a lista do evento
+      let copiedGuests = 0;
+      for (const guest of guests) {
+        // Verificar se o convidado já existe na lista
+        const [existingGuest] = await pool.execute(
+          'SELECT lista_convidado_id FROM listas_convidados WHERE lista_id = ? AND nome_convidado = ?',
+          [listaId, guest.name]
+        );
+
+        if (existingGuest.length === 0) {
+          await pool.execute(
+            'INSERT INTO listas_convidados (lista_id, nome_convidado, telefone_convidado, status_checkin) VALUES (?, ?, ?, ?)',
+            [listaId, guest.name, guest.whatsapp || null, 'Pendente']
+          );
+          copiedGuests++;
+        }
+      }
+
+      console.log(`✅ Reserva ${id} vinculada ao evento ${evento_id}. ${copiedGuests} convidados copiados para a lista ${listaId}`);
+
+      res.json({
+        success: true,
+        message: `Reserva vinculada ao evento com sucesso! ${copiedGuests} convidados foram copiados para a lista do evento.`,
+        reservation_id: id,
+        evento_id: evento_id,
+        lista_id: listaId,
+        convidados_copiados: copiedGuests
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao vincular reserva ao evento:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
   return router;
 };
