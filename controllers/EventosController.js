@@ -304,18 +304,19 @@ class EventosController {
       }
       
       // Novo: filtro por data específica (útil para vincular reservas)
-      if (data_evento && tipo_evento !== 'semanal') {
-        query += ` AND e.data_do_evento = ?`;
+      // Só aplica filtro de data se não for evento semanal (verifica o tipo do evento na linha, não o parâmetro)
+      if (data_evento) {
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento = ?)`;
         params.push(data_evento);
       }
       
-      if (data_inicio && tipo_evento !== 'semanal') {
-        query += ` AND e.data_do_evento >= ?`;
+      if (data_inicio) {
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento >= ?)`;
         params.push(data_inicio);
       }
       
-      if (data_fim && tipo_evento !== 'semanal') {
-        query += ` AND e.data_do_evento <= ?`;
+      if (data_fim) {
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento <= ?)`;
         params.push(data_fim);
       }
       
