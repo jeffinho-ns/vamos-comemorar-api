@@ -16,3 +16,5 @@ ADD INDEX idx_evento_id (evento_id);
 -- Isso permite que a página de check-ins exiba apenas reservas relacionadas ao evento correto
 -- Data: 2025-01-XX
 
+
+

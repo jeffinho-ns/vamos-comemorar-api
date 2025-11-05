@@ -155,3 +155,5 @@ AND observacoes NOT LIKE '%MIGRADO PARA SISTEMA DE LISTAS%';
 
 
 
+
+

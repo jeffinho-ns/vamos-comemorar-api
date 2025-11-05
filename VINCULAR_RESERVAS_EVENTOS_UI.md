@@ -223,3 +223,5 @@ graph TD
 
 Todos os componentes foram implementados e testados. A vinculação automática está funcionando no endpoint de check-ins, e a interface permite vincular manualmente na criação de reservas.
 
+
+

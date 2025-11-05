@@ -109,3 +109,5 @@ Para implementar vinculação manual na interface:
 - Sistema tem fallback para funcionar sem a coluna `evento_id` (compatibilidade retroativa)
 - Vinculação é baseada em `establishment_id` + `data_evento` iguais
 
+
+
