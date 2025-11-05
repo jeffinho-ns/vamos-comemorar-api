@@ -51,6 +51,8 @@ module.exports = (pool) => {
       }
 
       const {
+        os_type,
+        os_number,
         event_id,
         establishment_id,
         event_date,
@@ -61,7 +63,72 @@ module.exports = (pool) => {
         visual_reference_url,
         admin_notes,
         operational_instructions,
-        is_active = true
+        is_active = true,
+        // Campos de Artista
+        contractor_name,
+        contractor_cnpj,
+        contractor_address,
+        contractor_legal_responsible,
+        contractor_legal_cpf,
+        contractor_phone,
+        contractor_email,
+        artist_artistic_name,
+        artist_full_name,
+        artist_cpf_cnpj,
+        artist_address,
+        artist_phone,
+        artist_email,
+        artist_responsible_name,
+        artist_bank_name,
+        artist_bank_agency,
+        artist_bank_account,
+        artist_bank_account_type,
+        event_name,
+        event_location_address,
+        event_presentation_date,
+        event_presentation_time,
+        event_duration,
+        event_soundcheck_time,
+        event_structure_offered,
+        event_equipment_provided_by_contractor,
+        event_equipment_brought_by_artist,
+        financial_total_value,
+        financial_payment_method,
+        financial_payment_conditions,
+        financial_discounts_or_fees,
+        general_penalties,
+        general_transport_responsibility,
+        general_image_rights,
+        contractor_signature,
+        artist_signature,
+        // Campos de Bar/Fornecedor
+        provider_name,
+        provider_cpf_cnpj,
+        provider_address,
+        provider_responsible_name,
+        provider_responsible_contact,
+        provider_bank_name,
+        provider_bank_agency,
+        provider_bank_account,
+        provider_bank_account_type,
+        service_type,
+        service_professionals_count,
+        service_materials_included,
+        service_start_date,
+        service_start_time,
+        service_end_date,
+        service_end_time,
+        service_setup_location,
+        service_technical_responsible,
+        commercial_total_value,
+        commercial_payment_method,
+        commercial_payment_deadline,
+        commercial_cancellation_policy,
+        commercial_additional_costs,
+        general_damage_responsibility,
+        general_conduct_rules,
+        general_insurance,
+        provider_signature
       } = req.body;
 
       // Validações
@@ -101,24 +168,110 @@ module.exports = (pool) => {
 
       const query = `
         INSERT INTO operational_details (
-          event_id, establishment_id, event_date, artistic_attraction,
+          os_type, os_number, event_id, establishment_id, event_date, artistic_attraction,
           show_schedule, ticket_prices, promotions, visual_reference_url,
-          admin_notes, operational_instructions, is_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          admin_notes, operational_instructions, is_active,
+          contractor_name, contractor_cnpj, contractor_address, contractor_legal_responsible,
+          contractor_legal_cpf, contractor_phone, contractor_email,
+          artist_artistic_name, artist_full_name, artist_cpf_cnpj, artist_address,
+          artist_phone, artist_email, artist_responsible_name,
+          artist_bank_name, artist_bank_agency, artist_bank_account, artist_bank_account_type,
+          event_name, event_location_address, event_presentation_date, event_presentation_time,
+          event_duration, event_soundcheck_time, event_structure_offered,
+          event_equipment_provided_by_contractor, event_equipment_brought_by_artist,
+          financial_total_value, financial_payment_method, financial_payment_conditions,
+          financial_discounts_or_fees, general_penalties, general_transport_responsibility,
+          general_image_rights, contractor_signature, artist_signature,
+          provider_name, provider_cpf_cnpj, provider_address, provider_responsible_name,
+          provider_responsible_contact, provider_bank_name, provider_bank_agency,
+          provider_bank_account, provider_bank_account_type, service_type,
+          service_professionals_count, service_materials_included, service_start_date,
+          service_start_time, service_end_date, service_end_time, service_setup_location,
+          service_technical_responsible, commercial_total_value, commercial_payment_method,
+          commercial_payment_deadline, commercial_cancellation_policy, commercial_additional_costs,
+          general_damage_responsibility, general_conduct_rules, general_insurance, provider_signature
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const [result] = await pool.execute(query, [
+        os_type || null,
+        os_number || null,
         event_id || null,
         establishment_id || null,
         event_date,
-        artistic_attraction,
+        artistic_attraction || '',
         show_schedule || null,
-        ticket_prices,
+        ticket_prices || '',
         promotions || null,
         visual_reference_url || null,
         admin_notes || null,
         operational_instructions || null,
-        is_active ? 1 : 0
+        is_active ? 1 : 0,
+        // Campos de Artista
+        contractor_name || null,
+        contractor_cnpj || null,
+        contractor_address || null,
+        contractor_legal_responsible || null,
+        contractor_legal_cpf || null,
+        contractor_phone || null,
+        contractor_email || null,
+        artist_artistic_name || null,
+        artist_full_name || null,
+        artist_cpf_cnpj || null,
+        artist_address || null,
+        artist_phone || null,
+        artist_email || null,
+        artist_responsible_name || null,
+        artist_bank_name || null,
+        artist_bank_agency || null,
+        artist_bank_account || null,
+        artist_bank_account_type || null,
+        event_name || null,
+        event_location_address || null,
+        event_presentation_date || null,
+        event_presentation_time || null,
+        event_duration || null,
+        event_soundcheck_time || null,
+        event_structure_offered || null,
+        event_equipment_provided_by_contractor || null,
+        event_equipment_brought_by_artist || null,
+        financial_total_value || null,
+        financial_payment_method || null,
+        financial_payment_conditions || null,
+        financial_discounts_or_fees || null,
+        general_penalties || null,
+        general_transport_responsibility || null,
+        general_image_rights || null,
+        contractor_signature || null,
+        artist_signature || null,
+        // Campos de Bar/Fornecedor
+        provider_name || null,
+        provider_cpf_cnpj || null,
+        provider_address || null,
+        provider_responsible_name || null,
+        provider_responsible_contact || null,
+        provider_bank_name || null,
+        provider_bank_agency || null,
+        provider_bank_account || null,
+        provider_bank_account_type || null,
+        service_type || null,
+        service_professionals_count || null,
+        service_materials_included || null,
+        service_start_date || null,
+        service_start_time || null,
+        service_end_date || null,
+        service_end_time || null,
+        service_setup_location || null,
+        service_technical_responsible || null,
+        commercial_total_value || null,
+        commercial_payment_method || null,
+        commercial_payment_deadline || null,
+        commercial_cancellation_policy || null,
+        commercial_additional_costs || null,
+        general_damage_responsibility || null,
+        general_conduct_rules || null,
+        general_insurance || null,
+        provider_signature || null
       ]);
 
       res.status(201).json({
@@ -304,6 +457,8 @@ module.exports = (pool) => {
     try {
       const { id } = req.params;
       const {
+        os_type,
+        os_number,
         event_id,
         establishment_id,
         event_date,
@@ -314,7 +469,72 @@ module.exports = (pool) => {
         visual_reference_url,
         admin_notes,
         operational_instructions,
-        is_active
+        is_active,
+        // Campos de Artista
+        contractor_name,
+        contractor_cnpj,
+        contractor_address,
+        contractor_legal_responsible,
+        contractor_legal_cpf,
+        contractor_phone,
+        contractor_email,
+        artist_artistic_name,
+        artist_full_name,
+        artist_cpf_cnpj,
+        artist_address,
+        artist_phone,
+        artist_email,
+        artist_responsible_name,
+        artist_bank_name,
+        artist_bank_agency,
+        artist_bank_account,
+        artist_bank_account_type,
+        event_name,
+        event_location_address,
+        event_presentation_date,
+        event_presentation_time,
+        event_duration,
+        event_soundcheck_time,
+        event_structure_offered,
+        event_equipment_provided_by_contractor,
+        event_equipment_brought_by_artist,
+        financial_total_value,
+        financial_payment_method,
+        financial_payment_conditions,
+        financial_discounts_or_fees,
+        general_penalties,
+        general_transport_responsibility,
+        general_image_rights,
+        contractor_signature,
+        artist_signature,
+        // Campos de Bar/Fornecedor
+        provider_name,
+        provider_cpf_cnpj,
+        provider_address,
+        provider_responsible_name,
+        provider_responsible_contact,
+        provider_bank_name,
+        provider_bank_agency,
+        provider_bank_account,
+        provider_bank_account_type,
+        service_type,
+        service_professionals_count,
+        service_materials_included,
+        service_start_date,
+        service_start_time,
+        service_end_date,
+        service_end_time,
+        service_setup_location,
+        service_technical_responsible,
+        commercial_total_value,
+        commercial_payment_method,
+        commercial_payment_deadline,
+        commercial_cancellation_policy,
+        commercial_additional_costs,
+        general_damage_responsibility,
+        general_conduct_rules,
+        general_insurance,
+        provider_signature
       } = req.body;
 
       // Verificar se o registro existe
@@ -348,6 +568,15 @@ module.exports = (pool) => {
       const updateFields = [];
       const updateValues = [];
 
+      // Campos básicos
+      if (os_type !== undefined) {
+        updateFields.push('os_type = ?');
+        updateValues.push(os_type || null);
+      }
+      if (os_number !== undefined) {
+        updateFields.push('os_number = ?');
+        updateValues.push(os_number || null);
+      }
       if (event_id !== undefined) {
         updateFields.push('event_id = ?');
         updateValues.push(event_id || null);
@@ -392,6 +621,73 @@ module.exports = (pool) => {
         updateFields.push('is_active = ?');
         updateValues.push(is_active ? 1 : 0);
       }
+      
+      // Campos de Artista
+      if (contractor_name !== undefined) { updateFields.push('contractor_name = ?'); updateValues.push(contractor_name || null); }
+      if (contractor_cnpj !== undefined) { updateFields.push('contractor_cnpj = ?'); updateValues.push(contractor_cnpj || null); }
+      if (contractor_address !== undefined) { updateFields.push('contractor_address = ?'); updateValues.push(contractor_address || null); }
+      if (contractor_legal_responsible !== undefined) { updateFields.push('contractor_legal_responsible = ?'); updateValues.push(contractor_legal_responsible || null); }
+      if (contractor_legal_cpf !== undefined) { updateFields.push('contractor_legal_cpf = ?'); updateValues.push(contractor_legal_cpf || null); }
+      if (contractor_phone !== undefined) { updateFields.push('contractor_phone = ?'); updateValues.push(contractor_phone || null); }
+      if (contractor_email !== undefined) { updateFields.push('contractor_email = ?'); updateValues.push(contractor_email || null); }
+      if (artist_artistic_name !== undefined) { updateFields.push('artist_artistic_name = ?'); updateValues.push(artist_artistic_name || null); }
+      if (artist_full_name !== undefined) { updateFields.push('artist_full_name = ?'); updateValues.push(artist_full_name || null); }
+      if (artist_cpf_cnpj !== undefined) { updateFields.push('artist_cpf_cnpj = ?'); updateValues.push(artist_cpf_cnpj || null); }
+      if (artist_address !== undefined) { updateFields.push('artist_address = ?'); updateValues.push(artist_address || null); }
+      if (artist_phone !== undefined) { updateFields.push('artist_phone = ?'); updateValues.push(artist_phone || null); }
+      if (artist_email !== undefined) { updateFields.push('artist_email = ?'); updateValues.push(artist_email || null); }
+      if (artist_responsible_name !== undefined) { updateFields.push('artist_responsible_name = ?'); updateValues.push(artist_responsible_name || null); }
+      if (artist_bank_name !== undefined) { updateFields.push('artist_bank_name = ?'); updateValues.push(artist_bank_name || null); }
+      if (artist_bank_agency !== undefined) { updateFields.push('artist_bank_agency = ?'); updateValues.push(artist_bank_agency || null); }
+      if (artist_bank_account !== undefined) { updateFields.push('artist_bank_account = ?'); updateValues.push(artist_bank_account || null); }
+      if (artist_bank_account_type !== undefined) { updateFields.push('artist_bank_account_type = ?'); updateValues.push(artist_bank_account_type || null); }
+      if (event_name !== undefined) { updateFields.push('event_name = ?'); updateValues.push(event_name || null); }
+      if (event_location_address !== undefined) { updateFields.push('event_location_address = ?'); updateValues.push(event_location_address || null); }
+      if (event_presentation_date !== undefined) { updateFields.push('event_presentation_date = ?'); updateValues.push(event_presentation_date || null); }
+      if (event_presentation_time !== undefined) { updateFields.push('event_presentation_time = ?'); updateValues.push(event_presentation_time || null); }
+      if (event_duration !== undefined) { updateFields.push('event_duration = ?'); updateValues.push(event_duration || null); }
+      if (event_soundcheck_time !== undefined) { updateFields.push('event_soundcheck_time = ?'); updateValues.push(event_soundcheck_time || null); }
+      if (event_structure_offered !== undefined) { updateFields.push('event_structure_offered = ?'); updateValues.push(event_structure_offered || null); }
+      if (event_equipment_provided_by_contractor !== undefined) { updateFields.push('event_equipment_provided_by_contractor = ?'); updateValues.push(event_equipment_provided_by_contractor || null); }
+      if (event_equipment_brought_by_artist !== undefined) { updateFields.push('event_equipment_brought_by_artist = ?'); updateValues.push(event_equipment_brought_by_artist || null); }
+      if (financial_total_value !== undefined) { updateFields.push('financial_total_value = ?'); updateValues.push(financial_total_value || null); }
+      if (financial_payment_method !== undefined) { updateFields.push('financial_payment_method = ?'); updateValues.push(financial_payment_method || null); }
+      if (financial_payment_conditions !== undefined) { updateFields.push('financial_payment_conditions = ?'); updateValues.push(financial_payment_conditions || null); }
+      if (financial_discounts_or_fees !== undefined) { updateFields.push('financial_discounts_or_fees = ?'); updateValues.push(financial_discounts_or_fees || null); }
+      if (general_penalties !== undefined) { updateFields.push('general_penalties = ?'); updateValues.push(general_penalties || null); }
+      if (general_transport_responsibility !== undefined) { updateFields.push('general_transport_responsibility = ?'); updateValues.push(general_transport_responsibility || null); }
+      if (general_image_rights !== undefined) { updateFields.push('general_image_rights = ?'); updateValues.push(general_image_rights || null); }
+      if (contractor_signature !== undefined) { updateFields.push('contractor_signature = ?'); updateValues.push(contractor_signature || null); }
+      if (artist_signature !== undefined) { updateFields.push('artist_signature = ?'); updateValues.push(artist_signature || null); }
+      
+      // Campos de Bar/Fornecedor
+      if (provider_name !== undefined) { updateFields.push('provider_name = ?'); updateValues.push(provider_name || null); }
+      if (provider_cpf_cnpj !== undefined) { updateFields.push('provider_cpf_cnpj = ?'); updateValues.push(provider_cpf_cnpj || null); }
+      if (provider_address !== undefined) { updateFields.push('provider_address = ?'); updateValues.push(provider_address || null); }
+      if (provider_responsible_name !== undefined) { updateFields.push('provider_responsible_name = ?'); updateValues.push(provider_responsible_name || null); }
+      if (provider_responsible_contact !== undefined) { updateFields.push('provider_responsible_contact = ?'); updateValues.push(provider_responsible_contact || null); }
+      if (provider_bank_name !== undefined) { updateFields.push('provider_bank_name = ?'); updateValues.push(provider_bank_name || null); }
+      if (provider_bank_agency !== undefined) { updateFields.push('provider_bank_agency = ?'); updateValues.push(provider_bank_agency || null); }
+      if (provider_bank_account !== undefined) { updateFields.push('provider_bank_account = ?'); updateValues.push(provider_bank_account || null); }
+      if (provider_bank_account_type !== undefined) { updateFields.push('provider_bank_account_type = ?'); updateValues.push(provider_bank_account_type || null); }
+      if (service_type !== undefined) { updateFields.push('service_type = ?'); updateValues.push(service_type || null); }
+      if (service_professionals_count !== undefined) { updateFields.push('service_professionals_count = ?'); updateValues.push(service_professionals_count || null); }
+      if (service_materials_included !== undefined) { updateFields.push('service_materials_included = ?'); updateValues.push(service_materials_included || null); }
+      if (service_start_date !== undefined) { updateFields.push('service_start_date = ?'); updateValues.push(service_start_date || null); }
+      if (service_start_time !== undefined) { updateFields.push('service_start_time = ?'); updateValues.push(service_start_time || null); }
+      if (service_end_date !== undefined) { updateFields.push('service_end_date = ?'); updateValues.push(service_end_date || null); }
+      if (service_end_time !== undefined) { updateFields.push('service_end_time = ?'); updateValues.push(service_end_time || null); }
+      if (service_setup_location !== undefined) { updateFields.push('service_setup_location = ?'); updateValues.push(service_setup_location || null); }
+      if (service_technical_responsible !== undefined) { updateFields.push('service_technical_responsible = ?'); updateValues.push(service_technical_responsible || null); }
+      if (commercial_total_value !== undefined) { updateFields.push('commercial_total_value = ?'); updateValues.push(commercial_total_value || null); }
+      if (commercial_payment_method !== undefined) { updateFields.push('commercial_payment_method = ?'); updateValues.push(commercial_payment_method || null); }
+      if (commercial_payment_deadline !== undefined) { updateFields.push('commercial_payment_deadline = ?'); updateValues.push(commercial_payment_deadline || null); }
+      if (commercial_cancellation_policy !== undefined) { updateFields.push('commercial_cancellation_policy = ?'); updateValues.push(commercial_cancellation_policy || null); }
+      if (commercial_additional_costs !== undefined) { updateFields.push('commercial_additional_costs = ?'); updateValues.push(commercial_additional_costs || null); }
+      if (general_damage_responsibility !== undefined) { updateFields.push('general_damage_responsibility = ?'); updateValues.push(general_damage_responsibility || null); }
+      if (general_conduct_rules !== undefined) { updateFields.push('general_conduct_rules = ?'); updateValues.push(general_conduct_rules || null); }
+      if (general_insurance !== undefined) { updateFields.push('general_insurance = ?'); updateValues.push(general_insurance || null); }
+      if (provider_signature !== undefined) { updateFields.push('provider_signature = ?'); updateValues.push(provider_signature || null); }
 
       if (updateFields.length === 0) {
         return res.status(400).json({
