@@ -178,15 +178,69 @@ module.exports = (pool) => {
   router.get('/guest-lists/:list_id/guests', optionalAuth, async (req, res) => {
     try {
       const { list_id } = req.params;
+      
+      // Verificar se a lista existe
       const [lists] = await pool.execute('SELECT id FROM guest_lists WHERE id = ? LIMIT 1', [list_id]);
       if (!lists.length) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
-      const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
-      res.json({ success: true, guests: rows });
+
+      // Verificar se as colunas entrada_tipo e entrada_valor existem
+      try {
+        const [columns] = await pool.execute(`
+          SELECT COLUMN_NAME 
+          FROM INFORMATION_SCHEMA.COLUMNS 
+          WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = 'guests' 
+          AND COLUMN_NAME IN ('entrada_tipo', 'entrada_valor')
+        `);
+        
+        const hasEntradaTipo = columns.some(col => col.COLUMN_NAME === 'entrada_tipo');
+        const hasEntradaValor = columns.some(col => col.COLUMN_NAME === 'entrada_valor');
+        
+        let query;
+        if (hasEntradaTipo && hasEntradaValor) {
+          // Se as colunas existem, incluí-las na query
+          query = 'SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = ? ORDER BY id ASC';
+        } else {
+          // Se não existem, usar query sem esses campos
+          query = 'SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC';
+        }
+        
+        const [rows] = await pool.execute(query, [list_id]);
+        
+        // Adicionar campos null se não existirem na tabela
+        const guests = rows.map(guest => ({
+          ...guest,
+          entrada_tipo: guest.entrada_tipo || null,
+          entrada_valor: guest.entrada_valor || null
+        }));
+        
+        res.json({ success: true, guests: guests });
+      } catch (queryError) {
+        console.error('❌ Erro ao executar query de convidados:', queryError);
+        // Fallback: tentar query simples sem os campos novos
+        try {
+          const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
+          const guests = rows.map(guest => ({
+            ...guest,
+            entrada_tipo: null,
+            entrada_valor: null
+          }));
+          res.json({ success: true, guests: guests });
+        } catch (fallbackError) {
+          console.error('❌ Erro no fallback:', fallbackError);
+          throw fallbackError;
+        }
+      }
     } catch (error) {
       console.error('❌ Erro ao listar convidados:', error);
-      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+      console.error('Stack trace:', error.stack);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
