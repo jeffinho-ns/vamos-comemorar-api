@@ -724,7 +724,7 @@ class EventosController {
   async updateCheckin(req, res) {
     try {
       const { listaConvidadoId } = req.params;
-      const { status_checkin } = req.body;
+      const { status_checkin, entrada_tipo, entrada_valor } = req.body;
       
       if (!['Pendente', 'Check-in', 'No-Show'].includes(status_checkin)) {
         return res.status(400).json({
@@ -735,11 +735,15 @@ class EventosController {
       
       const dataCheckin = status_checkin === 'Check-in' ? new Date() : null;
       
+      // Atualizar com campos de entrada
       await this.pool.execute(`
         UPDATE listas_convidados
-        SET status_checkin = ?, data_checkin = ?
+        SET status_checkin = ?, 
+            data_checkin = ?,
+            entrada_tipo = ?,
+            entrada_valor = ?
         WHERE lista_convidado_id = ?
-      `, [status_checkin, dataCheckin, listaConvidadoId]);
+      `, [status_checkin, dataCheckin, entrada_tipo || null, entrada_valor || null, listaConvidadoId]);
       
       const [convidado] = await this.pool.execute(`
         SELECT 
@@ -747,6 +751,7 @@ class EventosController {
           l.nome as lista_nome,
           l.tipo as lista_tipo,
           p.nome as promoter_nome,
+          p.promoter_id,
           GROUP_CONCAT(b.nome SEPARATOR ', ') as beneficios
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
@@ -756,6 +761,8 @@ class EventosController {
         WHERE lc.lista_convidado_id = ?
         GROUP BY lc.lista_convidado_id
       `, [listaConvidadoId]);
+      
+      console.log(`✅ Check-in atualizado: ${convidado[0]?.nome_convidado || 'N/A'} - Tipo: ${entrada_tipo || 'N/A'} - Valor: R$ ${entrada_valor || 0}`);
       
       res.json({
         success: true,
@@ -1110,6 +1117,8 @@ class EventosController {
           c.documento,
           c.status,
           c.data_checkin,
+          c.entrada_tipo,
+          c.entrada_valor,
           r.nome_lista as origem,
           u.name as responsavel
         FROM convidados c
@@ -1130,6 +1139,8 @@ class EventosController {
           lc.data_checkin,
           lc.is_vip,
           lc.observacoes,
+          lc.entrada_tipo,
+          lc.entrada_valor,
           l.nome as origem,
           l.tipo as tipo_lista,
           p.nome as responsavel,

@@ -42,24 +42,34 @@ module.exports = (db) => {
      * @access  Private (Apenas para o Staff no Dashboard Next.js)
      */
     router.post('/', async (req, res) => {
-        // O Dashboard Next.js vai enviar o texto puro que ele leu do QR Code
-        const { qrCodeData } = req.body;
+        // Suporta tanto QR Code quanto convidadoId direto
+        const { qrCodeData, convidadoId, eventId, entrada_tipo, entrada_valor } = req.body;
         const io = req.app.get('socketio'); // Pega a instância do Socket.IO
 
-        if (!qrCodeData) {
-            return res.status(400).json({ message: 'qrCodeData é obrigatório.' });
+        if (!qrCodeData && !convidadoId) {
+            return res.status(400).json({ message: 'qrCodeData ou convidadoId é obrigatório.' });
         }
 
         try {
-            // 1. Encontra o convidado que possui este QR Code
-            const sqlBusca = 'SELECT * FROM convidados WHERE qr_code = ?';
-            const [convidados] = await db.query(sqlBusca, [qrCodeData]);
-
-            if (convidados.length === 0) {
-                return res.status(404).json({ message: 'QR Code inválido ou não encontrado.' });
+            let convidado;
+            
+            // 1. Encontra o convidado por QR Code ou ID
+            if (qrCodeData) {
+                const sqlBusca = 'SELECT * FROM convidados WHERE qr_code = ?';
+                const [convidados] = await db.query(sqlBusca, [qrCodeData]);
+                if (convidados.length === 0) {
+                    return res.status(404).json({ message: 'QR Code inválido ou não encontrado.' });
+                }
+                convidado = convidados[0];
+            } else {
+                // Buscar por ID direto
+                const sqlBusca = 'SELECT * FROM convidados WHERE id = ?';
+                const [convidados] = await db.query(sqlBusca, [convidadoId]);
+                if (convidados.length === 0) {
+                    return res.status(404).json({ message: 'Convidado não encontrado.' });
+                }
+                convidado = convidados[0];
             }
-
-            const convidado = convidados[0];
 
             // 2. Verifica se o check-in já foi feito
             if (convidado.status === 'CHECK-IN') {
@@ -68,24 +78,42 @@ module.exports = (db) => {
                 });
             }
 
-            // 3. Atualiza o status do convidado para 'CHECK-IN'
-            const sqlUpdate = 'UPDATE convidados SET status = "CHECK-IN", data_checkin = NOW() WHERE id = ?';
-            await db.query(sqlUpdate, [convidado.id]);
+            // 3. Atualiza o status do convidado para 'CHECK-IN' com status de entrada
+            const sqlUpdate = `
+                UPDATE convidados 
+                SET status = "CHECK-IN", 
+                    data_checkin = NOW(),
+                    entrada_tipo = ?,
+                    entrada_valor = ?
+                WHERE id = ?
+            `;
+            await db.query(sqlUpdate, [
+                entrada_tipo || null,
+                entrada_valor || null,
+                convidado.id
+            ]);
 
-            console.log(`Check-in realizado para: ${convidado.nome} (Reserva ID: ${convidado.reserva_id})`);
+            console.log(`Check-in realizado para: ${convidado.nome} (Reserva ID: ${convidado.reserva_id}) - Tipo: ${entrada_tipo || 'N/A'} - Valor: R$ ${entrada_valor || 0}`);
 
             // 4. ✨ A MÁGICA DO SOCKET.IO ✨
             // Notifica o app do promoter/aniversariante E o dashboard em tempo real
             io.to(`reserva_${convidado.reserva_id}`).emit('convidado_checkin', {
                 convidadoId: convidado.id,
                 nome: convidado.nome,
-                status: 'CHECK-IN'
+                status: 'CHECK-IN',
+                entrada_tipo: entrada_tipo,
+                entrada_valor: entrada_valor
             });
 
             // 5. Chama a função para verificar se algum brinde foi desbloqueado
             await verificarBrindes(convidado.reserva_id, db, io);
 
-            res.status(200).json({ message: 'Check-in realizado com sucesso!', convidado: convidado.nome });
+            res.status(200).json({ 
+                message: 'Check-in realizado com sucesso!', 
+                convidado: convidado.nome,
+                entrada_tipo: entrada_tipo,
+                entrada_valor: entrada_valor
+            });
 
         } catch (error) {
             console.error('Erro no processo de check-in:', error);
