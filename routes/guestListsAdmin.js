@@ -182,7 +182,7 @@ module.exports = (pool) => {
       if (!lists.length) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
-      const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
+      const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
       res.json({ success: true, guests: rows });
     } catch (error) {
       console.error('❌ Erro ao listar convidados:', error);
@@ -311,6 +311,7 @@ module.exports = (pool) => {
   router.post('/guests/:id/checkin', optionalAuth, async (req, res) => {
     try {
       const { id } = req.params;
+      const { entrada_tipo, entrada_valor } = req.body;
 
       // Verificar se o convidado existe
       const [guest] = await pool.execute(
@@ -333,13 +334,14 @@ module.exports = (pool) => {
         });
       }
 
-      // Atualizar check-in do convidado
+      // Atualizar check-in do convidado com tipo e valor de entrada
       await pool.execute(
-        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = ?',
-        [id]
+        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = ?, entrada_valor = ? WHERE id = ?',
+        [entrada_tipo || null, entrada_valor || null, id]
       );
 
-      console.log(`✅ Check-in do convidado confirmado: ${guest[0].name} (ID: ${id})`);
+      const tipoTexto = entrada_tipo === 'VIP' ? 'VIP (grátis)' : entrada_tipo === 'SECO' ? `SECO (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : entrada_tipo === 'CONSUMA' ? `CONSUMA (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : 'Check-in';
+      console.log(`✅ Check-in do convidado confirmado: ${guest[0].name} (ID: ${id}) - ${tipoTexto}`);
 
       res.json({
         success: true,
@@ -348,7 +350,9 @@ module.exports = (pool) => {
           id: guest[0].id,
           name: guest[0].name,
           checked_in: true,
-          checkin_time: new Date().toISOString()
+          checkin_time: new Date().toISOString(),
+          entrada_tipo: entrada_tipo || null,
+          entrada_valor: entrada_valor || null
         }
       });
 

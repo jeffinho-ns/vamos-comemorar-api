@@ -22,6 +22,15 @@ ADD COLUMN IF NOT EXISTS `entrada_valor` DECIMAL(10,2) DEFAULT NULL COMMENT 'Val
 CREATE INDEX IF NOT EXISTS `idx_entrada_tipo` ON `listas_convidados`(`entrada_tipo`);
 CREATE INDEX IF NOT EXISTS `idx_entrada_valor` ON `listas_convidados`(`entrada_valor`);
 
+-- 3. Adicionar campos na tabela GUESTS (convidados de listas de restaurante)
+ALTER TABLE `guests` 
+ADD COLUMN IF NOT EXISTS `entrada_tipo` ENUM('VIP', 'SECO', 'CONSUMA') DEFAULT NULL COMMENT 'Tipo de entrada: VIP (grátis), SECO (sem consumação), CONSUMA (com consumação)',
+ADD COLUMN IF NOT EXISTS `entrada_valor` DECIMAL(10,2) DEFAULT NULL COMMENT 'Valor pago na entrada';
+
+-- Criar índices para melhor performance
+CREATE INDEX IF NOT EXISTS `idx_entrada_tipo` ON `guests`(`entrada_tipo`);
+CREATE INDEX IF NOT EXISTS `idx_entrada_valor` ON `guests`(`entrada_valor`);
+
 -- =====================================================
 -- VALIDAÇÃO: Verificar se os campos foram criados
 -- =====================================================
@@ -45,6 +54,17 @@ SELECT
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
 AND TABLE_NAME = 'listas_convidados'
+AND COLUMN_NAME IN ('entrada_tipo', 'entrada_valor')
+UNION ALL
+SELECT 
+    'guests' as tabela,
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    IS_NULLABLE,
+    COLUMN_DEFAULT
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'guests'
 AND COLUMN_NAME IN ('entrada_tipo', 'entrada_valor');
 
 -- =====================================================
