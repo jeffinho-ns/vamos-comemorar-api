@@ -7,13 +7,12 @@ module.exports = (pool) => {
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
-            // ✨ Adicionados os novos campos
             facebook, instagram, whatsapp,
-            // 🎨 Campos de personalização de cores
             menu_category_bg_color, menu_category_text_color,
             menu_subcategory_bg_color, menu_subcategory_text_color,
             mobile_sidebar_bg_color, mobile_sidebar_text_color,
-            custom_seals
+            custom_seals,
+            menu_display_style
         } = req.body;
         
         try {
@@ -40,9 +39,11 @@ module.exports = (pool) => {
                 }
             }
             
+            const menuDisplayStyleValue = menu_display_style === 'clean' ? 'clean' : 'normal';
+            
             // ✨ Query de INSERT atualizada para incluir as novas colunas
             const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals, menu_display_style) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -53,7 +54,8 @@ module.exports = (pool) => {
                     menu_category_bg_color || null, menu_category_text_color || null,
                     menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
                     mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
-                    customSealsValue
+                    customSealsValue,
+                    menuDisplayStyleValue
                 ]
             );
             
@@ -105,6 +107,8 @@ module.exports = (pool) => {
                 } else {
                     formatted.custom_seals = [];
                 }
+
+                formatted.menu_display_style = bar.menu_display_style || 'normal';
                 return formatted;
             });
             res.json(barsFormatted);
@@ -157,6 +161,7 @@ module.exports = (pool) => {
             } else {
                 bar.custom_seals = [];
             }
+            bar.menu_display_style = bar.menu_display_style || 'normal';
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
@@ -170,13 +175,12 @@ module.exports = (pool) => {
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
-            // ✨ Adicionados os novos campos
             facebook, instagram, whatsapp,
-            // 🎨 Campos de personalização de cores
             menu_category_bg_color, menu_category_text_color,
             menu_subcategory_bg_color, menu_subcategory_text_color,
             mobile_sidebar_bg_color, mobile_sidebar_text_color,
-            custom_seals
+            custom_seals,
+            menu_display_style
         } = req.body;
         
         try {
@@ -203,9 +207,11 @@ module.exports = (pool) => {
                 }
             }
             
+            const menuDisplayStyleValue = menu_display_style === 'clean' ? 'clean' : 'normal';
+
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ?, menu_category_bg_color = ?, menu_category_text_color = ?, menu_subcategory_bg_color = ?, menu_subcategory_text_color = ?, mobile_sidebar_bg_color = ?, mobile_sidebar_text_color = ?, custom_seals = ? WHERE id = ?',
+                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ?, menu_category_bg_color = ?, menu_category_text_color = ?, menu_subcategory_bg_color = ?, menu_subcategory_text_color = ?, mobile_sidebar_bg_color = ?, mobile_sidebar_text_color = ?, custom_seals = ?, menu_display_style = ? WHERE id = ?',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -217,6 +223,7 @@ module.exports = (pool) => {
                     menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
                     mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
                     customSealsValue,
+                    menuDisplayStyleValue,
                     id
                 ]
             );
