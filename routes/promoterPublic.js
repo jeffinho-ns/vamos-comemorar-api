@@ -269,7 +269,7 @@ module.exports = (pool) => {
           DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data,
           e.hora_do_evento as hora,
           pl.name as local_nome,
-          pl.endereco as local_endereco
+          pl.street as local_endereco
          FROM eventos e
          LEFT JOIN places pl ON e.id_place = pl.id
          WHERE e.data_do_evento >= CURDATE()
