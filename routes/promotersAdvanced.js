@@ -392,6 +392,105 @@ module.exports = (pool) => {
           link: linkConviteGerado
         });
         
+  /**
+   * @route   POST /api/v1/promoters/maintenance/sync-users
+   * @desc    Garante que todos os promoters tenham usuários vinculados
+   * @access  Private (Admin)
+   */
+  router.post(
+    '/maintenance/sync-users',
+    authenticateToken,
+    authorizeRoles('admin'),
+    async (req, res) => {
+      const { resetPassword = true, apenasAtivos = true } = req.body || {};
+      let connection;
+
+      try {
+        connection = await pool.getConnection();
+
+        const statusFilter = apenasAtivos ? 'AND p.ativo = TRUE' : '';
+        const [promoters] = await connection.query(
+          `SELECT 
+             p.promoter_id,
+             p.nome,
+             p.email,
+             p.telefone,
+             p.whatsapp,
+             p.user_id
+           FROM promoters p
+           WHERE 1=1 ${statusFilter}`
+        );
+
+        const resultado = {
+          totalPromoters: promoters.length,
+          processados: 0,
+          vinculadosNovos: 0,
+          vinculadosAtualizados: 0,
+          ignoradosSemEmail: [],
+          mensagens: [],
+          senhaPadrao: resetPassword ? DEFAULT_PROMOTER_PASSWORD : null,
+        };
+
+        for (const promoter of promoters) {
+          if (!promoter.email) {
+            resultado.ignoradosSemEmail.push({
+              promoter_id: promoter.promoter_id,
+              nome: promoter.nome,
+              motivo: 'Sem email cadastrado',
+            });
+            continue;
+          }
+
+          try {
+            const userSyncResult = await ensurePromoterUser(connection, {
+              nome: promoter.nome,
+              email: promoter.email,
+              telefone: promoter.telefone || promoter.whatsapp || null,
+              currentUserId: promoter.user_id,
+              resetPassword,
+            });
+
+            if (!promoter.user_id || promoter.user_id !== userSyncResult.userId) {
+              await connection.execute(
+                'UPDATE promoters SET user_id = ? WHERE promoter_id = ?',
+                [userSyncResult.userId, promoter.promoter_id]
+              );
+              resultado.vinculadosNovos += promoter.user_id ? 0 : 1;
+              resultado.vinculadosAtualizados += promoter.user_id ? 1 : 0;
+            } else if (userSyncResult.passwordWasReset) {
+              resultado.vinculadosAtualizados += 1;
+            }
+
+            resultado.processados += 1;
+          } catch (promoterError) {
+            console.error('❌ Erro ao sincronizar promoter:', promoter.promoter_id, promoterError);
+            resultado.mensagens.push({
+              promoter_id: promoter.promoter_id,
+              nome: promoter.nome,
+              erro: promoterError.message,
+            });
+          }
+        }
+
+        res.json({
+          success: true,
+          message: 'Sincronização de promoters concluída',
+          data: resultado,
+        });
+      } catch (error) {
+        console.error('❌ Erro ao executar sincronização de usuários de promoters:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Erro ao sincronizar usuários de promoters',
+        });
+      } finally {
+        if (connection) {
+          connection.release();
+        }
+      }
+    }
+  );
+
         // Garantir usuário vinculado ao promoter
         const userSyncResult = await ensurePromoterUser(connection, {
           nome,
