@@ -120,6 +120,8 @@ module.exports = (pool) => {
       const whatsappInput = whatsapp && whatsapp.trim() ? whatsapp.trim() : null;
       let whatsappNormalized = null;
 
+      let whatsappProvided = false;
+
       if (whatsappInput) {
         const digitsOnly = whatsappInput.replace(/\D/g, '');
         if (digitsOnly.length < 8) {
@@ -129,6 +131,7 @@ module.exports = (pool) => {
           });
         }
         whatsappNormalized = digitsOnly;
+        whatsappProvided = true;
       }
 
       // Verificar se promoter existe e está ativo
@@ -158,6 +161,11 @@ module.exports = (pool) => {
           success: false,
           error: 'Evento informado é inválido.',
         });
+      }
+
+      if (!whatsappNormalized) {
+        const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 100000)}`.slice(0, 12);
+        whatsappNormalized = `${promoter.promoter_id}-${uniqueSuffix}`.slice(0, 20);
       }
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
@@ -229,7 +237,7 @@ module.exports = (pool) => {
         convidado: { 
           id: result.insertId, 
           nome: nome.trim(), 
-          whatsapp: whatsappNormalized,
+          whatsapp: whatsappProvided ? whatsappNormalized : null,
           promoter_nome: promoter.nome
         }
       });
