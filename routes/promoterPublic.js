@@ -309,16 +309,23 @@ module.exports = (pool) => {
       );
       console.log('✅ Eventos encontrados:', eventos.length);
 
-      const eventosComImagem = eventos.map((evento) => ({
-        ...evento,
-        imagem_url: evento.imagem_do_evento
+      const uniqueEvents = new Map();
+      eventos.forEach((evento) => {
+        const imagemUrl = evento.imagem_do_evento
           ? `${BASE_EVENT_IMAGE_URL}${evento.imagem_do_evento}`
-          : null,
-      }));
+          : null;
+        if (!imagemUrl) return;
+        if (!uniqueEvents.has(evento.id)) {
+          uniqueEvents.set(evento.id, {
+            ...evento,
+            imagem_url: imagemUrl,
+          });
+        }
+      });
 
       res.json({
         success: true,
-        eventos: eventosComImagem
+        eventos: Array.from(uniqueEvents.values())
       });
 
     } catch (error) {
