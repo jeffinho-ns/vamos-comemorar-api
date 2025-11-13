@@ -3,6 +3,8 @@
 const express = require('express');
 const router = express.Router();
 
+const BASE_EVENT_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+
 module.exports = (pool) => {
   /**
    * @route   GET /api/promoter/test
@@ -295,6 +297,7 @@ module.exports = (pool) => {
           e.nome_do_evento as nome,
           DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data,
           e.hora_do_evento as hora,
+          e.imagem_do_evento,
           pl.name as local_nome,
           pl.street as local_endereco
          FROM eventos e
@@ -306,9 +309,16 @@ module.exports = (pool) => {
       );
       console.log('✅ Eventos encontrados:', eventos.length);
 
+      const eventosComImagem = eventos.map((evento) => ({
+        ...evento,
+        imagem_url: evento.imagem_do_evento
+          ? `${BASE_EVENT_IMAGE_URL}${evento.imagem_do_evento}`
+          : null,
+      }));
+
       res.json({
         success: true,
-        eventos
+        eventos: eventosComImagem
       });
 
     } catch (error) {
