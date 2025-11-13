@@ -289,10 +289,10 @@ module.exports = (pool) => {
       const promoter = promoters[0];
       console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id);
 
-      // Buscar eventos futuros que o promoter está associado
-      console.log('📊 Buscando eventos futuros...');
+      // Buscar apenas eventos únicos futuros do promoter que tenham imagem
+      console.log('📊 Buscando eventos únicos futuros do promoter...');
       const [eventos] = await pool.execute(
-        `SELECT 
+        `SELECT DISTINCT
           e.id,
           e.nome_do_evento as nome,
           DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data,
@@ -301,31 +301,28 @@ module.exports = (pool) => {
           pl.name as local_nome,
           pl.street as local_endereco
          FROM eventos e
+         INNER JOIN promoter_eventos pe ON e.id = pe.evento_id
          LEFT JOIN places pl ON e.id_place = pl.id
-         WHERE (e.data_do_evento IS NULL OR e.data_do_evento >= CURDATE())
+         WHERE pe.promoter_id = ?
+           AND pe.status = 'ativo'
+           AND e.tipo_evento = 'unico'
+           AND e.imagem_do_evento IS NOT NULL
+           AND e.imagem_do_evento != ''
+           AND (e.data_do_evento IS NULL OR e.data_do_evento >= CURDATE())
          ORDER BY e.data_do_evento ASC, e.hora_do_evento ASC
-         LIMIT 10`,
-        []
+         LIMIT 20`,
+        [promoter.promoter_id]
       );
-      console.log('✅ Eventos encontrados:', eventos.length);
+      console.log('✅ Eventos únicos encontrados:', eventos.length);
 
-      const uniqueEvents = new Map();
-      eventos.forEach((evento) => {
-        const imagemUrl = evento.imagem_do_evento
-          ? `${BASE_EVENT_IMAGE_URL}${evento.imagem_do_evento}`
-          : null;
-        if (!imagemUrl) return;
-        if (!uniqueEvents.has(evento.id)) {
-          uniqueEvents.set(evento.id, {
-            ...evento,
-            imagem_url: imagemUrl,
-          });
-        }
-      });
+      const eventosComImagem = eventos.map((evento) => ({
+        ...evento,
+        imagem_url: `${BASE_EVENT_IMAGE_URL}${evento.imagem_do_evento}`,
+      }));
 
       res.json({
         success: true,
-        eventos: Array.from(uniqueEvents.values())
+        eventos: eventosComImagem
       });
 
     } catch (error) {
