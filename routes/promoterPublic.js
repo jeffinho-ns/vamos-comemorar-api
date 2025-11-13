@@ -148,16 +148,27 @@ module.exports = (pool) => {
       }
 
       const promoter = promoters[0];
+      const eventoIdParsed =
+        typeof evento_id !== 'undefined' && evento_id !== null && `${evento_id}`.trim() !== ''
+          ? Number(evento_id)
+          : null;
+
+      if (eventoIdParsed !== null && Number.isNaN(eventoIdParsed)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Evento informado é inválido.',
+        });
+      }
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
       if (whatsappNormalized) {
         const [existingGuests] = await pool.execute(
           `SELECT id FROM promoter_convidados 
            WHERE promoter_id = ? AND whatsapp = ?
-           ${evento_id ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
+            ${eventoIdParsed !== null ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
            LIMIT 1`,
-          evento_id
-            ? [promoter.promoter_id, whatsappNormalized, evento_id]
+          eventoIdParsed !== null
+            ? [promoter.promoter_id, whatsappNormalized, eventoIdParsed]
             : [promoter.promoter_id, whatsappNormalized]
         );
 
@@ -182,19 +193,19 @@ module.exports = (pool) => {
           promoter.promoter_id,
           nome.trim(),
           whatsappNormalized || '',
-          evento_id || null
+          eventoIdParsed
         ]
       );
 
       // NOVO: Também adicionar na tabela listas_convidados se houver uma lista para este promoter/evento
       try {
-        if (evento_id) {
+        if (eventoIdParsed !== null) {
           // Buscar lista do promoter para este evento
           const [listas] = await pool.execute(
             `SELECT lista_id FROM listas 
              WHERE promoter_responsavel_id = ? AND evento_id = ?
              LIMIT 1`,
-            [promoter.promoter_id, evento_id]
+            [promoter.promoter_id, eventoIdParsed]
           );
 
           if (listas.length > 0) {
@@ -244,9 +255,14 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao adicionar convidado à lista do promoter:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Erro interno do servidor' 
+      const message =
+        (error && typeof error === 'object' && 'sqlMessage' in error && error.sqlMessage) ||
+        (error instanceof Error ? error.message : null) ||
+        'Erro interno do servidor';
+
+      res.status(500).json({
+        success: false,
+        error: message,
       });
     }
   });
