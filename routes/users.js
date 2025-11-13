@@ -187,11 +187,18 @@ module.exports = (pool, upload) => {
     router.post('/login', async (req, res) => {
         const { access, password } = req.body;
         console.log('Login - Acesso:', access);
-        console.log('Login - Password:', password);
+        console.log('Login - Password:', password ? '***' : '(vazio)');
 
         try {
             const [results] = await pool.query(
-                'SELECT * FROM users WHERE email = ? OR cpf = ?',
+                `SELECT 
+                    u.*, 
+                    p.promoter_id,
+                    p.codigo_identificador
+                 FROM users u
+                 LEFT JOIN promoters p ON p.user_id = u.id
+                 WHERE u.email = ? OR u.cpf = ?
+                 LIMIT 1`,
                 [access, access]
             );
             console.log('Login - Resultados da consulta:', results);
@@ -221,7 +228,9 @@ module.exports = (pool, upload) => {
                 token,
                 userId: user.id,
                 role: user.role,
-                nome: user.name 
+                nome: user.name,
+                promoterId: user.promoter_id || null,
+                promoterCodigo: user.codigo_identificador || null
             });
         } catch (error) {
             console.error('Erro ao realizar login:', error);
