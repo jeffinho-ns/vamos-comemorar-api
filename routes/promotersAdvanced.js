@@ -1,9 +1,80 @@
 // routes/promotersAdvanced.js
 
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
+
+const DEFAULT_PROMOTER_PASSWORD = process.env.PROMOTER_DEFAULT_PASSWORD || 'Promoter@2024';
+
+const hashDefaultPassword = () => {
+  const salt = bcrypt.genSaltSync(10);
+  return bcrypt.hashSync(DEFAULT_PROMOTER_PASSWORD, salt);
+};
+
+const ensurePromoterUser = async (
+  connection,
+  { nome, email, telefone, currentUserId = null, resetPassword = true }
+) => {
+  if (!email) {
+    throw new Error('Email é obrigatório para vincular usuário ao promoter');
+  }
+
+  const buildUserUpdate = async (userId, allowEmailUpdate = false) => {
+    const updates = ['name = ?', 'role = ?'];
+    const params = [nome, 'promoter'];
+
+    if (allowEmailUpdate) {
+      updates.push('email = ?');
+      params.push(email);
+    }
+
+    if (telefone !== undefined) {
+      updates.push('telefone = ?');
+      params.push(telefone || null);
+    }
+
+    if (resetPassword) {
+      updates.push('password = ?');
+      params.push(hashDefaultPassword());
+    }
+
+    params.push(userId);
+    await connection.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    return {
+      userId,
+      passwordWasReset: resetPassword,
+    };
+  };
+
+  if (currentUserId) {
+    return buildUserUpdate(currentUserId, true);
+  }
+
+  const [existingByEmail] = await connection.execute(
+    'SELECT id FROM users WHERE email = ?',
+    [email]
+  );
+
+  if (existingByEmail.length > 0) {
+    return buildUserUpdate(existingByEmail[0].id, false);
+  }
+
+  const hashedPassword = hashDefaultPassword();
+
+  const [userInsertResult] = await connection.execute(
+    `INSERT INTO users (name, email, password, role, telefone, created_at) 
+     VALUES (?, ?, ?, 'promoter', ?, NOW())`,
+    [nome, email, hashedPassword, telefone || null]
+  );
+
+  return {
+    userId: userInsertResult.insertId,
+    passwordWasReset: true,
+  };
+};
 
 module.exports = (pool) => {
   /**
@@ -321,17 +392,28 @@ module.exports = (pool) => {
           link: linkConviteGerado
         });
         
+        // Garantir usuário vinculado ao promoter
+        const userSyncResult = await ensurePromoterUser(connection, {
+          nome,
+          email,
+          telefone,
+          resetPassword: true,
+        });
+        const promoterUserId = userSyncResult.userId;
+        const defaultPasswordToShare = userSyncResult.passwordWasReset ? DEFAULT_PROMOTER_PASSWORD : null;
+        console.log('✅ Usuário associado ao promoter:', promoterUserId);
+        
         // Inserir promoter
         const [result] = await connection.execute(
           `INSERT INTO promoters (
             nome, apelido, email, telefone, whatsapp, codigo_identificador, 
             tipo_categoria, comissao_percentual, link_convite, observacoes,
-            establishment_id, foto_url, instagram, data_cadastro, status, ativo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), 'Ativo', TRUE)`,
+            establishment_id, foto_url, instagram, user_id, data_cadastro, status, ativo
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), 'Ativo', TRUE)`,
           [
             nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
             tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
-            establishment_id, foto_url, instagram
+            establishment_id, foto_url, instagram, promoterUserId
           ]
         );
         
@@ -407,7 +489,9 @@ module.exports = (pool) => {
           message: 'Promoter criado com sucesso',
           promoter_id: promoterId,
           codigo_identificador: finalCodigoIdentificador,
-          link_convite: linkConviteGerado
+          link_convite: linkConviteGerado,
+          user_id: promoterUserId,
+          default_password: defaultPasswordToShare
         });
         
       } catch (error) {
@@ -438,11 +522,11 @@ module.exports = (pool) => {
     async (req, res) => {
       try {
         const { id } = req.params;
-        const updateData = req.body;
+        const { reset_password, ...updateData } = req.body;
         
         // Verificar se promoter existe
         const [promoters] = await pool.execute(
-          'SELECT promoter_id FROM promoters WHERE promoter_id = ?',
+          'SELECT promoter_id, nome, email, telefone, user_id FROM promoters WHERE promoter_id = ?',
           [id]
         );
         
@@ -452,12 +536,71 @@ module.exports = (pool) => {
             error: 'Promoter não encontrado'
           });
         }
+        const currentPromoter = promoters[0];
+        
+        if (updateData.email && updateData.email !== currentPromoter.email) {
+          const [emailExists] = await pool.execute(
+            'SELECT promoter_id FROM promoters WHERE email = ? AND promoter_id <> ?',
+            [updateData.email, id]
+          );
+          
+          if (emailExists.length > 0) {
+            return res.status(400).json({
+              success: false,
+              error: 'Email já está em uso por outro promoter'
+            });
+          }
+          
+          if (currentPromoter.user_id) {
+            const [userEmailInUse] = await pool.execute(
+              'SELECT id FROM users WHERE email = ? AND id <> ?',
+              [updateData.email, currentPromoter.user_id]
+            );
+            
+            if (userEmailInUse.length > 0) {
+              return res.status(400).json({
+                success: false,
+                error: 'Email já está em uso por outro usuário'
+              });
+            }
+          }
+        }
+        
+        let defaultPasswordToShare = null;
+        const shouldSyncUser =
+          currentPromoter.user_id ||
+          updateData.nome !== undefined ||
+          updateData.email !== undefined ||
+          updateData.telefone !== undefined ||
+          reset_password;
+        
+        if (shouldSyncUser) {
+          const mergedNome = updateData.nome || currentPromoter.nome;
+          const mergedEmail = updateData.email || currentPromoter.email;
+          const mergedTelefone = updateData.telefone !== undefined ? updateData.telefone : currentPromoter.telefone;
+          
+          const userSyncResult = await ensurePromoterUser(pool, {
+            nome: mergedNome,
+            email: mergedEmail,
+            telefone: mergedTelefone,
+            currentUserId: currentPromoter.user_id || null,
+            resetPassword: Boolean(reset_password),
+          });
+          
+          if (!currentPromoter.user_id || currentPromoter.user_id !== userSyncResult.userId) {
+            updateData.user_id = userSyncResult.userId;
+          }
+          
+          if (userSyncResult.passwordWasReset) {
+            defaultPasswordToShare = DEFAULT_PROMOTER_PASSWORD;
+          }
+        }
         
         // Construir query de atualização dinamicamente
         const allowedFields = [
           'nome', 'apelido', 'email', 'telefone', 'whatsapp', 'codigo_identificador',
           'tipo_categoria', 'comissao_percentual', 'link_convite', 'observacoes', 
-          'status', 'establishment_id', 'foto_url', 'instagram', 'ativo'
+          'status', 'establishment_id', 'foto_url', 'instagram', 'ativo', 'user_id'
         ];
         
         const updateFields = [];
@@ -486,7 +629,8 @@ module.exports = (pool) => {
         
         res.json({
           success: true,
-          message: 'Promoter atualizado com sucesso'
+          message: 'Promoter atualizado com sucesso',
+          default_password: defaultPasswordToShare
         });
         
       } catch (error) {
