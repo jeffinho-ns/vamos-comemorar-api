@@ -173,7 +173,7 @@ module.exports = (pool) => {
         [
           promoter.promoter_id,
           nome.trim(),
-          whatsappNormalized || '',
+          whatsappNormalized,
           eventoIdParsed
         ]
       );
