@@ -161,25 +161,6 @@ module.exports = (pool) => {
       }
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
-      if (whatsappNormalized) {
-        const [existingGuests] = await pool.execute(
-          `SELECT id FROM promoter_convidados 
-           WHERE promoter_id = ? AND whatsapp = ?
-            ${eventoIdParsed !== null ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
-           LIMIT 1`,
-          eventoIdParsed !== null
-            ? [promoter.promoter_id, whatsappNormalized, eventoIdParsed]
-            : [promoter.promoter_id, whatsappNormalized]
-        );
-
-        if (existingGuests.length > 0) {
-          return res.status(400).json({ 
-            success: false, 
-            error: 'Você já está nesta lista!' 
-          });
-        }
-      }
-
       // Adicionar o convidado na tabela promoter_convidados
       const [result] = await pool.execute(
         `INSERT INTO promoter_convidados (
