@@ -117,16 +117,18 @@ module.exports = (pool) => {
         });
       }
 
-      const whatsappNormalized = whatsapp && whatsapp.trim() ? whatsapp.trim() : null;
+      const whatsappInput = whatsapp && whatsapp.trim() ? whatsapp.trim() : null;
+      let whatsappNormalized = null;
 
-      if (whatsappNormalized) {
-        const digitsOnly = whatsappNormalized.replace(/\D/g, '');
+      if (whatsappInput) {
+        const digitsOnly = whatsappInput.replace(/\D/g, '');
         if (digitsOnly.length < 8) {
           return res.status(400).json({
             success: false,
             error: 'Informe um WhatsApp válido (mínimo 8 dígitos).'
           });
         }
+        whatsappNormalized = digitsOnly;
       }
 
       // Verificar se promoter existe e está ativo
@@ -176,7 +178,12 @@ module.exports = (pool) => {
           evento_id,
           status
         ) VALUES (?, ?, ?, ?, 'pendente')`,
-        [promoter.promoter_id, nome.trim(), whatsappNormalized, evento_id || null]
+        [
+          promoter.promoter_id,
+          nome.trim(),
+          whatsappNormalized || '',
+          evento_id || null
+        ]
       );
 
       // NOVO: Também adicionar na tabela listas_convidados se houver uma lista para este promoter/evento
@@ -194,26 +201,28 @@ module.exports = (pool) => {
             const lista_id = listas[0].lista_id;
 
             // Verificar se já existe na lista (evitar duplicatas)
-            const [existeNaLista] = await pool.execute(
+            if (whatsappNormalized) {
+              const [existeNaLista] = await pool.execute(
               `SELECT lista_convidado_id FROM listas_convidados 
                WHERE lista_id = ? AND nome_convidado = ? AND telefone_convidado = ?`,
-              [lista_id, nome.trim(), whatsappNormalized || null]
-            );
-
-            if (existeNaLista.length === 0) {
-              // Inserir na tabela listas_convidados
-              await pool.execute(
-                `INSERT INTO listas_convidados (
-                  lista_id,
-                  nome_convidado,
-                  telefone_convidado,
-                  status_checkin,
-                  is_vip
-                ) VALUES (?, ?, ?, 'Pendente', FALSE)`,
                 [lista_id, nome.trim(), whatsappNormalized]
               );
 
-              console.log(`✅ Convidado também adicionado à lista ${lista_id}`);
+              if (existeNaLista.length === 0) {
+                // Inserir na tabela listas_convidados
+                await pool.execute(
+                  `INSERT INTO listas_convidados (
+                    lista_id,
+                    nome_convidado,
+                    telefone_convidado,
+                    status_checkin,
+                    is_vip
+                  ) VALUES (?, ?, ?, 'Pendente', FALSE)`,
+                  [lista_id, nome.trim(), whatsappNormalized]
+                );
+
+                console.log(`✅ Convidado também adicionado à lista ${lista_id}`);
+              }
             }
           }
         }
@@ -228,7 +237,7 @@ module.exports = (pool) => {
         convidado: { 
           id: result.insertId, 
           nome: nome.trim(), 
-          whatsapp: whatsappNormalized || null,
+          whatsapp: whatsappNormalized,
           promoter_nome: promoter.nome
         }
       });
