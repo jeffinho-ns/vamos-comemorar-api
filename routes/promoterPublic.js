@@ -117,11 +117,16 @@ module.exports = (pool) => {
         });
       }
 
-      if (!whatsapp || !whatsapp.trim()) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'WhatsApp é obrigatório' 
-        });
+      const whatsappNormalized = whatsapp && whatsapp.trim() ? whatsapp.trim() : null;
+
+      if (whatsappNormalized) {
+        const digitsOnly = whatsappNormalized.replace(/\D/g, '');
+        if (digitsOnly.length < 8) {
+          return res.status(400).json({
+            success: false,
+            error: 'Informe um WhatsApp válido (mínimo 8 dígitos).'
+          });
+        }
       }
 
       // Verificar se promoter existe e está ativo
@@ -143,19 +148,23 @@ module.exports = (pool) => {
       const promoter = promoters[0];
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
-      const [existingGuests] = await pool.execute(
-        `SELECT id FROM promoter_convidados 
-         WHERE promoter_id = ? AND whatsapp = ?
-         ${evento_id ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
-         LIMIT 1`,
-        evento_id ? [promoter.promoter_id, whatsapp.trim(), evento_id] : [promoter.promoter_id, whatsapp.trim()]
-      );
+      if (whatsappNormalized) {
+        const [existingGuests] = await pool.execute(
+          `SELECT id FROM promoter_convidados 
+           WHERE promoter_id = ? AND whatsapp = ?
+           ${evento_id ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
+           LIMIT 1`,
+          evento_id
+            ? [promoter.promoter_id, whatsappNormalized, evento_id]
+            : [promoter.promoter_id, whatsappNormalized]
+        );
 
-      if (existingGuests.length > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Você já está nesta lista!' 
-        });
+        if (existingGuests.length > 0) {
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Você já está nesta lista!' 
+          });
+        }
       }
 
       // Adicionar o convidado na tabela promoter_convidados
@@ -167,7 +176,7 @@ module.exports = (pool) => {
           evento_id,
           status
         ) VALUES (?, ?, ?, ?, 'pendente')`,
-        [promoter.promoter_id, nome.trim(), whatsapp.trim(), evento_id || null]
+        [promoter.promoter_id, nome.trim(), whatsappNormalized, evento_id || null]
       );
 
       // NOVO: Também adicionar na tabela listas_convidados se houver uma lista para este promoter/evento
@@ -188,7 +197,7 @@ module.exports = (pool) => {
             const [existeNaLista] = await pool.execute(
               `SELECT lista_convidado_id FROM listas_convidados 
                WHERE lista_id = ? AND nome_convidado = ? AND telefone_convidado = ?`,
-              [lista_id, nome.trim(), whatsapp.trim()]
+              [lista_id, nome.trim(), whatsappNormalized || null]
             );
 
             if (existeNaLista.length === 0) {
@@ -201,7 +210,7 @@ module.exports = (pool) => {
                   status_checkin,
                   is_vip
                 ) VALUES (?, ?, ?, 'Pendente', FALSE)`,
-                [lista_id, nome.trim(), whatsapp.trim()]
+                [lista_id, nome.trim(), whatsappNormalized]
               );
 
               console.log(`✅ Convidado também adicionado à lista ${lista_id}`);
@@ -219,7 +228,7 @@ module.exports = (pool) => {
         convidado: { 
           id: result.insertId, 
           nome: nome.trim(), 
-          whatsapp: whatsapp.trim(),
+          whatsapp: whatsappNormalized || null,
           promoter_nome: promoter.nome
         }
       });
