@@ -197,9 +197,13 @@ module.exports = (pool, upload) => {
                     p.codigo_identificador
                  FROM users u
                  LEFT JOIN promoters p ON p.user_id = u.id
-                 WHERE u.email = ? OR u.cpf = ?
+                 WHERE 
+                    u.email = ? OR 
+                    u.cpf = ? OR 
+                    (p.nome IS NOT NULL AND LOWER(p.nome) = LOWER(?)) OR
+                    (p.apelido IS NOT NULL AND LOWER(p.apelido) = LOWER(?))
                  LIMIT 1`,
-                [access, access]
+                [access, access, access, access]
             );
             console.log('Login - Resultados da consulta:', results);
 

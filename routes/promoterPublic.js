@@ -272,8 +272,7 @@ module.exports = (pool) => {
           pl.street as local_endereco
          FROM eventos e
          LEFT JOIN places pl ON e.id_place = pl.id
-         WHERE e.data_do_evento >= CURDATE()
-         AND e.status = 'ativo'
+         WHERE (e.data_do_evento IS NULL OR e.data_do_evento >= CURDATE())
          ORDER BY e.data_do_evento ASC, e.hora_do_evento ASC
          LIMIT 10`,
         []
