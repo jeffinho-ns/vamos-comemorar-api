@@ -496,17 +496,19 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se a guest list existe
-      const [guestList] = await pool.execute(
+      const guestListResult = await pool.query(
         `SELECT gl.*, 
-         COALESCE(lr.client_name, rr.client_name) as owner_name
+         COALESCE(CAST(lr.client_name AS VARCHAR), CAST(rr.client_name AS VARCHAR)) as owner_name
          FROM guest_lists gl
          LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
          LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-         WHERE gl.id = ?`,
+         WHERE gl.id = $1`,
         [id]
       );
 
-      if (guestList.length === 0) {
+      const guestList = guestListResult.rows[0];
+
+      if (!guestList) {
         return res.status(404).json({
           success: false,
           error: 'Lista de convidados não encontrada'
@@ -514,7 +516,7 @@ module.exports = (pool) => {
       }
 
       // Verificar se já fez check-in
-      if (guestList[0].owner_checked_in === 1) {
+      if (guestList.owner_checked_in === true || guestList.owner_checked_in === 1) {
         return res.status(400).json({
           success: false,
           error: 'O dono da reserva já fez check-in'
@@ -522,21 +524,21 @@ module.exports = (pool) => {
       }
 
       // Atualizar check-in do dono
-      await pool.execute(
+      await pool.query(
         `UPDATE guest_lists 
-         SET owner_checked_in = 1, owner_checkin_time = CURRENT_TIMESTAMP 
-         WHERE id = ?`,
+         SET owner_checked_in = TRUE, owner_checkin_time = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
         [id]
       );
 
-      console.log(`✅ Check-in do dono confirmado: ${guestList[0].owner_name} (Guest List ID: ${id})`);
+      console.log(`✅ Check-in do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
 
       res.json({
         success: true,
         message: 'Check-in do dono confirmado com sucesso',
         guestList: {
           id: id,
-          owner_name: guestList[0].owner_name,
+          owner_name: guestList.owner_name,
           owner_checked_in: true,
           owner_checkin_time: new Date().toISOString()
         }
