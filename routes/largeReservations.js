@@ -65,8 +65,10 @@ module.exports = (pool) => {
         params.push(date);
       }
       if (status) {
-        query += ` AND lr.status = $${paramIndex++}`;
-        params.push(status);
+        // Normalizar status para maiúsculo (ENUM aceita apenas valores específicos)
+        const normalizedStatus = status.toUpperCase();
+        query += ` AND lr.status::TEXT = $${paramIndex++}`;
+        params.push(normalizedStatus);
       }
       if (area_id) {
         query += ` AND lr.area_id = $${paramIndex++}`;
