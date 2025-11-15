@@ -64,7 +64,7 @@ module.exports = (pool) => {
           AND rr.reservation_date = CURRENT_DATE
         LEFT JOIN walk_ins wi ON ra.id = wi.area_id 
           AND wi.status = 'ATIVO'
-        WHERE ra.id = $1 AND ra.is_active = 1
+        WHERE ra.id = $1 AND ra.is_active = TRUE
         GROUP BY ra.id
       `;
       
@@ -103,7 +103,7 @@ module.exports = (pool) => {
         description,
         capacity_lunch = 0,
         capacity_dinner = 0,
-        is_active = 1
+        is_active = TRUE
       } = req.body;
       
       // Validações básicas
@@ -317,7 +317,7 @@ module.exports = (pool) => {
       
       // Buscar informações da área
       const areaResult = await pool.query(
-        'SELECT * FROM restaurant_areas WHERE id = $1 AND is_active = 1',
+        'SELECT * FROM restaurant_areas WHERE id = $1 AND is_active = TRUE',
         [id]
       );
       
