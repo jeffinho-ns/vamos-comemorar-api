@@ -810,7 +810,7 @@ module.exports = (pool) => {
            FROM promoters p
            LEFT JOIN promoter_performance pp ON p.promoter_id = pp.promoter_id
            WHERE pp.data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'
-           AND p.status = 'Ativo' AND p.ativo = TRUE
+           AND p.status::TEXT = 'Ativo' AND p.ativo = TRUE
            GROUP BY p.promoter_id
            ORDER BY receita_total DESC, media_taxa_comparecimento DESC
            LIMIT $1`,

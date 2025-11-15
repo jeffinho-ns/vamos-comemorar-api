@@ -40,7 +40,7 @@ module.exports = (pool) => {
           pl.name as establishment_name
          FROM promoters p
          LEFT JOIN places pl ON p.establishment_id = pl.id
-         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND p.status = 'Ativo'
+         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND p.status::TEXT = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -124,7 +124,7 @@ module.exports = (pool) => {
       const promotersResult = await pool.query(
         `SELECT promoter_id, nome 
          FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -251,7 +251,7 @@ module.exports = (pool) => {
       // Buscar promoter
       const promotersResult = await pool.query(
         `SELECT promoter_id FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -319,7 +319,7 @@ module.exports = (pool) => {
       // Buscar promoter
       const promotersResult = await pool.query(
         `SELECT promoter_id FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
