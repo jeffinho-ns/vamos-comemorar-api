@@ -21,7 +21,7 @@ module.exports = (pool) => {
           0 as active_reservations,
           0 as active_walk_ins
         FROM restaurant_areas ra
-        WHERE ra.is_active = 1
+        WHERE ra.is_active = TRUE
         ORDER BY ra.name ASC
       `;
       

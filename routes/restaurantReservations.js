@@ -291,7 +291,7 @@ module.exports = (pool) => {
       if (table_number && area_id) {
         try {
           const tableRowResult = await pool.query(
-            `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = 1 LIMIT 1`,
+            `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
             [area_id, String(table_number)]
           );
           if (tableRowResult.rows.length === 0) {

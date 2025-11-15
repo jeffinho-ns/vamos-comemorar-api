@@ -343,7 +343,7 @@ module.exports = (pool) => {
           p.name as establishment_name
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
-        WHERE od.event_date = $1 AND od.is_active = 1
+        WHERE od.event_date = $1 AND od.is_active = TRUE
         ORDER BY od.updated_at DESC
         LIMIT 1
       `;

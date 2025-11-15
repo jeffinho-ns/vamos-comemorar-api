@@ -46,7 +46,7 @@ module.exports = (pool) => {
       }
 
       const tablesResult = await pool.query(
-        'SELECT * FROM restaurant_tables WHERE area_id = $1 AND is_active = 1 ORDER BY CAST(table_number AS INTEGER) ASC, table_number ASC',
+        'SELECT * FROM restaurant_tables WHERE area_id = $1 AND is_active = TRUE ORDER BY CAST(table_number AS INTEGER) ASC, table_number ASC',
         [areaId]
       );
       const tables = tablesResult.rows;
