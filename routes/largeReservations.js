@@ -72,7 +72,9 @@ module.exports = (pool) => {
       console.error('❌ Erro ao buscar reservas grandes:', error);
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   });
