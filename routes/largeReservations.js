@@ -218,8 +218,8 @@ module.exports = (pool) => {
         number_of_people,
         area_id || null, // Garante que area_id também seja nulo se não vier
         selected_tables ? JSON.stringify(selected_tables) : null,
-        status,
-        origin,
+        (status || 'NOVA').toUpperCase(),
+        (origin || 'CLIENTE').toUpperCase(),
         notes || null,
         admin_notes || null,
         created_by || null,
