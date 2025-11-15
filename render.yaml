@@ -14,14 +14,8 @@ services:
         value: production
       - key: PORT
         value: 10000
-      - key: DB_HOST
-        value: 193.203.175.55
-      - key: DB_USER
-        value: u621081794_vamos
-      - key: DB_PASSWORD
-        value: "@123Mudar!@"
-      - key: DB_NAME
-        value: u621081794_vamos
+      - key: DATABASE_URL
+        value: postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer
       - key: FTP_HOST
         value: 195.35.41.247
       - key: FTP_USER
