@@ -133,7 +133,9 @@ module.exports = (pool) => {
         ) VALUES ($1, $2, $3, $4, $5) RETURNING id
       `;
       
-      const params = [name, description, capacity_lunch, capacity_dinner, is_active];
+      // Converter is_active para boolean (PostgreSQL)
+      const isActiveBoolean = is_active === 1 || is_active === true || is_active === '1';
+      const params = [name, description, capacity_lunch, capacity_dinner, isActiveBoolean];
       
       const result = await pool.query(query, params);
       
@@ -210,7 +212,11 @@ module.exports = (pool) => {
       if (description !== undefined) { updates.push(`description = $${paramIndex++}`); params.push(description); }
       if (capacity_lunch !== undefined) { updates.push(`capacity_lunch = $${paramIndex++}`); params.push(capacity_lunch); }
       if (capacity_dinner !== undefined) { updates.push(`capacity_dinner = $${paramIndex++}`); params.push(capacity_dinner); }
-      if (is_active !== undefined) { updates.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+      if (is_active !== undefined) { 
+        const isActiveBoolean = is_active === 1 || is_active === true || is_active === '1';
+        updates.push(`is_active = $${paramIndex++}`); 
+        params.push(isActiveBoolean); 
+      }
       updates.push('updated_at = CURRENT_TIMESTAMP');
       params.push(id);
       
