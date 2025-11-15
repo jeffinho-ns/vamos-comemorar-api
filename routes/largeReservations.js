@@ -604,20 +604,22 @@ module.exports = (pool) => {
       // Taxa de ocupação (simplificada)
       const occupancyRateResult = await pool.query(`
         SELECT
-          COALESCE(
-            (COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)),
-            0
-          ) as rate
+          COUNT(*) as total,
+          COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) as confirmed
         FROM large_reservations
         WHERE reservation_date = $1
       `, [today]);
+      
+      const total = parseInt(occupancyRateResult.rows[0]?.total) || 0;
+      const confirmed = parseInt(occupancyRateResult.rows[0]?.confirmed) || 0;
+      const rate = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 
       res.json({
         success: true,
         stats: {
           totalReservations: parseInt(totalReservationsResult.rows[0]?.count) || 0,
           todayReservations: parseInt(todayReservationsResult.rows[0]?.count) || 0,
-          occupancyRate: Math.round(parseFloat(occupancyRateResult.rows[0]?.rate) || 0)
+          occupancyRate: rate
         }
       });
 
