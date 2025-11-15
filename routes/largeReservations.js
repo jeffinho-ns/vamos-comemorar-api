@@ -19,7 +19,7 @@ module.exports = (pool) => {
           lr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name) as establishment_name
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
@@ -92,7 +92,7 @@ module.exports = (pool) => {
           lr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name) as establishment_name
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
@@ -368,7 +368,7 @@ module.exports = (pool) => {
           lr.*,
           ra.name as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name) as establishment_name
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
