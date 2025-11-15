@@ -286,7 +286,7 @@ module.exports = (pool) => {
       
       // Soft delete - marcar como inativa
       await pool.query(
-        'UPDATE restaurant_areas SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        'UPDATE restaurant_areas SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
         [id]
       );
       
