@@ -57,7 +57,7 @@ module.exports = (pool) => {
       
       // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
       if (include_cancelled !== 'true') {
-        query += ` AND lr.status NOT IN ('cancelled', 'CANCELADA')`;
+        query += ` AND lr.status::TEXT NOT IN ('CANCELADA')`;
       }
       
       if (date) {
@@ -114,7 +114,32 @@ module.exports = (pool) => {
       const { id } = req.params;
       const query = `
         SELECT
-          lr.*,
+          lr.id,
+          lr.establishment_id,
+          lr.client_name,
+          lr.client_phone,
+          lr.client_email,
+          lr.data_nascimento_cliente,
+          lr.reservation_date,
+          lr.reservation_time,
+          lr.number_of_people,
+          lr.area_id,
+          lr.selected_tables,
+          lr.status::TEXT as status,
+          lr.origin::TEXT as origin,
+          lr.notes,
+          lr.admin_notes,
+          lr.created_by,
+          lr.check_in_time,
+          lr.check_out_time,
+          lr.email_sent,
+          lr.whatsapp_sent,
+          lr.created_at,
+          lr.updated_at,
+          lr.checked_in,
+          lr.checkin_time,
+          lr.event_type,
+          lr.evento_id,
           ra.name as area_name,
           u.name as created_by_name,
           COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
@@ -204,7 +229,36 @@ module.exports = (pool) => {
 
       // O restante do código para buscar a reserva, criar a lista e enviar notificações continua o mesmo.
       const newReservationResult = await pool.query(`
-        SELECT lr.*, ra.name as area_name, u.name as created_by_name, COALESCE(p.name, b.name) as establishment_name
+        SELECT
+          lr.id,
+          lr.establishment_id,
+          lr.client_name,
+          lr.client_phone,
+          lr.client_email,
+          lr.data_nascimento_cliente,
+          lr.reservation_date,
+          lr.reservation_time,
+          lr.number_of_people,
+          lr.area_id,
+          lr.selected_tables,
+          lr.status::TEXT as status,
+          lr.origin::TEXT as origin,
+          lr.notes,
+          lr.admin_notes,
+          lr.created_by,
+          lr.check_in_time,
+          lr.check_out_time,
+          lr.email_sent,
+          lr.whatsapp_sent,
+          lr.created_at,
+          lr.updated_at,
+          lr.checked_in,
+          lr.checkin_time,
+          lr.event_type,
+          lr.evento_id,
+          ra.name as area_name,
+          u.name as created_by_name,
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
@@ -485,7 +539,7 @@ module.exports = (pool) => {
           WHERE reservation_date = $1 AND establishment_id = $2 AND status IN ('confirmed', 'checked-in')
           UNION ALL
           SELECT number_of_people FROM large_reservations
-          WHERE reservation_date = $3 AND establishment_id = $4 AND status IN ('CONFIRMADA', 'CHECKED_IN')
+          WHERE reservation_date = $3 AND establishment_id = $4 AND status::TEXT IN ('CONFIRMADA', 'CHECKED_IN')
         ) as all_reservations
       `, [date, establishment_id, date, establishment_id]);
 
@@ -548,7 +602,7 @@ module.exports = (pool) => {
       // Taxa de ocupação (simplificada)
       const occupancyRateResult = await pool.query(`
         SELECT
-          (COUNT(CASE WHEN status IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / COUNT(*)) as rate
+          (COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / COUNT(*)) as rate
         FROM large_reservations
         WHERE reservation_date = $1
       `, [today]);
