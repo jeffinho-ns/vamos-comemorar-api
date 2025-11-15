@@ -184,7 +184,7 @@ module.exports = (pool) => {
       const {
         client_name, client_phone, client_email, data_nascimento_cliente,
         reservation_date, reservation_time, number_of_people, area_id,
-        selected_tables, status = 'NOVA', origin = 'SITE',
+        selected_tables, status = 'NOVA', origin = 'CLIENTE',
         notes, admin_notes, created_by, establishment_id,
         send_email, send_whatsapp, event_type
       } = req.body;
