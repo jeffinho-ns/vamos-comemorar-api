@@ -103,7 +103,7 @@ module.exports = (pool) => {
         description,
         capacity_lunch = 0,
         capacity_dinner = 0,
-        is_active = TRUE
+        is_active = 1
       } = req.body;
       
       // Validações básicas
