@@ -604,7 +604,10 @@ module.exports = (pool) => {
       // Taxa de ocupação (simplificada)
       const occupancyRateResult = await pool.query(`
         SELECT
-          (COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / COUNT(*)) as rate
+          CASE 
+            WHEN COUNT(*) = 0 THEN 0
+            ELSE (COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / COUNT(*))
+          END as rate
         FROM large_reservations
         WHERE reservation_date = $1
       `, [today]);
