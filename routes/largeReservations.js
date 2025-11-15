@@ -602,17 +602,26 @@ module.exports = (pool) => {
       );
 
       // Taxa de ocupação (simplificada)
-      const occupancyRateResult = await pool.query(`
-        SELECT
-          COUNT(*) as total,
-          COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) as confirmed
-        FROM large_reservations
-        WHERE reservation_date = $1
-      `, [today]);
-      
-      const total = parseInt(occupancyRateResult.rows[0]?.total) || 0;
-      const confirmed = parseInt(occupancyRateResult.rows[0]?.confirmed) || 0;
-      const rate = total > 0 ? Math.round((confirmed / total) * 100) : 0;
+      let rate = 0;
+      try {
+        const occupancyRateResult = await pool.query(`
+          SELECT
+            COUNT(*) as total,
+            COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) as confirmed
+          FROM large_reservations
+          WHERE reservation_date = $1
+        `, [today]);
+        
+        const total = parseInt(occupancyRateResult.rows[0]?.total) || 0;
+        const confirmed = parseInt(occupancyRateResult.rows[0]?.confirmed) || 0;
+        
+        if (total > 0) {
+          rate = Math.round((confirmed / total) * 100);
+        }
+      } catch (rateError) {
+        console.error('❌ Erro ao calcular taxa de ocupação:', rateError);
+        rate = 0; // Se houver erro, retorna 0
+      }
 
       res.json({
         success: true,
