@@ -31,7 +31,7 @@ module.exports = (pool, upload) => {
     // Endpoint para criar um novo 'place' com logo e fotos
  // Endpoint para criar um novo 'place' com logo e fotos
 router.post('/',upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), // Configura 'logo' e 'photos'
-    (req, res) => {
+    async (req, res) => {
         console.log('Requisição recebida:', req.body);
 
         // Extrair dados do corpo da requisição
@@ -59,90 +59,53 @@ router.post('/',upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', 
         })) : [];
 
         // Iniciar transação com o banco de dados
-        pool.getConnection((err, connection) => {
-            if (err) {
-                console.error("Erro ao conectar ao banco de dados:", err);
-                return res.status(500).json({ error: "Erro ao conectar com o banco de dados" });
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Inserir dados do lugar ('place')
+            const placeQuery = `
+                INSERT INTO places (slug, name, email, description, logo, street, number, latitude, longitude, status, visible)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+            `;
+            const placeData = [
+                slug, name, email, description, logo, street, number, latitude, longitude, 
+                status || 'active', visible !== undefined ? visible : 1
+            ];
+
+            const placeResult = await client.query(placeQuery, placeData);
+            const placeId = placeResult.rows[0].id;
+
+            // Inserir commodities relacionadas
+            if (commodities.length > 0) {
+                for (const c of commodities) {
+                    await client.query(
+                        'INSERT INTO commodities (place_id, icon, color, name, description) VALUES ($1, $2, $3, $4, $5)',
+                        [placeId, c.icon, c.color, c.name, c.description]
+                    );
+                }
             }
 
-            connection.beginTransaction((transactionErr) => {
-                if (transactionErr) {
-                    connection.release();
-                    console.error("Erro ao iniciar a transação:", transactionErr);
-                    return res.status(500).json({ error: "Erro ao iniciar a transação" });
+            // Inserir fotos relacionadas
+            if (photos.length > 0) {
+                for (const p of photos) {
+                    await client.query(
+                        'INSERT INTO photos (place_id, photo, type, url) VALUES ($1, $2, $3, $4)',
+                        [placeId, p.photo, p.type, p.url]
+                    );
                 }
+            }
 
-                // Inserir dados do lugar ('place')
-                const placeQuery = `
-                    INSERT INTO places (slug, name, email, description, logo, street, number, latitude, longitude, status, visible)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-                const placeData = [
-                    slug, name, email, description, logo, street, number, latitude, longitude, 
-                    status || 'active', visible !== undefined ? visible : 1
-                ];
-
-                connection.query(placeQuery, placeData, (placeErr, placeResults) => {
-                    if (placeErr) {
-                        return connection.rollback(() => {
-                            connection.release();
-                            console.error("Erro ao inserir o place:", placeErr);
-                            res.status(500).json({ error: "Erro ao salvar o place no banco de dados" });
-                        });
-                    }
-
-                    const placeId = placeResults.insertId;
-
-                    // Inserir commodities relacionadas
-                    if (commodities.length > 0) {
-                        const commoditiesQuery = `
-                            INSERT INTO commodities (place_id, icon, color, name, description)
-                            VALUES ?
-                        `;
-                        const commoditiesData = commodities.map(c => [placeId, c.icon, c.color, c.name, c.description]);
-
-                        connection.query(commoditiesQuery, [commoditiesData], (commoditiesErr) => {
-                            if (commoditiesErr) {
-                                return connection.rollback(() => {
-                                    connection.release();
-                                    console.error("Erro ao inserir commodities:", commoditiesErr);
-                                    res.status(500).json({ error: "Erro ao salvar commodities" });
-                                });
-                            }
-                        });
-                    }
-
-                    // Inserir fotos relacionadas
-                    if (photos.length > 0) {
-                        const photosQuery = `
-                            INSERT INTO photos (place_id, photo, type, url)
-                            VALUES ?
-                        `;
-                        const photosData = photos.map(p => [placeId, p.photo, p.type, p.url]);
-
-                        connection.query(photosQuery, [photosData], (photosErr) => {
-                            if (photosErr) {
-                                return connection.rollback(() => {
-                                    connection.release();
-                                    console.error("Erro ao inserir fotos:", photosErr);
-                                    res.status(500).json({ error: "Erro ao salvar fotos" });
-                                });
-                            }
-                        });
-                    }
-
-                    // Commit da transação se tudo ocorreu bem
-                    connection.commit((commitErr) => {
-                        connection.release();
-                        if (commitErr) {
-                            console.error("Erro ao confirmar a transação:", commitErr);
-                            return res.status(500).json({ error: "Erro ao confirmar a transação" });
-                        }
-                        res.status(201).json({ message: "Place criado com sucesso", placeId });
-                    });
-                });
-            });
-        });
+            // Commit da transação se tudo ocorreu bem
+            await client.query('COMMIT');
+            res.status(201).json({ message: "Place criado com sucesso", placeId });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            console.error("Erro ao processar place:", error);
+            res.status(500).json({ error: "Erro ao salvar o place no banco de dados" });
+        } finally {
+            client.release();
+        }
     }
 );
 
@@ -180,146 +143,87 @@ async (req, res) => {
     })) : [];
 
     // Iniciar transação com o banco de dados
-    pool.getConnection(async (err, connection) => {
-        if (err) {
-            console.error("Erro ao conectar ao banco de dados:", err);
-            return res.status(500).json({ error: "Erro ao conectar com o banco de dados" });
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Atualizar dados do lugar ('place')
+        const placeQuery = `
+            UPDATE places 
+            SET slug = $1, name = $2, email = $3, description = $4, logo = COALESCE($5, logo), street = $6, number = $7, latitude = $8, longitude = $9, status = $10, visible = $11
+            WHERE id = $12
+        `;
+        const placeData = [
+            slug, name, email, description, logo, street, number, latitude, longitude, 
+            status || 'active', visible !== undefined ? visible : 1, placeId
+        ];
+
+        await client.query(placeQuery, placeData);
+
+        // Atualizar commodities relacionadas
+        await client.query('DELETE FROM commodities WHERE place_id = $1', [placeId]);
+
+        if (commodities.length > 0) {
+            for (const c of commodities) {
+                await client.query(
+                    'INSERT INTO commodities (place_id, icon, color, name, description) VALUES ($1, $2, $3, $4, $5)',
+                    [placeId, c.icon, c.color, c.name, c.description]
+                );
+            }
         }
 
-        connection.beginTransaction((transactionErr) => {
-            if (transactionErr) {
-                connection.release();
-                console.error("Erro ao iniciar a transação:", transactionErr);
-                return res.status(500).json({ error: "Erro ao iniciar a transação" });
+        // Atualizar fotos relacionadas, se necessário
+        if (photos.length > 0) {
+            await client.query('DELETE FROM photos WHERE place_id = $1', [placeId]);
+            for (const p of photos) {
+                await client.query(
+                    'INSERT INTO photos (place_id, photo, type, url) VALUES ($1, $2, $3, $4)',
+                    [placeId, p.photo, p.type, p.url]
+                );
             }
+        }
 
-            // Atualizar dados do lugar ('place')
-            const placeQuery = `
-                UPDATE places 
-                SET slug = ?, name = ?, email = ?, description = ?, logo = ?, street = ?, number = ?, latitude = ?, longitude = ?, status = ?, visible = ?
-                WHERE id = ?
-            `;
-            const placeData = [
-                slug, name, email, description, logo, street, number, latitude, longitude, 
-                status || 'active', visible !== undefined ? visible : 1, placeId
-            ];
+        // Commit da transação se tudo ocorreu bem
+        await client.query('COMMIT');
 
-            connection.query(placeQuery, placeData, (placeErr, placeResults) => {
-                if (placeErr) {
-                    return connection.rollback(() => {
-                        connection.release();
-                        console.error("Erro ao atualizar o place:", placeErr);
-                        res.status(500).json({ error: "Erro ao atualizar o place no banco de dados" });
-                    });
-                }
+        // Recuperar todos os dados atualizados para retornar
+        const updatedPlaceResult = await pool.query(`
+            SELECT 
+                p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
+                p.latitude, p.longitude, p.status, p.visible 
+            FROM places p
+            WHERE p.id = $1
+        `, [placeId]);
 
-                // Atualizar commodities relacionadas
-                const deleteCommoditiesQuery = `
-                    DELETE FROM commodities WHERE place_id = ?
-                `;
-                connection.query(deleteCommoditiesQuery, [placeId], (deleteCommoditiesErr) => {
-                    if (deleteCommoditiesErr) {
-                        return connection.rollback(() => {
-                            connection.release();
-                            console.error("Erro ao excluir commodities existentes:", deleteCommoditiesErr);
-                            res.status(500).json({ error: "Erro ao excluir commodities existentes" });
-                        });
-                    }
+        const updatedCommoditiesResult = await pool.query(`
+            SELECT 
+                place_id, id, icon, color, name, description 
+            FROM commodities 
+            WHERE place_id = $1
+        `, [placeId]);
 
-                    if (commodities.length > 0) {
-                        const commoditiesQuery = `
-                            INSERT INTO commodities (place_id, icon, color, name, description)
-                            VALUES ?
-                        `;
-                        const commoditiesData = commodities.map(c => [placeId, c.icon, c.color, c.name, c.description]);
+        const updatedPhotosResult = await pool.query(`
+            SELECT 
+                place_id, id, photo, type, url 
+            FROM photos 
+            WHERE place_id = $1
+        `, [placeId]);
 
-                        connection.query(commoditiesQuery, [commoditiesData], (commoditiesErr) => {
-                            if (commoditiesErr) {
-                                return connection.rollback(() => {
-                                    connection.release();
-                                    console.error("Erro ao inserir commodities:", commoditiesErr);
-                                    res.status(500).json({ error: "Erro ao salvar commodities" });
-                                });
-                            }
-                        });
-                    }
+        // Formatar os dados atualizados
+        const result = {
+            ...updatedPlaceResult.rows[0],
+            commodities: updatedCommoditiesResult.rows,
+            photos: updatedPhotosResult.rows
+        };
 
-                    // Atualizar fotos relacionadas, se necessário
-                    if (photos.length > 0) {
-                        const deletePhotosQuery = `
-                            DELETE FROM photos WHERE place_id = ?
-                        `;
-                        connection.query(deletePhotosQuery, [placeId], (deletePhotosErr) => {
-                            if (deletePhotosErr) {
-                                return connection.rollback(() => {
-                                    connection.release();
-                                    console.error("Erro ao excluir fotos existentes:", deletePhotosErr);
-                                    res.status(500).json({ error: "Erro ao excluir fotos existentes" });
-                                });
-                            }
-
-                            const photosQuery = `
-                                INSERT INTO photos (place_id, photo, type, url)
-                                VALUES ?
-                            `;
-                            const photosData = photos.map(p => [placeId, p.photo, p.type, p.url]);
-
-                            connection.query(photosQuery, [photosData], (photosErr) => {
-                                if (photosErr) {
-                                    return connection.rollback(() => {
-                                        connection.release();
-                                        console.error("Erro ao inserir fotos:", photosErr);
-                                        res.status(500).json({ error: "Erro ao salvar fotos" });
-                                    });
-                                }
-                            });
-                        });
-                    }
-
-                    // Commit da transação se tudo ocorreu bem
-                    connection.commit(async (commitErr) => {
-                        if (commitErr) {
-                            console.error("Erro ao confirmar a transação:", commitErr);
-                            return res.status(500).json({ error: "Erro ao confirmar a transação" });
-                        }
-
-                        // Recuperar todos os dados atualizados para retornar
-                        const [updatedPlace] = await pool.query(`
-                            SELECT 
-                                p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
-                                p.latitude, p.longitude, p.status, p.visible 
-                            FROM places p
-                            WHERE p.id = ?
-                        `, [placeId]);
-
-                        const [updatedCommodities] = await pool.query(`
-                            SELECT 
-                                place_id, id, icon, color, name, description 
-                            FROM commodities 
-                            WHERE place_id = ?
-                        `, [placeId]);
-
-                        const [updatedPhotos] = await pool.query(`
-                            SELECT 
-                                place_id, id, photo, type, url 
-                            FROM photos 
-                            WHERE place_id = ?
-                        `, [placeId]);
-
-                        // Formatar os dados atualizados
-                        const result = {
-                            ...updatedPlace[0],
-                            commodities: updatedCommodities,
-                            photos: updatedPhotos
-                        };
-
-                        connection.release();
-                        res.status(200).json({ message: "Place atualizado com sucesso", place: result });
-                    });
-                });
-            });
-        });
-    });
+        res.status(200).json({ message: "Place atualizado com sucesso", place: result });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Erro ao atualizar place:", error);
+        res.status(500).json({ error: "Erro ao atualizar o place no banco de dados" });
+    } finally {
+        client.release();
+    }
 }
 );
 
@@ -336,7 +240,7 @@ async (req, res) => {
 router.get('/', async (req, res) => {
     try {
       // Realiza as queries de forma paralela
-      const [places, commodities, photos] = await Promise.all([
+      const [placesResult, commoditiesResult, photosResult] = await Promise.all([
         pool.query(`
           SELECT 
             id, slug, name, email, description, logo, street, number, 
@@ -356,9 +260,9 @@ router.get('/', async (req, res) => {
       ]);
   
       // Formata os lugares com suas commodities e fotos
-      const formattedPlaces = places[0].map(place => {
-        const placeCommodities = commodities[0].filter(c => c.place_id === place.id);
-        const placePhotos = photos[0].filter(p => p.place_id === place.id);
+      const formattedPlaces = placesResult.rows.map(place => {
+        const placeCommodities = commoditiesResult.rows.filter(c => c.place_id === place.id);
+        const placePhotos = photosResult.rows.filter(p => p.place_id === place.id);
   
         return {
           ...place,
@@ -379,37 +283,37 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      const [place] = await pool.query(`
+      const placeResult = await pool.query(`
         SELECT 
           id, slug, name, email, description, logo, street, number, 
           latitude, longitude, status, visible 
         FROM places
-        WHERE id = ?
+        WHERE id = $1
       `, [id]);
   
-      if (place.length === 0) {
+      if (placeResult.rows.length === 0) {
         return res.status(404).json({ error: 'Lugar não encontrado' });
       }
   
       // Recupera as commodities e fotos associadas a este lugar
-      const [commodities] = await pool.query(`
+      const commoditiesResult = await pool.query(`
         SELECT 
           place_id, id, icon, color, name, description 
         FROM commodities
-        WHERE place_id = ?
+        WHERE place_id = $1
       `, [id]);
   
-      const [photos] = await pool.query(`
+      const photosResult = await pool.query(`
         SELECT 
           place_id, id, photo, type, url 
         FROM photos
-        WHERE place_id = ?
+        WHERE place_id = $1
       `, [id]);
   
       res.json({
-        place: place[0], // Retorna o lugar com suas commodities e fotos
-        commodities,
-        photos
+        place: placeResult.rows[0], // Retorna o lugar com suas commodities e fotos
+        commodities: commoditiesResult.rows,
+        photos: photosResult.rows
       });
     } catch (error) {
       console.error('Erro ao buscar lugar:', error);
@@ -421,75 +325,32 @@ router.get('/:id', async (req, res) => {
 
 
 // Endpoint para excluir um 'place' e seus dados relacionados (logo, commodities, fotos)
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
     const { id } = req.params;
 
-    pool.getConnection((err, connection) => {
-        if (err) {
-            console.error("Erro ao conectar ao banco de dados:", err);
-            return res.status(500).json({ error: "Erro ao conectar com o banco de dados" });
-        }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
 
-        connection.beginTransaction((transactionErr) => {
-            if (transactionErr) {
-                connection.release();
-                console.error("Erro ao iniciar a transação:", transactionErr);
-                return res.status(500).json({ error: "Erro ao iniciar a transação" });
-            }
+        // Excluir commodities relacionadas
+        await client.query('DELETE FROM commodities WHERE place_id = $1', [id]);
 
-            // Excluir commodities relacionadas
-            const deleteCommoditiesQuery = `
-                DELETE FROM commodities WHERE place_id = ?
-            `;
-            connection.query(deleteCommoditiesQuery, [id], (commoditiesErr) => {
-                if (commoditiesErr) {
-                    return connection.rollback(() => {
-                        connection.release();
-                        console.error("Erro ao excluir commodities:", commoditiesErr);
-                        res.status(500).json({ error: "Erro ao excluir commodities" });
-                    });
-                }
+        // Excluir fotos relacionadas
+        await client.query('DELETE FROM photos WHERE place_id = $1', [id]);
 
-                // Excluir fotos relacionadas
-                const deletePhotosQuery = `
-                    DELETE FROM photos WHERE place_id = ?
-                `;
-                connection.query(deletePhotosQuery, [id], (photosErr) => {
-                    if (photosErr) {
-                        return connection.rollback(() => {
-                            connection.release();
-                            console.error("Erro ao excluir fotos:", photosErr);
-                            res.status(500).json({ error: "Erro ao excluir fotos" });
-                        });
-                    }
+        // Excluir o place
+        await client.query('DELETE FROM places WHERE id = $1', [id]);
 
-                    // Excluir o place
-                    const deletePlaceQuery = `
-                        DELETE FROM places WHERE id = ?
-                    `;
-                    connection.query(deletePlaceQuery, [id], (placeErr) => {
-                        if (placeErr) {
-                            return connection.rollback(() => {
-                                connection.release();
-                                console.error("Erro ao excluir o place:", placeErr);
-                                res.status(500).json({ error: "Erro ao excluir o place" });
-                            });
-                        }
-
-                        // Commit da transação se tudo ocorreu bem
-                        connection.commit((commitErr) => {
-                            connection.release();
-                            if (commitErr) {
-                                console.error("Erro ao confirmar a transação:", commitErr);
-                                return res.status(500).json({ error: "Erro ao confirmar a transação" });
-                            }
-                            res.status(200).json({ message: "Place excluído com sucesso" });
-                        });
-                    });
-                });
-            });
-        });
-    });
+        // Commit da transação se tudo ocorreu bem
+        await client.query('COMMIT');
+        res.status(200).json({ message: "Place excluído com sucesso" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Erro ao excluir place:", error);
+        res.status(500).json({ error: "Erro ao excluir o place" });
+    } finally {
+        client.release();
+    }
 });
 
   

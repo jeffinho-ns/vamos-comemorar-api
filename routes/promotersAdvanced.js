@@ -50,19 +50,20 @@ module.exports = (pool) => {
         `;
         
         const params = [];
+        let paramIndex = 1;
         
         if (status) {
-          query += ` AND p.status = ?`;
+          query += ` AND p.status = $${paramIndex++}`;
           params.push(status);
         }
         
         if (categoria) {
-          query += ` AND p.tipo_categoria = ?`;
+          query += ` AND p.tipo_categoria = $${paramIndex++}`;
           params.push(categoria);
         }
         
         if (establishment_id) {
-          query += ` AND p.establishment_id = ?`;
+          query += ` AND p.establishment_id = $${paramIndex++}`;
           params.push(establishment_id);
         }
         
@@ -70,16 +71,17 @@ module.exports = (pool) => {
         query += ` ORDER BY p.nome ASC`;
         
         if (limit) {
-          query += ` LIMIT ?`;
+          query += ` LIMIT $${paramIndex++}`;
           params.push(parseInt(limit));
           
           if (offset) {
-            query += ` OFFSET ?`;
+            query += ` OFFSET $${paramIndex++}`;
             params.push(parseInt(offset));
           }
         }
         
-        const [promoters] = await pool.execute(query, params);
+        const promotersResult = await pool.query(query, params);
+        const promoters = promotersResult.rows;
         
         res.json({
           success: true,
@@ -110,86 +112,86 @@ module.exports = (pool) => {
         const { id } = req.params;
         
         // Buscar informações básicas do promoter
-        const [promoters] = await pool.execute(
+        const promotersResult = await pool.query(
           `SELECT p.*, pl.name as establishment_name 
            FROM promoters p 
            LEFT JOIN places pl ON p.establishment_id = pl.id 
-           WHERE p.promoter_id = ?`,
+           WHERE p.promoter_id = $1`,
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
           });
         }
         
-        const promoter = promoters[0];
+        const promoter = promotersResult.rows[0];
         
         // Buscar condições do promoter
-        const [condicoes] = await pool.execute(
-          'SELECT * FROM promoter_condicoes WHERE promoter_id = ? AND ativo = TRUE',
+        const condicoesResult = await pool.query(
+          'SELECT * FROM promoter_condicoes WHERE promoter_id = $1 AND ativo = TRUE',
           [id]
         );
         
         // Buscar permissões do promoter
-        const [permissoes] = await pool.execute(
-          'SELECT * FROM promoter_permissoes WHERE promoter_id = ?',
+        const permissoesResult = await pool.query(
+          'SELECT * FROM promoter_permissoes WHERE promoter_id = $1',
           [id]
         );
         
         // Buscar histórico de performance
-        const [performance] = await pool.execute(
+        const performanceResult = await pool.query(
           `SELECT 
             pp.*,
-            e.nome as evento_nome,
+            e.nome_do_evento as evento_nome,
             e.data_do_evento
            FROM promoter_performance pp
            LEFT JOIN eventos e ON pp.evento_id = e.id
-           WHERE pp.promoter_id = ?
+           WHERE pp.promoter_id = $1
            ORDER BY pp.data_evento DESC
            LIMIT 10`,
           [id]
         );
         
         // Buscar alertas não lidos
-        const [alertas] = await pool.execute(
+        const alertasResult = await pool.query(
           `SELECT 
             pa.*,
-            e.nome as evento_nome
+            e.nome_do_evento as evento_nome
            FROM promoter_alertas pa
            LEFT JOIN eventos e ON pa.evento_id = e.id
-           WHERE pa.promoter_id = ? AND pa.lido = FALSE
+           WHERE pa.promoter_id = $1 AND pa.lido = FALSE
            ORDER BY pa.prioridade DESC, pa.created_at DESC`,
           [id]
         );
         
         // Buscar listas ativas
-        const [listas] = await pool.execute(
+        const listasResult = await pool.query(
           `SELECT 
             l.*,
-            e.nome as evento_nome,
+            e.nome_do_evento as evento_nome,
             e.data_do_evento,
             COUNT(lc.lista_convidado_id) as total_convidados,
             SUM(CASE WHEN lc.status_checkin = 'Check-in' THEN 1 ELSE 0 END) as checkins
            FROM listas l
            LEFT JOIN eventos e ON l.evento_id = e.id
            LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
-           WHERE l.promoter_responsavel_id = ?
+           WHERE l.promoter_responsavel_id = $1
            GROUP BY l.lista_id
            ORDER BY e.data_do_evento DESC`,
           [id]
         );
         
         // Buscar convites ativos
-        const [convites] = await pool.execute(
+        const convitesResult = await pool.query(
           `SELECT 
             pc.*,
-            e.nome as evento_nome
+            e.nome_do_evento as evento_nome
            FROM promoter_convites pc
            LEFT JOIN eventos e ON pc.evento_id = e.id
-           WHERE pc.promoter_id = ? AND pc.ativo = TRUE
+           WHERE pc.promoter_id = $1 AND pc.ativo = TRUE
            ORDER BY pc.created_at DESC`,
           [id]
         );
@@ -198,12 +200,12 @@ module.exports = (pool) => {
           success: true,
           promoter: {
             ...promoter,
-            condicoes: condicoes[0] || null,
-            permissoes: permissoes[0] || null,
-            performance: performance,
-            alertas: alertas,
-            listas: listas,
-            convites: convites
+            condicoes: condicoesResult.rows[0] || null,
+            permissoes: permissoesResult.rows[0] || null,
+            performance: performanceResult.rows,
+            alertas: alertasResult.rows,
+            listas: listasResult.rows,
+            convites: convitesResult.rows
           }
         });
       } catch (error) {
@@ -226,10 +228,10 @@ module.exports = (pool) => {
     authenticateToken,
     authorizeRoles('admin', 'gerente'),
     async (req, res) => {
-      const connection = await pool.getConnection();
+      const client = await pool.connect();
       
       try {
-        await connection.beginTransaction();
+        await client.query('BEGIN');
         
         const {
           nome,
@@ -273,12 +275,12 @@ module.exports = (pool) => {
         }
         
         // Verificar se email já existe
-        const [existingEmail] = await connection.execute(
-          'SELECT promoter_id FROM promoters WHERE email = ?',
+        const existingEmailResult = await client.query(
+          'SELECT promoter_id FROM promoters WHERE email = $1',
           [email]
         );
         
-        if (existingEmail.length > 0) {
+        if (existingEmailResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
             error: 'Email já está em uso por outro promoter'
@@ -301,12 +303,12 @@ module.exports = (pool) => {
         }
         
         // Verificar se código identificador já existe
-        const [existingCode] = await connection.execute(
-          'SELECT promoter_id FROM promoters WHERE codigo_identificador = ?',
+        const existingCodeResult = await client.query(
+          'SELECT promoter_id FROM promoters WHERE codigo_identificador = $1',
           [finalCodigoIdentificador]
         );
         
-        if (existingCode.length > 0) {
+        if (existingCodeResult.rows.length > 0) {
           // Se existir, adicionar timestamp adicional
           finalCodigoIdentificador = `${finalCodigoIdentificador}-${Date.now().toString().slice(-4)}`;
         }
@@ -322,12 +324,12 @@ module.exports = (pool) => {
         });
         
         // Inserir promoter
-        const [result] = await connection.execute(
+        const result = await client.query(
           `INSERT INTO promoters (
             nome, apelido, email, telefone, whatsapp, codigo_identificador, 
             tipo_categoria, comissao_percentual, link_convite, observacoes,
             establishment_id, foto_url, instagram, data_cadastro, status, ativo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), 'Ativo', TRUE)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
           [
             nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
             tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
@@ -335,7 +337,7 @@ module.exports = (pool) => {
           ]
         );
         
-        const promoterId = result.insertId;
+        const promoterId = result.rows[0].promoter_id;
         console.log('✅ Promoter criado com ID:', promoterId);
         
         console.log('📝 Inserindo condições:', {
@@ -345,14 +347,14 @@ module.exports = (pool) => {
         });
         
         // Inserir condições padrão
-        await connection.execute(
+        await client.query(
           `INSERT INTO promoter_condicoes (
             promoter_id, max_convidados_por_evento, max_convidados_por_data,
             quota_mesas, quota_entradas, entradas_gratuitas, desconto_especial_percentual,
             valor_minimo_consumo, horario_checkin_inicio, horario_checkin_fim,
             politica_no_show, pode_reservar_mesas_vip, pode_selecionar_areas, 
             areas_permitidas, mesas_reservadas, ativo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE)`,
           [
             promoterId, 
             max_convidados_por_evento !== undefined ? max_convidados_por_evento : null, 
@@ -375,13 +377,13 @@ module.exports = (pool) => {
         
         // Inserir permissões padrão
         console.log('📝 Inserindo permissões...');
-        await connection.execute(
+        await client.query(
           `INSERT INTO promoter_permissoes (
             promoter_id, pode_ver_lista_convidados, pode_adicionar_convidados,
             pode_remover_convidados, pode_gerar_link_convite, pode_gerar_qr_code,
             pode_ver_historico, pode_ver_relatorios, pode_ultrapassar_limites,
             pode_aprovar_convidados_extra, pode_editar_eventos, pode_criar_eventos
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             promoterId,
             permissoes?.pode_ver_lista_convidados !== false,
@@ -399,7 +401,7 @@ module.exports = (pool) => {
         );
         console.log('✅ Permissões inseridas');
         
-        await connection.commit();
+        await client.query('COMMIT');
         console.log('✅ Transaction committed com sucesso');
         
         res.status(201).json({
@@ -411,17 +413,16 @@ module.exports = (pool) => {
         });
         
       } catch (error) {
-        await connection.rollback();
+        await client.query('ROLLBACK');
         console.error('❌ Erro ao criar promoter:', error);
         console.error('❌ Stack trace:', error.stack);
-        console.error('❌ SQL Error:', error.sqlMessage);
         res.status(500).json({
           success: false,
           error: 'Erro ao criar promoter',
           details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
       } finally {
-        connection.release();
+        client.release();
       }
     }
   );
@@ -441,12 +442,12 @@ module.exports = (pool) => {
         const updateData = req.body;
         
         // Verificar se promoter existe
-        const [promoters] = await pool.execute(
-          'SELECT promoter_id FROM promoters WHERE promoter_id = ?',
+        const promotersResult = await pool.query(
+          'SELECT promoter_id FROM promoters WHERE promoter_id = $1',
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
@@ -462,10 +463,11 @@ module.exports = (pool) => {
         
         const updateFields = [];
         const updateValues = [];
+        let paramIndex = 1;
         
         allowedFields.forEach(field => {
           if (updateData[field] !== undefined) {
-            updateFields.push(`${field} = ?`);
+            updateFields.push(`${field} = $${paramIndex++}`);
             updateValues.push(updateData[field]);
           }
         });
@@ -479,8 +481,8 @@ module.exports = (pool) => {
         
         updateValues.push(id);
         
-        await pool.execute(
-          `UPDATE promoters SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = ?`,
+        await pool.query(
+          `UPDATE promoters SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = $${paramIndex}`,
           updateValues
         );
         
@@ -514,12 +516,12 @@ module.exports = (pool) => {
         const condicoes = req.body;
         
         // Verificar se promoter existe
-        const [promoters] = await pool.execute(
-          'SELECT promoter_id FROM promoters WHERE promoter_id = ?',
+        const promotersResult = await pool.query(
+          'SELECT promoter_id FROM promoters WHERE promoter_id = $1',
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
@@ -537,14 +539,15 @@ module.exports = (pool) => {
         
         const updateFields = [];
         const updateValues = [];
+        let paramIndex = 1;
         
         allowedFields.forEach(field => {
           if (condicoes[field] !== undefined) {
             if (field === 'areas_permitidas' || field === 'mesas_reservadas') {
-              updateFields.push(`${field} = ?`);
+              updateFields.push(`${field} = $${paramIndex++}`);
               updateValues.push(condicoes[field] ? JSON.stringify(condicoes[field]) : null);
             } else {
-              updateFields.push(`${field} = ?`);
+              updateFields.push(`${field} = $${paramIndex++}`);
               updateValues.push(condicoes[field]);
             }
           }
@@ -560,15 +563,15 @@ module.exports = (pool) => {
         updateValues.push(id);
         
         // Verificar se já existe registro de condições
-        const [existing] = await pool.execute(
-          'SELECT condicao_id FROM promoter_condicoes WHERE promoter_id = ?',
+        const existingResult = await pool.query(
+          'SELECT condicao_id FROM promoter_condicoes WHERE promoter_id = $1',
           [id]
         );
         
-        if (existing.length > 0) {
+        if (existingResult.rows.length > 0) {
           // Atualizar existente
-          await pool.execute(
-            `UPDATE promoter_condicoes SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = ?`,
+          await pool.query(
+            `UPDATE promoter_condicoes SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = $${paramIndex}`,
             updateValues
           );
         } else {
@@ -577,10 +580,10 @@ module.exports = (pool) => {
           updateValues.unshift(id); // Adiciona o id no início
           
           const fieldsToInsert = allowedFields.filter(field => condicoes[field] !== undefined);
-          const placeholders = fieldsToInsert.map(() => '?').join(', ');
+          const placeholders = fieldsToInsert.map((_, idx) => `$${idx + 2}`).join(', ');
           
-          await pool.execute(
-            `INSERT INTO promoter_condicoes (promoter_id, ${fieldsToInsert.join(', ')}, ativo) VALUES (?, ${placeholders}, TRUE)`,
+          await pool.query(
+            `INSERT INTO promoter_condicoes (promoter_id, ${fieldsToInsert.join(', ')}, ativo) VALUES ($1, ${placeholders}, TRUE)`,
             updateValues
           );
         }
@@ -615,12 +618,12 @@ module.exports = (pool) => {
         const permissoes = req.body;
         
         // Verificar se promoter existe
-        const [promoters] = await pool.execute(
-          'SELECT promoter_id FROM promoters WHERE promoter_id = ?',
+        const promotersResult = await pool.query(
+          'SELECT promoter_id FROM promoters WHERE promoter_id = $1',
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
@@ -637,10 +640,11 @@ module.exports = (pool) => {
         
         const updateFields = [];
         const updateValues = [];
+        let paramIndex = 1;
         
         allowedFields.forEach(field => {
           if (permissoes[field] !== undefined) {
-            updateFields.push(`${field} = ?`);
+            updateFields.push(`${field} = $${paramIndex++}`);
             updateValues.push(permissoes[field]);
           }
         });
@@ -655,15 +659,15 @@ module.exports = (pool) => {
         updateValues.push(id);
         
         // Verificar se já existe registro de permissões
-        const [existing] = await pool.execute(
-          'SELECT permissao_id FROM promoter_permissoes WHERE promoter_id = ?',
+        const existingResult = await pool.query(
+          'SELECT permissao_id FROM promoter_permissoes WHERE promoter_id = $1',
           [id]
         );
         
-        if (existing.length > 0) {
+        if (existingResult.rows.length > 0) {
           // Atualizar existente
-          await pool.execute(
-            `UPDATE promoter_permissoes SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = ?`,
+          await pool.query(
+            `UPDATE promoter_permissoes SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE promoter_id = $${paramIndex}`,
             updateValues
           );
         } else {
@@ -672,10 +676,10 @@ module.exports = (pool) => {
           updateValues.unshift(id); // Adiciona o id no início
           
           const fieldsToInsert = allowedFields.filter(field => permissoes[field] !== undefined);
-          const placeholders = fieldsToInsert.map(() => '?').join(', ');
+          const placeholders = fieldsToInsert.map((_, idx) => `$${idx + 2}`).join(', ');
           
-          await pool.execute(
-            `INSERT INTO promoter_permissoes (promoter_id, ${fieldsToInsert.join(', ')}) VALUES (?, ${placeholders})`,
+          await pool.query(
+            `INSERT INTO promoter_permissoes (promoter_id, ${fieldsToInsert.join(', ')}) VALUES ($1, ${placeholders})`,
             updateValues
           );
         }
@@ -710,12 +714,12 @@ module.exports = (pool) => {
         const { periodo = '30' } = req.query; // dias
         
         // Verificar se promoter existe
-        const [promoters] = await pool.execute(
-          'SELECT nome FROM promoters WHERE promoter_id = ?',
+        const promotersResult = await pool.query(
+          'SELECT nome FROM promoters WHERE promoter_id = $1',
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
@@ -723,23 +727,24 @@ module.exports = (pool) => {
         }
         
         // Buscar performance do período
-        const [performance] = await pool.execute(
+        const periodoDays = parseInt(periodo);
+        const performanceResult = await pool.query(
           `SELECT 
             pp.*,
-            e.nome as evento_nome,
+            e.nome_do_evento as evento_nome,
             e.data_do_evento,
             pl.name as establishment_name
            FROM promoter_performance pp
            LEFT JOIN eventos e ON pp.evento_id = e.id
            LEFT JOIN places pl ON e.id_place = pl.id
-           WHERE pp.promoter_id = ? 
-           AND pp.data_evento >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           WHERE pp.promoter_id = $1 
+           AND pp.data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'
            ORDER BY pp.data_evento DESC`,
-          [id, parseInt(periodo)]
+          [id]
         );
         
         // Calcular estatísticas gerais
-        const [stats] = await pool.execute(
+        const statsResult = await pool.query(
           `SELECT 
             COUNT(*) as total_eventos,
             AVG(taxa_comparecimento) as media_taxa_comparecimento,
@@ -748,16 +753,16 @@ module.exports = (pool) => {
             SUM(entradas_vendidas) as entradas_vendidas,
             SUM(comissao_calculada) as comissao_total
            FROM promoter_performance 
-           WHERE promoter_id = ? 
-           AND data_evento >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`,
-          [id, parseInt(periodo)]
+           WHERE promoter_id = $1 
+           AND data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'`,
+          [id]
         );
         
         res.json({
           success: true,
-          promoter: promoters[0],
-          performance: performance,
-          estatisticas: stats[0] || {
+          promoter: promotersResult.rows[0],
+          performance: performanceResult.rows,
+          estatisticas: statsResult.rows[0] || {
             total_eventos: 0,
             media_taxa_comparecimento: 0,
             receita_total: 0,
@@ -790,7 +795,8 @@ module.exports = (pool) => {
       try {
         const { periodo = '30', limite = '10' } = req.query;
         
-        const [ranking] = await pool.execute(
+        const periodoDays = parseInt(periodo);
+        const rankingResult = await pool.query(
           `SELECT 
             p.promoter_id,
             p.nome,
@@ -803,13 +809,14 @@ module.exports = (pool) => {
             SUM(pp.convidados_compareceram) as total_compareceram
            FROM promoters p
            LEFT JOIN promoter_performance pp ON p.promoter_id = pp.promoter_id
-           WHERE pp.data_evento >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           WHERE pp.data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'
            AND p.status = 'Ativo' AND p.ativo = TRUE
            GROUP BY p.promoter_id
            ORDER BY receita_total DESC, media_taxa_comparecimento DESC
-           LIMIT ?`,
-          [parseInt(periodo), parseInt(limite)]
+           LIMIT $1`,
+          [parseInt(limite)]
         );
+        const ranking = rankingResult.rows;
         
         res.json({
           success: true,
@@ -842,12 +849,12 @@ module.exports = (pool) => {
         const { evento_id, max_usos, data_expiracao, observacoes } = req.body;
         
         // Verificar se promoter existe
-        const [promoters] = await pool.execute(
-          'SELECT nome FROM promoters WHERE promoter_id = ?',
+        const promotersResult = await pool.query(
+          'SELECT nome FROM promoters WHERE promoter_id = $1',
           [id]
         );
         
-        if (promoters.length === 0) {
+        if (promotersResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Promoter não encontrado'
@@ -859,11 +866,11 @@ module.exports = (pool) => {
         const link_convite = `${process.env.FRONTEND_URL || 'https://www.agilizaiapp.com.br'}/convite/${codigo_convite}`;
         
         // Inserir convite
-        const [result] = await pool.execute(
+        const result = await pool.query(
           `INSERT INTO promoter_convites (
             promoter_id, evento_id, codigo_convite, link_convite, 
             max_usos, data_expiracao, observacoes, ativo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) RETURNING convite_id`,
           [id, evento_id, codigo_convite, link_convite, max_usos, data_expiracao, observacoes]
         );
         
@@ -871,7 +878,7 @@ module.exports = (pool) => {
           success: true,
           message: 'Convite gerado com sucesso',
           convite: {
-            convite_id: result.insertId,
+            convite_id: result.rows[0].convite_id,
             codigo_convite,
             link_convite
           }
@@ -904,28 +911,30 @@ module.exports = (pool) => {
         let query = `
           SELECT 
             pa.*,
-            e.nome as evento_nome
+            e.nome_do_evento as evento_nome
            FROM promoter_alertas pa
            LEFT JOIN eventos e ON pa.evento_id = e.id
-           WHERE pa.promoter_id = ?
+           WHERE pa.promoter_id = $1
         `;
         
         const params = [id];
+        let paramIndex = 2;
         
         if (lido !== undefined) {
-          query += ` AND pa.lido = ?`;
+          query += ` AND pa.lido = $${paramIndex++}`;
           params.push(lido === 'true');
         }
         
         if (prioridade) {
-          query += ` AND pa.prioridade = ?`;
+          query += ` AND pa.prioridade = $${paramIndex++}`;
           params.push(prioridade);
         }
         
-        query += ` ORDER BY pa.prioridade DESC, pa.created_at DESC LIMIT ?`;
+        query += ` ORDER BY pa.prioridade DESC, pa.created_at DESC LIMIT $${paramIndex++}`;
         params.push(parseInt(limite));
         
-        const [alertas] = await pool.execute(query, params);
+        const alertasResult = await pool.query(query, params);
+        const alertas = alertasResult.rows;
         
         res.json({
           success: true,
@@ -955,8 +964,8 @@ module.exports = (pool) => {
       try {
         const { alerta_id } = req.params;
         
-        await pool.execute(
-          'UPDATE promoter_alertas SET lido = TRUE, data_leitura = NOW() WHERE alerta_id = ?',
+        await pool.query(
+          'UPDATE promoter_alertas SET lido = TRUE, data_leitura = NOW() WHERE alerta_id = $1',
           [alerta_id]
         );
         
@@ -1007,29 +1016,31 @@ module.exports = (pool) => {
           FROM promoter_convidados c
           LEFT JOIN eventos e ON c.evento_id = e.id
           LEFT JOIN promoters p ON c.promoter_id = p.promoter_id
-          WHERE c.promoter_id = ?
+          WHERE c.promoter_id = $1
         `;
         
         const params = [id];
+        let paramIndex = 2;
         
         if (evento_id) {
-          query += ` AND c.evento_id = ?`;
+          query += ` AND c.evento_id = $${paramIndex++}`;
           params.push(evento_id);
         }
         
         if (data_evento) {
-          query += ` AND e.data_do_evento = ?`;
+          query += ` AND e.data_do_evento = $${paramIndex++}`;
           params.push(data_evento);
         }
         
         if (status) {
-          query += ` AND c.status = ?`;
+          query += ` AND c.status = $${paramIndex++}`;
           params.push(status);
         }
         
         query += ` ORDER BY e.data_do_evento DESC, c.created_at DESC`;
         
-        const [convidados] = await pool.execute(query, params);
+        const convidadosResult = await pool.query(query, params);
+        const convidados = convidadosResult.rows;
         
         res.json({
           success: true,

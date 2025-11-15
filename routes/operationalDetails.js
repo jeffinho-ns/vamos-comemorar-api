@@ -12,43 +12,7 @@ module.exports = (pool) => {
    */
   router.post('/', auth, async (req, res) => {
     try {
-      // Verificar se a tabela existe, se não, criar
-      try {
-        const [tables] = await pool.execute("SHOW TABLES LIKE 'operational_details'");
-        
-        if (tables.length === 0) {
-          console.log('📝 Criando tabela operational_details...');
-          
-          await pool.execute(`
-            CREATE TABLE operational_details (
-              id INT(11) NOT NULL AUTO_INCREMENT,
-              event_id INT(11) DEFAULT NULL,
-              establishment_id INT(11) DEFAULT NULL,
-              event_date DATE NOT NULL,
-              artistic_attraction VARCHAR(255) NOT NULL,
-              show_schedule TEXT DEFAULT NULL,
-              ticket_prices TEXT NOT NULL,
-              promotions TEXT DEFAULT NULL,
-              visual_reference_url VARCHAR(255) DEFAULT NULL,
-              admin_notes TEXT DEFAULT NULL,
-              operational_instructions TEXT DEFAULT NULL,
-              is_active BOOLEAN DEFAULT 1,
-              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-              updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              UNIQUE KEY unique_event_date (event_date),
-              KEY idx_establishment_id (establishment_id),
-              KEY idx_event_id (event_id),
-              KEY idx_event_date (event_date),
-              KEY idx_is_active (is_active)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-          
-          console.log('✅ Tabela operational_details criada com sucesso!');
-        }
-      } catch (tableError) {
-        console.log('⚠️ Erro ao verificar/criar tabela operational_details:', tableError.message);
-      }
+      // Tabela operational_details já deve existir no PostgreSQL
 
       const {
         os_type,
@@ -154,12 +118,12 @@ module.exports = (pool) => {
       }
 
       // Verificar se já existe um detalhe para esta data
-      const [existing] = await pool.execute(
-        'SELECT id FROM operational_details WHERE event_date = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM operational_details WHERE event_date = $1',
         [event_date]
       );
 
-      if (existing.length > 0) {
+      if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
           error: 'Já existe um detalhe operacional para esta data. Use PUT para atualizar.'
@@ -190,10 +154,10 @@ module.exports = (pool) => {
           service_technical_responsible, commercial_total_value, commercial_payment_method,
           commercial_payment_deadline, commercial_cancellation_policy, commercial_additional_costs,
           general_damage_responsibility, general_conduct_rules, general_insurance, provider_signature
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80) RETURNING id
       `;
 
-      const [result] = await pool.execute(query, [
+      const result = await pool.query(query, [
         os_type || null,
         os_number || null,
         event_id || null,
@@ -277,7 +241,7 @@ module.exports = (pool) => {
       res.status(201).json({
         success: true,
         message: 'Detalhe operacional criado com sucesso',
-        id: result.insertId
+        id: result.rows[0].id
       });
 
     } catch (error) {
@@ -310,35 +274,37 @@ module.exports = (pool) => {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (establishment_id) {
-        query += ` AND od.establishment_id = ?`;
+        query += ` AND od.establishment_id = $${paramIndex++}`;
         params.push(establishment_id);
       }
       
       if (event_date) {
-        query += ` AND od.event_date = ?`;
+        query += ` AND od.event_date = $${paramIndex++}`;
         params.push(event_date);
       }
       
       if (is_active !== undefined) {
-        query += ` AND od.is_active = ?`;
+        query += ` AND od.is_active = $${paramIndex++}`;
         params.push(is_active === 'true' || is_active === '1' ? 1 : 0);
       }
       
       query += ` ORDER BY od.event_date DESC`;
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
         
         if (offset) {
-          query += ` OFFSET ?`;
+          query += ` OFFSET $${paramIndex++}`;
           params.push(parseInt(offset));
         }
       }
       
-      const [details] = await pool.execute(query, params);
+      const detailsResult = await pool.query(query, params);
+      const details = detailsResult.rows;
       
       res.json({
         success: true,
@@ -377,14 +343,14 @@ module.exports = (pool) => {
           p.name as establishment_name
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
-        WHERE od.event_date = ? AND od.is_active = 1
+        WHERE od.event_date = $1 AND od.is_active = 1
         ORDER BY od.updated_at DESC
         LIMIT 1
       `;
       
-      const [details] = await pool.execute(query, [date]);
+      const detailsResult = await pool.query(query, [date]);
       
-      if (details.length === 0) {
+      if (detailsResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Nenhum detalhe operacional encontrado para esta data'
@@ -393,7 +359,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: details[0]
+        data: detailsResult.rows[0]
       });
       
     } catch (error) {
@@ -422,12 +388,12 @@ module.exports = (pool) => {
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
         LEFT JOIN eventos e ON od.event_id = e.id
-        WHERE od.id = ?
+        WHERE od.id = $1
       `;
       
-      const [details] = await pool.execute(query, [id]);
+      const detailsResult = await pool.query(query, [id]);
       
-      if (details.length === 0) {
+      if (detailsResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Detalhe operacional não encontrado'
@@ -436,7 +402,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: details[0]
+        data: detailsResult.rows[0]
       });
       
     } catch (error) {
@@ -538,12 +504,12 @@ module.exports = (pool) => {
       } = req.body;
 
       // Verificar se o registro existe
-      const [existing] = await pool.execute(
-        'SELECT id FROM operational_details WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM operational_details WHERE id = $1',
         [id]
       );
 
-      if (existing.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Detalhe operacional não encontrado'
@@ -552,12 +518,12 @@ module.exports = (pool) => {
 
       // Se a data está sendo alterada, verificar se já existe outro registro com essa data
       if (event_date) {
-        const [dateConflict] = await pool.execute(
-          'SELECT id FROM operational_details WHERE event_date = ? AND id != ?',
+        const dateConflictResult = await pool.query(
+          'SELECT id FROM operational_details WHERE event_date = $1 AND id != $2',
           [event_date, id]
         );
 
-        if (dateConflict.length > 0) {
+        if (dateConflictResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
             error: 'Já existe outro detalhe operacional para esta data'
@@ -567,127 +533,128 @@ module.exports = (pool) => {
 
       const updateFields = [];
       const updateValues = [];
+      let paramIndex = 1;
 
       // Campos básicos
       if (os_type !== undefined) {
-        updateFields.push('os_type = ?');
+        updateFields.push(`os_type = $${paramIndex++}`);
         updateValues.push(os_type || null);
       }
       if (os_number !== undefined) {
-        updateFields.push('os_number = ?');
+        updateFields.push(`os_number = $${paramIndex++}`);
         updateValues.push(os_number || null);
       }
       if (event_id !== undefined) {
-        updateFields.push('event_id = ?');
+        updateFields.push(`event_id = $${paramIndex++}`);
         updateValues.push(event_id || null);
       }
       if (establishment_id !== undefined) {
-        updateFields.push('establishment_id = ?');
+        updateFields.push(`establishment_id = $${paramIndex++}`);
         updateValues.push(establishment_id || null);
       }
       if (event_date !== undefined) {
-        updateFields.push('event_date = ?');
+        updateFields.push(`event_date = $${paramIndex++}`);
         updateValues.push(event_date);
       }
       if (artistic_attraction !== undefined) {
-        updateFields.push('artistic_attraction = ?');
+        updateFields.push(`artistic_attraction = $${paramIndex++}`);
         updateValues.push(artistic_attraction);
       }
       if (show_schedule !== undefined) {
-        updateFields.push('show_schedule = ?');
+        updateFields.push(`show_schedule = $${paramIndex++}`);
         updateValues.push(show_schedule || null);
       }
       if (ticket_prices !== undefined) {
-        updateFields.push('ticket_prices = ?');
+        updateFields.push(`ticket_prices = $${paramIndex++}`);
         updateValues.push(ticket_prices);
       }
       if (promotions !== undefined) {
-        updateFields.push('promotions = ?');
+        updateFields.push(`promotions = $${paramIndex++}`);
         updateValues.push(promotions || null);
       }
       if (visual_reference_url !== undefined) {
-        updateFields.push('visual_reference_url = ?');
+        updateFields.push(`visual_reference_url = $${paramIndex++}`);
         updateValues.push(visual_reference_url || null);
       }
       if (admin_notes !== undefined) {
-        updateFields.push('admin_notes = ?');
+        updateFields.push(`admin_notes = $${paramIndex++}`);
         updateValues.push(admin_notes || null);
       }
       if (operational_instructions !== undefined) {
-        updateFields.push('operational_instructions = ?');
+        updateFields.push(`operational_instructions = $${paramIndex++}`);
         updateValues.push(operational_instructions || null);
       }
       if (is_active !== undefined) {
-        updateFields.push('is_active = ?');
+        updateFields.push(`is_active = $${paramIndex++}`);
         updateValues.push(is_active ? 1 : 0);
       }
       
       // Campos de Artista
-      if (contractor_name !== undefined) { updateFields.push('contractor_name = ?'); updateValues.push(contractor_name || null); }
-      if (contractor_cnpj !== undefined) { updateFields.push('contractor_cnpj = ?'); updateValues.push(contractor_cnpj || null); }
-      if (contractor_address !== undefined) { updateFields.push('contractor_address = ?'); updateValues.push(contractor_address || null); }
-      if (contractor_legal_responsible !== undefined) { updateFields.push('contractor_legal_responsible = ?'); updateValues.push(contractor_legal_responsible || null); }
-      if (contractor_legal_cpf !== undefined) { updateFields.push('contractor_legal_cpf = ?'); updateValues.push(contractor_legal_cpf || null); }
-      if (contractor_phone !== undefined) { updateFields.push('contractor_phone = ?'); updateValues.push(contractor_phone || null); }
-      if (contractor_email !== undefined) { updateFields.push('contractor_email = ?'); updateValues.push(contractor_email || null); }
-      if (artist_artistic_name !== undefined) { updateFields.push('artist_artistic_name = ?'); updateValues.push(artist_artistic_name || null); }
-      if (artist_full_name !== undefined) { updateFields.push('artist_full_name = ?'); updateValues.push(artist_full_name || null); }
-      if (artist_cpf_cnpj !== undefined) { updateFields.push('artist_cpf_cnpj = ?'); updateValues.push(artist_cpf_cnpj || null); }
-      if (artist_address !== undefined) { updateFields.push('artist_address = ?'); updateValues.push(artist_address || null); }
-      if (artist_phone !== undefined) { updateFields.push('artist_phone = ?'); updateValues.push(artist_phone || null); }
-      if (artist_email !== undefined) { updateFields.push('artist_email = ?'); updateValues.push(artist_email || null); }
-      if (artist_responsible_name !== undefined) { updateFields.push('artist_responsible_name = ?'); updateValues.push(artist_responsible_name || null); }
-      if (artist_bank_name !== undefined) { updateFields.push('artist_bank_name = ?'); updateValues.push(artist_bank_name || null); }
-      if (artist_bank_agency !== undefined) { updateFields.push('artist_bank_agency = ?'); updateValues.push(artist_bank_agency || null); }
-      if (artist_bank_account !== undefined) { updateFields.push('artist_bank_account = ?'); updateValues.push(artist_bank_account || null); }
-      if (artist_bank_account_type !== undefined) { updateFields.push('artist_bank_account_type = ?'); updateValues.push(artist_bank_account_type || null); }
-      if (event_name !== undefined) { updateFields.push('event_name = ?'); updateValues.push(event_name || null); }
-      if (event_location_address !== undefined) { updateFields.push('event_location_address = ?'); updateValues.push(event_location_address || null); }
-      if (event_presentation_date !== undefined) { updateFields.push('event_presentation_date = ?'); updateValues.push(event_presentation_date || null); }
-      if (event_presentation_time !== undefined) { updateFields.push('event_presentation_time = ?'); updateValues.push(event_presentation_time || null); }
-      if (event_duration !== undefined) { updateFields.push('event_duration = ?'); updateValues.push(event_duration || null); }
-      if (event_soundcheck_time !== undefined) { updateFields.push('event_soundcheck_time = ?'); updateValues.push(event_soundcheck_time || null); }
-      if (event_structure_offered !== undefined) { updateFields.push('event_structure_offered = ?'); updateValues.push(event_structure_offered || null); }
-      if (event_equipment_provided_by_contractor !== undefined) { updateFields.push('event_equipment_provided_by_contractor = ?'); updateValues.push(event_equipment_provided_by_contractor || null); }
-      if (event_equipment_brought_by_artist !== undefined) { updateFields.push('event_equipment_brought_by_artist = ?'); updateValues.push(event_equipment_brought_by_artist || null); }
-      if (financial_total_value !== undefined) { updateFields.push('financial_total_value = ?'); updateValues.push(financial_total_value || null); }
-      if (financial_payment_method !== undefined) { updateFields.push('financial_payment_method = ?'); updateValues.push(financial_payment_method || null); }
-      if (financial_payment_conditions !== undefined) { updateFields.push('financial_payment_conditions = ?'); updateValues.push(financial_payment_conditions || null); }
-      if (financial_discounts_or_fees !== undefined) { updateFields.push('financial_discounts_or_fees = ?'); updateValues.push(financial_discounts_or_fees || null); }
-      if (general_penalties !== undefined) { updateFields.push('general_penalties = ?'); updateValues.push(general_penalties || null); }
-      if (general_transport_responsibility !== undefined) { updateFields.push('general_transport_responsibility = ?'); updateValues.push(general_transport_responsibility || null); }
-      if (general_image_rights !== undefined) { updateFields.push('general_image_rights = ?'); updateValues.push(general_image_rights || null); }
-      if (contractor_signature !== undefined) { updateFields.push('contractor_signature = ?'); updateValues.push(contractor_signature || null); }
-      if (artist_signature !== undefined) { updateFields.push('artist_signature = ?'); updateValues.push(artist_signature || null); }
+      if (contractor_name !== undefined) { updateFields.push(`contractor_name = $${paramIndex++}`); updateValues.push(contractor_name || null); }
+      if (contractor_cnpj !== undefined) { updateFields.push(`contractor_cnpj = $${paramIndex++}`); updateValues.push(contractor_cnpj || null); }
+      if (contractor_address !== undefined) { updateFields.push(`contractor_address = $${paramIndex++}`); updateValues.push(contractor_address || null); }
+      if (contractor_legal_responsible !== undefined) { updateFields.push(`contractor_legal_responsible = $${paramIndex++}`); updateValues.push(contractor_legal_responsible || null); }
+      if (contractor_legal_cpf !== undefined) { updateFields.push(`contractor_legal_cpf = $${paramIndex++}`); updateValues.push(contractor_legal_cpf || null); }
+      if (contractor_phone !== undefined) { updateFields.push(`contractor_phone = $${paramIndex++}`); updateValues.push(contractor_phone || null); }
+      if (contractor_email !== undefined) { updateFields.push(`contractor_email = $${paramIndex++}`); updateValues.push(contractor_email || null); }
+      if (artist_artistic_name !== undefined) { updateFields.push(`artist_artistic_name = $${paramIndex++}`); updateValues.push(artist_artistic_name || null); }
+      if (artist_full_name !== undefined) { updateFields.push(`artist_full_name = $${paramIndex++}`); updateValues.push(artist_full_name || null); }
+      if (artist_cpf_cnpj !== undefined) { updateFields.push(`artist_cpf_cnpj = $${paramIndex++}`); updateValues.push(artist_cpf_cnpj || null); }
+      if (artist_address !== undefined) { updateFields.push(`artist_address = $${paramIndex++}`); updateValues.push(artist_address || null); }
+      if (artist_phone !== undefined) { updateFields.push(`artist_phone = $${paramIndex++}`); updateValues.push(artist_phone || null); }
+      if (artist_email !== undefined) { updateFields.push(`artist_email = $${paramIndex++}`); updateValues.push(artist_email || null); }
+      if (artist_responsible_name !== undefined) { updateFields.push(`artist_responsible_name = $${paramIndex++}`); updateValues.push(artist_responsible_name || null); }
+      if (artist_bank_name !== undefined) { updateFields.push(`artist_bank_name = $${paramIndex++}`); updateValues.push(artist_bank_name || null); }
+      if (artist_bank_agency !== undefined) { updateFields.push(`artist_bank_agency = $${paramIndex++}`); updateValues.push(artist_bank_agency || null); }
+      if (artist_bank_account !== undefined) { updateFields.push(`artist_bank_account = $${paramIndex++}`); updateValues.push(artist_bank_account || null); }
+      if (artist_bank_account_type !== undefined) { updateFields.push(`artist_bank_account_type = $${paramIndex++}`); updateValues.push(artist_bank_account_type || null); }
+      if (event_name !== undefined) { updateFields.push(`event_name = $${paramIndex++}`); updateValues.push(event_name || null); }
+      if (event_location_address !== undefined) { updateFields.push(`event_location_address = $${paramIndex++}`); updateValues.push(event_location_address || null); }
+      if (event_presentation_date !== undefined) { updateFields.push(`event_presentation_date = $${paramIndex++}`); updateValues.push(event_presentation_date || null); }
+      if (event_presentation_time !== undefined) { updateFields.push(`event_presentation_time = $${paramIndex++}`); updateValues.push(event_presentation_time || null); }
+      if (event_duration !== undefined) { updateFields.push(`event_duration = $${paramIndex++}`); updateValues.push(event_duration || null); }
+      if (event_soundcheck_time !== undefined) { updateFields.push(`event_soundcheck_time = $${paramIndex++}`); updateValues.push(event_soundcheck_time || null); }
+      if (event_structure_offered !== undefined) { updateFields.push(`event_structure_offered = $${paramIndex++}`); updateValues.push(event_structure_offered || null); }
+      if (event_equipment_provided_by_contractor !== undefined) { updateFields.push(`event_equipment_provided_by_contractor = $${paramIndex++}`); updateValues.push(event_equipment_provided_by_contractor || null); }
+      if (event_equipment_brought_by_artist !== undefined) { updateFields.push(`event_equipment_brought_by_artist = $${paramIndex++}`); updateValues.push(event_equipment_brought_by_artist || null); }
+      if (financial_total_value !== undefined) { updateFields.push(`financial_total_value = $${paramIndex++}`); updateValues.push(financial_total_value || null); }
+      if (financial_payment_method !== undefined) { updateFields.push(`financial_payment_method = $${paramIndex++}`); updateValues.push(financial_payment_method || null); }
+      if (financial_payment_conditions !== undefined) { updateFields.push(`financial_payment_conditions = $${paramIndex++}`); updateValues.push(financial_payment_conditions || null); }
+      if (financial_discounts_or_fees !== undefined) { updateFields.push(`financial_discounts_or_fees = $${paramIndex++}`); updateValues.push(financial_discounts_or_fees || null); }
+      if (general_penalties !== undefined) { updateFields.push(`general_penalties = $${paramIndex++}`); updateValues.push(general_penalties || null); }
+      if (general_transport_responsibility !== undefined) { updateFields.push(`general_transport_responsibility = $${paramIndex++}`); updateValues.push(general_transport_responsibility || null); }
+      if (general_image_rights !== undefined) { updateFields.push(`general_image_rights = $${paramIndex++}`); updateValues.push(general_image_rights || null); }
+      if (contractor_signature !== undefined) { updateFields.push(`contractor_signature = $${paramIndex++}`); updateValues.push(contractor_signature || null); }
+      if (artist_signature !== undefined) { updateFields.push(`artist_signature = $${paramIndex++}`); updateValues.push(artist_signature || null); }
       
       // Campos de Bar/Fornecedor
-      if (provider_name !== undefined) { updateFields.push('provider_name = ?'); updateValues.push(provider_name || null); }
-      if (provider_cpf_cnpj !== undefined) { updateFields.push('provider_cpf_cnpj = ?'); updateValues.push(provider_cpf_cnpj || null); }
-      if (provider_address !== undefined) { updateFields.push('provider_address = ?'); updateValues.push(provider_address || null); }
-      if (provider_responsible_name !== undefined) { updateFields.push('provider_responsible_name = ?'); updateValues.push(provider_responsible_name || null); }
-      if (provider_responsible_contact !== undefined) { updateFields.push('provider_responsible_contact = ?'); updateValues.push(provider_responsible_contact || null); }
-      if (provider_bank_name !== undefined) { updateFields.push('provider_bank_name = ?'); updateValues.push(provider_bank_name || null); }
-      if (provider_bank_agency !== undefined) { updateFields.push('provider_bank_agency = ?'); updateValues.push(provider_bank_agency || null); }
-      if (provider_bank_account !== undefined) { updateFields.push('provider_bank_account = ?'); updateValues.push(provider_bank_account || null); }
-      if (provider_bank_account_type !== undefined) { updateFields.push('provider_bank_account_type = ?'); updateValues.push(provider_bank_account_type || null); }
-      if (service_type !== undefined) { updateFields.push('service_type = ?'); updateValues.push(service_type || null); }
-      if (service_professionals_count !== undefined) { updateFields.push('service_professionals_count = ?'); updateValues.push(service_professionals_count || null); }
-      if (service_materials_included !== undefined) { updateFields.push('service_materials_included = ?'); updateValues.push(service_materials_included || null); }
-      if (service_start_date !== undefined) { updateFields.push('service_start_date = ?'); updateValues.push(service_start_date || null); }
-      if (service_start_time !== undefined) { updateFields.push('service_start_time = ?'); updateValues.push(service_start_time || null); }
-      if (service_end_date !== undefined) { updateFields.push('service_end_date = ?'); updateValues.push(service_end_date || null); }
-      if (service_end_time !== undefined) { updateFields.push('service_end_time = ?'); updateValues.push(service_end_time || null); }
-      if (service_setup_location !== undefined) { updateFields.push('service_setup_location = ?'); updateValues.push(service_setup_location || null); }
-      if (service_technical_responsible !== undefined) { updateFields.push('service_technical_responsible = ?'); updateValues.push(service_technical_responsible || null); }
-      if (commercial_total_value !== undefined) { updateFields.push('commercial_total_value = ?'); updateValues.push(commercial_total_value || null); }
-      if (commercial_payment_method !== undefined) { updateFields.push('commercial_payment_method = ?'); updateValues.push(commercial_payment_method || null); }
-      if (commercial_payment_deadline !== undefined) { updateFields.push('commercial_payment_deadline = ?'); updateValues.push(commercial_payment_deadline || null); }
-      if (commercial_cancellation_policy !== undefined) { updateFields.push('commercial_cancellation_policy = ?'); updateValues.push(commercial_cancellation_policy || null); }
-      if (commercial_additional_costs !== undefined) { updateFields.push('commercial_additional_costs = ?'); updateValues.push(commercial_additional_costs || null); }
-      if (general_damage_responsibility !== undefined) { updateFields.push('general_damage_responsibility = ?'); updateValues.push(general_damage_responsibility || null); }
-      if (general_conduct_rules !== undefined) { updateFields.push('general_conduct_rules = ?'); updateValues.push(general_conduct_rules || null); }
-      if (general_insurance !== undefined) { updateFields.push('general_insurance = ?'); updateValues.push(general_insurance || null); }
-      if (provider_signature !== undefined) { updateFields.push('provider_signature = ?'); updateValues.push(provider_signature || null); }
+      if (provider_name !== undefined) { updateFields.push(`provider_name = $${paramIndex++}`); updateValues.push(provider_name || null); }
+      if (provider_cpf_cnpj !== undefined) { updateFields.push(`provider_cpf_cnpj = $${paramIndex++}`); updateValues.push(provider_cpf_cnpj || null); }
+      if (provider_address !== undefined) { updateFields.push(`provider_address = $${paramIndex++}`); updateValues.push(provider_address || null); }
+      if (provider_responsible_name !== undefined) { updateFields.push(`provider_responsible_name = $${paramIndex++}`); updateValues.push(provider_responsible_name || null); }
+      if (provider_responsible_contact !== undefined) { updateFields.push(`provider_responsible_contact = $${paramIndex++}`); updateValues.push(provider_responsible_contact || null); }
+      if (provider_bank_name !== undefined) { updateFields.push(`provider_bank_name = $${paramIndex++}`); updateValues.push(provider_bank_name || null); }
+      if (provider_bank_agency !== undefined) { updateFields.push(`provider_bank_agency = $${paramIndex++}`); updateValues.push(provider_bank_agency || null); }
+      if (provider_bank_account !== undefined) { updateFields.push(`provider_bank_account = $${paramIndex++}`); updateValues.push(provider_bank_account || null); }
+      if (provider_bank_account_type !== undefined) { updateFields.push(`provider_bank_account_type = $${paramIndex++}`); updateValues.push(provider_bank_account_type || null); }
+      if (service_type !== undefined) { updateFields.push(`service_type = $${paramIndex++}`); updateValues.push(service_type || null); }
+      if (service_professionals_count !== undefined) { updateFields.push(`service_professionals_count = $${paramIndex++}`); updateValues.push(service_professionals_count || null); }
+      if (service_materials_included !== undefined) { updateFields.push(`service_materials_included = $${paramIndex++}`); updateValues.push(service_materials_included || null); }
+      if (service_start_date !== undefined) { updateFields.push(`service_start_date = $${paramIndex++}`); updateValues.push(service_start_date || null); }
+      if (service_start_time !== undefined) { updateFields.push(`service_start_time = $${paramIndex++}`); updateValues.push(service_start_time || null); }
+      if (service_end_date !== undefined) { updateFields.push(`service_end_date = $${paramIndex++}`); updateValues.push(service_end_date || null); }
+      if (service_end_time !== undefined) { updateFields.push(`service_end_time = $${paramIndex++}`); updateValues.push(service_end_time || null); }
+      if (service_setup_location !== undefined) { updateFields.push(`service_setup_location = $${paramIndex++}`); updateValues.push(service_setup_location || null); }
+      if (service_technical_responsible !== undefined) { updateFields.push(`service_technical_responsible = $${paramIndex++}`); updateValues.push(service_technical_responsible || null); }
+      if (commercial_total_value !== undefined) { updateFields.push(`commercial_total_value = $${paramIndex++}`); updateValues.push(commercial_total_value || null); }
+      if (commercial_payment_method !== undefined) { updateFields.push(`commercial_payment_method = $${paramIndex++}`); updateValues.push(commercial_payment_method || null); }
+      if (commercial_payment_deadline !== undefined) { updateFields.push(`commercial_payment_deadline = $${paramIndex++}`); updateValues.push(commercial_payment_deadline || null); }
+      if (commercial_cancellation_policy !== undefined) { updateFields.push(`commercial_cancellation_policy = $${paramIndex++}`); updateValues.push(commercial_cancellation_policy || null); }
+      if (commercial_additional_costs !== undefined) { updateFields.push(`commercial_additional_costs = $${paramIndex++}`); updateValues.push(commercial_additional_costs || null); }
+      if (general_damage_responsibility !== undefined) { updateFields.push(`general_damage_responsibility = $${paramIndex++}`); updateValues.push(general_damage_responsibility || null); }
+      if (general_conduct_rules !== undefined) { updateFields.push(`general_conduct_rules = $${paramIndex++}`); updateValues.push(general_conduct_rules || null); }
+      if (general_insurance !== undefined) { updateFields.push(`general_insurance = $${paramIndex++}`); updateValues.push(general_insurance || null); }
+      if (provider_signature !== undefined) { updateFields.push(`provider_signature = $${paramIndex++}`); updateValues.push(provider_signature || null); }
 
       if (updateFields.length === 0) {
         return res.status(400).json({
@@ -701,10 +668,10 @@ module.exports = (pool) => {
       const query = `
         UPDATE operational_details 
         SET ${updateFields.join(', ')}
-        WHERE id = ?
+        WHERE id = $${paramIndex}
       `;
 
-      await pool.execute(query, updateValues);
+      await pool.query(query, updateValues);
 
       res.json({
         success: true,
@@ -730,19 +697,19 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se o registro existe
-      const [existing] = await pool.execute(
-        'SELECT id FROM operational_details WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM operational_details WHERE id = $1',
         [id]
       );
 
-      if (existing.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Detalhe operacional não encontrado'
         });
       }
 
-      await pool.execute('DELETE FROM operational_details WHERE id = ?', [id]);
+      await pool.query('DELETE FROM operational_details WHERE id = $1', [id]);
 
       res.json({
         success: true,

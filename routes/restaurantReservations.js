@@ -32,21 +32,23 @@ module.exports = (pool) => {
         WHERE 1=1
       `;
       const params = [];
+      let paramIndex = 1;
       
       // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
       if (include_cancelled !== 'true') {
         query += ` AND rr.status NOT IN ('cancelled', 'CANCELADA')`;
       }
       
-      if (date) { query += ` AND rr.reservation_date = ?`; params.push(date); }
-      if (status) { query += ` AND rr.status = ?`; params.push(status); }
-      if (area_id) { query += ` AND rr.area_id = ?`; params.push(area_id); }
-      if (establishment_id) { query += ` AND rr.establishment_id = ?`; params.push(establishment_id); }
-      if (sort && order) { query += ` ORDER BY rr.${sort} ${order.toUpperCase()}`; } 
+      if (date) { query += ` AND rr.reservation_date = $${paramIndex++}`; params.push(date); }
+      if (status) { query += ` AND rr.status = $${paramIndex++}`; params.push(status); }
+      if (area_id) { query += ` AND rr.area_id = $${paramIndex++}`; params.push(area_id); }
+      if (establishment_id) { query += ` AND rr.establishment_id = $${paramIndex++}`; params.push(establishment_id); }
+      if (sort && order) { query += ` ORDER BY rr."${sort}" ${order.toUpperCase()}`; } 
       else { query += ` ORDER BY rr.reservation_date DESC, rr.reservation_time DESC`; }
-      if (limit) { query += ` LIMIT ?`; params.push(parseInt(limit)); }
+      if (limit) { query += ` LIMIT $${paramIndex++}`; params.push(parseInt(limit)); }
 
-      const [reservations] = await pool.execute(query, params);
+      const reservationsResult = await pool.query(query, params);
+      const reservations = reservationsResult.rows;
       
       console.log(`✅ [GET /restaurant-reservations] ${reservations.length} reservas encontradas`);
       
@@ -81,29 +83,29 @@ module.exports = (pool) => {
       }
 
       // Calcular capacidade total do estabelecimento
-      const [areas] = await pool.execute(
+      const areasResult = await pool.query(
         'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
       );
-      const totalCapacity = areas[0].total_capacity || 0;
+      const totalCapacity = parseInt(areasResult.rows[0].total_capacity) || 0;
 
       // Contar pessoas das reservas ativas para a data
-      const [activeReservations] = await pool.execute(`
+      const activeReservationsResult = await pool.query(`
         SELECT SUM(number_of_people) as total_people
         FROM restaurant_reservations
-        WHERE reservation_date = ?
-        AND establishment_id = ?
+        WHERE reservation_date = $1
+        AND establishment_id = $2
         AND status IN ('confirmed', 'checked-in')
       `, [date, establishment_id]);
 
-      const currentPeople = activeReservations[0].total_people || 0;
+      const currentPeople = parseInt(activeReservationsResult.rows[0].total_people) || 0;
       const newPeople = parseInt(new_reservation_people) || 0;
       const totalWithNew = currentPeople + newPeople;
 
       // Verificar se há pessoas na lista de espera
-      const [waitlistCount] = await pool.execute(
-        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      const waitlistCountResult = await pool.query(
+        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
       );
-      const hasWaitlist = waitlistCount[0].count > 0;
+      const hasWaitlist = parseInt(waitlistCountResult.rows[0].count) > 0;
 
       const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
 
@@ -140,30 +142,30 @@ module.exports = (pool) => {
       const today = new Date().toISOString().split('T')[0];
 
       // Total de reservas
-      const [totalReservations] = await pool.execute(
+      const totalReservationsResult = await pool.query(
         'SELECT COUNT(*) as count FROM restaurant_reservations'
       );
 
       // Reservas de hoje
-      const [todayReservations] = await pool.execute(
-        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = ?',
+      const todayReservationsResult = await pool.query(
+        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = $1',
         [today]
       );
 
       // Taxa de ocupação (simplificada)
-      const [occupancyRate] = await pool.execute(`
+      const occupancyRateResult = await pool.query(`
         SELECT
           (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / COUNT(*)) as rate
         FROM restaurant_reservations
-        WHERE reservation_date = ?
+        WHERE reservation_date = $1
       `, [today]);
 
       res.json({
         success: true,
         stats: {
-          totalReservations: totalReservations[0].count,
-          todayReservations: todayReservations[0].count,
-          occupancyRate: Math.round(occupancyRate[0].rate || 0)
+          totalReservations: parseInt(totalReservationsResult.rows[0].count),
+          todayReservations: parseInt(todayReservationsResult.rows[0].count),
+          occupancyRate: Math.round(parseFloat(occupancyRateResult.rows[0].rate) || 0)
         }
       });
 
@@ -196,12 +198,12 @@ module.exports = (pool) => {
         LEFT JOIN users u ON rr.created_by = u.id
         LEFT JOIN places p ON rr.establishment_id = p.id
         LEFT JOIN bars b ON rr.establishment_id = b.id
-        WHERE rr.id = ?
+        WHERE rr.id = $1
       `;
 
-      const [reservations] = await pool.execute(query, [id]);
+      const reservationResult = await pool.query(query, [id]);
 
-      if (reservations.length === 0) {
+      if (reservationResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
@@ -210,7 +212,7 @@ module.exports = (pool) => {
 
       res.json({
         success: true,
-        reservation: reservations[0]
+        reservation: reservationResult.rows[0]
       });
 
     } catch (error) {
@@ -270,14 +272,14 @@ module.exports = (pool) => {
 
       // Validação: se table_number foi informado, verificar conflito no dia inteiro
       if (table_number && area_id && reservation_date) {
-        const [conflicts] = await pool.execute(
+        const conflictsResult = await pool.query(
           `SELECT id FROM restaurant_reservations
-           WHERE reservation_date = ? AND area_id = ? AND table_number = ?
+           WHERE reservation_date = $1 AND area_id = $2 AND table_number = $3
            AND status NOT IN ('CANCELADA')
            LIMIT 1`,
           [reservation_date, area_id, String(table_number)]
         );
-        if (conflicts.length > 0) {
+        if (conflictsResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
             error: 'Mesa já reservada para este dia'
@@ -288,17 +290,12 @@ module.exports = (pool) => {
       // Validação: se table_number foi informado, conferir se a mesa existe e pertence à área
       if (table_number && area_id) {
         try {
-          const [tableExists] = await pool.execute(
-            `SHOW TABLES LIKE 'restaurant_tables'`
+          const tableRowResult = await pool.query(
+            `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = 1 LIMIT 1`,
+            [area_id, String(table_number)]
           );
-          if (tableExists.length > 0) {
-            const [tableRow] = await pool.execute(
-              `SELECT id FROM restaurant_tables WHERE area_id = ? AND table_number = ? AND is_active = 1 LIMIT 1`,
-              [area_id, String(table_number)]
-            );
-            if (tableRow.length === 0) {
-              return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
-            }
+          if (tableRowResult.rows.length === 0) {
+            return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
           }
         } catch (e) {
           // Se a tabela de mesas não existir ainda, segue sem impedir criação
@@ -312,7 +309,7 @@ module.exports = (pool) => {
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
           status, origin, notes, created_by, establishment_id, evento_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
       `;
 
       // Garantir que todos os parâmetros sejam válidos
@@ -336,11 +333,11 @@ module.exports = (pool) => {
 
       console.log('📝 Parâmetros de inserção:', insertParams);
       
-      const [result] = await pool.execute(insertQuery, insertParams);
-      const reservationId = result.insertId;
+      const result = await pool.query(insertQuery, insertParams);
+      const reservationId = result.rows[0].id;
 
       // Buscar a reserva criada com dados completos
-      const [newReservation] = await pool.execute(`
+      const newReservationResult = await pool.query(`
         SELECT
           rr.*,
           ra.name as area_name,
@@ -351,7 +348,7 @@ module.exports = (pool) => {
         LEFT JOIN users u ON rr.created_by = u.id
         LEFT JOIN places p ON rr.establishment_id = p.id
         LEFT JOIN bars b ON rr.establishment_id = b.id
-        WHERE rr.id = ?
+        WHERE rr.id = $1
       `, [reservationId]);
 
       // Enviar notificações em criação (cliente e admin)
@@ -360,7 +357,7 @@ module.exports = (pool) => {
       // Enviar email de confirmação
       if (send_email && client_email) {
         try {
-          const emailResult = await notificationService.sendReservationConfirmationEmail(newReservation[0]);
+          const emailResult = await notificationService.sendReservationConfirmationEmail(newReservationResult.rows[0]);
           if (emailResult.success) {
             console.log('✅ Email de confirmação enviado');
           } else {
@@ -374,7 +371,7 @@ module.exports = (pool) => {
       // Enviar WhatsApp de confirmação
       if (send_whatsapp && client_phone) {
         try {
-          const whatsappResult = await notificationService.sendReservationConfirmationWhatsApp(newReservation[0]);
+          const whatsappResult = await notificationService.sendReservationConfirmationWhatsApp(newReservationResult.rows[0]);
           if (whatsappResult.success) {
             console.log('✅ WhatsApp de confirmação enviado');
           } else {
@@ -387,7 +384,7 @@ module.exports = (pool) => {
 
       // Enviar notificação para admin (sempre)
       try {
-        await notificationService.sendAdminReservationNotification(newReservation[0]);
+        await notificationService.sendAdminReservationNotification(newReservationResult.rows[0]);
         console.log('✅ Notificação admin enviada');
       } catch (error) {
         console.error('❌ Erro ao enviar notificação admin:', error);
@@ -396,9 +393,9 @@ module.exports = (pool) => {
       // Registrar log de ação
       if (created_by) {
         try {
-          const [userInfo] = await pool.execute('SELECT id, name, email, role FROM users WHERE id = ?', [created_by]);
-          if (userInfo.length > 0) {
-            const user = userInfo[0];
+          const userInfoResult = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [created_by]);
+          if (userInfoResult.rows.length > 0) {
+            const user = userInfoResult.rows[0];
             await logAction(pool, {
               userId: user.id,
               userName: user.name,
@@ -409,12 +406,12 @@ module.exports = (pool) => {
               resourceType: 'restaurant_reservation',
               resourceId: reservationId,
               establishmentId: establishment_id,
-              establishmentName: newReservation[0].establishment_name,
+              establishmentName: newReservationResult.rows[0].establishment_name,
               status: 'success',
               additionalData: {
                 client_name,
                 number_of_people,
-                area_name: newReservation[0].area_name,
+                area_name: newReservationResult.rows[0].area_name,
                 table_number
               }
             });
@@ -467,9 +464,9 @@ module.exports = (pool) => {
           }
 
           // Criar a guest list vinculada à reserva
-          await pool.execute(
+          await pool.query(
             `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-             VALUES (?, 'restaurant', ?, ?, ?)`,
+             VALUES ($1, 'restaurant', $2, $3, $4)`,
             [reservationId, eventType, token, expiresAt]
           );
 
@@ -489,7 +486,7 @@ module.exports = (pool) => {
       const responseBody = {
         success: true,
         message: 'Reserva criada com sucesso',
-        reservation: newReservation[0]
+        reservation: newReservationResult.rows[0]
       };
 
       // Adicionar o link da lista de convidados se foi criado
@@ -538,12 +535,12 @@ module.exports = (pool) => {
       } = req.body;
 
       // Verificar se a reserva existe
-      const [existingReservation] = await pool.execute(
-        'SELECT id FROM restaurant_reservations WHERE id = ?',
+      const existingReservationResult = await pool.query(
+        'SELECT id FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
-      if (existingReservation.length === 0) {
+      if (existingReservationResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
@@ -553,65 +550,66 @@ module.exports = (pool) => {
       // Construir query dinamicamente baseado nos campos fornecidos
       let updateFields = [];
       let params = [];
+      let paramIndex = 1;
 
       if (client_name !== undefined) {
-        updateFields.push('client_name = ?');
+        updateFields.push(`client_name = $${paramIndex++}`);
         params.push(client_name);
       }
       if (client_phone !== undefined) {
-        updateFields.push('client_phone = ?');
+        updateFields.push(`client_phone = $${paramIndex++}`);
         params.push(client_phone);
       }
       if (client_email !== undefined) {
-        updateFields.push('client_email = ?');
+        updateFields.push(`client_email = $${paramIndex++}`);
         params.push(client_email);
       }
       if (data_nascimento_cliente !== undefined) {
-        updateFields.push('data_nascimento_cliente = ?');
+        updateFields.push(`data_nascimento_cliente = $${paramIndex++}`);
         params.push(data_nascimento_cliente);
       }
       if (reservation_date !== undefined) {
-        updateFields.push('reservation_date = ?');
+        updateFields.push(`reservation_date = $${paramIndex++}`);
         params.push(reservation_date);
       }
       if (reservation_time !== undefined) {
-        updateFields.push('reservation_time = ?');
+        updateFields.push(`reservation_time = $${paramIndex++}`);
         params.push(reservation_time);
       }
       if (number_of_people !== undefined) {
-        updateFields.push('number_of_people = ?');
+        updateFields.push(`number_of_people = $${paramIndex++}`);
         params.push(number_of_people);
       }
       if (area_id !== undefined) {
-        updateFields.push('area_id = ?');
+        updateFields.push(`area_id = $${paramIndex++}`);
         params.push(area_id);
       }
       if (table_number !== undefined) {
-        updateFields.push('table_number = ?');
+        updateFields.push(`table_number = $${paramIndex++}`);
         params.push(table_number);
       }
       if (status !== undefined) {
-        updateFields.push('status = ?');
+        updateFields.push(`status = $${paramIndex++}`);
         params.push(status);
       }
       if (origin !== undefined) {
-        updateFields.push('origin = ?');
+        updateFields.push(`origin = $${paramIndex++}`);
         params.push(origin);
       }
       if (notes !== undefined) {
-        updateFields.push('notes = ?');
+        updateFields.push(`notes = $${paramIndex++}`);
         params.push(notes);
       }
       if (check_in_time !== undefined) {
-        updateFields.push('check_in_time = ?');
+        updateFields.push(`check_in_time = $${paramIndex++}`);
         params.push(check_in_time);
       }
       if (check_out_time !== undefined) {
-        updateFields.push('check_out_time = ?');
+        updateFields.push(`check_out_time = $${paramIndex++}`);
         params.push(check_out_time);
       }
       if (evento_id !== undefined) {
-        updateFields.push('evento_id = ?');
+        updateFields.push(`evento_id = $${paramIndex++}`);
         params.push(evento_id);
       }
 
@@ -622,10 +620,10 @@ module.exports = (pool) => {
       const query = `
         UPDATE restaurant_reservations SET
           ${updateFields.join(', ')}
-        WHERE id = ?
+        WHERE id = $${paramIndex}
       `;
 
-      await pool.execute(query, params);
+      await pool.query(query, params);
 
       // Se o status foi alterado para 'completed', verificar lista de espera
       if (status === 'completed') {
@@ -633,7 +631,7 @@ module.exports = (pool) => {
       }
 
       // Buscar a reserva atualizada
-      const [updatedReservation] = await pool.execute(`
+      const updatedReservationResult = await pool.query(`
         SELECT
           rr.*,
           ra.name as area_name,
@@ -644,14 +642,14 @@ module.exports = (pool) => {
         LEFT JOIN users u ON rr.created_by = u.id
         LEFT JOIN places p ON rr.establishment_id = p.id
         LEFT JOIN bars b ON rr.establishment_id = b.id
-        WHERE rr.id = ?
+        WHERE rr.id = $1
       `, [id]);
 
       // Enviar notificações quando o status for confirmado (cliente e admin)
       try {
         if (status && (String(status).toLowerCase() === 'confirmed' || String(status).toUpperCase() === 'CONFIRMADA')) {
           const notificationService = new NotificationService();
-          const r = updatedReservation[0];
+          const r = updatedReservationResult.rows[0];
           if (r?.client_email) {
             try {
               const emailResult = await notificationService.sendReservationConfirmedEmail(r);
@@ -678,11 +676,11 @@ module.exports = (pool) => {
       }
 
       // Registrar log de ação de atualização
-      if (updatedReservation[0].created_by) {
+      if (updatedReservationResult.rows[0].created_by) {
         try {
-          const [userInfo] = await pool.execute('SELECT id, name, email, role FROM users WHERE id = ?', [updatedReservation[0].created_by]);
-          if (userInfo.length > 0) {
-            const user = userInfo[0];
+          const userInfoResult = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [updatedReservationResult.rows[0].created_by]);
+          if (userInfoResult.rows.length > 0) {
+            const user = userInfoResult.rows[0];
             const changedFields = [];
             if (status !== undefined) changedFields.push(`status: ${status}`);
             if (table_number !== undefined) changedFields.push(`mesa: ${table_number}`);
@@ -697,12 +695,12 @@ module.exports = (pool) => {
               actionDescription: `Atualizou reserva #${id} - ${changedFields.join(', ')}`,
               resourceType: 'restaurant_reservation',
               resourceId: id,
-              establishmentId: updatedReservation[0].establishment_id,
-              establishmentName: updatedReservation[0].establishment_name,
+              establishmentId: updatedReservationResult.rows[0].establishment_id,
+              establishmentName: updatedReservationResult.rows[0].establishment_name,
               status: 'success',
               additionalData: {
                 changed_fields: changedFields,
-                client_name: updatedReservation[0].client_name
+                client_name: updatedReservationResult.rows[0].client_name
               }
             });
           }
@@ -714,7 +712,7 @@ module.exports = (pool) => {
       res.json({
         success: true,
         message: 'Reserva atualizada com sucesso',
-        reservation: updatedReservation[0]
+        reservation: updatedReservationResult.rows[0]
       });
 
     } catch (error) {
@@ -738,19 +736,19 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se a reserva existe
-      const [existingReservation] = await pool.execute(
-        'SELECT id FROM restaurant_reservations WHERE id = ?',
+      const existingReservationResult = await pool.query(
+        'SELECT id FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
-      if (existingReservation.length === 0) {
+      if (existingReservationResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
         });
       }
 
-      await pool.execute('DELETE FROM restaurant_reservations WHERE id = ?', [id]);
+      await pool.query('DELETE FROM restaurant_reservations WHERE id = $1', [id]);
 
       res.json({
         success: true,
@@ -772,19 +770,19 @@ module.exports = (pool) => {
   async function checkWaitlistAndNotify(pool) {
     try {
       // Buscar a próxima pessoa na lista de espera
-      const [nextInLine] = await pool.execute(`
+      const nextInLineResult = await pool.query(`
         SELECT * FROM waitlist
         WHERE status = 'AGUARDANDO'
         ORDER BY position ASC, created_at ASC
         LIMIT 1
       `);
 
-      if (nextInLine.length > 0) {
-        const customer = nextInLine[0];
+      if (nextInLineResult.rows.length > 0) {
+        const customer = nextInLineResult.rows[0];
 
         // Atualizar status para CHAMADO
-        await pool.execute(
-          'UPDATE waitlist SET status = "CHAMADO", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        await pool.query(
+          "UPDATE waitlist SET status = 'CHAMADO', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
           [customer.id]
         );
 
@@ -815,17 +813,17 @@ module.exports = (pool) => {
   // Função auxiliar para recalcular posições da lista de espera
   async function recalculateWaitlistPositions(pool) {
     try {
-      const [waitingItems] = await pool.execute(
-        'SELECT id FROM waitlist WHERE status = "AGUARDANDO" ORDER BY created_at ASC'
+      const waitingItemsResult = await pool.query(
+        "SELECT id FROM waitlist WHERE status = 'AGUARDANDO' ORDER BY created_at ASC"
       );
 
-      for (let i = 0; i < waitingItems.length; i++) {
+      for (let i = 0; i < waitingItemsResult.rows.length; i++) {
         const newPosition = i + 1;
         const estimatedWaitTime = i * 15; // 15 minutos por pessoa na frente
 
-        await pool.execute(
-          'UPDATE waitlist SET position = ?, estimated_wait_time = ? WHERE id = ?',
-          [newPosition, estimatedWaitTime, waitingItems[i].id]
+        await pool.query(
+          'UPDATE waitlist SET position = $1, estimated_wait_time = $2 WHERE id = $3',
+          [newPosition, estimatedWaitTime, waitingItemsResult.rows[i].id]
         );
       }
     } catch (error) {
@@ -844,10 +842,11 @@ module.exports = (pool) => {
       const { event_type } = req.body;
 
       // Verificar se a reserva existe
-      const [reservation] = await pool.execute(
-        'SELECT * FROM restaurant_reservations WHERE id = ?',
+      const reservationResult = await pool.query(
+        'SELECT * FROM restaurant_reservations WHERE id = $1',
         [id]
       );
+      const reservation = reservationResult.rows[0];
 
       if (reservation.length === 0) {
         return res.status(404).json({
@@ -856,15 +855,15 @@ module.exports = (pool) => {
         });
       }
 
-      const reservationData = reservation[0];
+      const reservationData = reservation;
 
       // Verificar se já existe uma guest list para esta reserva
-      const [existingGuestList] = await pool.execute(
-        `SELECT id FROM guest_lists WHERE reservation_id = ? AND reservation_type = 'restaurant'`,
+      const existingGuestListResult = await pool.query(
+        `SELECT id FROM guest_lists WHERE reservation_id = $1 AND reservation_type = 'restaurant'`,
         [id]
       );
 
-      if (existingGuestList.length > 0) {
+      if (existingGuestListResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
           error: 'Esta reserva já possui uma lista de convidados'
@@ -881,9 +880,9 @@ module.exports = (pool) => {
       reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
       const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
 
-      await pool.execute(
+      await pool.query(
         `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-         VALUES (?, 'restaurant', ?, ?, ?)`,
+         VALUES ($1, 'restaurant', $2, $3, $4)`,
         [id, event_type || null, token, expiresAt]
       );
 
@@ -922,19 +921,21 @@ module.exports = (pool) => {
       let guestListId = id;
       
       // Verificar se existe uma guest list com este ID
-      const [guestList] = await pool.execute(
-        `SELECT * FROM guest_lists WHERE id = ?`,
+      const guestListResult = await pool.query(
+        `SELECT * FROM guest_lists WHERE id = $1`,
         [id]
       );
+      const guestList = guestListResult.rows[0];
 
-      if (guestList.length === 0) {
+      if (!guestList) {
         // Se não encontrou, tentar como reservation_id
-        const [reservation] = await pool.execute(
-          'SELECT * FROM restaurant_reservations WHERE id = ?',
+        const reservationResult2 = await pool.query(
+          'SELECT * FROM restaurant_reservations WHERE id = $1',
           [id]
         );
+        const reservation2 = reservationResult2.rows[0];
 
-        if (reservation.length === 0) {
+        if (!reservation2) {
           return res.status(404).json({
             success: false,
             error: 'Reserva ou lista de convidados não encontrada'
@@ -942,24 +943,24 @@ module.exports = (pool) => {
         }
 
         // Buscar a guest list da reserva
-        const [guestListFromReservation] = await pool.execute(
-          `SELECT * FROM guest_lists WHERE reservation_id = ? AND reservation_type = 'restaurant'`,
+        const guestListFromReservationResult = await pool.query(
+          `SELECT * FROM guest_lists WHERE reservation_id = $1 AND reservation_type = 'restaurant'`,
           [id]
         );
 
-        if (guestListFromReservation.length === 0) {
+        if (guestListFromReservationResult.rows.length === 0) {
           return res.status(404).json({
             success: false,
             error: 'Esta reserva não possui lista de convidados'
           });
         }
 
-        guestListId = guestListFromReservation[0].id;
+        guestListId = guestListFromReservationResult.rows[0].id;
       }
 
       // Atualizar check-in do dono na guest list
-      await pool.execute(
-        `UPDATE guest_lists SET owner_checked_in = 1, owner_checkin_time = CURRENT_TIMESTAMP WHERE id = ?`,
+      await pool.query(
+        `UPDATE guest_lists SET owner_checked_in = 1, owner_checkin_time = CURRENT_TIMESTAMP WHERE id = $1`,
         [guestListId]
       );
 
@@ -989,12 +990,13 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se a reserva existe
-      const [reservation] = await pool.execute(
-        'SELECT * FROM restaurant_reservations WHERE id = ?',
+      const reservationResult = await pool.query(
+        'SELECT * FROM restaurant_reservations WHERE id = $1',
         [id]
       );
+      const reservation = reservationResult.rows[0];
 
-      if (reservation.length === 0) {
+      if (!reservation) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
@@ -1002,28 +1004,28 @@ module.exports = (pool) => {
       }
 
       // Verificar se já fez check-in
-      if (reservation[0].checked_in) {
+      if (reservation.checked_in) {
         return res.status(400).json({
           success: false,
           error: 'Check-in já foi realizado para esta reserva',
-          checkin_time: reservation[0].checkin_time
+          checkin_time: reservation.checkin_time
         });
       }
 
       // Atualizar check-in da reserva
-      await pool.execute(
-        'UPDATE restaurant_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = ?',
+      await pool.query(
+        'UPDATE restaurant_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = $1',
         [id]
       );
 
-      console.log(`✅ Check-in da reserva confirmado: ${reservation[0].client_name} (ID: ${id})`);
+      console.log(`✅ Check-in da reserva confirmado: ${reservation.client_name} (ID: ${id})`);
 
       res.json({
         success: true,
         message: 'Check-in da reserva confirmado com sucesso',
         reservation: {
-          id: reservation[0].id,
-          client_name: reservation[0].client_name,
+          id: reservation.id,
+          client_name: reservation.client_name,
           checked_in: true,
           checkin_time: new Date().toISOString()
         }
@@ -1048,31 +1050,32 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Buscar a guest list da reserva
-      const [guestList] = await pool.execute(
+      const guestListResult = await pool.query(
         `SELECT gl.*, COUNT(g.id) as total_guests
          FROM guest_lists gl
          LEFT JOIN guests g ON g.guest_list_id = gl.id
-         WHERE gl.reservation_id = ? AND gl.reservation_type = 'restaurant'
+         WHERE gl.reservation_id = $1 AND gl.reservation_type = 'restaurant'
          GROUP BY gl.id`,
         [id]
       );
 
-      if (guestList.length === 0) {
+      if (guestListResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Esta reserva não possui lista de convidados'
         });
       }
 
-      const guestListData = guestList[0];
+      const guestListData = guestListResult.rows[0];
       const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
       const guestListLink = `${baseUrl}/lista/${guestListData.shareable_link_token}`;
 
       // Buscar os convidados
-      const [guests] = await pool.execute(
-        'SELECT id, name, whatsapp, created_at FROM guests WHERE guest_list_id = ? ORDER BY created_at DESC',
+      const guestsResult = await pool.query(
+        'SELECT id, name, whatsapp, created_at FROM guests WHERE guest_list_id = $1 ORDER BY created_at DESC',
         [guestListData.id]
       );
+      const guests = guestsResult.rows;
 
       res.json({
         success: true,
@@ -1114,27 +1117,27 @@ module.exports = (pool) => {
       }
 
       // Verificar se a reserva existe
-      const [reservations] = await pool.execute(
-        'SELECT * FROM restaurant_reservations WHERE id = ?',
+      const reservationsResult = await pool.query(
+        'SELECT * FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
-      if (reservations.length === 0) {
+      if (reservationsResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
         });
       }
 
-      const reservation = reservations[0];
+      const reservation = reservationsResult.rows[0];
 
       // Verificar se o evento existe
-      const [eventos] = await pool.execute(
-        'SELECT id FROM eventos WHERE id = ?',
+      const eventosResult = await pool.query(
+        'SELECT id FROM eventos WHERE id = $1',
         [evento_id]
       );
 
-      if (eventos.length === 0) {
+      if (eventosResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
@@ -1142,13 +1145,13 @@ module.exports = (pool) => {
       }
 
       // Verificar se o evento pertence ao mesmo estabelecimento
-      const evento = eventos[0];
-      const [eventoDetalhes] = await pool.execute(
-        'SELECT id_place as establishment_id FROM eventos WHERE id = ?',
+      const evento = eventosResult.rows[0];
+      const eventoDetalhesResult = await pool.query(
+        'SELECT id_place as establishment_id FROM eventos WHERE id = $1',
         [evento_id]
       );
 
-      if (eventoDetalhes.length > 0 && eventoDetalhes[0].establishment_id !== reservation.establishment_id) {
+      if (eventoDetalhesResult.rows.length > 0 && eventoDetalhesResult.rows[0].establishment_id !== reservation.establishment_id) {
         return res.status(400).json({
           success: false,
           error: 'O evento não pertence ao mesmo estabelecimento da reserva'
@@ -1156,8 +1159,8 @@ module.exports = (pool) => {
       }
 
       // Atualizar a reserva
-      await pool.execute(
-        'UPDATE restaurant_reservations SET evento_id = ? WHERE id = ?',
+      await pool.query(
+        'UPDATE restaurant_reservations SET evento_id = $1 WHERE id = $2',
         [evento_id, id]
       );
 
@@ -1197,27 +1200,27 @@ module.exports = (pool) => {
       }
 
       // Verificar se a reserva existe
-      const [reservations] = await pool.execute(
-        'SELECT * FROM restaurant_reservations WHERE id = ?',
+      const reservationsResult2 = await pool.query(
+        'SELECT * FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
-      if (reservations.length === 0) {
+      if (reservationsResult2.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
         });
       }
 
-      const reservation = reservations[0];
+      const reservation = reservationsResult2.rows[0];
 
       // Verificar se o evento existe
-      const [eventos] = await pool.execute(
-        'SELECT id FROM eventos WHERE id = ?',
+      const eventosResult2 = await pool.query(
+        'SELECT id FROM eventos WHERE id = $1',
         [evento_id]
       );
 
-      if (eventos.length === 0) {
+      if (eventosResult2.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
@@ -1225,13 +1228,13 @@ module.exports = (pool) => {
       }
 
       // Verificar se o evento pertence ao mesmo estabelecimento
-      const [eventoDetalhes] = await pool.execute(
-        'SELECT id_place as establishment_id FROM eventos WHERE id = ?',
+      const eventoDetalhesResult2 = await pool.query(
+        'SELECT id_place as establishment_id FROM eventos WHERE id = $1',
         [evento_id]
       );
 
       // Converter para números para comparação (evita problemas de tipo string vs number)
-      const eventoEstablishmentId = eventoDetalhes.length > 0 ? Number(eventoDetalhes[0].establishment_id) : null;
+      const eventoEstablishmentId = eventoDetalhesResult2.rows.length > 0 ? Number(eventoDetalhesResult2.rows[0].establishment_id) : null;
       const reservaEstablishmentId = Number(reservation.establishment_id);
 
       console.log('🔍 Verificando estabelecimentos:', {
@@ -1245,7 +1248,7 @@ module.exports = (pool) => {
         sao_iguais: eventoEstablishmentId === reservaEstablishmentId
       });
 
-      if (eventoDetalhes.length > 0 && eventoEstablishmentId !== reservaEstablishmentId) {
+      if (eventoDetalhesResult2.rows.length > 0 && eventoEstablishmentId !== reservaEstablishmentId) {
         console.log('❌ Estabelecimentos não correspondem:', {
           evento: eventoEstablishmentId,
           reserva: reservaEstablishmentId
@@ -1257,50 +1260,51 @@ module.exports = (pool) => {
       }
 
       // Verificar se a reserva tem uma guest_list
-      const [guestLists] = await pool.execute(
-        'SELECT id FROM guest_lists WHERE reservation_id = ? AND reservation_type = ?',
+      const guestListsResult = await pool.query(
+        'SELECT id FROM guest_lists WHERE reservation_id = $1 AND reservation_type = $2',
         [id, 'restaurant']
       );
 
-      if (guestLists.length === 0) {
+      if (guestListsResult.rows.length === 0) {
         return res.status(400).json({
           success: false,
           error: 'Esta reserva não possui uma lista de convidados. Adicione uma lista de convidados primeiro.'
         });
       }
 
-      const guestListId = guestLists[0].id;
+      const guestListId = guestListsResult.rows[0].id;
 
       // Buscar os convidados da guest_list
-      const [guests] = await pool.execute(
-        'SELECT name, whatsapp FROM guests WHERE guest_list_id = ?',
+      const guestsResult2 = await pool.query(
+        'SELECT name, whatsapp FROM guests WHERE guest_list_id = $1',
         [guestListId]
       );
+      const guests = guestsResult2.rows;
 
       // Atualizar a reserva para vincular ao evento
-      await pool.execute(
-        'UPDATE restaurant_reservations SET evento_id = ? WHERE id = ?',
+      await pool.query(
+        'UPDATE restaurant_reservations SET evento_id = $1 WHERE id = $2',
         [evento_id, id]
       );
 
       // Criar uma lista no evento se não existir uma para esta reserva
-      let [existingLista] = await pool.execute(
-        'SELECT lista_id FROM listas WHERE evento_id = ? AND nome LIKE ?',
+      const existingListaResult = await pool.query(
+        'SELECT lista_id FROM listas WHERE evento_id = $1 AND nome ILIKE $2',
         [evento_id, `%${reservation.client_name}%`]
       );
 
       let listaId;
-      if (existingLista.length > 0) {
-        listaId = existingLista[0].lista_id;
+      if (existingListaResult.rows.length > 0) {
+        listaId = existingListaResult.rows[0].lista_id;
         console.log(`ℹ️ Lista já existe para esta reserva: ${listaId}`);
       } else {
         // Criar nova lista
         const nomeLista = `Reserva - ${reservation.client_name}`;
-        const [listaResult] = await pool.execute(
-          'INSERT INTO listas (evento_id, nome, tipo, observacoes) VALUES (?, ?, ?, ?)',
+        const listaResult = await pool.query(
+          'INSERT INTO listas (evento_id, nome, tipo, observacoes) VALUES ($1, $2, $3, $4) RETURNING lista_id',
           [evento_id, nomeLista, 'Aniversário', `Lista de convidados da reserva #${id}`]
         );
-        listaId = listaResult.insertId;
+        listaId = listaResult.rows[0].lista_id;
         console.log(`✅ Lista criada para o evento: ${listaId}`);
       }
 
@@ -1308,14 +1312,14 @@ module.exports = (pool) => {
       let copiedGuests = 0;
       for (const guest of guests) {
         // Verificar se o convidado já existe na lista
-        const [existingGuest] = await pool.execute(
-          'SELECT lista_convidado_id FROM listas_convidados WHERE lista_id = ? AND nome_convidado = ?',
+        const existingGuestResult = await pool.query(
+          'SELECT lista_convidado_id FROM listas_convidados WHERE lista_id = $1 AND nome_convidado = $2',
           [listaId, guest.name]
         );
 
-        if (existingGuest.length === 0) {
-          await pool.execute(
-            'INSERT INTO listas_convidados (lista_id, nome_convidado, telefone_convidado, status_checkin) VALUES (?, ?, ?, ?)',
+        if (existingGuestResult.rows.length === 0) {
+          await pool.query(
+            'INSERT INTO listas_convidados (lista_id, nome_convidado, telefone_convidado, status_checkin) VALUES ($1, $2, $3, $4)',
             [listaId, guest.name, guest.whatsapp || null, 'Pendente']
           );
           copiedGuests++;

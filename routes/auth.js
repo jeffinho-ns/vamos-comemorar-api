@@ -44,18 +44,18 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Credenciais inválidas!" });
     }
 
-    const [existingUser] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+    const result = await db.query("SELECT * FROM users WHERE email = $1", [email]);
 
     let user;
-    if (existingUser.length > 0) {
-      user = existingUser[0];
+    if (result.rows.length > 0) {
+      user = result.rows[0];
     } else {
-      const [result] = await db.query(
-        "INSERT INTO users (nome, email, role, provider, createdAt) VALUES (?, ?, ?, ?, NOW())",
+      const insertResult = await db.query(
+        "INSERT INTO users (nome, email, role, provider, createdAt) VALUES ($1, $2, $3, $4, NOW()) RETURNING id",
         [nome, email, "Cliente", provider]
       );
 
-      user = { id: result.insertId, nome, email, role: "Cliente", provider };
+      user = { id: insertResult.rows[0].id, nome, email, role: "Cliente", provider };
     }
 
     const token = generateToken(user);

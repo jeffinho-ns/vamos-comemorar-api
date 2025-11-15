@@ -4,27 +4,9 @@ const express = require('express');
 const router = express.Router();
 
 module.exports = (pool) => {
-  // Garante que a tabela restaurant_tables exista
+  // Tabela restaurant_tables já deve existir no PostgreSQL
   async function ensureTablesSchema() {
-    const [tables] = await pool.execute("SHOW TABLES LIKE 'restaurant_tables'");
-    if (tables.length === 0) {
-      await pool.execute(`
-        CREATE TABLE restaurant_tables (
-          id int(11) NOT NULL AUTO_INCREMENT,
-          area_id int(11) NOT NULL,
-          table_number varchar(50) NOT NULL,
-          capacity int(11) NOT NULL DEFAULT 2,
-          table_type varchar(50) DEFAULT NULL,
-          description text DEFAULT NULL,
-          is_active tinyint(1) DEFAULT 1,
-          created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          UNIQUE KEY uniq_area_table (area_id, table_number),
-          KEY idx_area_id (area_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-      `);
-    }
+    // Schema já existe no PostgreSQL
   }
 
   // Lista mesas (opcionalmente por área)
@@ -34,16 +16,18 @@ module.exports = (pool) => {
       const { area_id } = req.query;
       const where = [];
       const params = [];
+      let paramIndex = 1;
       if (area_id) {
-        where.push('area_id = ?');
+        where.push(`area_id = $${paramIndex++}`);
         params.push(area_id);
       }
       const query = `
         SELECT * FROM restaurant_tables
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY area_id ASC, CAST(table_number AS UNSIGNED) ASC, table_number ASC
+        ORDER BY area_id ASC, CAST(table_number AS INTEGER) ASC, table_number ASC
       `;
-      const [rows] = await pool.execute(query, params);
+      const rowsResult = await pool.query(query, params);
+      const rows = rowsResult.rows;
       res.json({ success: true, tables: rows });
     } catch (error) {
       console.error('❌ Erro ao listar mesas:', error);
@@ -61,19 +45,23 @@ module.exports = (pool) => {
         return res.status(400).json({ success: false, error: 'Parâmetro obrigatório: date (YYYY-MM-DD)' });
       }
 
-      const [tables] = await pool.execute(
-        'SELECT * FROM restaurant_tables WHERE area_id = ? AND is_active = 1 ORDER BY CAST(table_number AS UNSIGNED) ASC, table_number ASC',
+      const tablesResult = await pool.query(
+        'SELECT * FROM restaurant_tables WHERE area_id = $1 AND is_active = 1 ORDER BY CAST(table_number AS INTEGER) ASC, table_number ASC',
         [areaId]
       );
+      const tables = tablesResult.rows;
 
       // Busca reservas do dia para as mesas da área (bloqueia o dia todo)
-      const [reservedRows] = await pool.execute(
-        `SELECT table_number FROM restaurant_reservations
-         WHERE reservation_date = ? AND area_id = ?
-         ${establishment_id ? 'AND (establishment_id = ? OR establishment_id IS NULL)' : ''}
-         AND status NOT IN ('CANCELADA')`,
-        establishment_id ? [date, areaId, establishment_id] : [date, areaId]
-      );
+      let reservedQuery = `SELECT table_number FROM restaurant_reservations
+         WHERE reservation_date = $1 AND area_id = $2`;
+      let reservedParams = [date, areaId];
+      if (establishment_id) {
+        reservedQuery += ' AND (establishment_id = $3 OR establishment_id IS NULL)';
+        reservedParams.push(establishment_id);
+      }
+      reservedQuery += " AND status NOT IN ('CANCELADA')";
+      const reservedRowsResult = await pool.query(reservedQuery, reservedParams);
+      const reservedRows = reservedRowsResult.rows;
 
       const reservedSet = new Set(reservedRows.map(r => String(r.table_number)));
       const data = tables.map(t => ({
@@ -96,12 +84,13 @@ module.exports = (pool) => {
       if (!area_id || !table_number) {
         return res.status(400).json({ success: false, error: 'Campos obrigatórios: area_id, table_number' });
       }
-      const [result] = await pool.execute(
+      const result = await pool.query(
         `INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, description, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
         [area_id, String(table_number), capacity || 2, table_type || null, description || null, is_active ?? 1]
       );
-      const [row] = await pool.execute('SELECT * FROM restaurant_tables WHERE id = ?', [result.insertId]);
+      const rowResult = await pool.query('SELECT * FROM restaurant_tables WHERE id = $1', [result.rows[0].id]);
+      const row = rowResult.rows;
       res.status(201).json({ success: true, table: row[0] });
     } catch (error) {
       console.error('❌ Erro ao criar mesa:', error);
@@ -118,17 +107,19 @@ module.exports = (pool) => {
 
       const updates = [];
       const params = [];
-      if (area_id !== undefined) { updates.push('area_id = ?'); params.push(area_id); }
-      if (table_number !== undefined) { updates.push('table_number = ?'); params.push(String(table_number)); }
-      if (capacity !== undefined) { updates.push('capacity = ?'); params.push(capacity); }
-      if (table_type !== undefined) { updates.push('table_type = ?'); params.push(table_type); }
-      if (description !== undefined) { updates.push('description = ?'); params.push(description); }
-      if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active); }
+      let paramIndex = 1;
+      if (area_id !== undefined) { updates.push(`area_id = $${paramIndex++}`); params.push(area_id); }
+      if (table_number !== undefined) { updates.push(`table_number = $${paramIndex++}`); params.push(String(table_number)); }
+      if (capacity !== undefined) { updates.push(`capacity = $${paramIndex++}`); params.push(capacity); }
+      if (table_type !== undefined) { updates.push(`table_type = $${paramIndex++}`); params.push(table_type); }
+      if (description !== undefined) { updates.push(`description = $${paramIndex++}`); params.push(description); }
+      if (is_active !== undefined) { updates.push(`is_active = $${paramIndex++}`); params.push(is_active); }
       updates.push('updated_at = CURRENT_TIMESTAMP');
       params.push(id);
 
-      await pool.execute(`UPDATE restaurant_tables SET ${updates.join(', ')} WHERE id = ?`, params);
-      const [row] = await pool.execute('SELECT * FROM restaurant_tables WHERE id = ?', [id]);
+      await pool.query(`UPDATE restaurant_tables SET ${updates.join(', ')} WHERE id = $${paramIndex}`, params);
+      const rowResult = await pool.query('SELECT * FROM restaurant_tables WHERE id = $1', [id]);
+      const row = rowResult.rows;
       res.json({ success: true, table: row[0] });
     } catch (error) {
       console.error('❌ Erro ao atualizar mesa:', error);
@@ -141,7 +132,7 @@ module.exports = (pool) => {
     try {
       await ensureTablesSchema();
       const { id } = req.params;
-      await pool.execute('DELETE FROM restaurant_tables WHERE id = ?', [id]);
+      await pool.query('DELETE FROM restaurant_tables WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (error) {
       console.error('❌ Erro ao deletar mesa:', error);

@@ -31,10 +31,10 @@ module.exports = (pool) => {
       const sql = `
         INSERT INTO regras_evento 
           (evento_id, tipo_regra, valor_regra, descricao, valor_extra) 
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5) RETURNING id
       `;
       
-      const [result] = await pool.query(sql, [
+      const result = await pool.query(sql, [
         eventId,
         tipo_regra,
         valor_regra,
@@ -42,10 +42,10 @@ module.exports = (pool) => {
         valor_extra || null
       ]);
 
-      const newRuleId = result.insertId;
-      const [[newRule]] = await pool.query('SELECT * FROM regras_evento WHERE id = ?', [newRuleId]);
+      const newRuleId = result.rows[0].id;
+      const newRuleResult = await pool.query('SELECT * FROM regras_evento WHERE id = $1', [newRuleId]);
 
-      res.status(201).json(newRule);
+      res.status(201).json(newRuleResult.rows[0]);
 
     } catch (error) {
       console.error(`Erro ao criar regra para o evento ${eventId}:`, error);
@@ -66,8 +66,8 @@ module.exports = (pool) => {
   router.get('/', auth, authorizeRoles('admin', 'gerente'), async (req, res) => {
     const { eventId } = req.params;
     try {
-      const [rules] = await pool.query('SELECT * FROM regras_evento WHERE evento_id = ?', [eventId]);
-      res.status(200).json(rules);
+      const result = await pool.query('SELECT * FROM regras_evento WHERE evento_id = $1', [eventId]);
+      res.status(200).json(result.rows);
     } catch (error) {
       console.error(`Erro ao buscar regras para o evento ${eventId}:`, error);
       res.status(500).json({ error: 'Erro ao buscar regras.' });
@@ -83,9 +83,9 @@ module.exports = (pool) => {
   router.get('/public', auth, async (req, res) => {
     const { eventId } = req.params;
     try {
-      const sql = "SELECT * FROM regras_evento WHERE evento_id = ? AND status = 'ATIVA'";
-      const [rules] = await pool.query(sql, [eventId]);
-      res.status(200).json(rules);
+      const sql = "SELECT * FROM regras_evento WHERE evento_id = $1 AND status = 'ATIVA'";
+      const result = await pool.query(sql, [eventId]);
+      res.status(200).json(result.rows);
     } catch (error){
       console.error(`Erro ao buscar regras públicas para o evento ${eventId}:`, error);
       res.status(500).json({ error: 'Erro ao buscar regras.' });

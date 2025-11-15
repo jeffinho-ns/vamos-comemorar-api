@@ -12,17 +12,17 @@ router.post("/validar", async (req, res) => {
 
     try {
         // Consulta no banco para encontrar a reserva com esse QR Code
-        const [rows] = await pool.query(
-            "SELECT id, nome_do_evento, data_do_evento, status FROM reservas WHERE qrcode = ?",
+        const result = await pool.query(
+            "SELECT id, nome_do_evento, data_do_evento, status FROM reservas WHERE qrcode = $1",
             [qrCode]
         );
 
         // Se não encontrou a reserva
-        if (rows.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "QR Code inválido ou não encontrado." });
         }
 
-        const reserva = rows[0];
+        const reserva = result.rows[0];
 
         // Se a reserva não estiver aprovada
         if (reserva.status !== "Aprovado") {

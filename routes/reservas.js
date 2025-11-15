@@ -13,30 +13,30 @@ module.exports = (pool) => {
     // Esta função será exportada e chamada após um check-in de convidado em outras rotas.
     // ==========================================================================================
     const checkAndAwardBrindes = async (reservaId) => {
-        const connection = await pool.getConnection();
+        const client = await pool.connect();
         try {
             // 1. Contar convidados com CHECK-IN ou CONFIRMADO_LOCAL
-            const [confirmedGuestsRows] = await connection.query(
-                `SELECT COUNT(id) AS count FROM convidados WHERE reserva_id = ? AND (status = 'CHECK-IN' OR geo_checkin_status = 'CONFIRMADO_LOCAL')`,
+            const confirmedGuestsResult = await client.query(
+                `SELECT COUNT(id) AS count FROM convidados WHERE reserva_id = $1 AND (status = 'CHECK-IN' OR geo_checkin_status = 'CONFIRMADO_LOCAL')`,
                 [reservaId]
             );
-            const confirmedCount = confirmedGuestsRows[0].count;
+            const confirmedCount = parseInt(confirmedGuestsResult.rows[0].count);
 
             // 2. Obter quantidade total de convidados da reserva e brindes associados
-            const [reservationData] = await connection.query(
+            const reservationResult = await client.query(
                 `SELECT r.quantidade_convidados, br.id AS brinde_id, br.descricao, br.condicao_tipo, br.condicao_valor, br.status AS brinde_status 
                  FROM reservas r
                  LEFT JOIN brindes_regras br ON r.id = br.reserva_id
-                 WHERE r.id = ?`,
+                 WHERE r.id = $1`,
                 [reservaId]
             );
 
-            if (!reservationData.length || !reservationData[0].brinde_id) {
+            if (!reservationResult.rows.length || !reservationResult.rows[0].brinde_id) {
                 // console.log(`Reserva ${reservaId} não encontrada ou sem regras de brinde associadas.`);
                 return; // Nenhuma regra de brinde para esta reserva ou reserva não encontrada
             }
 
-            const reservation = reservationData[0];
+            const reservation = reservationResult.rows[0];
             const totalGuestsExpected = reservation.quantidade_convidados;
             const brinde = reservation; // Os dados do brinde estão no mesmo objeto da reserva neste JOIN
 
@@ -64,8 +64,8 @@ module.exports = (pool) => {
 
             // 3. Atualizar status do brinde se a condição for atendida e o status atual não for LIBERADO/ENTREGUE
             if (shouldAwardBrinde && brinde.brinde_status !== 'LIBERADO' && brinde.brinde_status !== 'ENTREGUE') {
-                await connection.query(
-                    `UPDATE brindes_regras SET status = 'LIBERADO' WHERE id = ?`,
+                await client.query(
+                    `UPDATE brindes_regras SET status = 'LIBERADO' WHERE id = $1`,
                     [brinde.brinde_id]
                 );
                 console.log(`Brinde ID ${brinde.brinde_id} da Reserva ${reservaId} LIBERADO!`);
@@ -74,7 +74,7 @@ module.exports = (pool) => {
         } catch (error) {
             console.error('Erro em checkAndAwardBrindes:', error);
         } finally {
-            if (connection) connection.release();
+            if (client) client.release();
         }
     }; // Fim da função checkAndAwardBrindes
 
@@ -89,32 +89,33 @@ router.post('/', async (req, res) => {
         const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
         const codigoConvite = nanoid();
 
-        const connection = await pool.getConnection();
+        const client = await pool.connect();
 
         try {
-            await connection.beginTransaction();
+            await client.query('BEGIN');
 
-            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES (?, ?, ?, ?, ?, ?, ?)';
-            const [reservaResult] = await connection.execute(sqlReserva, [
+            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id';
+            const reservaResult = await client.query(sqlReserva, [
                 userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite
             ]);
-            const reservaId = reservaResult.insertId;
+            const reservaId = reservaResult.rows[0].id;
 
-            const [[user]] = await connection.query('SELECT name FROM users WHERE id = ?', [userId]);
-            if (!user) throw new Error('Usuário criador não encontrado.');
+            const userResult = await client.query('SELECT name FROM users WHERE id = $1', [userId]);
+            if (!userResult.rows.length) throw new Error('Usuário criador não encontrado.');
+            const user = userResult.rows[0];
             
             const qrcode = require('qrcode');
             const qrCodeDataCriador = `reserva:${reservaId}:convidado:${user.name.replace(/\s/g, '')}:${Date.now()}`;
             
             // ALTERAÇÃO AQUI: Mudar status para 'PENDENTE' ao invés de 'CHECK-IN'
-            const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status) VALUES (?, ?, ?, ?, ?)';
-            await connection.execute(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'PENDENTE', 'NAO_APLICAVEL']);
+            const sqlCriador = 'INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status) VALUES ($1, $2, $3, $4, $5)';
+            await client.query(sqlCriador, [reservaId, user.name, qrCodeDataCriador, 'PENDENTE', 'NAO_APLICAVEL']);
 
             // Inserir as regras de brinde (se houver)
             if (brindes && brindes.length > 0) {
-                const brindeSql = 'INSERT INTO brindes_regras (reserva_id, descricao, condicao_tipo, condicao_valor, status) VALUES (?, ?, ?, ?, ?)';
+                const brindeSql = 'INSERT INTO brindes_regras (reserva_id, descricao, condicao_tipo, condicao_valor, status) VALUES ($1, $2, $3, $4, $5)';
                 for (const brinde of brindes) {
-                    await connection.execute(brindeSql, [
+                    await client.query(brindeSql, [
                         reservaId,
                         brinde.descricao,
                         brinde.condicao_tipo,
@@ -124,7 +125,7 @@ router.post('/', async (req, res) => {
                 }
             }
 
-            await connection.commit();
+            await client.query('COMMIT');
             res.status(201).json({ 
                 message: 'Reserva criada com sucesso!', 
                 reservaId: reservaId,
@@ -132,11 +133,11 @@ router.post('/', async (req, res) => {
             });
 
         } catch (error) {
-            await connection.rollback();
+            await client.query('ROLLBACK');
             console.error('Erro ao criar reserva (nova lógica de convite):', error);
             res.status(500).json({ message: 'Erro ao criar a reserva.' });
         } finally {
-            if (connection) connection.release();
+            if (client) client.release();
         }
     });
 
@@ -186,14 +187,14 @@ router.post('/', async (req, res) => {
                     JOIN users u ON r.user_id = u.id
                     LEFT JOIN eventos e ON r.evento_id = e.id
                     LEFT JOIN places p ON e.id_place = p.id
-                    WHERE r.user_id = ?
+                    WHERE r.user_id = $1
                     ORDER BY r.data_reserva DESC
                 `;
                 queryParams.push(userId);
             }
             
-            const [reservas] = await pool.query(query, queryParams);
-            res.status(200).json(reservas);
+            const result = await pool.query(query, queryParams);
+            res.status(200).json(result.rows);
         } catch (error) {
             console.error("Erro ao buscar reservas:", error);
             res.status(500).json({ error: "Erro ao buscar reservas" });
@@ -204,7 +205,7 @@ router.post('/', async (req, res) => {
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [reservaRows] = await pool.query(`
+            const reservaRows = await pool.query(`
                 SELECT
                     r.id, r.user_id, r.evento_id,
                     r.tipo_reserva AS brinde,
@@ -230,20 +231,20 @@ router.post('/', async (req, res) => {
                 JOIN users u ON r.user_id = u.id
                 LEFT JOIN eventos e ON r.evento_id = e.id
                 LEFT JOIN places p ON e.id_place = p.id
-                WHERE r.id = ?
+                WHERE r.id = $1
             `, [id]);
 
-            if (!reservaRows.length) return res.status(404).json({ error: "Reserva não encontrada" });
+            if (!reservaRows.rows.length) return res.status(404).json({ error: "Reserva não encontrada" });
 
-            const reserva = reservaRows[0];
+            const reserva = reservaRows.rows[0];
 
-            const [convidados] = await pool.query('SELECT id, nome, status, data_checkin, qr_code, geo_checkin_status FROM convidados WHERE reserva_id = ?', [id]);
-            const [brindes] = await pool.query('SELECT id, descricao, condicao_tipo, condicao_valor, status FROM brindes_regras WHERE reserva_id = ?', [id]);
+            const convidadosResult = await pool.query('SELECT id, nome, status, data_checkin, qr_code, geo_checkin_status FROM convidados WHERE reserva_id = $1', [id]);
+            const brindesResult = await pool.query('SELECT id, descricao, condicao_tipo, condicao_valor, status FROM brindes_regras WHERE reserva_id = $1', [id]);
 
             const resultadoCompleto = {
                 ...reserva,
-                convidados: convidados,
-                brindes: brindes
+                convidados: convidadosResult.rows,
+                brindes: brindesResult.rows
             };
             res.status(200).json(resultadoCompleto);
 
@@ -262,7 +263,7 @@ router.post('/', async (req, res) => {
 
         try {
             await pool.query(
-                `UPDATE reservas SET nome_lista = ?, data_reserva = ?, status = ? WHERE id = ?`,
+                `UPDATE reservas SET nome_lista = $1, data_reserva = $2, status = $3 WHERE id = $4`,
                 [nome_lista, data_reserva, status, id]
             );
             res.status(200).json({ message: "Reserva atualizada com sucesso" });
@@ -281,9 +282,9 @@ router.post('/', async (req, res) => {
         }
     
         try {
-            const [result] = await pool.query('UPDATE reservas SET status = ? WHERE id = ?', [status, id]);
+            const result = await pool.query('UPDATE reservas SET status = $1 WHERE id = $2', [status, id]);
             
-            if (result.affectedRows === 0) {
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Reserva não encontrada.' });
             }
 
@@ -304,11 +305,11 @@ router.post('/', async (req, res) => {
     router.put('/brindes/:brindeId/resgatar', auth, async (req, res) => {
         const { brindeId } = req.params;
         try {
-            const [result] = await pool.query(
-                `UPDATE brindes_regras SET status = 'ENTREGUE' WHERE id = ? AND status = 'LIBERADO'`,
+            const result = await pool.query(
+                `UPDATE brindes_regras SET status = 'ENTREGUE' WHERE id = $1 AND status = 'LIBERADO'`,
                 [brindeId]
             );
-            if (result.affectedRows === 0) {
+            if (result.rowCount === 0) {
                 return res.status(400).json({ message: 'Brinde não encontrado ou não está no status "LIBERADO" para resgate.' });
             }
             res.status(200).json({ message: 'Brinde resgatado com sucesso!' });
@@ -322,7 +323,7 @@ router.post('/', async (req, res) => {
     router.get('/camarotes/:id_place', auth, async (req, res) => {
     const { id_place } = req.params;
     try {
-        const [camarotes] = await pool.query(`
+        const camarotesResult = await pool.query(`
             SELECT 
                 c.id, 
                 c.nome_camarote, 
@@ -342,11 +343,11 @@ router.post('/', async (req, res) => {
                 rc.data_expiracao
             FROM camarotes c
             LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva != 'disponivel'
-            WHERE c.id_place = ?
+            WHERE c.id_place = $1
             ORDER BY c.nome_camarote
         `, [id_place]);
 
-        res.status(200).json(camarotes);
+        res.status(200).json(camarotesResult.rows);
     } catch (error) {
         console.error("Erro ao buscar camarotes:", error);
         res.status(500).json({ error: "Erro ao buscar camarotes" });
@@ -373,23 +374,23 @@ router.post('/camarote', auth, async (req, res) => {
         return res.status(400).json({ error: 'id_camarote e nome_cliente são obrigatórios' });
     }
 
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
     try {
         console.log('🔗 Conexão com banco estabelecida');
-        await connection.beginTransaction();
+        await client.query('BEGIN');
         console.log('🔄 Transação iniciada');
 
         // 1. Criar a reserva na tabela 'reservas' (opcional, pode ser adaptado)
         console.log('📝 Inserindo na tabela reservas...');
         const sqlReserva = `
             INSERT INTO reservas (user_id, evento_id, tipo_reserva, nome_lista, data_reserva, quantidade_convidados, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
         `;
         const reservaParams = [userId, id_evento, 'CAMAROTE', nome_cliente, new Date(), maximo_pessoas, 'ATIVA'];
         console.log('📋 Parâmetros reserva:', reservaParams);
         
-        const [reservaResult] = await connection.execute(sqlReserva, reservaParams);
-        const reservaId = reservaResult.insertId;
+        const reservaResult = await client.query(sqlReserva, reservaParams);
+        const reservaId = reservaResult.rows[0].id;
         console.log('✅ Reserva criada com ID:', reservaId);
 
         // 2. Criar o registro na tabela 'reservas_camarote'
@@ -400,7 +401,7 @@ router.post('/camarote', auth, async (req, res) => {
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                 valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
                 solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id
         `;
         const camaroteParams = [
             reservaId, id_camarote, nome_cliente, telefone || null, cpf_cnpj || null, email || null, data_nascimento || null,
@@ -411,20 +412,23 @@ router.post('/camarote', auth, async (req, res) => {
         ];
         console.log('📋 Parâmetros camarote:', camaroteParams);
         
-        const [camaroteResult] = await connection.execute(sqlCamarote, camaroteParams);
-        const reservaCamaroteId = camaroteResult.insertId;
+        const camaroteResult = await client.query(sqlCamarote, camaroteParams);
+        const reservaCamaroteId = camaroteResult.rows[0].id;
         console.log('✅ Reserva de camarote criada com ID:', reservaCamaroteId);
 
         // 3. Adicionar convidados à lista
         if (lista_convidados && lista_convidados.length > 0) {
             console.log('📝 Adicionando convidados:', lista_convidados.length);
-            const sqlConvidados = 'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ?';
-            const convidadosData = lista_convidados.map(c => [reservaCamaroteId, c.nome, c.email]);
-            await connection.query(sqlConvidados, [convidadosData]);
+            for (const convidado of lista_convidados) {
+                await client.query(
+                    'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)',
+                    [reservaCamaroteId, convidado.nome, convidado.email]
+                );
+            }
             console.log('✅ Convidados adicionados');
         }
 
-        await connection.commit();
+        await client.query('COMMIT');
         console.log('✅ Transação commitada com sucesso');
         res.status(201).json({ message: 'Reserva de camarote criada com sucesso!', reservaId: reservaCamaroteId });
 
@@ -432,8 +436,8 @@ router.post('/camarote', auth, async (req, res) => {
         console.error('❌ Erro ao criar reserva de camarote:', error);
         console.error('📋 Stack trace:', error.stack);
         
-        if (connection) {
-            await connection.rollback();
+        if (client) {
+            await client.query('ROLLBACK');
             console.log('🔄 Transação revertida');
         }
         
@@ -442,8 +446,8 @@ router.post('/camarote', auth, async (req, res) => {
             details: error.message 
         });
     } finally {
-        if (connection) {
-            connection.release();
+        if (client) {
+            client.release();
             console.log('🔗 Conexão liberada');
         }
     }
@@ -453,12 +457,13 @@ router.post('/camarote', auth, async (req, res) => {
 router.get('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     const { id_reserva_camarote } = req.params;
     try {
-        const [[reservaCamarote]] = await pool.query('SELECT * FROM reservas_camarote WHERE id = ?', [id_reserva_camarote]);
-        if (!reservaCamarote) {
+        const reservaCamaroteResult = await pool.query('SELECT * FROM reservas_camarote WHERE id = $1', [id_reserva_camarote]);
+        if (!reservaCamaroteResult.rows.length) {
             return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
         }
-        const [convidados] = await pool.query('SELECT nome, email FROM camarote_convidados WHERE id_reserva_camarote = ?', [id_reserva_camarote]);
-        res.status(200).json({ ...reservaCamarote, convidados });
+        const reservaCamarote = reservaCamaroteResult.rows[0];
+        const convidadosResult = await pool.query('SELECT nome, email FROM camarote_convidados WHERE id_reserva_camarote = $1', [id_reserva_camarote]);
+        res.status(200).json({ ...reservaCamarote, convidados: convidadosResult.rows });
     } catch (error) {
         console.error('Erro ao buscar reserva de camarote:', error);
         res.status(500).json({ error: 'Erro ao buscar reserva de camarote.' });
@@ -472,7 +477,7 @@ router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) =
     const { id_reserva_camarote } = req.params;
     const { nome, email } = req.body;
     try {
-        await pool.query('INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES (?, ?, ?)', [id_reserva_camarote, nome, email]);
+        await pool.query('INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)', [id_reserva_camarote, nome, email]);
         res.status(201).json({ message: 'Convidado adicionado com sucesso!' });
     } catch (error) {
         console.error('Erro ao adicionar convidado:', error);
@@ -489,7 +494,7 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     
     const { id_reserva_camarote } = req.params;
     const updates = req.body;
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
         const allowedFields = [
@@ -509,23 +514,22 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
             return res.status(400).json({ message: 'Nenhum campo válido para atualização fornecido.' });
         }
 
-        const setClause = updateFields.map(field => `\`${field}\` = ?`).join(', ');
+        const setClause = updateFields.map((field, index) => `${field} = $${index + 1}`).join(', ');
         const values = updateFields.map(field => updates[field]);
-
-        const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = ?`;
         values.push(id_reserva_camarote);
+
+        const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = $${values.length}`;
 
         console.log('📝 SQL:', sql);
         console.log('📝 Valores:', values);
 
-        const [result] = await connection.execute(sql, values);
+        const result = await client.query(sql, values);
 
         console.log('📊 Resultado da atualização:', {
-            affectedRows: result.affectedRows,
-            changedRows: result.changedRows
+            rowCount: result.rowCount
         });
 
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             console.log('❌ Nenhuma linha foi afetada');
             return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
         }
@@ -533,14 +537,13 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         console.log('✅ Atualização realizada com sucesso!');
         res.status(200).json({ 
             message: 'Reserva de camarote atualizada com sucesso!',
-            affectedRows: result.affectedRows,
-            changedRows: result.changedRows
+            rowCount: result.rowCount
         });
     } catch (error) {
         console.error('❌ Erro ao atualizar reserva de camarote:', error);
         res.status(500).json({ error: 'Erro ao atualizar reserva de camarote.' });
     } finally {
-        if (connection) connection.release();
+        if (client) client.release();
     }
 });
 
@@ -548,8 +551,8 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
 router.put('/camarotes/:id_camarote/block', auth, async (req, res) => {
     const { id_camarote } = req.params;
     try {
-        const [result] = await pool.query(`UPDATE camarotes SET status = 'bloqueado' WHERE id = ?`, [id_camarote]);
-        if (result.affectedRows === 0) {
+        const result = await pool.query(`UPDATE camarotes SET status = 'bloqueado' WHERE id = $1`, [id_camarote]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Camarote não encontrado.' });
         }
         res.status(200).json({ message: 'Camarote bloqueado com sucesso!' });

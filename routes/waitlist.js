@@ -11,40 +11,7 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      // Verificar se a tabela waitlist existe, se não, criar
-      try {
-        const [tables] = await pool.execute("SHOW TABLES LIKE 'waitlist'");
-        
-        if (tables.length === 0) {
-          console.log('📝 Criando tabela waitlist...');
-          
-          await pool.execute(`
-            CREATE TABLE waitlist (
-              id int(11) NOT NULL AUTO_INCREMENT,
-              establishment_id int(11) DEFAULT NULL,
-              client_name varchar(255) NOT NULL,
-              client_phone varchar(20) DEFAULT NULL,
-              client_email varchar(255) DEFAULT NULL,
-              number_of_people int(11) NOT NULL,
-              preferred_time varchar(50) DEFAULT NULL,
-              status varchar(50) DEFAULT 'AGUARDANDO',
-              position int(11) DEFAULT 1,
-              estimated_wait_time int(11) DEFAULT 0,
-              notes text DEFAULT NULL,
-              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              KEY idx_establishment_id (establishment_id),
-              KEY idx_status (status),
-              KEY idx_position (position)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-          
-          console.log('✅ Tabela waitlist criada com sucesso!');
-        }
-      } catch (tableError) {
-        console.log('⚠️ Erro ao verificar/criar tabela waitlist:', tableError.message);
-      }
+      // Tabela waitlist já deve existir no PostgreSQL
 
       const { status, limit, sort, order } = req.query;
       
@@ -56,24 +23,26 @@ module.exports = (pool) => {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (status) {
-        query += ` AND wl.status = ?`;
+        query += ` AND wl.status = $${paramIndex++}`;
         params.push(status);
       }
       
       if (sort && order) {
-        query += ` ORDER BY wl.${sort} ${order.toUpperCase()}`;
+        query += ` ORDER BY wl."${sort}" ${order.toUpperCase()}`;
       } else {
         query += ` ORDER BY wl.created_at ASC`;
       }
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
       
-      const [waitlist] = await pool.execute(query, params);
+      const waitlistResult = await pool.query(query, params);
+      const waitlist = waitlistResult.rows;
       
       res.json({
         success: true,
@@ -102,12 +71,12 @@ module.exports = (pool) => {
         SELECT 
           wl.*
         FROM waitlist wl
-        WHERE wl.id = ?
+        WHERE wl.id = $1
       `;
       
-      const [waitlist] = await pool.execute(query, [id]);
+      const waitlistResult = await pool.query(query, [id]);
       
-      if (waitlist.length === 0) {
+      if (waitlistResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Item não encontrado na lista de espera'
@@ -116,7 +85,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        waitlistEntry: waitlist[0]
+        waitlistEntry: waitlistResult.rows[0]
       });
       
     } catch (error) {
@@ -154,10 +123,10 @@ module.exports = (pool) => {
       }
       
       // Calcular posição na fila
-      const [positionResult] = await pool.execute(
-        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      const positionResult = await pool.query(
+        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
       );
-      const position = positionResult[0].count + 1;
+      const position = parseInt(positionResult.rows[0].count) + 1;
       
       // Estimar tempo de espera (simplificado: 15 minutos por pessoa na frente)
       const estimatedWaitTime = (position - 1) * 15;
@@ -166,7 +135,7 @@ module.exports = (pool) => {
         INSERT INTO waitlist (
           client_name, client_phone, client_email, number_of_people, 
           preferred_time, status, position, estimated_wait_time, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
       `;
       
       const params = [
@@ -174,18 +143,18 @@ module.exports = (pool) => {
         preferred_time, status, position, estimatedWaitTime, notes
       ];
       
-      const [result] = await pool.execute(query, params);
+      const result = await pool.query(query, params);
       
       // Buscar o item criado
-      const [newWaitlistEntry] = await pool.execute(
-        'SELECT * FROM waitlist WHERE id = ?',
-        [result.insertId]
+      const newWaitlistEntryResult = await pool.query(
+        'SELECT * FROM waitlist WHERE id = $1',
+        [result.rows[0].id]
       );
       
       res.status(201).json({
         success: true,
         message: 'Adicionado à lista de espera com sucesso',
-        waitlistEntry: newWaitlistEntry[0]
+        waitlistEntry: newWaitlistEntryResult.rows[0]
       });
       
     } catch (error) {
@@ -216,12 +185,12 @@ module.exports = (pool) => {
       } = req.body;
       
       // Verificar se o item existe
-      const [existingEntry] = await pool.execute(
-        'SELECT id FROM waitlist WHERE id = ?',
+      const existingEntryResult = await pool.query(
+        'SELECT id FROM waitlist WHERE id = $1',
         [id]
       );
       
-      if (existingEntry.length === 0) {
+      if (existingEntryResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Item não encontrado na lista de espera'
@@ -230,10 +199,10 @@ module.exports = (pool) => {
       
       const query = `
         UPDATE waitlist SET
-          client_name = ?, client_phone = ?, client_email = ?, 
-          number_of_people = ?, preferred_time = ?, status = ?, 
-          notes = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+          client_name = $1, client_phone = $2, client_email = $3, 
+          number_of_people = $4, preferred_time = $5, status = $6, 
+          notes = $7, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $8
       `;
       
       const params = [
@@ -241,18 +210,18 @@ module.exports = (pool) => {
         preferred_time, status, notes, id
       ];
       
-      await pool.execute(query, params);
+      await pool.query(query, params);
       
       // Buscar o item atualizado
-      const [updatedEntry] = await pool.execute(
-        'SELECT * FROM waitlist WHERE id = ?',
+      const updatedEntryResult = await pool.query(
+        'SELECT * FROM waitlist WHERE id = $1',
         [id]
       );
       
       res.json({
         success: true,
         message: 'Item da lista de espera atualizado com sucesso',
-        waitlistEntry: updatedEntry[0]
+        waitlistEntry: updatedEntryResult.rows[0]
       });
       
     } catch (error) {
@@ -274,19 +243,19 @@ module.exports = (pool) => {
       const { id } = req.params;
       
       // Verificar se o item existe
-      const [existingEntry] = await pool.execute(
-        'SELECT id FROM waitlist WHERE id = ?',
+      const existingEntryResult = await pool.query(
+        'SELECT id FROM waitlist WHERE id = $1',
         [id]
       );
       
-      if (existingEntry.length === 0) {
+      if (existingEntryResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Item não encontrado na lista de espera'
         });
       }
       
-      await pool.execute('DELETE FROM waitlist WHERE id = ?', [id]);
+      await pool.query('DELETE FROM waitlist WHERE id = $1', [id]);
       
       // Recalcular posições dos itens restantes
       await recalculatePositions(pool);
@@ -315,20 +284,20 @@ module.exports = (pool) => {
       const { id } = req.params;
       
       // Verificar se o item existe
-      const [existingEntry] = await pool.execute(
-        'SELECT id FROM waitlist WHERE id = ?',
+      const existingEntryResult = await pool.query(
+        'SELECT id FROM waitlist WHERE id = $1',
         [id]
       );
       
-      if (existingEntry.length === 0) {
+      if (existingEntryResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Item não encontrado na lista de espera'
         });
       }
       
-      await pool.execute(
-        'UPDATE waitlist SET status = "CHAMADO", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      await pool.query(
+        "UPDATE waitlist SET status = 'CHAMADO', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
         [id]
       );
       
@@ -353,14 +322,14 @@ module.exports = (pool) => {
    */
   router.get('/stats/count', async (req, res) => {
     try {
-      const [waitingCount] = await pool.execute(
-        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      const waitingCountResult = await pool.query(
+        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
       );
       
       res.json({
         success: true,
         stats: {
-          waitlistCount: waitingCount[0].count
+          waitlistCount: parseInt(waitingCountResult.rows[0].count)
         }
       });
       
@@ -376,17 +345,17 @@ module.exports = (pool) => {
   // Função auxiliar para recalcular posições
   async function recalculatePositions(pool) {
     try {
-      const [waitingItems] = await pool.execute(
-        'SELECT id FROM waitlist WHERE status = "AGUARDANDO" ORDER BY created_at ASC'
+      const waitingItemsResult = await pool.query(
+        "SELECT id FROM waitlist WHERE status = 'AGUARDANDO' ORDER BY created_at ASC"
       );
       
-      for (let i = 0; i < waitingItems.length; i++) {
+      for (let i = 0; i < waitingItemsResult.rows.length; i++) {
         const newPosition = i + 1;
         const estimatedWaitTime = i * 15; // 15 minutos por pessoa na frente
         
-        await pool.execute(
-          'UPDATE waitlist SET position = ?, estimated_wait_time = ? WHERE id = ?',
-          [newPosition, estimatedWaitTime, waitingItems[i].id]
+        await pool.query(
+          'UPDATE waitlist SET position = $1, estimated_wait_time = $2 WHERE id = $3',
+          [newPosition, estimatedWaitTime, waitingItemsResult.rows[i].id]
         );
       }
     } catch (error) {

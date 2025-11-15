@@ -28,7 +28,7 @@ module.exports = (pool) => {
       console.log('🔍 Buscando promoter público com código:', codigo);
 
       // Buscar promoter
-      const [promoters] = await pool.execute(
+      const promotersResult = await pool.query(
         `SELECT 
           p.promoter_id,
           p.nome,
@@ -40,14 +40,14 @@ module.exports = (pool) => {
           pl.name as establishment_name
          FROM promoters p
          LEFT JOIN places pl ON p.establishment_id = pl.id
-         WHERE p.codigo_identificador = ? AND p.ativo = TRUE AND p.status = 'Ativo'
+         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND p.status = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
 
-      console.log('📊 Promoters encontrados:', promoters.length);
+      console.log('📊 Promoters encontrados:', promotersResult.rows.length);
 
-      if (promoters.length === 0) {
+      if (promotersResult.rows.length === 0) {
         console.log('❌ Promoter não encontrado com código:', codigo);
         return res.status(404).json({ 
           success: false, 
@@ -55,20 +55,20 @@ module.exports = (pool) => {
         });
       }
 
-      const promoter = promoters[0];
+      const promoter = promotersResult.rows[0];
       console.log('✅ Promoter encontrado:', { id: promoter.promoter_id, nome: promoter.nome });
 
       // Buscar estatísticas do promoter
       console.log('📊 Buscando estatísticas...');
-      const [stats] = await pool.execute(
+      const statsResult = await pool.query(
         `SELECT 
           COUNT(DISTINCT c.id) as total_convidados,
           COUNT(DISTINCT CASE WHEN c.status = 'confirmado' THEN c.id END) as total_confirmados
          FROM promoter_convidados c
-         WHERE c.promoter_id = ?`,
+         WHERE c.promoter_id = $1`,
         [promoter.promoter_id]
       );
-      console.log('✅ Estatísticas obtidas:', stats[0]);
+      console.log('✅ Estatísticas obtidas:', statsResult.rows[0]);
 
       res.json({
         success: true,
@@ -80,7 +80,7 @@ module.exports = (pool) => {
           instagram: promoter.instagram,
           observacoes: promoter.observacoes,
           establishment_name: promoter.establishment_name,
-          stats: stats[0] || { total_convidados: 0, total_confirmados: 0 }
+          stats: statsResult.rows[0] || { total_convidados: 0, total_confirmados: 0 }
         }
       });
 
@@ -121,33 +121,42 @@ module.exports = (pool) => {
       }
 
       // Verificar se promoter existe e está ativo
-      const [promoters] = await pool.execute(
+      const promotersResult = await pool.query(
         `SELECT promoter_id, nome 
          FROM promoters 
-         WHERE codigo_identificador = ? AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
 
-      if (promoters.length === 0) {
+      if (promotersResult.rows.length === 0) {
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
         });
       }
 
-      const promoter = promoters[0];
+      const promoter = promotersResult.rows[0];
 
       // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
-      const [existingGuests] = await pool.execute(
-        `SELECT id FROM promoter_convidados 
-         WHERE promoter_id = ? AND whatsapp = ?
-         ${evento_id ? 'AND evento_id = ?' : 'AND evento_id IS NULL'}
-         LIMIT 1`,
-        evento_id ? [promoter.promoter_id, whatsapp.trim(), evento_id] : [promoter.promoter_id, whatsapp.trim()]
-      );
+      let existingGuestsResult;
+      if (evento_id) {
+        existingGuestsResult = await pool.query(
+          `SELECT id FROM promoter_convidados 
+           WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
+           LIMIT 1`,
+          [promoter.promoter_id, whatsapp.trim(), evento_id]
+        );
+      } else {
+        existingGuestsResult = await pool.query(
+          `SELECT id FROM promoter_convidados 
+           WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
+           LIMIT 1`,
+          [promoter.promoter_id, whatsapp.trim()]
+        );
+      }
 
-      if (existingGuests.length > 0) {
+      if (existingGuestsResult.rows.length > 0) {
         return res.status(400).json({ 
           success: false, 
           error: 'Você já está nesta lista!' 
@@ -155,14 +164,14 @@ module.exports = (pool) => {
       }
 
       // Adicionar o convidado na tabela promoter_convidados
-      const [result] = await pool.execute(
+      const result = await pool.query(
         `INSERT INTO promoter_convidados (
           promoter_id, 
           nome, 
           whatsapp,
           evento_id,
           status
-        ) VALUES (?, ?, ?, ?, 'pendente')`,
+        ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
         [promoter.promoter_id, nome.trim(), whatsapp.trim(), evento_id || null]
       );
 
@@ -170,33 +179,33 @@ module.exports = (pool) => {
       try {
         if (evento_id) {
           // Buscar lista do promoter para este evento
-          const [listas] = await pool.execute(
+          const listasResult = await pool.query(
             `SELECT lista_id FROM listas 
-             WHERE promoter_responsavel_id = ? AND evento_id = ?
+             WHERE promoter_responsavel_id = $1 AND evento_id = $2
              LIMIT 1`,
             [promoter.promoter_id, evento_id]
           );
 
-          if (listas.length > 0) {
-            const lista_id = listas[0].lista_id;
+          if (listasResult.rows.length > 0) {
+            const lista_id = listasResult.rows[0].lista_id;
 
             // Verificar se já existe na lista (evitar duplicatas)
-            const [existeNaLista] = await pool.execute(
+            const existeNaListaResult = await pool.query(
               `SELECT lista_convidado_id FROM listas_convidados 
-               WHERE lista_id = ? AND nome_convidado = ? AND telefone_convidado = ?`,
+               WHERE lista_id = $1 AND nome_convidado = $2 AND telefone_convidado = $3`,
               [lista_id, nome.trim(), whatsapp.trim()]
             );
 
-            if (existeNaLista.length === 0) {
+            if (existeNaListaResult.rows.length === 0) {
               // Inserir na tabela listas_convidados
-              await pool.execute(
+              await pool.query(
                 `INSERT INTO listas_convidados (
                   lista_id,
                   nome_convidado,
                   telefone_convidado,
                   status_checkin,
                   is_vip
-                ) VALUES (?, ?, ?, 'Pendente', FALSE)`,
+                ) VALUES ($1, $2, $3, 'Pendente', FALSE)`,
                 [lista_id, nome.trim(), whatsapp.trim()]
               );
 
@@ -213,7 +222,7 @@ module.exports = (pool) => {
         success: true, 
         message: 'Você foi adicionado à lista com sucesso!',
         convidado: { 
-          id: result.insertId, 
+          id: result.rows[0].id, 
           nome: nome.trim(), 
           whatsapp: whatsapp.trim(),
           promoter_nome: promoter.nome
@@ -240,16 +249,16 @@ module.exports = (pool) => {
       console.log('🔍 Buscando eventos para promoter:', codigo);
 
       // Buscar promoter
-      const [promoters] = await pool.execute(
+      const promotersResult = await pool.query(
         `SELECT promoter_id FROM promoters 
-         WHERE codigo_identificador = ? AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
 
-      console.log('📊 Promoters encontrados para eventos:', promoters.length);
+      console.log('📊 Promoters encontrados para eventos:', promotersResult.rows.length);
 
-      if (promoters.length === 0) {
+      if (promotersResult.rows.length === 0) {
         console.log('❌ Promoter não encontrado para eventos:', codigo);
         return res.status(404).json({ 
           success: false, 
@@ -257,32 +266,31 @@ module.exports = (pool) => {
         });
       }
 
-      const promoter = promoters[0];
+      const promoter = promotersResult.rows[0];
       console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id);
 
       // Buscar eventos futuros que o promoter está associado
       console.log('📊 Buscando eventos futuros...');
-      const [eventos] = await pool.execute(
+      const eventosResult = await pool.query(
         `SELECT 
           e.id,
           e.nome_do_evento as nome,
-          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
           e.hora_do_evento as hora,
           pl.name as local_nome,
           pl.endereco as local_endereco
          FROM eventos e
          LEFT JOIN places pl ON e.id_place = pl.id
-         WHERE e.data_do_evento >= CURDATE()
+         WHERE e.data_do_evento >= CURRENT_DATE
          AND e.status = 'ativo'
          ORDER BY e.data_do_evento ASC, e.hora_do_evento ASC
-         LIMIT 10`,
-        []
+         LIMIT 10`
       );
-      console.log('✅ Eventos encontrados:', eventos.length);
+      console.log('✅ Eventos encontrados:', eventosResult.rows.length);
 
       res.json({
         success: true,
-        eventos
+        eventos: eventosResult.rows
       });
 
     } catch (error) {
@@ -309,16 +317,16 @@ module.exports = (pool) => {
       console.log('🔍 Buscando convidados para promoter:', codigo);
 
       // Buscar promoter
-      const [promoters] = await pool.execute(
+      const promotersResult = await pool.query(
         `SELECT promoter_id FROM promoters 
-         WHERE codigo_identificador = ? AND ativo = TRUE AND status = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND status = 'Ativo'
          LIMIT 1`,
         [codigo]
       );
 
-      console.log('📊 Promoters encontrados para convidados:', promoters.length);
+      console.log('📊 Promoters encontrados para convidados:', promotersResult.rows.length);
 
-      if (promoters.length === 0) {
+      if (promotersResult.rows.length === 0) {
         console.log('❌ Promoter não encontrado para convidados:', codigo);
         return res.status(404).json({ 
           success: false, 
@@ -326,7 +334,7 @@ module.exports = (pool) => {
         });
       }
 
-      const promoter = promoters[0];
+      const promoter = promotersResult.rows[0];
       console.log('✅ Promoter encontrado para convidados:', promoter.promoter_id);
 
       // Buscar convidados
@@ -340,24 +348,24 @@ module.exports = (pool) => {
           e.data_do_evento as evento_data
         FROM promoter_convidados c
         LEFT JOIN eventos e ON c.evento_id = e.id
-        WHERE c.promoter_id = ?
+        WHERE c.promoter_id = $1
       `;
 
       const params = [promoter.promoter_id];
 
       if (evento_id) {
-        query += ` AND c.evento_id = ?`;
+        query += ` AND c.evento_id = $2`;
         params.push(evento_id);
       }
 
       query += ` ORDER BY c.created_at DESC`;
 
       console.log('📊 Executando query de convidados...');
-      const [convidados] = await pool.execute(query, params);
-      console.log('✅ Convidados encontrados:', convidados.length);
+      const convidadosResult = await pool.query(query, params);
+      console.log('✅ Convidados encontrados:', convidadosResult.rows.length);
 
       // Ocultar informações sensíveis (WhatsApp) na listagem pública
-      const convidadosPublicos = convidados.map(c => ({
+      const convidadosPublicos = convidadosResult.rows.map(c => ({
         id: c.id,
         nome: c.nome,
         status: c.status,

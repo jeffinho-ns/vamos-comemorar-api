@@ -13,52 +13,7 @@ module.exports = (pool) => {
     try {
       console.log('🔍 Iniciando busca de áreas...');
       
-      // Verificar se a tabela restaurant_areas existe
-      console.log('🔍 Verificando se tabela restaurant_areas existe...');
-      const [tables] = await pool.execute("SHOW TABLES LIKE 'restaurant_areas'");
-      console.log('📊 Resultado da verificação de tabelas:', tables);
-      
-      if (tables.length === 0) {
-        console.log('📝 Criando tabela restaurant_areas...');
-        
-        try {
-          // Criar a tabela
-          await pool.execute(`
-            CREATE TABLE restaurant_areas (
-              id int(11) NOT NULL AUTO_INCREMENT,
-              name varchar(255) NOT NULL,
-              description text DEFAULT NULL,
-              capacity_lunch int(11) DEFAULT 0,
-              capacity_dinner int(11) DEFAULT 0,
-              is_active tinyint(1) DEFAULT 1,
-              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              UNIQUE KEY unique_name (name)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-          console.log('✅ Tabela criada com sucesso!');
-          
-          // Inserir dados de exemplo
-          await pool.execute(`
-            INSERT INTO restaurant_areas (name, description, capacity_lunch, capacity_dinner, is_active) VALUES
-            ('Área Coberta', 'Área interna com ar condicionado e ambiente climatizado', 50, 40, 1),
-            ('Área Descoberta', 'Área externa com vista para o jardim e ambiente natural', 30, 25, 1),
-            ('Área VIP', 'Área exclusiva com serviço diferenciado', 20, 15, 1),
-            ('Balcão', 'Área do balcão para refeições rápidas', 15, 12, 1),
-            ('Terraço', 'Área no terraço com vista panorâmica', 25, 20, 1)
-          `);
-          console.log('✅ Dados de exemplo inseridos com sucesso!');
-          
-        } catch (createError) {
-          console.error('❌ Erro ao criar tabela:', createError);
-          throw createError;
-        }
-      } else {
-        console.log('✅ Tabela restaurant_areas já existe');
-      }
-      
-      // Consulta simplificada sem JOINs que podem falhar
+      // Tabela restaurant_areas já deve existir no PostgreSQL
       console.log('🔍 Executando consulta de áreas...');
       const query = `
         SELECT 
@@ -70,7 +25,8 @@ module.exports = (pool) => {
         ORDER BY ra.name ASC
       `;
       
-      const [areas] = await pool.execute(query);
+      const areasResult = await pool.query(query);
+      const areas = areasResult.rows;
       console.log('📊 Áreas encontradas:', areas.length);
       
       res.json({
@@ -105,16 +61,16 @@ module.exports = (pool) => {
         FROM restaurant_areas ra
         LEFT JOIN restaurant_reservations rr ON ra.id = rr.area_id 
           AND rr.status IN ('NOVA', 'CONFIRMADA') 
-          AND rr.reservation_date = CURDATE()
+          AND rr.reservation_date = CURRENT_DATE
         LEFT JOIN walk_ins wi ON ra.id = wi.area_id 
           AND wi.status = 'ATIVO'
-        WHERE ra.id = ? AND ra.is_active = 1
+        WHERE ra.id = $1 AND ra.is_active = 1
         GROUP BY ra.id
       `;
       
-      const [areas] = await pool.execute(query, [id]);
+      const areasResult = await pool.query(query, [id]);
       
-      if (areas.length === 0) {
+      if (areasResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
@@ -123,7 +79,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        area: areas[0]
+        area: areasResult.rows[0]
       });
       
     } catch (error) {
@@ -159,12 +115,12 @@ module.exports = (pool) => {
       }
       
       // Verificar se já existe uma área com o mesmo nome
-      const [existingArea] = await pool.execute(
-        'SELECT id FROM restaurant_areas WHERE name = ?',
+      const existingAreaResult = await pool.query(
+        'SELECT id FROM restaurant_areas WHERE name = $1',
         [name]
       );
       
-      if (existingArea.length > 0) {
+      if (existingAreaResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
           error: 'Já existe uma área com este nome'
@@ -174,23 +130,23 @@ module.exports = (pool) => {
       const query = `
         INSERT INTO restaurant_areas (
           name, description, capacity_lunch, capacity_dinner, is_active
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5) RETURNING id
       `;
       
       const params = [name, description, capacity_lunch, capacity_dinner, is_active];
       
-      const [result] = await pool.execute(query, params);
+      const result = await pool.query(query, params);
       
       // Buscar a área criada
-      const [newArea] = await pool.execute(
-        'SELECT * FROM restaurant_areas WHERE id = ?',
-        [result.insertId]
+      const newAreaResult = await pool.query(
+        'SELECT * FROM restaurant_areas WHERE id = $1',
+        [result.rows[0].id]
       );
       
       res.status(201).json({
         success: true,
         message: 'Área criada com sucesso',
-        area: newArea[0]
+        area: newAreaResult.rows[0]
       });
       
     } catch (error) {
@@ -219,12 +175,12 @@ module.exports = (pool) => {
       } = req.body;
       
       // Verificar se a área existe
-      const [existingArea] = await pool.execute(
-        'SELECT id FROM restaurant_areas WHERE id = ?',
+      const existingAreaResult = await pool.query(
+        'SELECT id FROM restaurant_areas WHERE id = $1',
         [id]
       );
       
-      if (existingArea.length === 0) {
+      if (existingAreaResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
@@ -233,12 +189,12 @@ module.exports = (pool) => {
       
       // Verificar se já existe outra área com o mesmo nome
       if (name) {
-        const [duplicateArea] = await pool.execute(
-          'SELECT id FROM restaurant_areas WHERE name = ? AND id != ?',
+        const duplicateAreaResult = await pool.query(
+          'SELECT id FROM restaurant_areas WHERE name = $1 AND id != $2',
           [name, id]
         );
         
-        if (duplicateArea.length > 0) {
+        if (duplicateAreaResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
             error: 'Já existe uma área com este nome'
@@ -246,31 +202,31 @@ module.exports = (pool) => {
         }
       }
       
-      const query = `
-        UPDATE restaurant_areas SET
-          name = COALESCE(?, name),
-          description = COALESCE(?, description),
-          capacity_lunch = COALESCE(?, capacity_lunch),
-          capacity_dinner = COALESCE(?, capacity_dinner),
-          is_active = COALESCE(?, is_active),
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `;
+      const updates = [];
+      const params = [];
+      let paramIndex = 1;
       
-      const params = [name, description, capacity_lunch, capacity_dinner, is_active, id];
+      if (name !== undefined) { updates.push(`name = $${paramIndex++}`); params.push(name); }
+      if (description !== undefined) { updates.push(`description = $${paramIndex++}`); params.push(description); }
+      if (capacity_lunch !== undefined) { updates.push(`capacity_lunch = $${paramIndex++}`); params.push(capacity_lunch); }
+      if (capacity_dinner !== undefined) { updates.push(`capacity_dinner = $${paramIndex++}`); params.push(capacity_dinner); }
+      if (is_active !== undefined) { updates.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+      updates.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(id);
       
-      await pool.execute(query, params);
+      const query = `UPDATE restaurant_areas SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
+      await pool.query(query, params);
       
       // Buscar a área atualizada
-      const [updatedArea] = await pool.execute(
-        'SELECT * FROM restaurant_areas WHERE id = ?',
+      const updatedAreaResult = await pool.query(
+        'SELECT * FROM restaurant_areas WHERE id = $1',
         [id]
       );
       
       res.json({
         success: true,
         message: 'Área atualizada com sucesso',
-        area: updatedArea[0]
+        area: updatedAreaResult.rows[0]
       });
       
     } catch (error) {
@@ -292,12 +248,12 @@ module.exports = (pool) => {
       const { id } = req.params;
       
       // Verificar se a área existe
-      const [existingArea] = await pool.execute(
-        'SELECT id FROM restaurant_areas WHERE id = ?',
+      const existingAreaResult = await pool.query(
+        'SELECT id FROM restaurant_areas WHERE id = $1',
         [id]
       );
       
-      if (existingArea.length === 0) {
+      if (existingAreaResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
@@ -305,17 +261,17 @@ module.exports = (pool) => {
       }
       
       // Verificar se há reservas ou passantes ativos nesta área
-      const [activeReservations] = await pool.execute(
-        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE area_id = ? AND status IN ("NOVA", "CONFIRMADA")',
+      const activeReservationsResult = await pool.query(
+        "SELECT COUNT(*) as count FROM restaurant_reservations WHERE area_id = $1 AND status IN ('NOVA', 'CONFIRMADA')",
         [id]
       );
       
-      const [activeWalkIns] = await pool.execute(
-        'SELECT COUNT(*) as count FROM walk_ins WHERE area_id = ? AND status = "ATIVO"',
+      const activeWalkInsResult = await pool.query(
+        "SELECT COUNT(*) as count FROM walk_ins WHERE area_id = $1 AND status = 'ATIVO'",
         [id]
       );
       
-      if (activeReservations[0].count > 0 || activeWalkIns[0].count > 0) {
+      if (parseInt(activeReservationsResult.rows[0].count) > 0 || parseInt(activeWalkInsResult.rows[0].count) > 0) {
         return res.status(400).json({
           success: false,
           error: 'Não é possível deletar uma área com reservas ou passantes ativos'
@@ -323,8 +279,8 @@ module.exports = (pool) => {
       }
       
       // Soft delete - marcar como inativa
-      await pool.execute(
-        'UPDATE restaurant_areas SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      await pool.query(
+        'UPDATE restaurant_areas SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
         [id]
       );
       
@@ -360,12 +316,12 @@ module.exports = (pool) => {
       }
       
       // Buscar informações da área
-      const [area] = await pool.execute(
-        'SELECT * FROM restaurant_areas WHERE id = ? AND is_active = 1',
+      const areaResult = await pool.query(
+        'SELECT * FROM restaurant_areas WHERE id = $1 AND is_active = 1',
         [id]
       );
       
-      if (area.length === 0) {
+      if (areaResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
@@ -373,22 +329,22 @@ module.exports = (pool) => {
       }
       
       // Contar reservas confirmadas para a data
-      const [reservations] = await pool.execute(
-        'SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM restaurant_reservations WHERE area_id = ? AND reservation_date = ? AND status IN ("NOVA", "CONFIRMADA")',
+      const reservationsResult = await pool.query(
+        "SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM restaurant_reservations WHERE area_id = $1 AND reservation_date = $2 AND status IN ('NOVA', 'CONFIRMADA')",
         [id, date]
       );
       
       // Contar passantes ativos
-      const [walkIns] = await pool.execute(
-        'SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM walk_ins WHERE area_id = ? AND DATE(arrival_time) = ? AND status = "ATIVO"',
+      const walkInsResult = await pool.query(
+        "SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM walk_ins WHERE area_id = $1 AND DATE(arrival_time) = $2 AND status = 'ATIVO'",
         [id, date]
       );
       
-      const areaData = area[0];
-      const reservationCount = reservations[0].count;
-      const reservationPeople = reservations[0].total_people || 0;
-      const walkInCount = walkIns[0].count;
-      const walkInPeople = walkIns[0].total_people || 0;
+      const areaData = areaResult.rows[0];
+      const reservationCount = parseInt(reservationsResult.rows[0].count);
+      const reservationPeople = parseInt(reservationsResult.rows[0].total_people) || 0;
+      const walkInCount = parseInt(walkInsResult.rows[0].count);
+      const walkInPeople = parseInt(walkInsResult.rows[0].total_people) || 0;
       
       // Calcular capacidade disponível (usando capacidade do almoço como padrão)
       const totalCapacity = areaData.capacity_lunch;

@@ -20,7 +20,7 @@ module.exports = (pool) => {
           pe.id as relacionamento_id,
           pe.promoter_id,
           pe.evento_id,
-          DATE_FORMAT(pe.data_evento, '%Y-%m-%d') as data_evento,
+          TO_CHAR(pe.data_evento, 'YYYY-MM-DD') as data_evento,
           pe.status,
           pe.funcao,
           pe.observacoes,
@@ -42,19 +42,21 @@ module.exports = (pool) => {
         JOIN promoters p ON pe.promoter_id = p.promoter_id
         JOIN eventos e ON pe.evento_id = e.id
         LEFT JOIN places pl ON e.id_place = pl.id
-        WHERE pe.evento_id = ?
+        WHERE pe.evento_id = $1
       `;
       
       const params = [evento_id];
+      let paramIndex = 2;
       
       if (data_evento) {
-        query += ` AND pe.data_evento = ?`;
+        query += ` AND pe.data_evento = $${paramIndex++}`;
         params.push(data_evento);
       }
       
       query += ` ORDER BY pe.funcao DESC, pe.data_evento ASC, p.nome ASC`;
       
-      const [promoters] = await pool.execute(query, params);
+      const promotersResult = await pool.query(query, params);
+      const promoters = promotersResult.rows;
       
       console.log('✅ Promoters encontrados:', promoters.length);
       
@@ -121,12 +123,12 @@ module.exports = (pool) => {
       }
       
       // Verificar se promoter existe
-      const [promoterCheck] = await pool.execute(
-        'SELECT promoter_id, nome FROM promoters WHERE promoter_id = ? AND ativo = TRUE',
+      const promoterCheckResult = await pool.query(
+        'SELECT promoter_id, nome FROM promoters WHERE promoter_id = $1 AND ativo = TRUE',
         [promoter_id]
       );
       
-      if (promoterCheck.length === 0) {
+      if (promoterCheckResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Promoter não encontrado ou inativo'
@@ -134,12 +136,12 @@ module.exports = (pool) => {
       }
       
       // Verificar se evento existe
-      const [eventoCheck] = await pool.execute(
-        'SELECT id, nome_do_evento, tipo_evento FROM eventos WHERE id = ?',
+      const eventoCheckResult = await pool.query(
+        'SELECT id, nome_do_evento, tipo_evento FROM eventos WHERE id = $1',
         [evento_id]
       );
       
-      if (eventoCheck.length === 0) {
+      if (eventoCheckResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
@@ -147,12 +149,12 @@ module.exports = (pool) => {
       }
       
       // Verificar se já existe relacionamento
-      const [existing] = await pool.execute(
-        'SELECT id FROM promoter_eventos WHERE promoter_id = ? AND evento_id = ? AND data_evento = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM promoter_eventos WHERE promoter_id = $1 AND evento_id = $2 AND data_evento = $3',
         [promoter_id, evento_id, data_evento]
       );
       
-      if (existing.length > 0) {
+      if (existingResult.rows.length > 0) {
         return res.status(409).json({
           success: false,
           error: 'Promoter já está vinculado a este evento nesta data'
@@ -160,49 +162,49 @@ module.exports = (pool) => {
       }
       
       // Inserir relacionamento
-      const [result] = await pool.execute(
+      const result = await pool.query(
         `INSERT INTO promoter_eventos 
          (promoter_id, evento_id, data_evento, funcao, observacoes, status)
-         VALUES (?, ?, ?, ?, ?, 'ativo')`,
+         VALUES ($1, $2, $3, $4, $5, 'ativo') RETURNING id`,
         [promoter_id, evento_id, data_evento, funcao, observacoes]
       );
       
-      console.log('✅ Relacionamento criado com ID:', result.insertId);
+      console.log('✅ Relacionamento criado com ID:', result.rows[0].id);
       
       // 🎯 NOVA FUNCIONALIDADE: Criar lista automaticamente para o promoter
       console.log('📋 Criando lista automaticamente para o promoter...');
       
       try {
         // Verificar se já existe uma lista para este promoter neste evento
-        const [listaExistente] = await pool.execute(`
+        const listaExistenteResult = await pool.query(`
           SELECT lista_id FROM listas 
-          WHERE evento_id = ? AND promoter_responsavel_id = ?
+          WHERE evento_id = $1 AND promoter_responsavel_id = $2
         `, [evento_id, promoter_id]);
         
         let listaId = null;
         
-        if (listaExistente.length === 0) {
+        if (listaExistenteResult.rows.length === 0) {
           // Criar nova lista para o promoter
-          const nomeLista = `Lista de ${promoterCheck[0].nome}`;
-          const [listaResult] = await pool.execute(`
+          const nomeLista = `Lista de ${promoterCheckResult.rows[0].nome}`;
+          const listaResult = await pool.query(`
             INSERT INTO listas 
             (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
-            VALUES (?, ?, ?, 'Promoter', ?)
+            VALUES ($1, $2, $3, 'Promoter', $4) RETURNING lista_id
           `, [evento_id, promoter_id, nomeLista, observacoes || 'Lista criada automaticamente']);
           
-          listaId = listaResult.insertId;
+          listaId = listaResult.rows[0].lista_id;
           console.log('✅ Lista criada automaticamente com ID:', listaId);
         } else {
-          listaId = listaExistente[0].lista_id;
+          listaId = listaExistenteResult.rows[0].lista_id;
           console.log('ℹ️ Lista já existe com ID:', listaId);
         }
         
         // Adicionar informações da lista na resposta
-        const [listaInfo] = await pool.execute(`
-          SELECT lista_id, nome, tipo FROM listas WHERE lista_id = ?
+        const listaInfoResult = await pool.query(`
+          SELECT lista_id, nome, tipo FROM listas WHERE lista_id = $1
         `, [listaId]);
         
-        console.log('📋 Informações da lista:', listaInfo[0]);
+        console.log('📋 Informações da lista:', listaInfoResult.rows[0]);
         
       } catch (listaError) {
         console.error('⚠️ Erro ao criar lista automaticamente:', listaError);
@@ -210,7 +212,7 @@ module.exports = (pool) => {
       }
       
       // Buscar dados completos do relacionamento criado
-      const [newRelacionamento] = await pool.execute(`
+      const newRelacionamentoResult = await pool.query(`
         SELECT 
           pe.id as relacionamento_id,
           pe.promoter_id,
@@ -227,12 +229,12 @@ module.exports = (pool) => {
         FROM promoter_eventos pe
         JOIN promoters p ON pe.promoter_id = p.promoter_id
         JOIN eventos e ON pe.evento_id = e.id
-        WHERE pe.id = ?
-      `, [result.insertId]);
+        WHERE pe.id = $1
+      `, [result.rows[0].id]);
       
       res.json({
         success: true,
-        relacionamento: newRelacionamento[0],
+        relacionamento: newRelacionamentoResult.rows[0],
         message: 'Promoter adicionado ao evento com sucesso'
       });
       
@@ -257,12 +259,12 @@ module.exports = (pool) => {
       console.log('✏️ Atualizando relacionamento:', relacionamento_id);
       
       // Verificar se relacionamento existe
-      const [existing] = await pool.execute(
-        'SELECT id FROM promoter_eventos WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM promoter_eventos WHERE id = $1',
         [relacionamento_id]
       );
       
-      if (existing.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Relacionamento não encontrado'
@@ -272,19 +274,20 @@ module.exports = (pool) => {
       // Atualizar relacionamento
       const updateFields = [];
       const updateValues = [];
+      let paramIndex = 1;
       
       if (funcao !== undefined) {
-        updateFields.push('funcao = ?');
+        updateFields.push(`funcao = $${paramIndex++}`);
         updateValues.push(funcao);
       }
       
       if (status !== undefined) {
-        updateFields.push('status = ?');
+        updateFields.push(`status = $${paramIndex++}`);
         updateValues.push(status);
       }
       
       if (observacoes !== undefined) {
-        updateFields.push('observacoes = ?');
+        updateFields.push(`observacoes = $${paramIndex++}`);
         updateValues.push(observacoes);
       }
       
@@ -297,8 +300,8 @@ module.exports = (pool) => {
       
       updateValues.push(relacionamento_id);
       
-      await pool.execute(
-        `UPDATE promoter_eventos SET ${updateFields.join(', ')} WHERE id = ?`,
+      await pool.query(
+        `UPDATE promoter_eventos SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
         updateValues
       );
       
@@ -329,12 +332,12 @@ module.exports = (pool) => {
       console.log('🗑️ Removendo relacionamento:', relacionamento_id);
       
       // Verificar se relacionamento existe
-      const [existing] = await pool.execute(
-        'SELECT id FROM promoter_eventos WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM promoter_eventos WHERE id = $1',
         [relacionamento_id]
       );
       
-      if (existing.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Relacionamento não encontrado'
@@ -342,8 +345,8 @@ module.exports = (pool) => {
       }
       
       // Remover relacionamento
-      await pool.execute(
-        'DELETE FROM promoter_eventos WHERE id = ?',
+      await pool.query(
+        'DELETE FROM promoter_eventos WHERE id = $1',
         [relacionamento_id]
       );
       
@@ -379,7 +382,7 @@ module.exports = (pool) => {
           pe.id as relacionamento_id,
           pe.promoter_id,
           pe.evento_id,
-          DATE_FORMAT(pe.data_evento, '%Y-%m-%d') as data_evento,
+          TO_CHAR(pe.data_evento, 'YYYY-MM-DD') as data_evento,
           pe.status,
           pe.funcao,
           pe.observacoes,
@@ -396,29 +399,31 @@ module.exports = (pool) => {
         FROM promoter_eventos pe
         JOIN eventos e ON pe.evento_id = e.id
         LEFT JOIN places pl ON e.id_place = pl.id
-        WHERE pe.promoter_id = ?
+        WHERE pe.promoter_id = $1
       `;
       
       const params = [promoter_id];
+      let paramIndex = 2;
       
       if (status) {
-        query += ` AND pe.status = ?`;
+        query += ` AND pe.status = $${paramIndex++}`;
         params.push(status);
       }
       
       if (data_inicio) {
-        query += ` AND pe.data_evento >= ?`;
+        query += ` AND pe.data_evento >= $${paramIndex++}`;
         params.push(data_inicio);
       }
       
       if (data_fim) {
-        query += ` AND pe.data_evento <= ?`;
+        query += ` AND pe.data_evento <= $${paramIndex++}`;
         params.push(data_fim);
       }
       
       query += ` ORDER BY pe.data_evento ASC, e.hora_do_evento ASC`;
       
-      const [eventos] = await pool.execute(query, params);
+      const eventosResult = await pool.query(query, params);
+      const eventos = eventosResult.rows;
       
       console.log('✅ Eventos encontrados:', eventos.length);
       

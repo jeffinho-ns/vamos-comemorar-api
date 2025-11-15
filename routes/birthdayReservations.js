@@ -53,19 +53,19 @@ module.exports = (pool) => {
       email,
     } = req.body;
 
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      await connection.beginTransaction();
+      await client.query('BEGIN');
 
       let placeId = id_casa_evento;
       if (typeof id_casa_evento === 'string' && isNaN(parseInt(id_casa_evento))) {
-         // MODIFICADO: A consulta agora usa COLLATE para ser insensível a maiúsculas e minúsculas
-         const [placeRows] = await connection.query('SELECT id FROM places WHERE name = ? COLLATE utf8mb4_unicode_ci', [id_casa_evento]);
-         if (placeRows.length > 0) {
-           placeId = placeRows[0].id;
+         // PostgreSQL usa ILIKE para busca case-insensitive
+         const placeResult = await client.query('SELECT id FROM places WHERE name ILIKE $1', [id_casa_evento]);
+         if (placeResult.rows.length > 0) {
+           placeId = placeResult.rows[0].id;
          } else {
-           await connection.rollback();
+           await client.query('ROLLBACK');
            return res.status(404).json({ message: 'Bar selecionado não encontrado.' });
          }
       }
@@ -106,7 +106,7 @@ module.exports = (pool) => {
           documento,
           whatsapp,
           email
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
       `;
 
       const insertParams = [
@@ -151,21 +151,21 @@ module.exports = (pool) => {
         console.log(`${index + 1}: ${param} (${typeof param})`);
       });
 
-      const [result] = await connection.execute(sqlInsert, insertParams);
+      const result = await client.query(sqlInsert, insertParams);
 
-      await connection.commit();
+      await client.query('COMMIT');
 
       res.status(201).json({
         message: 'Reserva de aniversário criada com sucesso!',
-        id: result.insertId,
+        id: result.rows[0].id,
       });
 
     } catch (error) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       console.error('Erro ao criar reserva de aniversário:', error);
       res.status(500).json({ message: 'Erro ao criar a reserva de aniversário.' });
     } finally {
-      if (connection) connection.release();
+      if (client) client.release();
     }
   });
 
@@ -175,10 +175,8 @@ module.exports = (pool) => {
    * @access  Private
    */
   router.get('/', async (req, res) => {
-    const connection = await pool.getConnection();
-
     try {
-      const [rows] = await connection.query(`
+      const result = await pool.query(`
         SELECT 
           br.*,
           p.name as place_name,
@@ -189,13 +187,11 @@ module.exports = (pool) => {
         ORDER BY br.created_at DESC
       `);
 
-      res.json(rows);
+      res.json(result.rows);
 
     } catch (error) {
       console.error('Erro ao buscar reservas de aniversário:', error);
       res.status(500).json({ message: 'Erro ao buscar as reservas de aniversário.' });
-    } finally {
-      if (connection) connection.release();
     }
   });
 
@@ -206,10 +202,10 @@ module.exports = (pool) => {
    */
   router.get('/:id', async (req, res) => {
     const { id } = req.params;
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      const [rows] = await connection.query(`
+      const rowsResult = await client.query(`
         SELECT 
           br.*,
           p.name as place_name,
@@ -217,20 +213,20 @@ module.exports = (pool) => {
         FROM birthday_reservations br
         LEFT JOIN places p ON br.id_casa_evento = p.id
         LEFT JOIN users u ON br.user_id = u.id
-        WHERE br.id = ?
+        WHERE br.id = $1
       `, [id]);
 
-      if (rows.length === 0) {
+      if (rowsResult.rows.length === 0) {
         return res.status(404).json({ message: 'Reserva de aniversário não encontrada.' });
       }
 
-      res.json(rows[0]);
+      res.json(rowsResult.rows[0]);
 
     } catch (error) {
       console.error('Erro ao buscar reserva de aniversário:', error);
       res.status(500).json({ message: 'Erro ao buscar a reserva de aniversário.' });
     } finally {
-      if (connection) connection.release();
+      if (client) client.release();
     }
   });
 
@@ -278,63 +274,63 @@ module.exports = (pool) => {
       status
     } = req.body;
 
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      await connection.beginTransaction();
+      await client.query('BEGIN');
 
       let placeId = id_casa_evento;
       if (typeof id_casa_evento === 'string' && isNaN(parseInt(id_casa_evento))) {
-         const [placeRows] = await connection.query('SELECT id FROM places WHERE name = ? COLLATE utf8mb4_unicode_ci', [id_casa_evento]);
-         if (placeRows.length > 0) {
-           placeId = placeRows[0].id;
+         const placeRowsResult = await client.query('SELECT id FROM places WHERE name ILIKE $1', [id_casa_evento]);
+         if (placeRowsResult.rows.length > 0) {
+           placeId = placeRowsResult.rows[0].id;
          } else {
-           await connection.rollback();
+           await client.query('ROLLBACK');
            return res.status(404).json({ message: 'Bar selecionado não encontrado.' });
          }
       }
 
       const sqlUpdate = `
         UPDATE birthday_reservations SET
-          aniversariante_nome = ?,
-          data_aniversario = ?,
-          quantidade_convidados = ?,
-          id_casa_evento = ?,
-          decoracao_tipo = ?,
-          painel_personalizado = ?,
-          painel_estoque_imagem_url = ?,
-          painel_tema = ?,
-          painel_frase = ?,
-          item_bar_bebida_1 = ?,
-          item_bar_bebida_2 = ?,
-          item_bar_bebida_3 = ?,
-          item_bar_bebida_4 = ?,
-          item_bar_bebida_5 = ?,
-          item_bar_bebida_6 = ?,
-          item_bar_bebida_7 = ?,
-          item_bar_bebida_8 = ?,
-          item_bar_bebida_9 = ?,
-          item_bar_bebida_10 = ?,
-          item_bar_comida_1 = ?,
-          item_bar_comida_2 = ?,
-          item_bar_comida_3 = ?,
-          item_bar_comida_4 = ?,
-          item_bar_comida_5 = ?,
-          item_bar_comida_6 = ?,
-          item_bar_comida_7 = ?,
-          item_bar_comida_8 = ?,
-          item_bar_comida_9 = ?,
-          item_bar_comida_10 = ?,
-          lista_presentes = ?,
-          documento = ?,
-          whatsapp = ?,
-          email = ?,
-          status = ?,
+          aniversariante_nome = $1,
+          data_aniversario = $2,
+          quantidade_convidados = $3,
+          id_casa_evento = $4,
+          decoracao_tipo = $5,
+          painel_personalizado = $6,
+          painel_estoque_imagem_url = $7,
+          painel_tema = $8,
+          painel_frase = $9,
+          item_bar_bebida_1 = $10,
+          item_bar_bebida_2 = $11,
+          item_bar_bebida_3 = $12,
+          item_bar_bebida_4 = $13,
+          item_bar_bebida_5 = $14,
+          item_bar_bebida_6 = $15,
+          item_bar_bebida_7 = $16,
+          item_bar_bebida_8 = $17,
+          item_bar_bebida_9 = $18,
+          item_bar_bebida_10 = $19,
+          item_bar_comida_1 = $20,
+          item_bar_comida_2 = $21,
+          item_bar_comida_3 = $22,
+          item_bar_comida_4 = $23,
+          item_bar_comida_5 = $24,
+          item_bar_comida_6 = $25,
+          item_bar_comida_7 = $26,
+          item_bar_comida_8 = $27,
+          item_bar_comida_9 = $28,
+          item_bar_comida_10 = $29,
+          lista_presentes = $30,
+          documento = $31,
+          whatsapp = $32,
+          email = $33,
+          status = $34,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = $35
       `;
 
-      const [result] = await connection.execute(sqlUpdate, [
+      const result = await client.query(sqlUpdate, [
         aniversariante_nome,
         data_aniversario,
         quantidade_convidados,
@@ -372,12 +368,12 @@ module.exports = (pool) => {
         id
       ]);
 
-      if (result.affectedRows === 0) {
-        await connection.rollback();
+      if (result.rowCount === 0) {
+        await client.query('ROLLBACK');
         return res.status(404).json({ message: 'Reserva de aniversário não encontrada.' });
       }
 
-      await connection.commit();
+      await client.query('COMMIT');
 
       res.json({
         message: 'Reserva de aniversário atualizada com sucesso!',
@@ -385,11 +381,11 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       console.error('Erro ao atualizar reserva de aniversário:', error);
       res.status(500).json({ message: 'Erro ao atualizar a reserva de aniversário.' });
     } finally {
-      if (connection) connection.release();
+      if (client) client.release();
     }
   });
 
@@ -400,12 +396,12 @@ module.exports = (pool) => {
    */
   router.delete('/:id', async (req, res) => {
     const { id } = req.params;
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      const [result] = await connection.execute('DELETE FROM birthday_reservations WHERE id = ?', [id]);
+      const result = await client.query('DELETE FROM birthday_reservations WHERE id = $1', [id]);
 
-      if (result.affectedRows === 0) {
+      if (result.rowCount === 0) {
         return res.status(404).json({ message: 'Reserva de aniversário não encontrada.' });
       }
 
@@ -415,7 +411,7 @@ module.exports = (pool) => {
       console.error('Erro ao remover reserva de aniversário:', error);
       res.status(500).json({ message: 'Erro ao remover a reserva de aniversário.' });
     } finally {
-      if (connection) connection.release();
+      if (client) client.release();
     }
   });
 

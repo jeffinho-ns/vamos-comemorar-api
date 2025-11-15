@@ -46,17 +46,17 @@ module.exports = (pool, checkAndAwardBrindes) => {
             // Busca eventos onde o usuário é promoter
             // Por enquanto, vamos considerar que um usuário é promoter se criou reservas para o evento
             // ou se tem uma relação específica com o evento
-            const [events] = await pool.query(`
+            const result = await pool.query(`
                 SELECT DISTINCT e.*
                 FROM eventos e
                 LEFT JOIN reservas r ON e.id = r.evento_id
                 LEFT JOIN users u ON r.user_id = u.id
-                WHERE r.user_id = ? OR e.criado_por = ?
+                WHERE r.user_id = $1 OR e.criado_por = $2
                 ORDER BY e.data_do_evento DESC, e.hora_do_evento ASC
             `, [userId, userId]);
 
             // Adiciona URLs completas das imagens
-            const eventsWithUrls = events.map(addFullImageUrls);
+            const eventsWithUrls = result.rows.map(addFullImageUrls);
 
             console.log(`Encontrados ${eventsWithUrls.length} eventos para o promoter ${userId}`);
             res.status(200).json(eventsWithUrls);
@@ -75,18 +75,18 @@ module.exports = (pool, checkAndAwardBrindes) => {
             const eventId = req.params.id;
 
             // Verifica se o usuário é promoter do evento
-            const [rows] = await pool.query(`
+            const result = await pool.query(`
                 SELECT COUNT(*) as count
                 FROM (
                     SELECT DISTINCT e.id
                     FROM eventos e
                     LEFT JOIN reservas r ON e.id = r.evento_id
                     LEFT JOIN users u ON r.user_id = u.id
-                    WHERE (r.user_id = ? OR e.criado_por = ?) AND e.id = ?
+                    WHERE (r.user_id = $1 OR e.criado_por = $2) AND e.id = $3
                 ) as promoter_events
             `, [userId, userId, eventId]);
 
-            const isPromoter = rows[0].count > 0;
+            const isPromoter = parseInt(result.rows[0].count) > 0;
 
             console.log(`Usuário ${userId} é promoter do evento ${eventId}: ${isPromoter}`);
             res.status(200).json({ isPromoter });
@@ -119,7 +119,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
                     tipo_evento, dia_da_semana, id_place, criado_por
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
             `;
             const insertParams = [
                 casa_do_evento, nome_do_evento,
@@ -131,10 +131,10 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 id_place, req.user.id // Adiciona o ID do usuário que criou o evento
             ];
 
-            const [result] = await pool.query(insertQuery, insertParams);
+            const result = await pool.query(insertQuery, insertParams);
 
-            const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [result.insertId]);
-            const newEventWithUrls = addFullImageUrls(rows[0]);
+            const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [result.rows[0].id]);
+            const newEventWithUrls = addFullImageUrls(rowsResult.rows[0]);
 
             res.status(201).json(newEventWithUrls);
 
@@ -151,7 +151,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
             let query = `
                 SELECT
                     id, casa_do_evento, nome_do_evento, 
-                    DATE_FORMAT(data_do_evento, '%Y-%m-%d') as data_do_evento, 
+                    TO_CHAR(data_do_evento, 'YYYY-MM-DD') as data_do_evento, 
                     hora_do_evento,
                     local_do_evento, criado_em, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
@@ -162,15 +162,15 @@ module.exports = (pool, checkAndAwardBrindes) => {
             let queryParams = [];
 
             if (tipo) {
-                query += ` WHERE tipo_evento = ?`;
+                query += ` WHERE tipo_evento = $1`;
                 queryParams.push(tipo);
             }
 
             query += ` ORDER BY data_do_evento DESC, hora_do_evento DESC`;
 
-            const [events] = await pool.query(query, queryParams);
+            const result = await pool.query(query, queryParams);
             
-            const eventsWithUrls = events.map(addFullImageUrls);
+            const eventsWithUrls = result.rows.map(addFullImageUrls);
 
             res.status(200).json(eventsWithUrls);
         } catch (error) {
@@ -183,12 +183,12 @@ module.exports = (pool, checkAndAwardBrindes) => {
     router.get('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
-            const [rows] = await pool.query(`SELECT * FROM eventos WHERE id = ?`, [eventId]);
-            if (rows.length === 0) {
+            const result = await pool.query(`SELECT * FROM eventos WHERE id = $1`, [eventId]);
+            if (result.rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
 
-            const eventWithUrls = addFullImageUrls(rows[0]);
+            const eventWithUrls = addFullImageUrls(result.rows[0]);
 
             res.status(200).json(eventWithUrls);
         } catch (error) {
@@ -201,8 +201,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
     router.put('/:id', auth, async (req, res) => {
         const eventId = req.params.id;
         try {
-            const [eventosAtuais] = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = ?`, [eventId]);
-            if (eventosAtuais.length === 0) {
+            const eventosAtuaisResult = await pool.query(`SELECT imagem_do_evento, imagem_do_combo FROM eventos WHERE id = $1`, [eventId]);
+            if (eventosAtuaisResult.rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado.' });
             }
             
@@ -215,18 +215,18 @@ module.exports = (pool, checkAndAwardBrindes) => {
             } = req.body;
 
             // Usa as imagens fornecidas ou mantém as antigas
-            const eventoAntigo = eventosAtuais[0];
+            const eventoAntigo = eventosAtuaisResult.rows[0];
             const imagemDoEventoFinal = imagem_do_evento || eventoAntigo.imagem_do_evento;
             const imagemDoComboFinal = imagem_do_combo || eventoAntigo.imagem_do_combo;
 
             const updateQuery = `
                 UPDATE eventos SET
-                    casa_do_evento = ?, nome_do_evento = ?, data_do_evento = ?, hora_do_evento = ?,
-                    local_do_evento = ?, categoria = ?, mesas = ?, valor_da_mesa = ?, brinde = ?,
-                    numero_de_convidados = ?, descricao = ?, valor_da_entrada = ?,
-                    imagem_do_evento = ?, imagem_do_combo = ?, observacao = ?,
-                    tipo_evento = ?, dia_da_semana = ?, id_place = ?
-                WHERE id = ?
+                    casa_do_evento = $1, nome_do_evento = $2, data_do_evento = $3, hora_do_evento = $4,
+                    local_do_evento = $5, categoria = $6, mesas = $7, valor_da_mesa = $8, brinde = $9,
+                    numero_de_convidados = $10, descricao = $11, valor_da_entrada = $12,
+                    imagem_do_evento = $13, imagem_do_combo = $14, observacao = $15,
+                    tipo_evento = $16, dia_da_semana = $17, id_place = $18
+                WHERE id = $19
             `;
             const updateParams = [
                 casa_do_evento, nome_do_evento,
@@ -239,13 +239,13 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 eventId
             ];
 
-            const [result] = await pool.query(updateQuery, updateParams);
-            if (result.affectedRows === 0) {
+            const result = await pool.query(updateQuery, updateParams);
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado para atualização.' });
             }
 
-            const [rows] = await pool.query('SELECT * FROM eventos WHERE id = ?', [eventId]);
-            const updatedEventWithUrls = addFullImageUrls(rows[0]);
+            const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [eventId]);
+            const updatedEventWithUrls = addFullImageUrls(rowsResult.rows[0]);
 
             res.status(200).json({ message: 'Evento atualizado com sucesso!', event: updatedEventWithUrls });
 
@@ -266,8 +266,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
             // As imagens agora estão no FTP, não precisamos deletar localmente
             // Se necessário, implementar lógica de deleção via FTP no futuro
             
-            const [result] = await pool.query(`DELETE FROM eventos WHERE id = ?`, [eventId]);
-            if (result.affectedRows === 0) {
+            const result = await pool.query(`DELETE FROM eventos WHERE id = $1`, [eventId]);
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado para exclusão.' });
             }
             res.status(200).json({ message: 'Evento excluído com sucesso' });
@@ -292,8 +292,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
-                if (reservaCheck) {
+                const reservaCheckResult = await pool.query('SELECT 1 FROM reservas WHERE evento_id = $1 AND user_id = $2 LIMIT 1', [eventId, userId]);
+                if (reservaCheckResult.rows.length > 0) {
                     hasPermissionToView = true;
                 }
             }
@@ -302,8 +302,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para ver as reservas deste evento.' });
             }
 
-            const [eventRows] = await pool.query('SELECT id, nome_do_evento FROM eventos WHERE id = ?', [eventId]);
-            if (eventRows.length === 0) {
+            const eventRowsResult = await pool.query('SELECT id, nome_do_evento FROM eventos WHERE id = $1', [eventId]);
+            if (eventRowsResult.rows.length === 0) {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
 
@@ -322,16 +322,16 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 JOIN 
                     users u ON r.user_id = u.id
                 WHERE 
-                    r.evento_id = ?
+                    r.evento_id = $1
                 ORDER BY 
                     r.id DESC;
             `;
 
-            const [reservas] = await pool.query(sql, [eventId]);
+            const reservasResult = await pool.query(sql, [eventId]);
 
             res.status(200).json({
-                evento: eventRows[0],
-                reservas_associadas: reservas
+                evento: eventRowsResult.rows[0],
+                reservas_associadas: reservasResult.rows
             });
 
         } catch (error) {
@@ -355,8 +355,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
             if (userRole === 'admin' || userRole === 'gerente') {
                 hasPermissionToView = true;
             } else {
-                const [[reservaCheck]] = await pool.query('SELECT 1 FROM reservas WHERE evento_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
-                if (reservaCheck) {
+                const reservaCheckResult = await pool.query('SELECT 1 FROM reservas WHERE evento_id = $1 AND user_id = $2 LIMIT 1', [eventId, userId]);
+                if (reservaCheckResult.rows.length > 0) {
                     hasPermissionToView = true;
                 }
             }
@@ -385,11 +385,11 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 JOIN
                     users u ON r.user_id = u.id
                 WHERE 
-                    r.evento_id = ?;
+                    r.evento_id = $1;
             `;
 
-            const [guests] = await pool.query(sql, [eventId]);
-            res.status(200).json(guests);
+            const guestsResult = await pool.query(sql, [eventId]);
+            res.status(200).json(guestsResult.rows);
 
         } catch (error) {
             console.error(`Erro ao buscar convidados para o evento ${eventId}:`, error);
@@ -407,25 +407,27 @@ module.exports = (pool, checkAndAwardBrindes) => {
         const { guestId } = req.params;
         const { latitude, longitude } = req.body; // Latitude e longitude do self check-in
 
-        const connection = await pool.getConnection();
+        const client = await pool.connect();
         try {
-            await connection.beginTransaction();
+            await client.query('BEGIN');
 
             // 1. Obter informações do convidado e da reserva/evento associados
-            const [[guest]] = await connection.query(
+            const guestResult = await client.query(
                 `SELECT c.id, c.reserva_id, r.evento_id, p.latitude AS place_latitude, p.longitude AS place_longitude
                  FROM convidados c
                  JOIN reservas r ON c.reserva_id = r.id
                  LEFT JOIN eventos e ON r.evento_id = e.id
                  LEFT JOIN places p ON e.id_place = p.id
-                 WHERE c.id = ?`,
+                 WHERE c.id = $1`,
                 [guestId]
             );
 
-            if (!guest) {
-                await connection.rollback();
+            if (guestResult.rows.length === 0) {
+                await client.query('ROLLBACK');
                 return res.status(404).json({ message: 'Convidado não encontrado.' });
             }
+            
+            const guest = guestResult.rows[0];
 
             const reservaId = guest.reserva_id;
             const eventId = guest.evento_id; // Pode ser útil para logs ou futuras verificações
@@ -456,17 +458,17 @@ module.exports = (pool, checkAndAwardBrindes) => {
             }
 
             // 3. Atualizar o status do convidado
-            const [updateResult] = await connection.query(
-                `UPDATE convidados SET status = 'CHECK-IN', geo_checkin_status = ?, data_checkin = NOW(), latitude_checkin = ?, longitude_checkin = ? WHERE id = ?`,
+            const updateResult = await client.query(
+                `UPDATE convidados SET status = 'CHECK-IN', geo_checkin_status = $1, data_checkin = NOW(), latitude_checkin = $2, longitude_checkin = $3 WHERE id = $4`,
                 [geoCheckinStatus, latitude, longitude, guestId]
             );
 
-            if (updateResult.affectedRows === 0) {
-                await connection.rollback();
+            if (updateResult.rowCount === 0) {
+                await client.query('ROLLBACK');
                 return res.status(400).json({ message: 'Não foi possível atualizar o status do convidado.' });
             }
 
-            await connection.commit();
+            await client.query('COMMIT');
 
             // 4. CHAME A FUNÇÃO PARA VERIFICAR E ATRIBUIR BRINDES PARA A RESERVA
             if (checkAndAwardBrindes) {
@@ -478,11 +480,11 @@ module.exports = (pool, checkAndAwardBrindes) => {
             res.status(200).json({ message: message, geo_status: geoCheckinStatus });
 
         } catch (error) {
-            await connection.rollback();
+            await client.query('ROLLBACK');
             console.error('Erro ao realizar check-in do convidado:', error);
             res.status(500).json({ message: 'Erro ao realizar check-in do convidado.' });
         } finally {
-            if (connection) connection.release();
+            if (client) client.release();
         }
     });
 
@@ -490,7 +492,7 @@ router.get("/:id/convidados-com-status", auth, async (req, res) => {
   const eventoId = req.params.id;
 
   try {
-    const [rows] = await pool.query(`
+    const result = await pool.query(`
       SELECT
         convidados.id,
         convidados.nome,
@@ -504,10 +506,10 @@ router.get("/:id/convidados-com-status", auth, async (req, res) => {
       FROM convidados
       JOIN reservas ON convidados.reserva_id = reservas.id
       JOIN users ON reservas.user_id = users.id
-      WHERE reservas.evento_id = ?
+      WHERE reservas.evento_id = $1
     `, [eventoId]);
 
-    res.status(200).json(rows);
+    res.status(200).json(result.rows);
   } catch (error) {
     console.error("Erro ao buscar convidados do evento:", error);
     res.status(500).json({ message: "Erro ao buscar convidados do evento." });

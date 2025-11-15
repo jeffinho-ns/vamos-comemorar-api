@@ -11,40 +11,7 @@ module.exports = (pool) => {
    */
   router.get('/', async (req, res) => {
     try {
-      // Verificar se a tabela walk_ins existe, se não, criar
-      try {
-        const [tables] = await pool.execute("SHOW TABLES LIKE 'walk_ins'");
-        
-        if (tables.length === 0) {
-          console.log('📝 Criando tabela walk_ins...');
-          
-          await pool.execute(`
-            CREATE TABLE walk_ins (
-              id int(11) NOT NULL AUTO_INCREMENT,
-              establishment_id int(11) DEFAULT NULL,
-              client_name varchar(255) NOT NULL,
-              client_phone varchar(20) DEFAULT NULL,
-              number_of_people int(11) NOT NULL,
-              arrival_time timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-              area_id int(11) DEFAULT NULL,
-              table_number varchar(50) DEFAULT NULL,
-              status varchar(50) DEFAULT 'ATIVO',
-              notes text DEFAULT NULL,
-              created_by int(11) DEFAULT NULL,
-              created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              KEY idx_establishment_id (establishment_id),
-              KEY idx_status (status),
-              KEY idx_arrival_time (arrival_time)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-          
-          console.log('✅ Tabela walk_ins criada com sucesso!');
-        }
-      } catch (tableError) {
-        console.log('⚠️ Erro ao verificar/criar tabela walk_ins:', tableError.message);
-      }
+      // Tabela walk_ins já deve existir no PostgreSQL
 
       const { status, area_id, date, limit, sort, order } = req.query;
       
@@ -60,34 +27,36 @@ module.exports = (pool) => {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (status) {
-        query += ` AND wi.status = ?`;
+        query += ` AND wi.status = $${paramIndex++}`;
         params.push(status);
       }
       
       if (area_id) {
-        query += ` AND wi.area_id = ?`;
+        query += ` AND wi.area_id = $${paramIndex++}`;
         params.push(area_id);
       }
       
       if (date) {
-        query += ` AND DATE(wi.arrival_time) = ?`;
+        query += ` AND DATE(wi.arrival_time) = $${paramIndex++}`;
         params.push(date);
       }
       
       if (sort && order) {
-        query += ` ORDER BY wi.${sort} ${order.toUpperCase()}`;
+        query += ` ORDER BY wi."${sort}" ${order.toUpperCase()}`;
       } else {
         query += ` ORDER BY wi.arrival_time DESC`;
       }
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
       
-      const [walkIns] = await pool.execute(query, params);
+      const walkInsResult = await pool.query(query, params);
+      const walkIns = walkInsResult.rows;
       
       res.json({
         success: true,
@@ -120,12 +89,12 @@ module.exports = (pool) => {
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
         LEFT JOIN users u ON wi.created_by = u.id
-        WHERE wi.id = ?
+        WHERE wi.id = $1
       `;
       
-      const [walkIns] = await pool.execute(query, [id]);
+      const walkInsResult = await pool.query(query, [id]);
       
-      if (walkIns.length === 0) {
+      if (walkInsResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Passante não encontrado'
@@ -134,7 +103,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        walkIn: walkIns[0]
+        walkIn: walkInsResult.rows[0]
       });
       
     } catch (error) {
@@ -176,7 +145,7 @@ module.exports = (pool) => {
         INSERT INTO walk_ins (
           client_name, client_phone, number_of_people, area_id, 
           table_number, status, notes, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
       `;
       
       const params = [
@@ -184,10 +153,10 @@ module.exports = (pool) => {
         table_number, status, notes, created_by
       ];
       
-      const [result] = await pool.execute(query, params);
+      const result = await pool.query(query, params);
       
       // Buscar o passante criado com dados completos
-      const [newWalkIn] = await pool.execute(`
+      const newWalkInResult = await pool.query(`
         SELECT 
           wi.*,
           ra.name as area_name,
@@ -195,13 +164,13 @@ module.exports = (pool) => {
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
         LEFT JOIN users u ON wi.created_by = u.id
-        WHERE wi.id = ?
-      `, [result.insertId]);
+        WHERE wi.id = $1
+      `, [result.rows[0].id]);
       
       res.status(201).json({
         success: true,
         message: 'Passante criado com sucesso',
-        walkIn: newWalkIn[0]
+        walkIn: newWalkInResult.rows[0]
       });
       
     } catch (error) {
@@ -232,12 +201,12 @@ module.exports = (pool) => {
       } = req.body;
       
       // Verificar se o passante existe
-      const [existingWalkIn] = await pool.execute(
-        'SELECT id FROM walk_ins WHERE id = ?',
+      const existingWalkInResult = await pool.query(
+        'SELECT id FROM walk_ins WHERE id = $1',
         [id]
       );
       
-      if (existingWalkIn.length === 0) {
+      if (existingWalkInResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Passante não encontrado'
@@ -246,10 +215,10 @@ module.exports = (pool) => {
       
       const query = `
         UPDATE walk_ins SET
-          client_name = ?, client_phone = ?, number_of_people = ?,
-          area_id = ?, table_number = ?, status = ?, notes = ?,
+          client_name = $1, client_phone = $2, number_of_people = $3,
+          area_id = $4, table_number = $5, status = $6, notes = $7,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = $8
       `;
       
       const params = [
@@ -257,10 +226,10 @@ module.exports = (pool) => {
         table_number, status, notes, id
       ];
       
-      await pool.execute(query, params);
+      await pool.query(query, params);
       
       // Buscar o passante atualizado
-      const [updatedWalkIn] = await pool.execute(`
+      const updatedWalkInResult = await pool.query(`
         SELECT 
           wi.*,
           ra.name as area_name,
@@ -268,13 +237,13 @@ module.exports = (pool) => {
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
         LEFT JOIN users u ON wi.created_by = u.id
-        WHERE wi.id = ?
+        WHERE wi.id = $1
       `, [id]);
       
       res.json({
         success: true,
         message: 'Passante atualizado com sucesso',
-        walkIn: updatedWalkIn[0]
+        walkIn: updatedWalkInResult.rows[0]
       });
       
     } catch (error) {
@@ -296,19 +265,19 @@ module.exports = (pool) => {
       const { id } = req.params;
       
       // Verificar se o passante existe
-      const [existingWalkIn] = await pool.execute(
-        'SELECT id FROM walk_ins WHERE id = ?',
+      const existingWalkInResult = await pool.query(
+        'SELECT id FROM walk_ins WHERE id = $1',
         [id]
       );
       
-      if (existingWalkIn.length === 0) {
+      if (existingWalkInResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Passante não encontrado'
         });
       }
       
-      await pool.execute('DELETE FROM walk_ins WHERE id = ?', [id]);
+      await pool.query('DELETE FROM walk_ins WHERE id = $1', [id]);
       
       res.json({
         success: true,
@@ -331,14 +300,14 @@ module.exports = (pool) => {
    */
   router.get('/stats/active', async (req, res) => {
     try {
-      const [activeWalkIns] = await pool.execute(
-        'SELECT COUNT(*) as count FROM walk_ins WHERE status = "ATIVO"'
+      const activeWalkInsResult = await pool.query(
+        "SELECT COUNT(*) as count FROM walk_ins WHERE status = 'ATIVO'"
       );
       
       res.json({
         success: true,
         stats: {
-          activeWalkIns: activeWalkIns[0].count
+          activeWalkIns: parseInt(activeWalkInsResult.rows[0].count)
         }
       });
       

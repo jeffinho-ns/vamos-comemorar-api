@@ -19,40 +19,42 @@ module.exports = (pool) => {
       return res.status(400).json({ message: 'Nome e e-mail são obrigatórios.' });
     }
 
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      await connection.beginTransaction();
+      await client.query('BEGIN');
 
       // 1. Encontra a reserva pelo código e a "trava" para evitar que duas pessoas se inscrevam ao mesmo tempo na última vaga (FOR UPDATE)
-      const sqlBuscaReserva = 'SELECT id, quantidade_convidados FROM reservas WHERE codigo_convite = ? FOR UPDATE';
-      const [[reserva]] = await connection.query(sqlBuscaReserva, [codigoConvite]);
+      const sqlBuscaReserva = 'SELECT id, quantidade_convidados FROM reservas WHERE codigo_convite = $1 FOR UPDATE';
+      const reservaResult = await client.query(sqlBuscaReserva, [codigoConvite]);
 
-      if (!reserva) {
-        await connection.rollback();
+      if (reservaResult.rows.length === 0) {
+        await client.query('ROLLBACK');
         return res.status(404).json({ message: 'Código de convite inválido ou expirado.' });
       }
       
+      const reserva = reservaResult.rows[0];
       const reservaId = reserva.id;
       
       // 2. Verifica se a lista já está cheia
-      const sqlContaConvidados = 'SELECT COUNT(*) as total FROM convidados WHERE reserva_id = ?';
-      const [[{ total: convidadosAtuais }]] = await connection.query(sqlContaConvidados, [reservaId]);
+      const sqlContaConvidados = 'SELECT COUNT(*) as total FROM convidados WHERE reserva_id = $1';
+      const countResult = await client.query(sqlContaConvidados, [reservaId]);
+      const convidadosAtuais = parseInt(countResult.rows[0].total);
 
       if (convidadosAtuais >= reserva.quantidade_convidados) {
-        await connection.rollback();
+        await client.query('ROLLBACK');
         return res.status(409).json({ message: 'A lista para este convite já está cheia!' });
       }
 
       // 3. Adiciona o novo convidado
       const qrCodeDataConvidado = `reserva:${reservaId}:convidado:${nome.replace(/\s/g, '')}:${Date.now()}`;
-      const sqlAdicionaConvidado = 'INSERT INTO convidados (reserva_id, nome, email, telefone, qr_code, status) VALUES (?, ?, ?, ?, ?, ?)';
+      const sqlAdicionaConvidado = 'INSERT INTO convidados (reserva_id, nome, email, telefone, qr_code, status) VALUES ($1, $2, $3, $4, $5, $6)';
       
-      await connection.execute(sqlAdicionaConvidado, [
+      await client.query(sqlAdicionaConvidado, [
         reservaId, nome, email, telefone || null, qrCodeDataConvidado, 'PENDENTE'
       ]);
 
-      await connection.commit(); // Confirma as alterações
+      await client.query('COMMIT'); // Confirma as alterações
 
       const novoConvidado = { nome, email, status: 'PENDENTE' };
 
@@ -66,11 +68,11 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      await connection.rollback();
+      await client.query('ROLLBACK');
       console.error('Erro ao processar convite:', error);
       res.status(500).json({ message: 'Erro ao processar sua entrada na lista.' });
     } finally {
-      if (connection) connection.release();
+      if (client) client.release();
     }
   });
 

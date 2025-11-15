@@ -16,11 +16,10 @@ echo "📦 Instalando dependências..."
 npm install --production
 
 # Executar migrações do banco de dados
-echo "🗄️ Executando migrações do banco de dados..."
-if [ -f "migrations/add_checkin_checkout_fields.sql" ]; then
-    echo "Executando migração: add_checkin_checkout_fields.sql"
-    # Nota: Execute manualmente no MySQL ou configure um cliente MySQL
-    echo "⚠️ Execute manualmente a migração: migrations/add_checkin_checkout_fields.sql"
+echo "🗄️ Verificando migrações do banco de dados..."
+if [ -f "migrations/postgresql_triggers_and_functions.sql" ]; then
+    echo "⚠️ Certifique-se de que executou manualmente: migrations/postgresql_triggers_and_functions.sql"
+    echo "   Este arquivo contém triggers e funções necessárias para o PostgreSQL"
 fi
 
 # Verificar configurações
@@ -33,9 +32,9 @@ fi
 echo "🔍 Testando conexão com banco de dados..."
 node -e "
 const pool = require('./config/database');
-pool.execute('SELECT 1')
+pool.query('SELECT 1')
   .then(() => {
-    console.log('✅ Conexão com banco de dados OK');
+    console.log('✅ Conexão com banco de dados PostgreSQL OK');
     process.exit(0);
   })
   .catch((err) => {
@@ -47,6 +46,8 @@ pool.execute('SELECT 1')
 # Iniciar servidor
 echo "🎯 Iniciando servidor de produção..."
 NODE_ENV=production node server.js
+
+
 
 
 

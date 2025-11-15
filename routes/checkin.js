@@ -5,12 +5,14 @@ const express = require('express');
 // Função auxiliar para verificar e notificar sobre brindes
 async function verificarBrindes(reservaId, db, io) {
     // Conta quantos convidados já fizeram check-in para esta reserva
-    const sqlCount = 'SELECT COUNT(*) as total FROM convidados WHERE reserva_id = ? AND status = "CHECK-IN"';
-    const [[{ total: checkinsFeitos }]] = await db.query(sqlCount, [reservaId]);
+    const sqlCount = "SELECT COUNT(*) as total FROM convidados WHERE reserva_id = $1 AND status = 'CHECK-IN'";
+    const resultCount = await db.query(sqlCount, [reservaId]);
+    const checkinsFeitos = parseInt(resultCount.rows[0].total);
 
     // Busca todas as regras de brinde que ainda estão pendentes para esta reserva
-    const sqlRegras = 'SELECT * FROM brindes_regras WHERE reserva_id = ? AND status = "PENDENTE"';
-    const [regras] = await db.query(sqlRegras, [reservaId]);
+    const sqlRegras = "SELECT * FROM brindes_regras WHERE reserva_id = $1 AND status = 'PENDENTE'";
+    const regrasResult = await db.query(sqlRegras, [reservaId]);
+    const regras = regrasResult.rows;
 
     // Passa por cada regra pendente
     for (const regra of regras) {
@@ -19,7 +21,7 @@ async function verificarBrindes(reservaId, db, io) {
             console.log(`Brinde Liberado para Reserva ${reservaId}: ${regra.descricao}`);
             
             // Atualiza o status do brinde para 'LIBERADO' para não notificar de novo
-            await db.query('UPDATE brindes_regras SET status = "LIBERADO" WHERE id = ?', [regra.id]);
+            await db.query("UPDATE brindes_regras SET status = 'LIBERADO' WHERE id = $1", [regra.id]);
 
             // ✨ A MÁGICA DO SOCKET.IO ✨
             // Emite um evento para a "sala" daquela reserva específica
@@ -55,20 +57,20 @@ module.exports = (db) => {
             
             // 1. Encontra o convidado por QR Code ou ID
             if (qrCodeData) {
-                const sqlBusca = 'SELECT * FROM convidados WHERE qr_code = ?';
-                const [convidados] = await db.query(sqlBusca, [qrCodeData]);
-                if (convidados.length === 0) {
+                const sqlBusca = 'SELECT * FROM convidados WHERE qr_code = $1';
+                const result = await db.query(sqlBusca, [qrCodeData]);
+                if (result.rows.length === 0) {
                     return res.status(404).json({ message: 'QR Code inválido ou não encontrado.' });
                 }
-                convidado = convidados[0];
+                convidado = result.rows[0];
             } else {
                 // Buscar por ID direto
-                const sqlBusca = 'SELECT * FROM convidados WHERE id = ?';
-                const [convidados] = await db.query(sqlBusca, [convidadoId]);
-                if (convidados.length === 0) {
+                const sqlBusca = 'SELECT * FROM convidados WHERE id = $1';
+                const result = await db.query(sqlBusca, [convidadoId]);
+                if (result.rows.length === 0) {
                     return res.status(404).json({ message: 'Convidado não encontrado.' });
                 }
-                convidado = convidados[0];
+                convidado = result.rows[0];
             }
 
             // 2. Verifica se o check-in já foi feito
@@ -81,11 +83,11 @@ module.exports = (db) => {
             // 3. Atualiza o status do convidado para 'CHECK-IN' com status de entrada
             const sqlUpdate = `
                 UPDATE convidados 
-                SET status = "CHECK-IN", 
+                SET status = 'CHECK-IN', 
                     data_checkin = NOW(),
-                    entrada_tipo = ?,
-                    entrada_valor = ?
-                WHERE id = ?
+                    entrada_tipo = $1,
+                    entrada_valor = $2
+                WHERE id = $3
             `;
             await db.query(sqlUpdate, [
                 entrada_tipo || null,

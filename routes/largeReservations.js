@@ -28,6 +28,7 @@ module.exports = (pool) => {
         WHERE 1=1
       `;
       const params = [];
+      let paramIndex = 1;
       
       // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
       if (include_cancelled !== 'true') {
@@ -35,19 +36,19 @@ module.exports = (pool) => {
       }
       
       if (date) {
-        query += ` AND lr.reservation_date = ?`;
+        query += ` AND lr.reservation_date = $${paramIndex++}`;
         params.push(date);
       }
       if (status) {
-        query += ` AND lr.status = ?`;
+        query += ` AND lr.status = $${paramIndex++}`;
         params.push(status);
       }
       if (area_id) {
-        query += ` AND lr.area_id = ?`;
+        query += ` AND lr.area_id = $${paramIndex++}`;
         params.push(area_id);
       }
       if (establishment_id) {
-        query += ` AND lr.establishment_id = ?`;
+        query += ` AND lr.establishment_id = $${paramIndex++}`;
         params.push(establishment_id);
         console.log('🔍 Filtrando reservas grandes por establishment_id:', establishment_id);
       }
@@ -57,10 +58,11 @@ module.exports = (pool) => {
         query += ` ORDER BY lr.reservation_date DESC, lr.reservation_time DESC`;
       }
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
-      const [reservations] = await pool.execute(query, params);
+      const result = await pool.query(query, params);
+      const reservations = result.rows;
       console.log(`✅ ${reservations.length} reservas grandes encontradas (canceladas excluídas: ${include_cancelled !== 'true'})`);
       res.json({
         success: true,
@@ -94,10 +96,10 @@ module.exports = (pool) => {
         LEFT JOIN users u ON lr.created_by = u.id
         LEFT JOIN places p ON lr.establishment_id = p.id
         LEFT JOIN bars b ON lr.establishment_id = b.id
-        WHERE lr.id = ?
+        WHERE lr.id = $1
       `;
-      const [reservations] = await pool.execute(query, [id]);
-      if (reservations.length === 0) {
+      const result = await pool.query(query, [id]);
+      if (result.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
@@ -105,7 +107,7 @@ module.exports = (pool) => {
       }
       res.json({
         success: true,
-        reservation: reservations[0]
+        reservation: result.rows[0]
       });
     } catch (error) {
       console.error('❌ Erro ao buscar reserva grande:', error);
@@ -147,7 +149,7 @@ module.exports = (pool) => {
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, selected_tables,
           status, origin, notes, admin_notes, created_by, establishment_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
       `;
 
       // ### CORREÇÃO DEFINITIVA AQUI ###
@@ -170,25 +172,25 @@ module.exports = (pool) => {
         establishment_id
       ];
       
-      const [result] = await pool.execute(insertQuery, insertParams);
-      const reservationId = result.insertId;
+      const result = await pool.query(insertQuery, insertParams);
+      const reservationId = result.rows[0].id;
 
       // O restante do código para buscar a reserva, criar a lista e enviar notificações continua o mesmo.
-      const [newReservationRows] = await pool.execute(`
+      const newReservationResult = await pool.query(`
         SELECT lr.*, ra.name as area_name, u.name as created_by_name, COALESCE(p.name, b.name) as establishment_name
         FROM large_reservations lr
         LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
         LEFT JOIN users u ON lr.created_by = u.id
         LEFT JOIN places p ON lr.establishment_id = p.id
         LEFT JOIN bars b ON lr.establishment_id = b.id
-        WHERE lr.id = ?
+        WHERE lr.id = $1
       `, [reservationId]);
 
-      if (!newReservationRows || newReservationRows.length === 0) {
+      if (!newReservationResult || newReservationResult.rows.length === 0) {
         console.error(`🚨 FALHA CRÍTICA: Reserva com ID ${reservationId} foi inserida mas não pôde ser recuperada.`);
         return res.status(500).json({ success: false, error: 'Falha ao processar a reserva após a criação.' });
       }
-      const newReservation = newReservationRows[0];
+      const newReservation = newReservationResult.rows[0];
 
       let guestListLink = null;
       const reservationDateObj = new Date(reservation_date + 'T00:00:00');
@@ -198,8 +200,8 @@ module.exports = (pool) => {
         const token = require('crypto').randomBytes(24).toString('hex');
         const expiresAt = `${reservation_date} 23:59:59`;
 
-        await pool.execute(
-          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES (?, 'large', ?, ?, ?)`,
+        await pool.query(
+          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES ($1, 'large', $2, $3, $4)`,
           [reservationId, detectedEventType, token, expiresAt]
         );
         const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
@@ -265,12 +267,12 @@ module.exports = (pool) => {
       } = req.body;
 
       // Verificar se a reserva existe
-      const [existingReservation] = await pool.execute(
-        'SELECT id FROM large_reservations WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM large_reservations WHERE id = $1',
         [id]
       );
 
-      if (existingReservation.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
@@ -280,68 +282,69 @@ module.exports = (pool) => {
       // Construir query dinamicamente baseado nos campos fornecidos
       let updateFields = [];
       let params = [];
+      let paramIndex = 1;
 
       if (client_name !== undefined) {
-        updateFields.push('client_name = ?');
+        updateFields.push(`client_name = $${paramIndex++}`);
         params.push(client_name);
       }
       if (client_phone !== undefined) {
-        updateFields.push('client_phone = ?');
+        updateFields.push(`client_phone = $${paramIndex++}`);
         params.push(client_phone);
       }
       if (client_email !== undefined) {
-        updateFields.push('client_email = ?');
+        updateFields.push(`client_email = $${paramIndex++}`);
         params.push(client_email);
       }
       if (data_nascimento_cliente !== undefined) {
-        updateFields.push('data_nascimento_cliente = ?');
+        updateFields.push(`data_nascimento_cliente = $${paramIndex++}`);
         params.push(data_nascimento_cliente);
       }
       if (reservation_date !== undefined) {
-        updateFields.push('reservation_date = ?');
+        updateFields.push(`reservation_date = $${paramIndex++}`);
         params.push(reservation_date);
       }
       if (reservation_time !== undefined) {
-        updateFields.push('reservation_time = ?');
+        updateFields.push(`reservation_time = $${paramIndex++}`);
         params.push(reservation_time);
       }
       if (number_of_people !== undefined) {
-        updateFields.push('number_of_people = ?');
+        updateFields.push(`number_of_people = $${paramIndex++}`);
         params.push(number_of_people);
       }
       if (area_id !== undefined) {
-        updateFields.push('area_id = ?');
+        updateFields.push(`area_id = $${paramIndex++}`);
         params.push(area_id);
       }
       if (selected_tables !== undefined) {
         const selectedTablesJson = Array.isArray(selected_tables) 
           ? JSON.stringify(selected_tables) 
           : selected_tables;
-        updateFields.push('selected_tables = ?');
+        updateFields.push(`selected_tables = $${paramIndex++}`);
         params.push(selectedTablesJson);
       }
       if (status !== undefined) {
-        updateFields.push('status = ?');
+        updateFields.push(`status = $${paramIndex++}`);
         params.push(status);
       }
       if (origin !== undefined) {
-        updateFields.push('origin = ?');
+        updateFields.push(`origin = $${paramIndex++}`);
         params.push(origin);
       }
       if (notes !== undefined) {
-        updateFields.push('notes = ?');
+        updateFields.push(`notes = $${paramIndex++}`);
         params.push(notes);
       }
       if (admin_notes !== undefined) {
-        updateFields.push('admin_notes = ?');
+        updateFields.push(`admin_notes = $${paramIndex++}`);
         params.push(admin_notes);
       }
       if (check_in_time !== undefined) {
-        updateFields.push('check_in_time = ?');
+        updateFields.push(`check_in_time = $${paramIndex++}`);
         params.push(check_in_time);
       }
       if (check_out_time !== undefined) {
-        updateFields.push('check_out_time = ?');
+        updateFields.push(`check_out_time = $${paramIndex++}`);
         params.push(check_out_time);
       }
 
@@ -352,13 +355,13 @@ module.exports = (pool) => {
       const query = `
         UPDATE large_reservations SET
           ${updateFields.join(', ')}
-        WHERE id = ?
+        WHERE id = $${paramIndex}
       `;
 
-      await pool.execute(query, params);
+      await pool.query(query, params);
 
       // Buscar a reserva atualizada
-      const [updatedReservation] = await pool.execute(`
+      const updatedResult = await pool.query(`
         SELECT
           lr.*,
           ra.name as area_name,
@@ -369,13 +372,13 @@ module.exports = (pool) => {
         LEFT JOIN users u ON lr.created_by = u.id
         LEFT JOIN places p ON lr.establishment_id = p.id
         LEFT JOIN bars b ON lr.establishment_id = b.id
-        WHERE lr.id = ?
+        WHERE lr.id = $1
       `, [id]);
 
       res.json({
         success: true,
         message: 'Reserva grande atualizada com sucesso',
-        reservation: updatedReservation[0]
+        reservation: updatedResult.rows[0]
       });
 
     } catch (error) {
@@ -397,19 +400,19 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se a reserva existe
-      const [existingReservation] = await pool.execute(
-        'SELECT id FROM large_reservations WHERE id = ?',
+      const existingResult = await pool.query(
+        'SELECT id FROM large_reservations WHERE id = $1',
         [id]
       );
 
-      if (existingReservation.length === 0) {
+      if (existingResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
         });
       }
 
-      await pool.execute('DELETE FROM large_reservations WHERE id = ?', [id]);
+      await pool.query('DELETE FROM large_reservations WHERE id = $1', [id]);
 
       res.json({
         success: true,
@@ -442,32 +445,33 @@ module.exports = (pool) => {
       }
 
       // Calcular capacidade total do estabelecimento
-      const [areas] = await pool.execute(
+      const areasResult = await pool.query(
         'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
       );
-      const totalCapacity = areas[0].total_capacity || 0;
+      const totalCapacity = parseInt(areasResult.rows[0]?.total_capacity) || 0;
 
       // Contar pessoas das reservas ativas para a data (reservas normais + grandes)
-      const [activeReservations] = await pool.execute(`
+      const activeReservationsResult = await pool.query(`
         SELECT SUM(number_of_people) as total_people
         FROM (
           SELECT number_of_people FROM restaurant_reservations
-          WHERE reservation_date = ? AND establishment_id = ? AND status IN ('confirmed', 'checked-in')
+          WHERE reservation_date = $1 AND establishment_id = $2 AND status IN ('confirmed', 'checked-in')
           UNION ALL
           SELECT number_of_people FROM large_reservations
-          WHERE reservation_date = ? AND establishment_id = ? AND status IN ('CONFIRMADA', 'CHECKED_IN')
+          WHERE reservation_date = $3 AND establishment_id = $4 AND status IN ('CONFIRMADA', 'CHECKED_IN')
         ) as all_reservations
       `, [date, establishment_id, date, establishment_id]);
 
-      const currentPeople = activeReservations[0].total_people || 0;
+      const currentPeople = parseInt(activeReservationsResult.rows[0]?.total_people) || 0;
       const newPeople = parseInt(new_reservation_people) || 0;
       const totalWithNew = currentPeople + newPeople;
 
       // Verificar se há pessoas na lista de espera
-      const [waitlistCount] = await pool.execute(
-        'SELECT COUNT(*) as count FROM waitlist WHERE status = "AGUARDANDO"'
+      const waitlistCountResult = await pool.query(
+        'SELECT COUNT(*) as count FROM waitlist WHERE status = $1',
+        ['AGUARDANDO']
       );
-      const hasWaitlist = waitlistCount[0].count > 0;
+      const hasWaitlist = parseInt(waitlistCountResult.rows[0]?.count) > 0;
 
       const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
 
@@ -504,30 +508,30 @@ module.exports = (pool) => {
       const today = new Date().toISOString().split('T')[0];
 
       // Total de reservas grandes
-      const [totalReservations] = await pool.execute(
+      const totalReservationsResult = await pool.query(
         'SELECT COUNT(*) as count FROM large_reservations'
       );
 
       // Reservas grandes de hoje
-      const [todayReservations] = await pool.execute(
-        'SELECT COUNT(*) as count FROM large_reservations WHERE reservation_date = ?',
+      const todayReservationsResult = await pool.query(
+        'SELECT COUNT(*) as count FROM large_reservations WHERE reservation_date = $1',
         [today]
       );
 
       // Taxa de ocupação (simplificada)
-      const [occupancyRate] = await pool.execute(`
+      const occupancyRateResult = await pool.query(`
         SELECT
           (COUNT(CASE WHEN status IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / COUNT(*)) as rate
         FROM large_reservations
-        WHERE reservation_date = ?
+        WHERE reservation_date = $1
       `, [today]);
 
       res.json({
         success: true,
         stats: {
-          totalReservations: totalReservations[0].count,
-          todayReservations: todayReservations[0].count,
-          occupancyRate: Math.round(occupancyRate[0].rate || 0)
+          totalReservations: parseInt(totalReservationsResult.rows[0]?.count) || 0,
+          todayReservations: parseInt(todayReservationsResult.rows[0]?.count) || 0,
+          occupancyRate: Math.round(parseFloat(occupancyRateResult.rows[0]?.rate) || 0)
         }
       });
 
@@ -550,34 +554,36 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Verificar se a reserva existe
-      const [reservation] = await pool.execute(
-        'SELECT * FROM large_reservations WHERE id = ?',
+      const reservationResult = await pool.query(
+        'SELECT * FROM large_reservations WHERE id = $1',
         [id]
       );
 
-      if (reservation.length === 0) {
+      if (reservationResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
         });
       }
 
+      const reservation = reservationResult.rows[0];
+
       // Verificar se já fez check-in
-      if (reservation[0].checked_in) {
+      if (reservation.checked_in) {
         return res.status(400).json({
           success: false,
           error: 'Check-in já foi realizado para esta reserva',
-          checkin_time: reservation[0].checkin_time
+          checkin_time: reservation.checkin_time
         });
       }
 
       // Atualizar check-in da reserva e status
-      await pool.execute(
-        'UPDATE large_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, status = "CHECKED_IN" WHERE id = ?',
-        [id]
+      await pool.query(
+        'UPDATE large_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, status = $1 WHERE id = $2',
+        ['CHECKED_IN', id]
       );
 
-      console.log(`✅ Check-in da reserva grande confirmado: ${reservation[0].client_name} (ID: ${id})`);
+      console.log(`✅ Check-in da reserva grande confirmado: ${reservation.client_name} (ID: ${id})`);
 
       res.json({
         success: true,

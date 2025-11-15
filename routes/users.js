@@ -30,12 +30,12 @@ module.exports = (pool, upload) => {
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
     
-            const [result] = await pool.query(
-                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES (?, ?, ?, ?, ?, ?)',
+            const result = await pool.query(
+                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
                 [name, email, cpf, hashedPassword, profileImageUrl, telefone]
             );
     
-            const userId = result.insertId;
+            const userId = result.rows[0].id;
             console.log('JWT_SECRET:', process.env.JWT_SECRET);
             // Gera o token JWT
             const token = jwt.sign(
@@ -75,22 +75,23 @@ module.exports = (pool, upload) => {
             const params = [];
     
             // Adicionamos os campos de texto se estiverem presentes
-            if (name) { updates.push('name = ?'); params.push(name); }
-            if (email) { updates.push('email = ?'); params.push(email); }
-            if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
-            if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
-            if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
-            if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
-            if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
-            if (numero) { updates.push('numero = ?'); params.push(numero); }
-            if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
-            if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
-            if (estado) { updates.push('estado = ?'); params.push(estado); }
-            if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+            let paramIndex = 1;
+            if (name) { updates.push(`name = $${paramIndex++}`); params.push(name); }
+            if (email) { updates.push(`email = $${paramIndex++}`); params.push(email); }
+            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(telefone); }
+            if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
+            if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
+            if (cpf) { updates.push(`cpf = $${paramIndex++}`); params.push(cpf); }
+            if (endereco) { updates.push(`endereco = $${paramIndex++}`); params.push(endereco); }
+            if (numero) { updates.push(`numero = $${paramIndex++}`); params.push(numero); }
+            if (bairro) { updates.push(`bairro = $${paramIndex++}`); params.push(bairro); }
+            if (cidade) { updates.push(`cidade = $${paramIndex++}`); params.push(cidade); }
+            if (estado) { updates.push(`estado = $${paramIndex++}`); params.push(estado); }
+            if (complemento) { updates.push(`complemento = $${paramIndex++}`); params.push(complemento); }
 
             // Verifica se o Flutter enviou o nome do arquivo da foto para atualização
             if (foto_perfil) { 
-                updates.push('foto_perfil = ?');
+                updates.push(`foto_perfil = $${paramIndex++}`);
                 params.push(foto_perfil);
                 console.log("PUT /me - Nome do arquivo de perfil a ser salvo no DB:", foto_perfil);
             }
@@ -98,7 +99,7 @@ module.exports = (pool, upload) => {
             // Atualiza a senha se fornecida
             if (password) {
                 const hashedPassword = await bcrypt.hash(password, 10);
-                updates.push('password = ?');
+                updates.push(`password = $${paramIndex++}`);
                 params.push(hashedPassword);
             }
     
@@ -106,15 +107,15 @@ module.exports = (pool, upload) => {
                 return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
             }
     
-            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
             params.push(userId); // Adiciona o ID do usuário no final
 
             console.log("PUT /me - Query SQL executada:", query);
             console.log("PUT /me - Parâmetros SQL:", params);
 
-            const [result] = await pool.query(query, params);
+            const result = await pool.query(query, params);
     
-            if (result.affectedRows === 0) {
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
             }
     
@@ -129,10 +130,10 @@ module.exports = (pool, upload) => {
     // Listar usuários
     router.get('/', async (req, res) => {
         try {
-            const [results] = await pool.query('SELECT id, name, email, foto_perfil, role FROM users');
+            const result = await pool.query('SELECT id, name, email, foto_perfil, role FROM users');
             
             // Mapeia os resultados para adicionar a URL completa da imagem
-            const usersWithUrls = results.map(addFullImageUrlsToUser);
+            const usersWithUrls = result.rows.map(addFullImageUrlsToUser);
             
             res.json(usersWithUrls);
         } catch (err) {
@@ -145,13 +146,13 @@ module.exports = (pool, upload) => {
     router.get('/me', authenticateToken, async (req, res) => {
         try {
             const userId = req.user.id;
-            const [results] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
+            const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
             
-            if (results.length === 0) {
+            if (result.rows.length === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
             }
 
-            const user = results[0];
+            const user = result.rows[0];
 
             // Usamos a função auxiliar para adicionar a URL da imagem
             const userWithUrl = addFullImageUrlsToUser(user);
@@ -171,8 +172,8 @@ module.exports = (pool, upload) => {
         const userId = req.params.id;
 
         try {
-            const [result] = await pool.query('DELETE FROM users WHERE id = ?', [userId]);
-            if (result.affectedRows === 0) {
+            const result = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
             }
             res.json({ message: 'Usuário deletado com sucesso.' });
@@ -190,18 +191,18 @@ module.exports = (pool, upload) => {
         console.log('Login - Password:', password);
 
         try {
-            const [results] = await pool.query(
-                'SELECT * FROM users WHERE email = ? OR cpf = ?',
+            const result = await pool.query(
+                'SELECT * FROM users WHERE email = $1 OR cpf = $2',
                 [access, access]
             );
-            console.log('Login - Resultados da consulta:', results);
+            console.log('Login - Resultados da consulta:', result.rows);
 
-            if (results.length === 0) {
+            if (result.rows.length === 0) {
                 console.log('Login - Usuário não encontrado');
                 return res.status(404).json({ error: 'Usuário não encontrado' });
             }
 
-            const user = results[0];
+            const user = result.rows[0];
             const isPasswordValid = await bcrypt.compare(password, user.password);
             console.log('Login - Senha válida:', isPasswordValid);
 
@@ -248,22 +249,23 @@ module.exports = (pool, upload) => {
 
             const updates = [];
             const params = [];
+            let paramIndex = 1;
 
-            if (name) { updates.push('name = ?'); params.push(name); }
-            if (email) { updates.push('email = ?'); params.push(email); }
-            if (telefone) { updates.push('telefone = ?'); params.push(telefone); }
-            if (sexo) { updates.push('sexo = ?'); params.push(sexo); }
-            if (data_nascimento) { updates.push('data_nascimento = ?'); params.push(data_nascimento); }
-            if (cpf) { updates.push('cpf = ?'); params.push(cpf); }
-            if (endereco) { updates.push('endereco = ?'); params.push(endereco); }
-            if (numero) { updates.push('numero = ?'); params.push(numero); }
-            if (bairro) { updates.push('bairro = ?'); params.push(bairro); }
-            if (cidade) { updates.push('cidade = ?'); params.push(cidade); }
-            if (estado) { updates.push('estado = ?'); params.push(estado); }
-            if (complemento) { updates.push('complemento = ?'); params.push(complemento); }
+            if (name) { updates.push(`name = $${paramIndex++}`); params.push(name); }
+            if (email) { updates.push(`email = $${paramIndex++}`); params.push(email); }
+            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(telefone); }
+            if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
+            if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
+            if (cpf) { updates.push(`cpf = $${paramIndex++}`); params.push(cpf); }
+            if (endereco) { updates.push(`endereco = $${paramIndex++}`); params.push(endereco); }
+            if (numero) { updates.push(`numero = $${paramIndex++}`); params.push(numero); }
+            if (bairro) { updates.push(`bairro = $${paramIndex++}`); params.push(bairro); }
+            if (cidade) { updates.push(`cidade = $${paramIndex++}`); params.push(cidade); }
+            if (estado) { updates.push(`estado = $${paramIndex++}`); params.push(estado); }
+            if (complemento) { updates.push(`complemento = $${paramIndex++}`); params.push(complemento); }
             
             if (foto_perfil) { 
-                updates.push('foto_perfil = ?'); 
+                updates.push(`foto_perfil = $${paramIndex++}`); 
                 params.push(foto_perfil);
                 console.log("PUT /:id - Nome do arquivo de perfil a ser salvo no DB:", foto_perfil);
             }
@@ -271,7 +273,7 @@ module.exports = (pool, upload) => {
             // Atualiza a senha se fornecida
             if (password) {
                 const hashedPassword = await bcrypt.hash(password, 10);
-                updates.push('password = ?');
+                updates.push(`password = $${paramIndex++}`);
                 params.push(hashedPassword);
             }
 
@@ -279,15 +281,14 @@ module.exports = (pool, upload) => {
                 return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
             }
 
+            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
             params.push(userId);
-
-            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
             console.log("PUT /:id - Query SQL executada:", query);
             console.log("PUT /:id - Parâmetros SQL:", params);
 
-            const [result] = await pool.query(query, params);
+            const result = await pool.query(query, params);
 
-            if (result.affectedRows === 0) {
+            if (result.rowCount === 0) {
                 return res.status(404).json({ message: 'Usuário não encontrado.' });
             }
 
@@ -320,18 +321,18 @@ module.exports = (pool, upload) => {
                 FROM 
                     reservas r
                 WHERE 
-                    r.user_id = ?
+                    r.user_id = $1
                 ORDER BY 
                     r.data_reserva DESC;
             `;
 
-            const [reservas] = await pool.query(sql, [userIdToFetch]);
+            const result = await pool.query(sql, [userIdToFetch]);
 
-            if (reservas.length === 0) {
+            if (result.rows.length === 0) {
                 return res.status(200).json([]);
             }
 
-            res.status(200).json(reservas);
+            res.status(200).json(result.rows);
 
         } catch (error) {
             console.error(`Erro ao buscar reservas para o usuário ${userIdToFetch}:`, error);

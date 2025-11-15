@@ -25,19 +25,20 @@ module.exports = (pool) => {
             SELECT r.user_id
             FROM convidados c
             JOIN reservas r ON c.reserva_id = r.id
-            WHERE c.id = ?
+            WHERE c.id = $1
         `;
         try {
             console.log(`[checkPermission] - B. Executando query...`);
-            const [[result]] = await pool.query(sql, [convidadoId]);
-            console.log(`[checkPermission] - C. Query executada. Resultado:`, result);
+            const result = await pool.query(sql, [convidadoId]);
+            console.log(`[checkPermission] - C. Query executada. Resultado:`, result.rows[0]);
 
-            if (result) {
-                console.log(`[checkPermission] - DEBUG: Comparando DB user_id (${result.user_id}, tipo: ${typeof result.user_id}) com JWT id (${userId}, tipo: ${typeof userId})`);
+            const row = result.rows[0];
+            if (row) {
+                console.log(`[checkPermission] - DEBUG: Comparando DB user_id (${row.user_id}, tipo: ${typeof row.user_id}) com JWT id (${userId}, tipo: ${typeof userId})`);
             }
 
             // A permissão aqui deve ser: o user_id do token PRECISA ser o mesmo do user_id da reserva associada ao convidado
-            if (!result || result.user_id !== userId) {
+            if (!row || row.user_id !== userId) {
                 console.log(`[checkPermission] - D. Permissão NEGADA.`);
                 return false;
             }
@@ -76,13 +77,15 @@ module.exports = (pool) => {
                 JOIN reservas r ON c.reserva_id = r.id
                 JOIN eventos e ON r.evento_id = e.id
                 JOIN places p ON e.id_place = p.id -- Usando a nova FK id_place
-                WHERE c.id = ? AND r.user_id = ? -- O convidado deve estar associado à reserva do usuário logado
+                WHERE c.id = $1 AND r.user_id = $2 -- O convidado deve estar associado à reserva do usuário logado
             `;
-            const [[convidado]] = await pool.query(convidadoQuery, [convidadoId, userIdFromToken]);
+            const convidadoResult = await pool.query(convidadoQuery, [convidadoId, userIdFromToken]);
 
-            if (!convidado) {
+            if (convidadoResult.rows.length === 0) {
                 return res.status(404).json({ message: 'Convidado não encontrado ou não pertence a este usuário.' });
             }
+
+            const convidado = convidadoResult.rows[0];
 
             // 2. Verificar se o convidado já fez check-in na entrada (via QR Code)
             if (convidado.status !== 'CHECK-IN') {
@@ -110,7 +113,7 @@ module.exports = (pool) => {
             // 6. Validar a distância
             if (distance > MAX_DISTANCE_KM) {
                 await pool.query(
-                    `UPDATE convidados SET geo_checkin_status = 'INVALIDO', geo_checkin_timestamp = NOW(), latitude_checkin = ?, longitude_checkin = ? WHERE id = ?`,
+                    `UPDATE convidados SET geo_checkin_status = 'INVALIDO', geo_checkin_timestamp = NOW(), latitude_checkin = $1, longitude_checkin = $2 WHERE id = $3`,
                     [latitude, longitude, convidadoId]
                 );
                 return res.status(400).json({
@@ -121,7 +124,7 @@ module.exports = (pool) => {
             
             // 7. Atualizar o status do convidado para 'CONFIRMADO_LOCAL'
             await pool.query(
-                `UPDATE convidados SET geo_checkin_status = 'CONFIRMADO_LOCAL', geo_checkin_timestamp = NOW(), latitude_checkin = ?, longitude_checkin = ? WHERE id = ?`,
+                `UPDATE convidados SET geo_checkin_status = 'CONFIRMADO_LOCAL', geo_checkin_timestamp = NOW(), latitude_checkin = $1, longitude_checkin = $2 WHERE id = $3`,
                 [latitude, longitude, convidadoId]
             );
 
@@ -144,30 +147,30 @@ module.exports = (pool) => {
         const userRole = req.user.role; // Papel do usuário autenticado
 
         try {
-            let convidados;
             // Admins podem ver todos os convidados de qualquer evento
+            let result;
             if (userRole === 'admin') {
-                [convidados] = await pool.query(`
+                result = await pool.query(`
                     SELECT c.id, c.nome, c.documento, c.email, c.data_checkin, r.id as reserva_id, r.user_id as reserva_user_id
                     FROM convidados c
                     JOIN reservas r ON c.reserva_id = r.id
-                    WHERE r.evento_id = ?
+                    WHERE r.evento_id = $1
                 `, [eventId]);
             } else {
                 // Outros usuários (gerente, promoter, etc.) só podem ver convidados
                 // de eventos ou reservas que eles próprios criaram ou têm permissão
                 // Aqui, vamos assumir que eles só podem ver convidados de eventos que eles próprios são criadores da reserva
-                [convidados] = await pool.query(`
+                result = await pool.query(`
                     SELECT c.id, c.nome, c.documento, c.email, c.data_checkin, r.id as reserva_id, r.user_id as reserva_user_id
                     FROM convidados c
                     JOIN reservas r ON c.reserva_id = r.id
-                    WHERE r.evento_id = ? AND r.user_id = ? -- Filtra por evento E por usuário da reserva
+                    WHERE r.evento_id = $1 AND r.user_id = $2 -- Filtra por evento E por usuário da reserva
                 `, [eventId, userId]);
             }
 
             // Se não houver convidados, retorna array vazio ou 404, dependendo da sua preferência.
             // Retornar array vazio é geralmente melhor para listas.
-            res.json(convidados);
+            res.json(result.rows);
 
         } catch (err) {
             console.error('Erro ao buscar convidados do evento:', err);
@@ -185,8 +188,8 @@ module.exports = (pool) => {
             const hasPermission = await checkPermission(req.user.id, id);
             if (!hasPermission && req.user.role !== 'admin') return res.status(403).json({ message: 'Acesso negado.' });
 
-            const [result] = await pool.query('UPDATE convidados SET nome = ?, documento = ? WHERE id = ?', [nome, documento || null, id]);
-            if (result.affectedRows === 0) return res.status(404).json({ message: 'Convidado não encontrado.' });
+            const result = await pool.query('UPDATE convidados SET nome = $1, documento = $2 WHERE id = $3', [nome, documento || null, id]);
+            if (result.rowCount === 0) return res.status(404).json({ message: 'Convidado não encontrado.' });
             res.json({ message: 'Convidado atualizado com sucesso' });
         } catch (err) {
             console.error('Erro ao atualizar convidado:', err);
@@ -200,8 +203,8 @@ module.exports = (pool) => {
             const hasPermission = await checkPermission(req.user.id, id);
             if (!hasPermission && req.user.role !== 'admin') return res.status(403).json({ message: 'Acesso negado.' });
 
-            const [result] = await pool.query('DELETE FROM convidados WHERE id = ?', [id]);
-            if (result.affectedRows === 0) return res.status(404).json({ message: 'Convidado não encontrado.' });
+            const result = await pool.query('DELETE FROM convidados WHERE id = $1', [id]);
+            if (result.rowCount === 0) return res.status(404).json({ message: 'Convidado não encontrado.' });
             res.json({ message: 'Convidado removido com sucesso' });
         } catch (err) {
             console.error('Erro ao remover convidado:', err);

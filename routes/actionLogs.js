@@ -35,19 +35,19 @@ module.exports = (pool) => {
       const userAgent = req.get('user-agent');
 
       // Busca informações completas do usuário
-      const [users] = await pool.execute(
-        'SELECT id, name, email, role FROM users WHERE id = ?',
+      const usersResult = await pool.query(
+        'SELECT id, name, email, role FROM users WHERE id = $1',
         [req.user.id]
       );
 
-      if (users.length === 0) {
+      if (usersResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Usuário não encontrado'
         });
       }
 
-      const user = users[0];
+      const user = usersResult.rows[0];
 
       // Registra a ação
       await logAction(pool, {
@@ -137,10 +137,11 @@ module.exports = (pool) => {
       `;
 
       const params = [];
+      let paramIndex = 1;
 
       // Filtro por usuário
       if (userId) {
-        query += ' AND user_id = ?';
+        query += ` AND user_id = $${paramIndex++}`;
         params.push(userId);
       }
 
@@ -148,102 +149,112 @@ module.exports = (pool) => {
       if (userRole) {
         const roles = userRole.split(',').map(r => r.trim());
         if (roles.length === 1) {
-          query += ' AND user_role = ?';
+          query += ` AND user_role = $${paramIndex++}`;
           params.push(roles[0]);
         } else {
-          const placeholders = roles.map(() => '?').join(',');
+          const placeholders = roles.map((_, i) => `$${paramIndex + i}`).join(',');
           query += ` AND user_role IN (${placeholders})`;
           params.push(...roles);
+          paramIndex += roles.length;
         }
       }
 
       // Filtro por tipo de ação
       if (actionType) {
-        query += ' AND action_type = ?';
+        query += ` AND action_type = $${paramIndex++}`;
         params.push(actionType);
       }
 
       // Filtro por tipo de recurso
       if (resourceType) {
-        query += ' AND resource_type = ?';
+        query += ` AND resource_type = $${paramIndex++}`;
         params.push(resourceType);
       }
 
       // Filtro por estabelecimento
       if (establishmentId) {
-        query += ' AND establishment_id = ?';
+        query += ` AND establishment_id = $${paramIndex++}`;
         params.push(establishmentId);
       }
 
       // Filtro por data inicial
       if (startDate) {
-        query += ' AND created_at >= ?';
+        query += ` AND created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
 
       // Filtro por data final
       if (endDate) {
-        query += ' AND created_at <= ?';
+        query += ` AND created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
 
       // Busca textual
       if (search) {
-        query += ' AND (user_name LIKE ? OR user_email LIKE ? OR action_description LIKE ?)';
+        query += ` AND (user_name ILIKE $${paramIndex++} OR user_email ILIKE $${paramIndex++} OR action_description ILIKE $${paramIndex++})`;
         const searchTerm = `%${search}%`;
         params.push(searchTerm, searchTerm, searchTerm);
       }
 
       // Ordenação e paginação
-      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
       params.push(parseInt(limit), parseInt(offset));
 
       // Executa a query
-      const [logs] = await pool.execute(query, params);
+      const logsResult = await pool.query(query, params);
 
       // Query para contar total de registros (sem paginação)
       let countQuery = `SELECT COUNT(*) as total FROM action_logs WHERE 1=1`;
       const countParams = [];
+      let countParamIndex = 1;
 
       if (userId) {
-        countQuery += ' AND user_id = ?';
+        countQuery += ` AND user_id = $${countParamIndex++}`;
         countParams.push(userId);
       }
       if (userRole) {
-        countQuery += ' AND user_role = ?';
-        countParams.push(userRole);
+        const roles = userRole.split(',').map(r => r.trim());
+        if (roles.length === 1) {
+          countQuery += ` AND user_role = $${countParamIndex++}`;
+          countParams.push(roles[0]);
+        } else {
+          const placeholders = roles.map((_, i) => `$${countParamIndex + i}`).join(',');
+          countQuery += ` AND user_role IN (${placeholders})`;
+          countParams.push(...roles);
+          countParamIndex += roles.length;
+        }
       }
       if (actionType) {
-        countQuery += ' AND action_type = ?';
+        countQuery += ` AND action_type = $${countParamIndex++}`;
         countParams.push(actionType);
       }
       if (resourceType) {
-        countQuery += ' AND resource_type = ?';
+        countQuery += ` AND resource_type = $${countParamIndex++}`;
         countParams.push(resourceType);
       }
       if (establishmentId) {
-        countQuery += ' AND establishment_id = ?';
+        countQuery += ` AND establishment_id = $${countParamIndex++}`;
         countParams.push(establishmentId);
       }
       if (startDate) {
-        countQuery += ' AND created_at >= ?';
+        countQuery += ` AND created_at >= $${countParamIndex++}`;
         countParams.push(startDate);
       }
       if (endDate) {
-        countQuery += ' AND created_at <= ?';
+        countQuery += ` AND created_at <= $${countParamIndex++}`;
         countParams.push(endDate);
       }
       if (search) {
-        countQuery += ' AND (user_name LIKE ? OR user_email LIKE ? OR action_description LIKE ?)';
+        countQuery += ` AND (user_name ILIKE $${countParamIndex++} OR user_email ILIKE $${countParamIndex++} OR action_description ILIKE $${countParamIndex++})`;
         const searchTerm = `%${search}%`;
         countParams.push(searchTerm, searchTerm, searchTerm);
       }
 
-      const [countResult] = await pool.execute(countQuery, countParams);
-      const total = countResult[0].total;
+      const countResult = await pool.query(countQuery, countParams);
+      const total = parseInt(countResult.rows[0].total);
 
       // Parse additional_data JSON
-      const logsWithParsedData = logs.map(log => ({
+      const logsWithParsedData = logsResult.rows.map(log => ({
         ...log,
         additional_data: log.additional_data ? JSON.parse(log.additional_data) : null
       }));
@@ -287,24 +298,25 @@ module.exports = (pool) => {
 
       let dateFilter = '';
       const params = [];
+      let paramIndex = 1;
 
       if (startDate) {
-        dateFilter += ' AND created_at >= ?';
+        dateFilter += ` AND created_at >= $${paramIndex++}`;
         params.push(startDate);
       }
       if (endDate) {
-        dateFilter += ' AND created_at <= ?';
+        dateFilter += ` AND created_at <= $${paramIndex++}`;
         params.push(endDate);
       }
 
       // Total de ações
-      const [totalActions] = await pool.execute(
+      const totalActionsResult = await pool.query(
         `SELECT COUNT(*) as total FROM action_logs WHERE 1=1 ${dateFilter}`,
         params
       );
 
       // Ações por tipo
-      const [actionsByType] = await pool.execute(
+      const actionsByTypeResult = await pool.query(
         `SELECT action_type, COUNT(*) as count 
          FROM action_logs 
          WHERE 1=1 ${dateFilter}
@@ -314,7 +326,7 @@ module.exports = (pool) => {
       );
 
       // Ações por role
-      const [actionsByRole] = await pool.execute(
+      const actionsByRoleResult = await pool.query(
         `SELECT user_role, COUNT(*) as count 
          FROM action_logs 
          WHERE 1=1 ${dateFilter}
@@ -324,7 +336,7 @@ module.exports = (pool) => {
       );
 
       // Top usuários mais ativos
-      const [topUsers] = await pool.execute(
+      const topUsersResult = await pool.query(
         `SELECT user_name, user_email, user_role, COUNT(*) as count 
          FROM action_logs 
          WHERE 1=1 ${dateFilter}
@@ -335,20 +347,20 @@ module.exports = (pool) => {
       );
 
       // Ações recentes (últimas 24h)
-      const [recentActions] = await pool.execute(
+      const recentActionsResult = await pool.query(
         `SELECT COUNT(*) as count 
          FROM action_logs 
-         WHERE created_at >= NOW() - INTERVAL 24 HOUR`
+         WHERE created_at >= NOW() - INTERVAL '24 hours'`
       );
 
       res.json({
         success: true,
         stats: {
-          totalActions: totalActions[0].total,
-          recentActions24h: recentActions[0].count,
-          actionsByType,
-          actionsByRole,
-          topUsers
+          totalActions: parseInt(totalActionsResult.rows[0].total),
+          recentActions24h: parseInt(recentActionsResult.rows[0].count),
+          actionsByType: actionsByTypeResult.rows,
+          actionsByRole: actionsByRoleResult.rows,
+          topUsers: topUsersResult.rows
         }
       });
 
@@ -375,7 +387,7 @@ module.exports = (pool) => {
         });
       }
 
-      const [users] = await pool.execute(`
+      const usersResult = await pool.query(`
         SELECT DISTINCT user_id, user_name, user_email, user_role
         FROM action_logs
         ORDER BY user_name
@@ -383,7 +395,7 @@ module.exports = (pool) => {
 
       res.json({
         success: true,
-        users
+        users: usersResult.rows
       });
 
     } catch (error) {

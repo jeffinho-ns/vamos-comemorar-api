@@ -41,8 +41,8 @@ module.exports = (pool) => {
             }
             
             // ✨ Query de INSERT atualizada para incluir as novas colunas
-            const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            const result = await pool.query(
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -57,7 +57,7 @@ module.exports = (pool) => {
                 ]
             );
             
-            const newBar = { id: result.insertId, ...req.body };
+            const newBar = { id: result.rows[0].id, ...req.body };
             res.status(201).json(newBar);
         } catch (error) {
             console.error('Erro ao criar estabelecimento:', error);
@@ -69,8 +69,8 @@ module.exports = (pool) => {
     router.get('/bars', async (req, res) => {
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT * FROM bars');
-            const barsFormatted = bars.map(bar => {
+            const result = await pool.query('SELECT * FROM bars');
+            const barsFormatted = result.rows.map(bar => {
                 const formatted = { ...bar };
                 
                 // Parse amenities se existir
@@ -119,11 +119,11 @@ module.exports = (pool) => {
         const { id } = req.params;
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
-            const [bars] = await pool.query('SELECT * FROM bars WHERE id = ?', [id]);
-            if (bars.length === 0) {
+            const result = await pool.query('SELECT * FROM bars WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = bars[0];
+            const bar = result.rows[0];
             
             // Parse amenities se existir
             if (bar.amenities) {
@@ -205,7 +205,7 @@ module.exports = (pool) => {
             
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ?, menu_category_bg_color = ?, menu_category_text_color = ?, menu_subcategory_bg_color = ?, menu_subcategory_text_color = ?, mobile_sidebar_bg_color = ?, mobile_sidebar_text_color = ?, custom_seals = ? WHERE id = ?',
+                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18, menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20, mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22, custom_seals = $23 WHERE id = $24',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -232,7 +232,7 @@ module.exports = (pool) => {
     router.delete('/bars/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            await pool.query('DELETE FROM bars WHERE id = ?', [id]);
+            await pool.query('DELETE FROM bars WHERE id = $1', [id]);
             res.json({ message: 'Estabelecimento deletado com sucesso.' });
         } catch (error) {
             console.error('Erro ao deletar estabelecimento:', error);
@@ -244,11 +244,11 @@ module.exports = (pool) => {
     router.post('/categories', async (req, res) => {
         const { barId, name, order } = req.body;
         try {
-            const [result] = await pool.query(
-                'INSERT INTO menu_categories (barId, name, `order`) VALUES (?, ?, ?)',
+            const result = await pool.query(
+                'INSERT INTO menu_categories (barId, name, "order") VALUES ($1, $2, $3) RETURNING id',
                 [barId, name, order]
             );
-            res.status(201).json({ id: result.insertId, ...req.body });
+            res.status(201).json({ id: result.rows[0].id, ...req.body });
         } catch (error) {
             res.status(500).json({ error: 'Erro ao criar categoria.' });
         }
@@ -261,14 +261,14 @@ module.exports = (pool) => {
             let params = [];
             
             if (barId) {
-                query += ' WHERE barId = ?';
+                query += ' WHERE barId = $1';
                 params.push(barId);
             }
             
-            query += ' ORDER BY barId, `order`';
+            query += ' ORDER BY barId, "order"';
             
-            const [categories] = await pool.query(query, params);
-            res.json(categories);
+            const result = await pool.query(query, params);
+            res.json(result.rows);
         } catch (error) {
             console.error('Erro ao listar categorias:', error);
             res.status(500).json({ error: 'Erro ao listar categorias.' });
@@ -279,11 +279,11 @@ module.exports = (pool) => {
     router.get('/categories/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [categories] = await pool.query('SELECT * FROM menu_categories WHERE id = ?', [id]);
-            if (categories.length === 0) {
+            const result = await pool.query('SELECT * FROM menu_categories WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
-            res.json(categories[0]);
+            res.json(result.rows[0]);
         } catch (error) {
             console.error('Erro ao buscar categoria:', error);
             res.status(500).json({ error: 'Erro ao buscar categoria.' });
@@ -296,7 +296,7 @@ module.exports = (pool) => {
         const { barId, name, order } = req.body;
         try {
             await pool.query(
-                'UPDATE menu_categories SET barId = ?, name = ?, `order` = ? WHERE id = ?',
+                'UPDATE menu_categories SET barId = $1, name = $2, "order" = $3 WHERE id = $4',
                 [barId, name, order, id]
             );
             res.json({ message: 'Categoria atualizada com sucesso.' });
@@ -310,7 +310,7 @@ module.exports = (pool) => {
     router.delete('/categories/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            await pool.query('DELETE FROM menu_categories WHERE id = ?', [id]);
+            await pool.query('DELETE FROM menu_categories WHERE id = $1', [id]);
             res.json({ message: 'Categoria deletada com sucesso.' });
         } catch (error) {
             console.error('Erro ao deletar categoria:', error);
@@ -325,7 +325,7 @@ module.exports = (pool) => {
     // Listar todas as sub-categorias únicas
     router.get('/subcategories', async (req, res) => {
         try {
-            const [subCategories] = await pool.query(`
+            const result = await pool.query(`
                 SELECT DISTINCT 
                     mi.subCategory as name,
                     mi.categoryId,
@@ -339,10 +339,10 @@ module.exports = (pool) => {
                 WHERE mi.subCategory IS NOT NULL 
                   AND mi.subCategory != ''
                   AND mi.subCategory != ' '
-                GROUP BY mi.subCategory, mi.categoryId, mi.barId
-                ORDER BY b.name, mc.order, mi.subCategory
+                GROUP BY mi.subCategory, mi.categoryId, mi.barId, mc.name, b.name, mc."order"
+                ORDER BY b.name, mc."order", mi.subCategory
             `);
-            res.json(subCategories);
+            res.json(result.rows);
         } catch (error) {
             console.error('Erro ao listar sub-categorias:', error);
             res.status(500).json({ error: 'Erro ao listar sub-categorias.' });
@@ -353,7 +353,7 @@ module.exports = (pool) => {
     router.get('/subcategories/category/:categoryId', async (req, res) => {
         const { categoryId } = req.params;
         try {
-            const [subCategories] = await pool.query(`
+            const result = await pool.query(`
                 SELECT DISTINCT 
                     mi.subCategory as name,
                     mi.categoryId,
@@ -361,14 +361,14 @@ module.exports = (pool) => {
                     COUNT(mi.id) as itemsCount,
                     MIN(mi.id) as id
                 FROM menu_items mi
-                WHERE mi.categoryId = ? 
+                WHERE mi.categoryId = $1 
                   AND mi.subCategory IS NOT NULL 
                   AND mi.subCategory != ''
                   AND mi.subCategory != ' '
                 GROUP BY mi.subCategory, mi.categoryId, mi.barId
                 ORDER BY mi.subCategory
             `, [categoryId]);
-            res.json(subCategories);
+            res.json(result.rows);
         } catch (error) {
             console.error('Erro ao listar sub-categorias da categoria:', error);
             res.status(500).json({ error: 'Erro ao listar sub-categorias da categoria.' });
@@ -379,7 +379,7 @@ module.exports = (pool) => {
     router.get('/subcategories/bar/:barId', async (req, res) => {
         const { barId } = req.params;
         try {
-            const [subCategories] = await pool.query(`
+            const result = await pool.query(`
                 SELECT DISTINCT 
                     mi.subCategory as name,
                     mi.categoryId,
@@ -389,14 +389,14 @@ module.exports = (pool) => {
                     MIN(mi.id) as id
                 FROM menu_items mi
                 JOIN menu_categories mc ON mi.categoryId = mc.id
-                WHERE mi.barId = ? 
+                WHERE mi.barId = $1 
                   AND mi.subCategory IS NOT NULL 
                   AND mi.subCategory != ''
                   AND mi.subCategory != ' '
-                GROUP BY mi.subCategory, mi.categoryId, mi.barId
-                ORDER BY mc.order, mi.subCategory
+                GROUP BY mi.subCategory, mi.categoryId, mi.barId, mc.name, mc."order"
+                ORDER BY mc."order", mi.subCategory
             `, [barId]);
-            res.json(subCategories);
+            res.json(result.rows);
         } catch (error) {
             console.error('Erro ao listar sub-categorias do bar:', error);
             res.status(500).json({ error: 'Erro ao listar sub-categorias do bar.' });
@@ -413,51 +413,51 @@ module.exports = (pool) => {
 
         try {
             // Verificar se a categoria existe
-            const [categories] = await pool.query('SELECT id FROM menu_categories WHERE id = ? AND barId = ?', [categoryId, barId]);
-            if (categories.length === 0) {
+            const categoriesResult = await pool.query('SELECT id FROM menu_categories WHERE id = $1 AND barId = $2', [categoryId, barId]);
+            if (categoriesResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
 
             // Verificar se o bar existe
-            const [bars] = await pool.query('SELECT id FROM bars WHERE id = ?', [barId]);
-            if (bars.length === 0) {
+            const barsResult = await pool.query('SELECT id FROM bars WHERE id = $1', [barId]);
+            if (barsResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Bar não encontrado.' });
             }
 
             // Verificar se já existe uma subcategoria com o mesmo nome na mesma categoria
-            const [existing] = await pool.query(
-                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+            const existingResult = await pool.query(
+                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3',
                 [name, categoryId, barId]
             );
             
-            if (existing[0].count > 0) {
+            if (parseInt(existingResult.rows[0].count) > 0) {
                 return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
             }
 
             // Verificar se o campo seals existe
             let hasSealsField = false;
             try {
-                const [columns] = await pool.query(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
+                const columnsResult = await pool.query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'seals'"
                 );
-                hasSealsField = columns.length > 0;
+                hasSealsField = columnsResult.rows.length > 0;
             } catch (e) {
                 console.log('Campo seals não encontrado, ignorando selos');
             }
 
             // Criar um item vazio com a nova subcategoria para "reservar" o nome
             const query = hasSealsField ? 
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)' :
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id' :
+                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
             
             const values = hasSealsField ? 
                 [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0, null] :
                 [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0];
 
-            const [result] = await pool.query(query, values);
+            const result = await pool.query(query, values);
 
             const newSubCategory = {
-                id: result.insertId,
+                id: result.rows[0].id,
                 name,
                 categoryId,
                 barId,
@@ -483,28 +483,28 @@ module.exports = (pool) => {
 
         try {
             // Buscar o item que representa a subcategoria
-            const [items] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
-            if (items.length === 0) {
+            const itemsResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
+            if (itemsResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Subcategoria não encontrada.' });
             }
 
-            const item = items[0];
+            const item = itemsResult.rows[0];
             const oldSubCategoryName = item.subCategory;
 
             // Verificar se o novo nome já existe na mesma categoria
             if (name !== oldSubCategoryName) {
-                const [duplicate] = await pool.query(
-                    'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+                const duplicateResult = await pool.query(
+                    'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3',
                     [name, item.categoryId, item.barId]
                 );
                 
-                if (duplicate[0].count > 0) {
+                if (parseInt(duplicateResult.rows[0].count) > 0) {
                     return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
                 }
 
                 // Atualizar todos os itens que usam esta subcategoria
                 await pool.query(
-                    'UPDATE menu_items SET subCategory = ? WHERE subCategory = ? AND categoryId = ? AND barId = ?',
+                    'UPDATE menu_items SET subCategory = $1 WHERE subCategory = $2 AND categoryId = $3 AND barId = $4',
                     [name, oldSubCategoryName, item.categoryId, item.barId]
                 );
             }
@@ -512,20 +512,20 @@ module.exports = (pool) => {
             // Atualizar ordem se fornecida
             if (order !== undefined && order !== item.order) {
                 await pool.query(
-                    'UPDATE menu_items SET `order` = ? WHERE id = ?',
+                    'UPDATE menu_items SET "order" = $1 WHERE id = $2',
                     [order, id]
                 );
             }
 
             // Buscar item atualizado
-            const [updated] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
+            const updatedResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
             
             res.json({
-                id: updated[0].id,
-                name: updated[0].subCategory,
-                categoryId: updated[0].categoryId,
-                barId: updated[0].barId,
-                order: updated[0].order,
+                id: updatedResult.rows[0].id,
+                name: updatedResult.rows[0].subCategory,
+                categoryId: updatedResult.rows[0].categoryId,
+                barId: updatedResult.rows[0].barId,
+                order: updatedResult.rows[0].order,
                 message: 'Subcategoria atualizada com sucesso'
             });
         } catch (error) {
@@ -540,29 +540,29 @@ module.exports = (pool) => {
 
         try {
             // Buscar o item que representa a subcategoria
-            const [items] = await pool.query('SELECT * FROM menu_items WHERE id = ?', [id]);
-            if (items.length === 0) {
+            const itemsResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
+            if (itemsResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Subcategoria não encontrada.' });
             }
 
-            const item = items[0];
+            const item = itemsResult.rows[0];
             const subCategoryName = item.subCategory;
 
             // Verificar se há outros itens usando esta subcategoria
-            const [otherItems] = await pool.query(
-                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = ? AND categoryId = ? AND barId = ? AND id != ?',
+            const otherItemsResult = await pool.query(
+                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3 AND id != $4',
                 [subCategoryName, item.categoryId, item.barId, id]
             );
 
-            if (otherItems[0].count > 0) {
+            if (parseInt(otherItemsResult.rows[0].count) > 0) {
                 return res.status(400).json({ 
-                    error: `Não é possível excluir esta subcategoria. Ela está sendo usada por ${otherItems[0].count} outro(s) item(s).`,
-                    itemsCount: otherItems[0].count
+                    error: `Não é possível excluir esta subcategoria. Ela está sendo usada por ${otherItemsResult.rows[0].count} outro(s) item(s).`,
+                    itemsCount: parseInt(otherItemsResult.rows[0].count)
                 });
             }
 
             // Excluir o item que representa a subcategoria
-            await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
+            await pool.query('DELETE FROM menu_items WHERE id = $1', [id]);
 
             res.json({ 
                 message: 'Subcategoria excluída com sucesso.',
@@ -589,35 +589,35 @@ module.exports = (pool) => {
 
         try {
             // Verificar se a categoria existe
-            const [categories] = await pool.query('SELECT id FROM menu_categories WHERE id = ?', [categoryId]);
-            if (categories.length === 0) {
+            const categoriesResult = await pool.query('SELECT id FROM menu_categories WHERE id = $1', [categoryId]);
+            if (categoriesResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
 
             // Atualizar ordem das subcategorias
             for (let i = 0; i < subcategoryNames.length; i++) {
                 await pool.query(
-                    'UPDATE menu_items SET `order` = ? WHERE subCategory = ? AND categoryId = ?',
+                    'UPDATE menu_items SET "order" = $1 WHERE subCategory = $2 AND categoryId = $3',
                     [i, subcategoryNames[i], categoryId]
                 );
             }
 
             // Buscar subcategorias atualizadas
-            const [updated] = await pool.query(`
+            const updatedResult = await pool.query(`
                 SELECT DISTINCT 
                     subCategory as name,
                     categoryId,
                     barId,
                     COUNT(*) as itemsCount
                 FROM menu_items 
-                WHERE categoryId = ? AND subCategory IS NOT NULL AND subCategory != ''
-                GROUP BY subCategory, categoryId, barId
-                ORDER BY \`order\`, name
+                WHERE categoryId = $1 AND subCategory IS NOT NULL AND subCategory != ''
+                GROUP BY subCategory, categoryId, barId, "order"
+                ORDER BY "order", name
             `, [categoryId]);
 
             res.json({
                 message: 'Ordem das subcategorias atualizada com sucesso.',
-                subcategories: updated
+                subcategories: updatedResult.rows
             });
         } catch (error) {
             console.error('Erro ao reordenar subcategorias:', error);
@@ -632,8 +632,9 @@ module.exports = (pool) => {
     // Rotas para Itens
     router.post('/items', async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
+        const client = await pool.connect();
         try {
-            await pool.query('START TRANSACTION');
+            await client.query('BEGIN');
 
             // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
@@ -642,42 +643,43 @@ module.exports = (pool) => {
             try {
                 // Tentar com seals primeiro
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
-                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`, seals) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id';
                 const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson];
                 
-                const [result] = await pool.query(query, values);
+                const result = await client.query(query, values);
                 hasSealsField = true;
-                itemId = result.insertId;
+                itemId = result.rows[0].id;
                 console.log('✅ Item criado com selos');
             } catch (e) {
                 // Se falhar, usar versão sem seals
                 console.log('⚠️ Campo seals não disponível, criando item sem selos');
-                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, `order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
                 const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order];
                 
-                const [result] = await pool.query(query, values);
-                itemId = result.insertId;
+                const result = await client.query(query, values);
+                itemId = result.rows[0].id;
             }
 
             if (toppings && toppings.length > 0) {
                 const toppingIds = [];
                 for (const topping of toppings) {
-                    const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
-                    toppingIds.push(toppingResult.insertId);
+                    const toppingResult = await client.query('INSERT INTO toppings (name, price) VALUES ($1, $2) RETURNING id', [topping.name, topping.price]);
+                    toppingIds.push(toppingResult.rows[0].id);
                 }
 
-                const itemToppingValues = toppingIds.map(toppingId => `(${itemId}, ${toppingId})`).join(', ');
-                if (itemToppingValues) {
-                    await pool.query(`INSERT INTO item_toppings (item_id, topping_id) VALUES ${itemToppingValues}`);
+                for (const toppingId of toppingIds) {
+                    await client.query('INSERT INTO item_toppings (item_id, topping_id) VALUES ($1, $2)', [itemId, toppingId]);
                 }
             }
 
-            await pool.query('COMMIT');
+            await client.query('COMMIT');
             res.status(201).json({ id: itemId, ...req.body });
         } catch (error) {
-            await pool.query('ROLLBACK');
+            await client.query('ROLLBACK');
             console.error('Erro ao criar item:', error);
             res.status(500).json({ error: 'Erro ao criar item.' });
+        } finally {
+            if (client) client.release();
         }
     });
 
@@ -700,23 +702,23 @@ module.exports = (pool) => {
                         mi.imageUrl, 
                         mi.categoryId, 
                         mi.barId, 
-                        mi.order, 
+                        mi."order", 
                         mc.name as category,
                         mi.subCategory as subCategoryName,
                         mi.seals,
                         COALESCE(mi.visible, 1) AS visible,
-                        GROUP_CONCAT(
-                            CONCAT(t.id, ':', t.name, ':', t.price) 
-                            SEPARATOR '|'
+                        string_agg(
+                            t.id::text || ':' || t.name || ':' || t.price::text, 
+                            '|'
                         ) as toppings
                     FROM menu_items mi 
                     JOIN menu_categories mc ON mi.categoryId = mc.id
                     LEFT JOIN item_toppings it ON mi.id = it.item_id
                     LEFT JOIN toppings t ON it.topping_id = t.id
-                    ${barId ? 'WHERE mi.barId = ?' : ''}
+                    ${barId ? 'WHERE mi.barId = $1' : ''}
                     GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.seals, mi.visible
-                    ORDER BY mi.barId, mi.categoryId, mi.order
+                             mi.categoryId, mi.barId, mi."order", mc.name, mi.subCategory, mi.seals, mi.visible
+                    ORDER BY mi.barId, mi.categoryId, mi."order"
                 `;
                 await pool.query(query, barId ? [barId] : []);
                 hasSealsField = true;
@@ -733,28 +735,28 @@ module.exports = (pool) => {
                         mi.imageUrl, 
                         mi.categoryId, 
                         mi.barId, 
-                        mi.order, 
+                        mi."order", 
                         mc.name as category,
                         mi.subCategory as subCategoryName,
                         COALESCE(mi.visible, 1) AS visible,
-                        GROUP_CONCAT(
-                            CONCAT(t.id, ':', t.name, ':', t.price) 
-                            SEPARATOR '|'
+                        string_agg(
+                            t.id::text || ':' || t.name || ':' || t.price::text, 
+                            '|'
                         ) as toppings
                     FROM menu_items mi 
                     JOIN menu_categories mc ON mi.categoryId = mc.id
                     LEFT JOIN item_toppings it ON mi.id = it.item_id
                     LEFT JOIN toppings t ON it.topping_id = t.id
-                    ${barId ? 'WHERE mi.barId = ?' : ''}
+                    ${barId ? 'WHERE mi.barId = $1' : ''}
                     GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi.order, mc.name, mi.subCategory, mi.visible
-                    ORDER BY mi.barId, mi.categoryId, mi.order
+                             mi.categoryId, mi.barId, mi."order", mc.name, mi.subCategory, mi.visible
+                    ORDER BY mi.barId, mi.categoryId, mi."order"
                 `;
             }
             
-            const [items] = await pool.query(query, barId ? [barId] : []);
+            const result = await pool.query(query, barId ? [barId] : []);
             
-            const itemsWithToppings = items.map((item) => {
+            const itemsWithToppings = result.rows.map((item) => {
                 // Processar toppings do GROUP_CONCAT
                 let toppings = [];
                 if (item.toppings) {
@@ -794,10 +796,10 @@ module.exports = (pool) => {
             // Verificar se o campo seals existe
             let hasSealsField = false;
             try {
-                const [columns] = await pool.query(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'menu_items' AND COLUMN_NAME = 'seals'"
+                const columnsResult = await pool.query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'seals'"
                 );
-                hasSealsField = columns.length > 0;
+                hasSealsField = columnsResult.rows.length > 0;
             } catch (e) {
                 console.log('Campo seals não encontrado, usando versão compatível');
             }
@@ -811,13 +813,13 @@ module.exports = (pool) => {
                     mi.imageUrl, 
                     mi.categoryId, 
                     mi.barId, 
-                    mi.order, 
+                    mi."order", 
                     mc.name as category,
                     mi.subCategory as subCategoryName,
                     mi.seals
                 FROM menu_items mi 
                 JOIN menu_categories mc ON mi.categoryId = mc.id
-                WHERE mi.id = ?
+                WHERE mi.id = $1
             ` : `
                 SELECT 
                     mi.id, 
@@ -827,20 +829,20 @@ module.exports = (pool) => {
                     mi.imageUrl, 
                     mi.categoryId, 
                     mi.barId, 
-                    mi.order, 
+                    mi."order", 
                     mc.name as category,
                     mi.subCategory as subCategoryName
                 FROM menu_items mi 
                 JOIN menu_categories mc ON mi.categoryId = mc.id
-                WHERE mi.id = ?
+                WHERE mi.id = $1
             `;
 
-            const [items] = await pool.query(query, [id]);
-            if (items.length === 0) {
+            const itemsResult = await pool.query(query, [id]);
+            if (itemsResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Item não encontrado.' });
             }
-            const item = items[0];
-            const [toppings] = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = ?', [id]);
+            const item = itemsResult.rows[0];
+            const toppingsResult = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = $1', [id]);
             
             // Converter seals de JSON para array (apenas se o campo existir)
             let seals = [];
@@ -853,7 +855,7 @@ module.exports = (pool) => {
                 }
             }
             
-            item.toppings = toppings;
+            item.toppings = toppingsResult.rows;
             item.seals = seals;
             res.json(item);
         } catch (error) {
@@ -866,8 +868,9 @@ module.exports = (pool) => {
     router.put('/items/:id', async (req, res) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
+        const client = await pool.connect();
         try {
-            await pool.query('START TRANSACTION');
+            await client.query('BEGIN');
 
             // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
@@ -875,51 +878,52 @@ module.exports = (pool) => {
             try {
                 // Tentar com seals primeiro
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
-                const query = 'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ?, seals = ? WHERE id = ?';
+                const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8, seals = $9 WHERE id = $10';
                 const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson, id];
                 
-                await pool.query(query, values);
+                await client.query(query, values);
                 hasSealsField = true;
                 console.log('✅ Item atualizado com selos');
             } catch (e) {
                 // Se falhar, usar versão sem seals
                 console.log('⚠️ Campo seals não disponível, atualizando item sem selos');
-                const query = 'UPDATE menu_items SET name = ?, description = ?, price = ?, imageUrl = ?, categoryId = ?, barId = ?, subCategory = ?, `order` = ? WHERE id = ?';
+                const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8 WHERE id = $9';
                 const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id];
                 
-                await pool.query(query, values);
+                await client.query(query, values);
             }
             
-            await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
+            await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
             
             if (toppings && toppings.length > 0) {
                 const toppingIds = [];
                 for (const topping of toppings) {
                     let toppingId;
                     // Tenta encontrar o topping existente pelo nome e preço
-                    const [existingToppings] = await pool.query('SELECT id FROM toppings WHERE name = ? AND price = ?', [topping.name, topping.price]);
-                    if (existingToppings.length > 0) {
-                        toppingId = existingToppings[0].id;
+                    const existingToppingsResult = await client.query('SELECT id FROM toppings WHERE name = $1 AND price = $2', [topping.name, topping.price]);
+                    if (existingToppingsResult.rows.length > 0) {
+                        toppingId = existingToppingsResult.rows[0].id;
                     } else {
                         // Se não encontrar, insere um novo
-                        const [toppingResult] = await pool.query('INSERT INTO toppings (name, price) VALUES (?, ?)', [topping.name, topping.price]);
-                        toppingId = toppingResult.insertId;
+                        const toppingResult = await client.query('INSERT INTO toppings (name, price) VALUES ($1, $2) RETURNING id', [topping.name, topping.price]);
+                        toppingId = toppingResult.rows[0].id;
                     }
                     toppingIds.push(toppingId);
                 }
 
-                const itemToppingValues = toppingIds.map(toppingId => `(${id}, ${toppingId})`).join(', ');
-                if (itemToppingValues) {
-                     await pool.query(`INSERT INTO item_toppings (item_id, topping_id) VALUES ${itemToppingValues}`);
+                for (const toppingId of toppingIds) {
+                    await client.query('INSERT INTO item_toppings (item_id, topping_id) VALUES ($1, $2)', [id, toppingId]);
                 }
             }
             
-            await pool.query('COMMIT');
+            await client.query('COMMIT');
             res.json({ message: 'Item atualizado com sucesso.' });
         } catch (error) {
-            await pool.query('ROLLBACK');
+            await client.query('ROLLBACK');
             console.error('Erro ao atualizar item:', error);
             res.status(500).json({ error: 'Erro ao atualizar item.' });
+        } finally {
+            if (client) client.release();
         }
     });
 
@@ -932,17 +936,17 @@ module.exports = (pool) => {
         
         try {
             // Verificar se o item existe
-            const [items] = await pool.query('SELECT id, name, visible FROM menu_items WHERE id = ?', [id]);
+            const itemsResult = await pool.query('SELECT id, name, visible FROM menu_items WHERE id = $1', [id]);
             
-            if (items.length === 0) {
+            if (itemsResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Item não encontrado.' });
             }
             
-            const currentItem = items[0];
+            const currentItem = itemsResult.rows[0];
             const newVisibility = visible !== undefined ? (visible ? 1 : 0) : (currentItem.visible === 1 ? 0 : 1);
             
             // Atualizar visibilidade
-            await pool.query('UPDATE menu_items SET visible = ? WHERE id = ?', [newVisibility, id]);
+            await pool.query('UPDATE menu_items SET visible = $1 WHERE id = $2', [newVisibility, id]);
             
             res.json({ 
                 message: newVisibility === 1 ? 'Item tornado visível com sucesso.' : 'Item ocultado com sucesso.',
@@ -962,16 +966,19 @@ module.exports = (pool) => {
     // Rota para deletar um item (permanente)
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
+        const client = await pool.connect();
         try {
-            await pool.query('START TRANSACTION');
-            await pool.query('DELETE FROM item_toppings WHERE item_id = ?', [id]);
-            await pool.query('DELETE FROM menu_items WHERE id = ?', [id]);
-            await pool.query('COMMIT');
+            await client.query('BEGIN');
+            await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
+            await client.query('DELETE FROM menu_items WHERE id = $1', [id]);
+            await client.query('COMMIT');
             res.json({ message: 'Item deletado permanentemente com sucesso.' });
         } catch (error) {
-            await pool.query('ROLLBACK');
+            await client.query('ROLLBACK');
             console.error('Erro ao deletar item:', error);
             res.status(500).json({ error: 'Erro ao deletar item.' });
+        } finally {
+            if (client) client.release();
         }
     });
 

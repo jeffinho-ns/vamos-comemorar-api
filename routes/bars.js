@@ -27,8 +27,8 @@ module.exports = (pool) => {
             }
             
             // ✨ Query de INSERT atualizada para incluir as novas colunas
-            const [result] = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            const result = await pool.query(
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -38,7 +38,7 @@ module.exports = (pool) => {
                 ]
             );
             
-            const newBar = { id: result.insertId, ...req.body };
+            const newBar = { id: result.rows[0].id, ...req.body };
             res.status(201).json(newBar);
         } catch (error) {
             console.error('Erro ao criar estabelecimento:', error);
@@ -49,8 +49,8 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/', async (req, res) => {
         try {
-            const [bars] = await pool.query('SELECT * FROM bars');
-            const barsFormatted = bars.map(bar => {
+            const result = await pool.query('SELECT * FROM bars');
+            const barsFormatted = result.rows.map(bar => {
                 const formatted = { ...bar };
                 if (bar.amenities) {
                     try {
@@ -83,11 +83,11 @@ module.exports = (pool) => {
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const [bars] = await pool.query('SELECT * FROM bars WHERE id = ?', [id]);
-            if (bars.length === 0) {
+            const result = await pool.query('SELECT * FROM bars WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = bars[0];
+            const bar = result.rows[0];
             if (bar.amenities) {
                 try {
                     bar.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
@@ -140,7 +140,7 @@ module.exports = (pool) => {
 
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = ?, slug = ?, description = ?, logoUrl = ?, coverImageUrl = ?, coverImages = ?, address = ?, rating = ?, reviewsCount = ?, latitude = ?, longitude = ?, amenities = ?, popupImageUrl = ?, facebook = ?, instagram = ?, whatsapp = ? WHERE id = ?',
+                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16 WHERE id = $17',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -161,7 +161,7 @@ module.exports = (pool) => {
     router.delete('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            await pool.query('DELETE FROM bars WHERE id = ?', [id]);
+            await pool.query('DELETE FROM bars WHERE id = $1', [id]);
             res.json({ message: 'Estabelecimento excluído com sucesso.' });
         } catch (error) {
             console.error('Erro ao excluir estabelecimento:', error);

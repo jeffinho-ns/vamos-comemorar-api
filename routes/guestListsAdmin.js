@@ -37,14 +37,15 @@ module.exports = (pool) => {
       console.log('🔍 [GET /guest-lists] Parâmetros recebidos:', { date, month, establishment_id, show_all });
 
       // Construir os filtros usando COALESCE desde o início
+      let paramIndex = 1;
       if (date) {
-        whereClauses.push('DATE(COALESCE(lr.reservation_date, rr.reservation_date)) = DATE(?)');
+        whereClauses.push(`DATE(COALESCE(lr.reservation_date, rr.reservation_date)) = DATE($${paramIndex++})`);
         params.push(date);
         console.log('📅 Filtrando por data específica:', date);
       } else if (month) {
         const year = month.split('-')[0];
         const monthNum = month.split('-')[1];
-        whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
+        whereClauses.push(`(EXTRACT(YEAR FROM COALESCE(lr.reservation_date, rr.reservation_date)) = $${paramIndex++} AND EXTRACT(MONTH FROM COALESCE(lr.reservation_date, rr.reservation_date)) = $${paramIndex++})`);
         params.push(year, monthNum);
         console.log('📅 Filtrando por mês:', month);
       } else if (show_all !== 'true') {
@@ -52,7 +53,7 @@ module.exports = (pool) => {
         const currentMonth = new Date().toISOString().slice(0, 7);
         const year = currentMonth.split('-')[0];
         const monthNum = currentMonth.split('-')[1];
-        whereClauses.push('(YEAR(COALESCE(lr.reservation_date, rr.reservation_date)) = ? AND MONTH(COALESCE(lr.reservation_date, rr.reservation_date)) = ?)');
+        whereClauses.push(`(EXTRACT(YEAR FROM COALESCE(lr.reservation_date, rr.reservation_date)) = $${paramIndex++} AND EXTRACT(MONTH FROM COALESCE(lr.reservation_date, rr.reservation_date)) = $${paramIndex++})`);
         params.push(year, monthNum);
         console.log('📅 Filtrando por mês atual (padrão):', currentMonth);
       } else {
@@ -60,13 +61,13 @@ module.exports = (pool) => {
       }
       
       if (establishment_id) {
-        whereClauses.push('COALESCE(lr.establishment_id, rr.establishment_id) = ?');
+        whereClauses.push(`COALESCE(lr.establishment_id, rr.establishment_id) = $${paramIndex++}`);
         params.push(establishment_id);
         console.log('🏢 Filtrando por estabelecimento:', establishment_id);
       }
       
       // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant) com campos de check-in
-      const [rows] = await pool.execute(`
+      const rowsResult = await pool.query(`
         SELECT 
           gl.id as guest_list_id, 
           gl.event_type,
@@ -100,15 +101,16 @@ module.exports = (pool) => {
         ${whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : ''}
         ORDER BY COALESCE(lr.reservation_date, rr.reservation_date) DESC, gl.id ASC
       `, params);
+      const rows = rowsResult.rows;
       
       // Adicionar contagem de guests para cada guest list
       for (const row of rows) {
-        const [guests] = await pool.execute(
-          'SELECT id, checked_in FROM guests WHERE guest_list_id = ?',
+        const guestsResult = await pool.query(
+          'SELECT id, checked_in FROM guests WHERE guest_list_id = $1',
           [row.guest_list_id]
         );
-        row.total_guests = guests.length;
-        row.guests_checked_in = guests.filter((g) => g.checked_in).length;
+        row.total_guests = guestsResult.rows.length;
+        row.guests_checked_in = guestsResult.rows.filter((g) => g.checked_in).length;
       }
 
       console.log(`✅ Guest Lists encontradas: ${rows.length}`);
@@ -153,17 +155,17 @@ module.exports = (pool) => {
         return res.status(400).json({ success: false, error: 'Nome é obrigatório' });
       }
 
-      const [lists] = await pool.execute('SELECT id FROM guest_lists WHERE id = ? LIMIT 1', [list_id]);
-      if (!lists.length) {
+      const listsResult = await pool.query('SELECT id FROM guest_lists WHERE id = $1 LIMIT 1', [list_id]);
+      if (listsResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
 
-      const [result] = await pool.execute(
-        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES (?, ?, ?)',
+      const result = await pool.query(
+        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3) RETURNING id',
         [list_id, name.trim(), whatsapp || null]
       );
 
-      res.status(201).json({ success: true, guest: { id: result.insertId, name: name.trim(), whatsapp: whatsapp || null } });
+      res.status(201).json({ success: true, guest: { id: result.rows[0].id, name: name.trim(), whatsapp: whatsapp || null } });
     } catch (error) {
       console.error('❌ Erro ao adicionar convidado:', error);
       res.status(500).json({ success: false, error: 'Erro interno do servidor' });
@@ -180,37 +182,37 @@ module.exports = (pool) => {
       const { list_id } = req.params;
       
       // Verificar se a lista existe
-      const [lists] = await pool.execute('SELECT id FROM guest_lists WHERE id = ? LIMIT 1', [list_id]);
-      if (!lists.length) {
+      const listsResult = await pool.query('SELECT id FROM guest_lists WHERE id = $1 LIMIT 1', [list_id]);
+      if (listsResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
 
       // Verificar se as colunas entrada_tipo e entrada_valor existem
       try {
-        const [columns] = await pool.execute(`
-          SELECT COLUMN_NAME 
-          FROM INFORMATION_SCHEMA.COLUMNS 
-          WHERE TABLE_SCHEMA = DATABASE() 
-          AND TABLE_NAME = 'guests' 
-          AND COLUMN_NAME IN ('entrada_tipo', 'entrada_valor')
+        const columnsResult = await pool.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_schema = current_schema()
+          AND table_name = 'guests' 
+          AND column_name IN ('entrada_tipo', 'entrada_valor')
         `);
         
-        const hasEntradaTipo = columns.some(col => col.COLUMN_NAME === 'entrada_tipo');
-        const hasEntradaValor = columns.some(col => col.COLUMN_NAME === 'entrada_valor');
+        const hasEntradaTipo = columnsResult.rows.some(col => col.column_name === 'entrada_tipo');
+        const hasEntradaValor = columnsResult.rows.some(col => col.column_name === 'entrada_valor');
         
         let query;
         if (hasEntradaTipo && hasEntradaValor) {
           // Se as colunas existem, incluí-las na query
-          query = 'SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = ? ORDER BY id ASC';
+          query = 'SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
         } else {
           // Se não existem, usar query sem esses campos
-          query = 'SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC';
+          query = 'SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
         }
         
-        const [rows] = await pool.execute(query, [list_id]);
+        const rowsResult = await pool.query(query, [list_id]);
         
         // Adicionar campos null se não existirem na tabela
-        const guests = rows.map(guest => ({
+        const guests = rowsResult.rows.map(guest => ({
           ...guest,
           entrada_tipo: guest.entrada_tipo || null,
           entrada_valor: guest.entrada_valor || null
@@ -221,8 +223,8 @@ module.exports = (pool) => {
         console.error('❌ Erro ao executar query de convidados:', queryError);
         // Fallback: tentar query simples sem os campos novos
         try {
-          const [rows] = await pool.execute('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = ? ORDER BY id ASC', [list_id]);
-          const guests = rows.map(guest => ({
+          const rowsResult = await pool.query('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = $1 ORDER BY id ASC', [list_id]);
+          const guests = rowsResult.rows.map(guest => ({
             ...guest,
             entrada_tipo: null,
             entrada_valor: null
@@ -254,21 +256,22 @@ module.exports = (pool) => {
       const { guest_id } = req.params;
       const { name, whatsapp } = req.body;
 
-      const [guests] = await pool.execute('SELECT id FROM guests WHERE id = ? LIMIT 1', [guest_id]);
-      if (!guests.length) {
+      const guestsResult = await pool.query('SELECT id FROM guests WHERE id = $1 LIMIT 1', [guest_id]);
+      if (guestsResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Convidado não encontrado' });
       }
 
       const fields = [];
       const params = [];
-      if (name !== undefined) { fields.push('name = ?'); params.push(name); }
-      if (whatsapp !== undefined) { fields.push('whatsapp = ?'); params.push(whatsapp); }
+      let paramIndex = 1;
+      if (name !== undefined) { fields.push(`name = $${paramIndex++}`); params.push(name); }
+      if (whatsapp !== undefined) { fields.push(`whatsapp = $${paramIndex++}`); params.push(whatsapp); }
       if (fields.length === 0) {
         return res.status(400).json({ success: false, error: 'Nada para atualizar' });
       }
       params.push(guest_id);
 
-      await pool.execute(`UPDATE guests SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, params);
+      await pool.query(`UPDATE guests SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex}`, params);
       res.json({ success: true });
     } catch (error) {
       console.error('❌ Erro ao editar convidado:', error);
@@ -285,12 +288,12 @@ module.exports = (pool) => {
     try {
       const { guest_id } = req.params;
 
-      const [guests] = await pool.execute('SELECT id FROM guests WHERE id = ? LIMIT 1', [guest_id]);
-      if (!guests.length) {
+      const guestsResult = await pool.query('SELECT id FROM guests WHERE id = $1 LIMIT 1', [guest_id]);
+      if (guestsResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Convidado não encontrado' });
       }
 
-      await pool.execute('DELETE FROM guests WHERE id = ?', [guest_id]);
+      await pool.query('DELETE FROM guests WHERE id = $1', [guest_id]);
       res.json({ success: true });
     } catch (error) {
       console.error('❌ Erro ao excluir convidado:', error);
@@ -317,22 +320,22 @@ module.exports = (pool) => {
       const expiresAt = `${reservation_date} 23:59:59`;
 
       // 1. Cria a reserva grande primeiro
-      const [reservationResult] = await pool.execute(
+      const reservationResult = await pool.query(
         `INSERT INTO large_reservations (
           establishment_id, client_name, reservation_date, reservation_time, 
           number_of_people, status, origin, created_by
-        ) VALUES (?, ?, ?, '18:00:00', 11, 'NOVA', 'ADMIN', ?)`, // Pessoas >= 11 para ser grande
+        ) VALUES ($1, $2, $3, '18:00:00', 11, 'NOVA', 'ADMIN', $4) RETURNING id`, // Pessoas >= 11 para ser grande
         [establishment_id, client_name, reservation_date, req.user.id]
       );
-      const reservationId = reservationResult.insertId;
+      const reservationId = reservationResult.rows[0].id;
 
       // 2. Cria a lista de convidados vinculada à reserva
-      const [result] = await pool.execute(
+      const result = await pool.query(
         `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-         VALUES (?, 'large', ?, ?, ?)`,
+         VALUES ($1, 'large', $2, $3, $4) RETURNING id`,
         [reservationId, event_type || null, token, expiresAt]
       );
-      const guestListId = result.insertId;
+      const guestListId = result.rows[0].id;
 
       const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
       const guestListLink = `${baseUrl}/lista/${token}`;
@@ -368,20 +371,22 @@ module.exports = (pool) => {
       const { entrada_tipo, entrada_valor } = req.body;
 
       // Verificar se o convidado existe
-      const [guest] = await pool.execute(
-        'SELECT * FROM guests WHERE id = ?',
+      const guestResult = await pool.query(
+        'SELECT * FROM guests WHERE id = $1',
         [id]
       );
 
-      if (guest.length === 0) {
+      if (guestResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Convidado não encontrado'
         });
       }
 
+      const guest = guestResult.rows[0];
+
       // Verificar se já fez check-in
-      if (guest[0].checked_in) {
+      if (guest.checked_in) {
         return res.status(400).json({
           success: false,
           error: 'Este convidado já fez check-in'
@@ -389,20 +394,20 @@ module.exports = (pool) => {
       }
 
       // Atualizar check-in do convidado com tipo e valor de entrada
-      await pool.execute(
-        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = ?, entrada_valor = ? WHERE id = ?',
+      await pool.query(
+        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = $1, entrada_valor = $2 WHERE id = $3',
         [entrada_tipo || null, entrada_valor || null, id]
       );
 
       const tipoTexto = entrada_tipo === 'VIP' ? 'VIP (grátis)' : entrada_tipo === 'SECO' ? `SECO (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : entrada_tipo === 'CONSUMA' ? `CONSUMA (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : 'Check-in';
-      console.log(`✅ Check-in do convidado confirmado: ${guest[0].name} (ID: ${id}) - ${tipoTexto}`);
+      console.log(`✅ Check-in do convidado confirmado: ${guest.name} (ID: ${id}) - ${tipoTexto}`);
 
       res.json({
         success: true,
         message: 'Check-in do convidado confirmado com sucesso',
         guest: {
-          id: guest[0].id,
-          name: guest[0].name,
+          id: guest.id,
+          name: guest.name,
           checked_in: true,
           checkin_time: new Date().toISOString(),
           entrada_tipo: entrada_tipo || null,
@@ -429,15 +434,15 @@ module.exports = (pool) => {
       const { id } = req.params;
 
       // Buscar informações da guest list
-      const [guestList] = await pool.execute(
+      const guestListResult = await pool.query(
         `SELECT gl.*, rr.client_name as owner_name, rr.reservation_date
          FROM guest_lists gl
          LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id
-         WHERE gl.id = ?`,
+         WHERE gl.id = $1`,
         [id]
       );
 
-      if (guestList.length === 0) {
+      if (guestListResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Lista de convidados não encontrada'
@@ -445,29 +450,29 @@ module.exports = (pool) => {
       }
 
       // Contar convidados e check-ins
-      const [guestStats] = await pool.execute(
+      const guestStatsResult = await pool.query(
         `SELECT 
            COUNT(*) as total_guests,
            SUM(CASE WHEN checked_in = 1 THEN 1 ELSE 0 END) as checked_in_count
          FROM guests 
-         WHERE guest_list_id = ?`,
+         WHERE guest_list_id = $1`,
         [id]
       );
 
-      const stats = guestStats[0];
+      const stats = guestStatsResult.rows[0];
 
       res.json({
         success: true,
         checkin_status: {
           guest_list_id: id,
-          owner_name: guestList[0].owner_name,
-          reservation_date: guestList[0].reservation_date,
-          owner_checked_in: guestList[0].owner_checked_in || false,
-          owner_checkin_time: guestList[0].owner_checkin_time,
-          total_guests: stats.total_guests,
-          guests_checked_in: stats.checked_in_count,
-          attendance_percentage: stats.total_guests > 0 
-            ? Math.round((stats.checked_in_count / stats.total_guests) * 100) 
+          owner_name: guestListResult.rows[0].owner_name,
+          reservation_date: guestListResult.rows[0].reservation_date,
+          owner_checked_in: guestListResult.rows[0].owner_checked_in || false,
+          owner_checkin_time: guestListResult.rows[0].owner_checkin_time,
+          total_guests: parseInt(stats.total_guests),
+          guests_checked_in: parseInt(stats.checked_in_count),
+          attendance_percentage: parseInt(stats.total_guests) > 0 
+            ? Math.round((parseInt(stats.checked_in_count) / parseInt(stats.total_guests)) * 100) 
             : 0
         }
       });

@@ -130,9 +130,9 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
   };
 
   try {
-    const [result] = await pool.execute(
+    const result = await pool.query(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [
         imageData.filename,
         imageData.originalName,
@@ -145,11 +145,11 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       ]
     );
 
-    console.log(`✅ Imagem salva no banco: ID ${result.insertId}, Filename: ${remoteFilename}`);
+    console.log(`✅ Imagem salva no banco: ID ${result.rows[0].id}, Filename: ${remoteFilename}`);
     
     res.json({
       success: true,
-      imageId: result.insertId,
+      imageId: result.rows[0].id,
       filename: remoteFilename, // Apenas o nome do arquivo, como o front-end espera
       url: `${ftpConfig.baseUrl}${remoteFilename}`,
       message: 'Imagem enviada com sucesso'
@@ -188,15 +188,16 @@ router.get('/list', async (req, res) => {
     const { type, entityType, entityId } = req.query;
     let query = 'SELECT * FROM cardapio_images WHERE 1=1';
     const params = [];
+    let paramIndex = 1;
 
-    if (type) { query += ' AND type = ?'; params.push(type); }
-    if (entityType) { query += ' AND entity_type = ?'; params.push(entityType); }
-    if (entityId) { query += ' AND entity_id = ?'; params.push(entityId); }
+    if (type) { query += ` AND type = $${paramIndex++}`; params.push(type); }
+    if (entityType) { query += ` AND entity_type = $${paramIndex++}`; params.push(entityType); }
+    if (entityId) { query += ` AND entity_id = $${paramIndex++}`; params.push(entityId); }
 
     query += ' ORDER BY uploaded_at DESC';
-    const [rows] = await pool.execute(query, params);
+    const result = await pool.query(query, params);
 
-    res.json({ success: true, images: rows });
+    res.json({ success: true, images: result.rows });
   } catch (error) {
     console.error('Erro ao listar imagens:', error.stack);
     res.status(500).json({ error: 'Erro interno do servidor' });
@@ -212,12 +213,12 @@ router.delete('/:imageId', async (req, res) => {
 
   try {
     const { imageId } = req.params;
-    const [rows] = await pool.execute('SELECT * FROM cardapio_images WHERE id = ?', [imageId]);
+    const result = await pool.query('SELECT * FROM cardapio_images WHERE id = $1', [imageId]);
 
-    if (rows.length === 0) return res.status(404).json({ error: 'Imagem não encontrada' });
-    const image = rows[0];
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Imagem não encontrada' });
+    const image = result.rows[0];
 
-    await pool.execute('DELETE FROM cardapio_images WHERE id = ?', [imageId]);
+    await pool.query('DELETE FROM cardapio_images WHERE id = $1', [imageId]);
 
     try {
       const client = new ftp.Client();
@@ -243,11 +244,11 @@ router.get('/:imageId', async (req, res) => {
 
   try {
     const { imageId } = req.params;
-    const [rows] = await pool.execute('SELECT * FROM cardapio_images WHERE id = ?', [imageId]);
+    const result = await pool.query('SELECT * FROM cardapio_images WHERE id = $1', [imageId]);
 
-    if (rows.length === 0) return res.status(404).json({ error: 'Imagem não encontrada' });
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Imagem não encontrada' });
 
-    res.json({ success: true, image: rows[0] });
+    res.json({ success: true, image: result.rows[0] });
   } catch (error) {
     console.error('Erro ao buscar imagem:', error.stack);
     res.status(500).json({ error: 'Erro interno do servidor' });
