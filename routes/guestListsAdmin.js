@@ -87,7 +87,7 @@ module.exports = (pool) => {
           COALESCE(lr.id, rr.id) as reservation_id,
           COALESCE(lr.establishment_id, rr.establishment_id) as establishment_id,
           COALESCE(pl1.name, pl2.name, b1.name, b2.name) as establishment_name,
-          COALESCE(lr.origin, rr.origin) as origin
+          COALESCE(CAST(lr.origin AS VARCHAR), CAST(rr.origin AS VARCHAR)) as origin
         FROM guest_lists gl
         LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
         LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
