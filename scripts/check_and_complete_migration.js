@@ -18,7 +18,7 @@ async function checkAndCompleteMigration() {
         
         // Verificar quais campos existem
         const [columns] = await connection.execute(
-            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals')"
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals', 'menu_display_style')"
         );
         
         const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -31,7 +31,8 @@ async function checkAndCompleteMigration() {
             'menu_subcategory_text_color',
             'mobile_sidebar_bg_color',
             'mobile_sidebar_text_color',
-            'custom_seals'
+            'custom_seals',
+            'menu_display_style'
         ];
         
         const missingColumns = allColumns.filter(col => !existingColumns.includes(col));
@@ -66,6 +67,9 @@ async function checkAndCompleteMigration() {
         if (missingColumns.includes('custom_seals')) {
             commands.push("ALTER TABLE `bars` ADD COLUMN `custom_seals` JSON DEFAULT NULL COMMENT 'Array JSON com selos customizados e suas cores: [{\"id\": \"string\", \"name\": \"string\", \"color\": \"#hex\", \"type\": \"food|drink\"}, ...]'");
         }
+        if (missingColumns.includes('menu_display_style')) {
+            commands.push("ALTER TABLE `bars` ADD COLUMN `menu_display_style` VARCHAR(20) NOT NULL DEFAULT 'normal' COMMENT 'Define o estilo do cardápio: normal ou clean'");
+        }
         
         // Executar comandos
         for (const command of commands) {
@@ -77,7 +81,7 @@ async function checkAndCompleteMigration() {
         
         // Verificar novamente
         const [newColumns] = await connection.execute(
-            "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals')"
+            "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals', 'menu_display_style')"
         );
         
         console.log('✅ Campos finais:');

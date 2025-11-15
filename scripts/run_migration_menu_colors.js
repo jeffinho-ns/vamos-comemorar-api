@@ -20,7 +20,7 @@ async function runMigration() {
         // Verificar se os campos já existem
         console.log('🔍 Verificando se os campos já existem...');
         const [columns] = await connection.execute(
-            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals')"
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals', 'menu_display_style')"
         );
         
         if (columns.length > 0) {
@@ -58,7 +58,7 @@ async function runMigration() {
         // Verificar se a migração foi bem-sucedida
         console.log('🔍 Verificando migração...');
         const [newColumns] = await connection.execute(
-            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_COMMENT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals')"
+            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_COMMENT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'bars' AND COLUMN_NAME IN ('menu_category_bg_color', 'menu_category_text_color', 'menu_subcategory_bg_color', 'menu_subcategory_text_color', 'mobile_sidebar_bg_color', 'mobile_sidebar_text_color', 'custom_seals', 'menu_display_style')"
         );
         
         if (newColumns.length > 0) {

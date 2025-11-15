@@ -486,5 +486,71 @@ module.exports = (pool) => {
     }
   });
 
+  /**
+   * @route   POST /api/admin/guest-lists/:id/owner-checkin
+   * @desc    Faz check-in do dono da reserva
+   * @access  Private (Admin)
+   */
+  router.post('/guest-lists/:id/owner-checkin', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se a guest list existe
+      const [guestList] = await pool.execute(
+        `SELECT gl.*, 
+         COALESCE(lr.client_name, rr.client_name) as owner_name
+         FROM guest_lists gl
+         LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+         LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+         WHERE gl.id = ?`,
+        [id]
+      );
+
+      if (guestList.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Lista de convidados não encontrada'
+        });
+      }
+
+      // Verificar se já fez check-in
+      if (guestList[0].owner_checked_in === 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'O dono da reserva já fez check-in'
+        });
+      }
+
+      // Atualizar check-in do dono
+      await pool.execute(
+        `UPDATE guest_lists 
+         SET owner_checked_in = 1, owner_checkin_time = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [id]
+      );
+
+      console.log(`✅ Check-in do dono confirmado: ${guestList[0].owner_name} (Guest List ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-in do dono confirmado com sucesso',
+        guestList: {
+          id: id,
+          owner_name: guestList[0].owner_name,
+          owner_checked_in: true,
+          owner_checkin_time: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-in do dono:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
   return router;
 };

@@ -49,3 +49,6 @@ INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, desc
 (2, '62', 4, 'quintal_lateral', 'Mesa Quintal Lateral Direito - Seu Justino', 1),
 (2, '64', 4, 'quintal_lateral', 'Mesa Quintal Lateral Direito - Seu Justino', 1);
 
+
+
+

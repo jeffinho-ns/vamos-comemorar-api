@@ -1233,14 +1233,17 @@ class EventosController {
                 rr.reservation_time,
                 rr.number_of_people,
                 rr.origin,
+                rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(u.name, 'Sistema') as created_by_name,
+                ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
+              LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = ?
               AND DATE(rr.reservation_date) = DATE(?)
@@ -1268,14 +1271,17 @@ class EventosController {
                 rr.reservation_time,
                 rr.number_of_people,
                 rr.origin,
+                rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(u.name, 'Sistema') as created_by_name,
+                ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
+              LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = ?
               AND DATE(rr.reservation_date) = DATE(?)
@@ -1297,6 +1303,8 @@ class EventosController {
             reservation_date: gl.reservation_date,
             reservation_time: gl.reservation_time,
             number_of_people: gl.number_of_people,
+            table_number: gl.table_number,
+            area_name: gl.area_name,
             checked_in: gl.reservation_checked_in,
             checkin_time: gl.reservation_checkin_time,
             total_convidados: gl.total_guests || 0,
