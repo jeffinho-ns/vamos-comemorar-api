@@ -297,6 +297,31 @@ class EventosController {
     try {
       const { establishment_id, status, tipo_evento, data_inicio, data_fim, data_evento, limit } = req.query;
       
+      // Fallback: quando houver establishment_id mas eventos antigos tiverem id_place NULL,
+      // usar o nome do estabelecimento para casar com casa_do_evento (ex.: "Highline")
+      let establishmentFallbackName = null;
+      if (establishment_id) {
+        try {
+          const placeRes = await this.pool.query(
+            'SELECT name FROM places WHERE id = $1',
+            [establishment_id]
+          );
+          if (placeRes.rows.length > 0 && placeRes.rows[0].name) {
+            establishmentFallbackName = `%${placeRes.rows[0].name}%`;
+          } else {
+            const barRes = await this.pool.query(
+              'SELECT name FROM bars WHERE id = $1',
+              [establishment_id]
+            );
+            if (barRes.rows.length > 0 && barRes.rows[0].name) {
+              establishmentFallbackName = `%${barRes.rows[0].name}%`;
+            }
+          }
+        } catch (fallbackErr) {
+          console.warn('⚠️ Não foi possível obter nome do estabelecimento para fallback:', fallbackErr.message);
+        }
+      }
+      
       let query = `
         SELECT 
           e.id as evento_id,
@@ -327,8 +352,14 @@ class EventosController {
       let paramIndex = 1;
       
       if (establishment_id) {
-        query += ` AND e.id_place = $${paramIndex++}`;
-        params.push(establishment_id);
+        // Filtra por id_place; se houver fallbackName, também inclui eventos com id_place NULL e casa_do_evento compatível
+        if (establishmentFallbackName) {
+          query += ` AND (e.id_place = $${paramIndex++} OR (e.id_place IS NULL AND e.casa_do_evento ILIKE $${paramIndex++}))`;
+          params.push(establishment_id, establishmentFallbackName);
+        } else {
+          query += ` AND e.id_place = $${paramIndex++}`;
+          params.push(establishment_id);
+        }
       }
       
       if (tipo_evento) {
