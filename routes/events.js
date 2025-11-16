@@ -168,10 +168,9 @@ module.exports = (pool, checkAndAwardBrindes) => {
 
             // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana
             query += ` ORDER BY 
-                CASE WHEN tipo_evento = 'unico' THEN 
-                    CASE WHEN data_do_evento IS NULL THEN 1 ELSE 0 END,
-                    data_do_evento DESC
-                ELSE 2 END,
+                CASE WHEN tipo_evento = 'unico' THEN 0 ELSE 1 END,
+                CASE WHEN tipo_evento = 'unico' AND data_do_evento IS NULL THEN 1 ELSE 0 END,
+                data_do_evento DESC NULLS LAST,
                 CASE WHEN tipo_evento = 'semanal' THEN 
                     CASE dia_da_semana
                         WHEN 'domingo' THEN 1
@@ -184,8 +183,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                         ELSE 8
                     END
                 ELSE 0 END ASC,
-                hora_do_evento DESC,
-                criado_em DESC`;
+                hora_do_evento DESC NULLS LAST,
+                criado_em DESC NULLS LAST`;
 
             const result = await pool.query(query, queryParams);
             

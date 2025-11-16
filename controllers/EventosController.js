@@ -357,10 +357,9 @@ class EventosController {
       
       // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana
       query += ` ORDER BY 
-        CASE WHEN e.tipo_evento = 'unico' THEN 
-          CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
-          e.data_do_evento DESC NULLS LAST
-        ELSE 2 END,
+        CASE WHEN e.tipo_evento = 'unico' THEN 0 ELSE 1 END,
+        CASE WHEN e.tipo_evento = 'unico' AND e.data_do_evento IS NULL THEN 1 ELSE 0 END,
+        e.data_do_evento DESC NULLS LAST,
         CASE WHEN e.tipo_evento = 'semanal' THEN 
           CASE e.dia_da_semana
             WHEN 'domingo' THEN 1
