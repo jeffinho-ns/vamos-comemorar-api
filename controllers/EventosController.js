@@ -1182,7 +1182,12 @@ class EventosController {
         WHERE 
           r.evento_id = $1
           OR ($2::DATE IS NOT NULL AND r.evento_id IS NULL AND r.data_reserva::DATE = $2::DATE)
-        GROUP BY r.id
+        GROUP BY 
+          r.id,
+          r.nome_lista,
+          u.name,
+          r.data_reserva,
+          r.quantidade_convidados
         ORDER BY r.data_reserva DESC
       `, [eventoId, eventoInfo.data_evento || null]);
       
