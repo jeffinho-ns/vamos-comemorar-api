@@ -384,7 +384,7 @@ class EventosController {
         params.push(data_fim);
       }
       
-      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.criado_em, p.nome, pl.name, b.name`;
+      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.created_at, p.nome, pl.name, b.name`;
       
       // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana (inteiro)
       query += ` ORDER BY 
@@ -393,7 +393,7 @@ class EventosController {
         e.data_do_evento DESC NULLS LAST,
         (CASE WHEN e.tipo_evento = 'semanal' THEN e.dia_da_semana END) ASC NULLS LAST,
         e.hora_do_evento DESC NULLS LAST,
-        e.criado_em DESC NULLS LAST
+        e.created_at DESC NULLS LAST
       `;
       
       if (limit) {
@@ -1262,7 +1262,7 @@ class EventosController {
           SELECT 1 
           FROM listas l2 
           WHERE l2.promoter_responsavel_id = p.promoter_id 
-            AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND COALESCE(l2.criado_em, l2.created_at)::DATE = $2::DATE))
+            AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND COALESCE(l2.created_at, l2.created_at)::DATE = $2::DATE))
         )
         GROUP BY p.promoter_id, p.nome, p.email, p.telefone, p.tipo_categoria
         ORDER BY p.nome ASC
