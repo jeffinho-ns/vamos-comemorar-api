@@ -11,6 +11,16 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false, // SSL para produção
 });
 
+// Garantir que o search_path inclua o schema real de produção
+// Observação: suas tabelas estão em 'meu_backup_db'
+pool.on('connect', async (client) => {
+  try {
+    await client.query(`SET search_path TO meu_backup_db, public`);
+  } catch (e) {
+    console.error('⚠️ Falha ao definir search_path:', e.message);
+  }
+});
+
 // Handle pool errors
 pool.on('error', (err, client) => {
   console.error('Unexpected error on idle client', err);
