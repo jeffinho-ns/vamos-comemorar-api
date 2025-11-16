@@ -1165,6 +1165,7 @@ class EventosController {
       }
       
       // 2. Buscar reservas de mesa vinculadas ao evento (via convidados)
+      // Fallback: se não tiver vínculo de evento, considerar por data do evento
       const reservasMesaResult = await this.pool.query(`
         SELECT DISTINCT
           r.id as id,
@@ -1178,10 +1179,12 @@ class EventosController {
         FROM reservas r
         LEFT JOIN users u ON r.user_id = u.id
         LEFT JOIN convidados c ON r.id = c.reserva_id
-        WHERE r.evento_id = $1
+        WHERE 
+          r.evento_id = $1
+          OR ($2::DATE IS NOT NULL AND r.evento_id IS NULL AND r.data_reserva::DATE = $2::DATE)
         GROUP BY r.id
         ORDER BY r.data_reserva DESC
-      `, [eventoId]);
+      `, [eventoId, eventoInfo.data_evento || null]);
       
       // 3. Buscar convidados de reservas
       const convidadosReservasResult = await this.pool.query(`
@@ -1200,9 +1203,11 @@ class EventosController {
         FROM convidados c
         INNER JOIN reservas r ON c.reserva_id = r.id
         LEFT JOIN users u ON r.user_id = u.id
-        WHERE r.evento_id = $1
+        WHERE 
+          r.evento_id = $1
+          OR ($2::DATE IS NOT NULL AND r.evento_id IS NULL AND r.data_reserva::DATE = $2::DATE)
         ORDER BY c.nome ASC
-      `, [eventoId]);
+      `, [eventoId, eventoInfo.data_evento || null]);
       
       // 4. Buscar listas e convidados de promoters
       const listasPromotersResult = await this.pool.query(`
