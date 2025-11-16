@@ -1201,8 +1201,8 @@ class EventosController {
           c.documento,
           c.status,
           c.data_checkin,
-          c.entrada_tipo,
-          c.entrada_valor,
+          NULL::TEXT as entrada_tipo,
+          NULL::NUMERIC as entrada_valor,
           r.nome_lista as origem,
           u.name as responsavel
         FROM convidados c
@@ -1226,8 +1226,8 @@ class EventosController {
           lc.data_checkin,
           lc.is_vip,
           lc.observacoes,
-          lc.entrada_tipo,
-          lc.entrada_valor,
+          NULL::TEXT as entrada_tipo,
+          NULL::NUMERIC as entrada_valor,
           l.nome as origem,
           l.tipo as tipo_lista,
           p.nome as responsavel,
