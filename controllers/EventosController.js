@@ -128,9 +128,9 @@ class EventosController {
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
-        AND e.data_do_evento >= CURRENT_DATE
+        AND (e.data_do_evento >= CURRENT_DATE OR e.data_do_evento IS NULL)
         ${establishment_id ? `AND e.id_place = $${proximoEventoParamIndex++}` : ''}
-        ORDER BY e.data_do_evento ASC
+        ORDER BY e.data_do_evento ASC NULLS LAST
         LIMIT 1
       `;
       if (establishment_id) proximoEventoParams.push(establishment_id);
@@ -155,9 +155,9 @@ class EventosController {
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
-        AND e.data_do_evento >= CURRENT_DATE
+        AND (e.data_do_evento >= CURRENT_DATE OR e.data_do_evento IS NULL)
         ${establishment_id ? `AND e.id_place = $${todosEventosParamIndex++}` : ''}
-        ORDER BY e.data_do_evento ASC
+        ORDER BY e.data_do_evento ASC NULLS LAST
         LIMIT 10
       `;
       if (establishment_id) todosEventosParams.push(establishment_id);
@@ -355,10 +355,26 @@ class EventosController {
       
       query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, p.nome, pl.name, b.name`;
       
-      // Ordenação: eventos únicos por data, semanais por dia da semana
+      // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana
       query += ` ORDER BY 
-        CASE WHEN e.tipo_evento = 'unico' THEN e.data_do_evento END DESC,
-        CASE WHEN e.tipo_evento = 'semanal' THEN e.dia_da_semana END ASC
+        CASE WHEN e.tipo_evento = 'unico' THEN 
+          CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
+          e.data_do_evento DESC NULLS LAST
+        ELSE 2 END,
+        CASE WHEN e.tipo_evento = 'semanal' THEN 
+          CASE e.dia_da_semana
+            WHEN 'domingo' THEN 1
+            WHEN 'segunda' THEN 2
+            WHEN 'terca' THEN 3
+            WHEN 'quarta' THEN 4
+            WHEN 'quinta' THEN 5
+            WHEN 'sexta' THEN 6
+            WHEN 'sabado' THEN 7
+            ELSE 8
+          END
+        ELSE 0 END ASC,
+        e.hora_do_evento DESC NULLS LAST,
+        e.criado_em DESC NULLS LAST
       `;
       
       if (limit) {
