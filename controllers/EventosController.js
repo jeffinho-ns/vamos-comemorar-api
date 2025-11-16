@@ -36,8 +36,9 @@ class EventosController {
       
       const params = [];
       
+      let paramIndex = 1;
       if (establishment_id) {
-        query += ` AND id_place = ?`;
+        query += ` AND id_place = $${paramIndex++}`;
         params.push(establishment_id);
       }
       
@@ -46,11 +47,11 @@ class EventosController {
         CASE WHEN tipo_evento = 'semanal' THEN dia_da_semana END ASC
       `;
       
-      const [eventos] = await this.pool.execute(query, params);
+      const eventosResult = await this.pool.query(query, params);
       
       res.json({
         success: true,
-        eventos
+        eventos: eventosResult.rows
       });
     } catch (error) {
       console.error('❌ Erro ao listar todos os eventos:', error);
@@ -71,20 +72,20 @@ class EventosController {
       const { eventoId } = req.params;
       const { habilitar } = req.body;
       
-      await this.pool.execute(`
+      await this.pool.query(`
         UPDATE eventos
-        SET usado_para_listas = ?
-        WHERE id = ?
-      `, [habilitar ? 1 : 0, eventoId]);
+        SET usado_para_listas = $1
+        WHERE id = $2
+      `, [habilitar ? true : false, eventoId]);
       
-      const [evento] = await this.pool.execute(`
-        SELECT * FROM eventos WHERE id = ?
+      const eventoResult = await this.pool.query(`
+        SELECT * FROM eventos WHERE id = $1
       `, [eventoId]);
       
       res.json({
         success: true,
         message: `Evento ${habilitar ? 'habilitado' : 'desabilitado'} para sistema de listas`,
-        evento: evento[0]
+        evento: eventoResult.rows[0]
       });
     } catch (error) {
       console.error('❌ Erro ao habilitar evento:', error);
@@ -109,104 +110,132 @@ class EventosController {
       console.log('📊 Buscando TODOS os eventos (únicos e semanais) para o estabelecimento:', establishment_id || 'TODOS');
       
       // Query para buscar o próximo evento único
-      const [proximoEventoUnico] = await this.pool.execute(`
+      const proximoEventoParams = [];
+      let proximoEventoParamIndex = 1;
+      const proximoEventoQuery = `
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
           e.dia_da_semana,
           e.usado_para_listas,
-          COALESCE(p.name, b.name) as establishment_name,
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
-        AND e.data_do_evento >= CURDATE()
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        AND e.data_do_evento >= CURRENT_DATE
+        ${establishment_id ? `AND e.id_place = $${proximoEventoParamIndex++}` : ''}
         ORDER BY e.data_do_evento ASC
         LIMIT 1
-      `, establishment_id ? [establishment_id] : []);
+      `;
+      if (establishment_id) proximoEventoParams.push(establishment_id);
+      const proximoEventoUnicoResult = await this.pool.query(proximoEventoQuery, proximoEventoParams);
+      const proximoEventoUnico = proximoEventoUnicoResult.rows;
 
       // Query para TODOS os eventos únicos futuros (para listar todos)
-      const [todosEventosUnicos] = await this.pool.execute(`
+      const todosEventosParams = [];
+      let todosEventosParamIndex = 1;
+      const todosEventosQuery = `
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
           e.usado_para_listas,
-          COALESCE(p.name, b.name) as establishment_name,
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
-        AND e.data_do_evento >= CURDATE()
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        AND e.data_do_evento >= CURRENT_DATE
+        ${establishment_id ? `AND e.id_place = $${todosEventosParamIndex++}` : ''}
         ORDER BY e.data_do_evento ASC
         LIMIT 10
-      `, establishment_id ? [establishment_id] : []);
+      `;
+      if (establishment_id) todosEventosParams.push(establishment_id);
+      const todosEventosUnicosResult = await this.pool.query(todosEventosQuery, todosEventosParams);
+      const todosEventosUnicos = todosEventosUnicosResult.rows;
 
       // Query para eventos semanais ativos (TODOS os eventos semanais)
-      const [eventosSemanais] = await this.pool.execute(`
+      const eventosSemanaisParams = [];
+      let eventosSemanaisParamIndex = 1;
+      const eventosSemanaisQuery = `
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
           e.hora_do_evento as horario_funcionamento,
           e.dia_da_semana,
           e.tipo_evento,
-          COALESCE(p.name, b.name) as establishment_name,
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name,
           e.id_place
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'semanal'
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        ${establishment_id ? `AND e.id_place = $${eventosSemanaisParamIndex++}` : ''}
         ORDER BY e.dia_da_semana ASC
-      `, establishment_id ? [establishment_id] : []);
+      `;
+      if (establishment_id) eventosSemanaisParams.push(establishment_id);
+      const eventosSemanaisResult = await this.pool.query(eventosSemanaisQuery, eventosSemanaisParams);
+      const eventosSemanais = eventosSemanaisResult.rows;
 
       // Query para total de convidados (eventos únicos futuros + semanais)
-      const [totalConvidados] = await this.pool.execute(`
+      const totalConvidadosParams = [];
+      let totalConvidadosParamIndex = 1;
+      const totalConvidadosQuery = `
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         INNER JOIN eventos e ON l.evento_id = e.id
         WHERE (
-          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURDATE())
+          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
-      `, establishment_id ? [establishment_id] : []);
+        ${establishment_id ? `AND e.id_place = $${totalConvidadosParamIndex++}` : ''}
+      `;
+      if (establishment_id) totalConvidadosParams.push(establishment_id);
+      const totalConvidadosResult = await this.pool.query(totalConvidadosQuery, totalConvidadosParams);
+      const totalConvidados = totalConvidadosResult.rows;
 
       // Query para total de check-ins
-      const [totalCheckins] = await this.pool.execute(`
+      const totalCheckinsParams = [];
+      let totalCheckinsParamIndex = 1;
+      const totalCheckinsQuery = `
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         INNER JOIN eventos e ON l.evento_id = e.id
         WHERE lc.status_checkin = 'Check-in'
         AND (
-          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURDATE())
+          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
-      `, establishment_id ? [establishment_id] : []);
+        ${establishment_id ? `AND e.id_place = $${totalCheckinsParamIndex++}` : ''}
+      `;
+      if (establishment_id) totalCheckinsParams.push(establishment_id);
+      const totalCheckinsResult = await this.pool.query(totalCheckinsQuery, totalCheckinsParams);
+      const totalCheckins = totalCheckinsResult.rows;
 
       // Query para total de promoters ativos
-      const [totalPromoters] = await this.pool.execute(`
+      const totalPromotersResult = await this.pool.query(`
         SELECT COUNT(DISTINCT promoter_id) as total
         FROM promoters
-        WHERE status = 'Ativo'
+        WHERE status::TEXT = 'Ativo'
       `);
+      const totalPromoters = totalPromotersResult.rows;
 
       // Query para estatísticas por tipo de lista
-      const [estatisticasPorTipo] = await this.pool.execute(`
+      const estatisticasParams = [];
+      let estatisticasParamIndex = 1;
+      const estatisticasQuery = `
         SELECT 
           l.tipo,
           COUNT(DISTINCT lc.lista_convidado_id) as total_convidados,
@@ -215,12 +244,15 @@ class EventosController {
         INNER JOIN eventos e ON l.evento_id = e.id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE (
-          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURDATE())
+          (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? 'AND e.id_place = ?' : ''}
+        ${establishment_id ? `AND e.id_place = $${estatisticasParamIndex++}` : ''}
         GROUP BY l.tipo
-      `, establishment_id ? [establishment_id] : []);
+      `;
+      if (establishment_id) estatisticasParams.push(establishment_id);
+      const estatisticasPorTipoResult = await this.pool.query(estatisticasQuery, estatisticasParams);
+      const estatisticasPorTipo = estatisticasPorTipoResult.rows;
 
       console.log('✅ Dashboard data encontrada:');
       console.log('   - Próximo evento único:', proximoEventoUnico.length > 0 ? proximoEventoUnico[0].nome : 'Nenhum');
@@ -269,7 +301,7 @@ class EventosController {
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          DATE_FORMAT(e.data_do_evento, '%Y-%m-%d') as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
@@ -278,7 +310,7 @@ class EventosController {
           e.casa_do_evento,
           e.id_place as establishment_id,
           p.nome as promoter_criador_nome,
-          COALESCE(pl.name, b.name) as establishment_name,
+          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name,
           COUNT(DISTINCT l.lista_id) as total_listas,
           COUNT(DISTINCT lc.lista_convidado_id) as total_convidados,
           SUM(CASE WHEN lc.status_checkin = 'Check-in' THEN 1 ELSE 0 END) as total_checkins
@@ -292,35 +324,36 @@ class EventosController {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (establishment_id) {
-        query += ` AND e.id_place = ?`;
+        query += ` AND e.id_place = $${paramIndex++}`;
         params.push(establishment_id);
       }
       
       if (tipo_evento) {
-        query += ` AND e.tipo_evento = ?`;
+        query += ` AND e.tipo_evento = $${paramIndex++}`;
         params.push(tipo_evento);
       }
       
       // Novo: filtro por data específica (útil para vincular reservas)
       // Só aplica filtro de data se não for evento semanal (verifica o tipo do evento na linha, não o parâmetro)
       if (data_evento) {
-        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento = ?)`;
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento = $${paramIndex++})`;
         params.push(data_evento);
       }
       
       if (data_inicio) {
-        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento >= ?)`;
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento >= $${paramIndex++})`;
         params.push(data_inicio);
       }
       
       if (data_fim) {
-        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento <= ?)`;
+        query += ` AND (e.tipo_evento = 'semanal' OR e.data_do_evento <= $${paramIndex++})`;
         params.push(data_fim);
       }
       
-      query += ` GROUP BY e.id`;
+      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, p.nome, pl.name, b.name`;
       
       // Ordenação: eventos únicos por data, semanais por dia da semana
       query += ` ORDER BY 
@@ -329,11 +362,12 @@ class EventosController {
       `;
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
       
-      const [eventos] = await this.pool.execute(query, params);
+      const eventosResult = await this.pool.query(query, params);
+      const eventos = eventosResult.rows;
       
       res.json({
         success: true,
@@ -356,11 +390,11 @@ class EventosController {
     try {
       const { eventoId } = req.params;
       
-      const [eventos] = await this.pool.execute(`
+      const eventosResult = await this.pool.query(`
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.descricao,
           e.tipo_evento,
@@ -372,15 +406,15 @@ class EventosController {
           e.id_place as establishment_id,
           p.nome as promoter_criador_nome,
           p.email as promoter_criador_email,
-          COALESCE(pl.name, b.name) as establishment_name
+          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM eventos e
         LEFT JOIN promoters p ON e.promoter_criador_id = p.promoter_id
         LEFT JOIN places pl ON e.id_place = pl.id
         LEFT JOIN bars b ON e.id_place = b.id
-        WHERE e.id = ?
+        WHERE e.id = $1
       `, [eventoId]);
       
-      if (eventos.length === 0) {
+      if (eventosResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
@@ -389,7 +423,7 @@ class EventosController {
       
       res.json({
         success: true,
-        evento: eventos[0]
+        evento: eventosResult.rows[0]
       });
     } catch (error) {
       console.error('❌ Erro ao buscar evento:', error);
@@ -443,12 +477,12 @@ class EventosController {
         });
       }
       
-      const [result] = await this.pool.execute(`
+      const result = await this.pool.query(`
         INSERT INTO eventos (
           nome_do_evento, data_do_evento, hora_do_evento, tipo_evento,
           dia_da_semana, descricao, casa_do_evento, local_do_evento,
           promoter_criador_id, id_place, categoria, usado_para_listas
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE) RETURNING id
       `, [
         nome, 
         tipo_evento === 'unico' ? data_evento : null,
@@ -463,9 +497,10 @@ class EventosController {
         categoria
       ]);
       
-      const [novoEvento] = await this.pool.execute(`
-        SELECT * FROM eventos WHERE id = ?
-      `, [result.insertId]);
+      const novoEventoResult = await this.pool.query(`
+        SELECT * FROM eventos WHERE id = $1
+      `, [result.rows[0].id]);
+      const novoEvento = novoEventoResult.rows;
       
       res.status(201).json({
         success: true,
@@ -498,12 +533,12 @@ class EventosController {
         usado_para_listas
       } = req.body;
       
-      await this.pool.execute(`
+      await this.pool.query(`
         UPDATE eventos
-        SET nome_do_evento = ?, data_do_evento = ?, hora_do_evento = ?,
-            tipo_evento = ?, dia_da_semana = ?, descricao = ?,
-            usado_para_listas = ?
-        WHERE id = ?
+        SET nome_do_evento = $1, data_do_evento = $2, hora_do_evento = $3,
+            tipo_evento = $4, dia_da_semana = $5, descricao = $6,
+            usado_para_listas = $7
+        WHERE id = $8
       `, [
         nome, 
         tipo_evento === 'unico' ? data_evento : null,
@@ -515,9 +550,10 @@ class EventosController {
         eventoId
       ]);
       
-      const [eventoAtualizado] = await this.pool.execute(`
-        SELECT * FROM eventos WHERE id = ?
+      const eventoAtualizadoResult = await this.pool.query(`
+        SELECT * FROM eventos WHERE id = $1
       `, [eventoId]);
+      const eventoAtualizado = eventoAtualizadoResult.rows;
       
       res.json({
         success: true,
@@ -544,31 +580,31 @@ class EventosController {
       console.log('🔍 [getListasEvento] Buscando listas para evento_id:', eventoId);
       
       // Primeiro, verificar se o evento existe
-      const [evento] = await this.pool.execute(`
+      const eventoResult = await this.pool.query(`
         SELECT 
           e.id,
           e.nome_do_evento,
           e.usado_para_listas,
           e.tipo_evento,
           e.data_do_evento,
-          COALESCE(p.name, b.name) as establishment_name
+          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM eventos e
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
-        WHERE e.id = ?
+        WHERE e.id = $1
       `, [eventoId]);
       
-      if (evento.length === 0) {
+      if (eventoResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
         });
       }
       
-      console.log('📋 [getListasEvento] Evento encontrado:', evento[0]);
+      console.log('📋 [getListasEvento] Evento encontrado:', eventoResult.rows[0]);
       
       // Buscar listas do evento
-      const [listas] = await this.pool.execute(`
+      const listasResult = await this.pool.query(`
         SELECT 
           l.*,
           p.nome as promoter_nome,
@@ -581,10 +617,11 @@ class EventosController {
         FROM listas l
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
-        WHERE l.evento_id = ?
-        GROUP BY l.lista_id
+        WHERE l.evento_id = $1
+        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, l.criado_em, p.nome, p.email, p.telefone
         ORDER BY l.tipo, l.nome
       `, [eventoId]);
+      const listas = listasResult.rows;
       
       console.log(`✅ [getListasEvento] Encontradas ${listas.length} listas`);
       
@@ -602,17 +639,18 @@ class EventosController {
       for (let lista of listas) {
         console.log(`🔍 [getListasEvento] Buscando convidados para lista_id: ${lista.lista_id} (${lista.nome})`);
         
-        const [convidados] = await this.pool.execute(`
+        const convidadosResult = await this.pool.query(`
           SELECT 
             lc.*,
-            GROUP_CONCAT(b.nome SEPARATOR ', ') as beneficios
+            STRING_AGG(b.nome, ', ') as beneficios
           FROM listas_convidados lc
           LEFT JOIN lista_convidado_beneficio lcb ON lc.lista_convidado_id = lcb.lista_convidado_id
           LEFT JOIN beneficios b ON lcb.beneficio_id = b.beneficio_id
-          WHERE lc.lista_id = ?
+          WHERE lc.lista_id = $1
           GROUP BY lc.lista_convidado_id
           ORDER BY lc.nome_convidado
         `, [lista.lista_id]);
+        const convidados = convidadosResult.rows;
         
         console.log(`✅ [getListasEvento] Lista ${lista.lista_id}: ${convidados.length} convidados`);
         
@@ -623,7 +661,7 @@ class EventosController {
       
       res.json({
         success: true,
-        evento: evento[0],
+        evento: eventoResult.rows[0],
         listas
       });
     } catch (error) {
@@ -660,53 +698,52 @@ class EventosController {
         });
       }
       
-      const [lista] = await this.pool.execute(`
-        SELECT lista_id FROM listas WHERE lista_id = ?
+      const listaResult = await this.pool.query(`
+        SELECT lista_id FROM listas WHERE lista_id = $1
       `, [listaId]);
       
-      if (lista.length === 0) {
+      if (listaResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Lista não encontrada'
         });
       }
       
-      const [result] = await this.pool.execute(`
+      const result = await this.pool.query(`
         INSERT INTO listas_convidados (
           lista_id, nome_convidado, telefone_convidado, email_convidado,
           is_vip, observacoes, status_checkin
-        ) VALUES (?, ?, ?, ?, ?, ?, 'Pendente')
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendente') RETURNING lista_convidado_id
       `, [listaId, nome_convidado, telefone_convidado, email_convidado, is_vip || false, observacoes]);
       
-      const convidadoId = result.insertId;
+      const convidadoId = result.rows[0].lista_convidado_id;
       
       if (beneficios && Array.isArray(beneficios) && beneficios.length > 0) {
-        const beneficioValues = beneficios.map(beneficioId => 
-          [convidadoId, beneficioId, false, null]
-        );
-        
-        await this.pool.query(`
-          INSERT INTO lista_convidado_beneficio 
-          (lista_convidado_id, beneficio_id, utilizado, data_utilizacao)
-          VALUES ?
-        `, [beneficioValues]);
+        // PostgreSQL requires individual INSERT statements or using unnest
+        for (const beneficioId of beneficios) {
+          await this.pool.query(`
+            INSERT INTO lista_convidado_beneficio 
+            (lista_convidado_id, beneficio_id, utilizado, data_utilizacao)
+            VALUES ($1, $2, $3, $4)
+          `, [convidadoId, beneficioId, false, null]);
+        }
       }
       
-      const [novoConvidado] = await this.pool.execute(`
+      const novoConvidadoResult = await this.pool.query(`
         SELECT 
           lc.*,
-          GROUP_CONCAT(b.nome SEPARATOR ', ') as beneficios
+          STRING_AGG(b.nome, ', ') as beneficios
         FROM listas_convidados lc
         LEFT JOIN lista_convidado_beneficio lcb ON lc.lista_convidado_id = lcb.lista_convidado_id
         LEFT JOIN beneficios b ON lcb.beneficio_id = b.beneficio_id
-        WHERE lc.lista_convidado_id = ?
+        WHERE lc.lista_convidado_id = $1
         GROUP BY lc.lista_convidado_id
       `, [convidadoId]);
       
       res.status(201).json({
         success: true,
         message: 'Convidado adicionado com sucesso',
-        convidado: novoConvidado[0]
+        convidado: novoConvidadoResult.rows[0]
       });
     } catch (error) {
       console.error('❌ Erro ao adicionar convidado:', error);
@@ -736,38 +773,39 @@ class EventosController {
       const dataCheckin = status_checkin === 'Check-in' ? new Date() : null;
       
       // Atualizar com campos de entrada
-      await this.pool.execute(`
+      await this.pool.query(`
         UPDATE listas_convidados
-        SET status_checkin = ?, 
-            data_checkin = ?,
-            entrada_tipo = ?,
-            entrada_valor = ?
-        WHERE lista_convidado_id = ?
+        SET status_checkin = $1, 
+            data_checkin = $2,
+            entrada_tipo = $3,
+            entrada_valor = $4
+        WHERE lista_convidado_id = $5
       `, [status_checkin, dataCheckin, entrada_tipo || null, entrada_valor || null, listaConvidadoId]);
       
-      const [convidado] = await this.pool.execute(`
+      const convidadoResult = await this.pool.query(`
         SELECT 
           lc.*,
           l.nome as lista_nome,
           l.tipo as lista_tipo,
           p.nome as promoter_nome,
           p.promoter_id,
-          GROUP_CONCAT(b.nome SEPARATOR ', ') as beneficios
+          STRING_AGG(b.nome, ', ') as beneficios
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN lista_convidado_beneficio lcb ON lc.lista_convidado_id = lcb.lista_convidado_id
         LEFT JOIN beneficios b ON lcb.beneficio_id = b.beneficio_id
-        WHERE lc.lista_convidado_id = ?
-        GROUP BY lc.lista_convidado_id
+        WHERE lc.lista_convidado_id = $1
+        GROUP BY lc.lista_convidado_id, l.nome, l.tipo, p.nome, p.promoter_id
       `, [listaConvidadoId]);
       
-      console.log(`✅ Check-in atualizado: ${convidado[0]?.nome_convidado || 'N/A'} - Tipo: ${entrada_tipo || 'N/A'} - Valor: R$ ${entrada_valor || 0}`);
+      const convidado = convidadoResult.rows[0];
+      console.log(`✅ Check-in atualizado: ${convidado?.nome_convidado || 'N/A'} - Tipo: ${entrada_tipo || 'N/A'} - Valor: R$ ${entrada_valor || 0}`);
       
       res.json({
         success: true,
         message: `Check-in atualizado para: ${status_checkin}`,
-        convidado: convidado[0]
+        convidado: convidado
       });
     } catch (error) {
       console.error('❌ Erro ao atualizar check-in:', error);
@@ -799,9 +837,10 @@ class EventosController {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (status) {
-        query += ` AND p.status = ?`;
+        query += ` AND p.status::TEXT = $${paramIndex++}`;
         params.push(status);
       }
       
@@ -809,15 +848,15 @@ class EventosController {
       query += ` ORDER BY total_checkins DESC, p.nome ASC`;
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
       
-      const [promoters] = await this.pool.execute(query, params);
+      const promotersResult = await this.pool.query(query, params);
       
       res.json({
         success: true,
-        promoters
+        promoters: promotersResult.rows
       });
     } catch (error) {
       console.error('❌ Erro ao listar promoters:', error);
@@ -847,29 +886,30 @@ class EventosController {
       `;
       
       const params = [];
+      let paramIndex = 1;
       
       if (status) {
-        query += ` AND h.status = ?`;
+        query += ` AND h.status = $${paramIndex++}`;
         params.push(status);
       }
       
       if (establishment_id) {
-        query += ` AND h.establishment_id = ?`;
+        query += ` AND h.establishment_id = $${paramIndex++}`;
         params.push(establishment_id);
       }
       
       query += ` ORDER BY h.nome ASC`;
       
       if (limit) {
-        query += ` LIMIT ?`;
+        query += ` LIMIT $${paramIndex++}`;
         params.push(parseInt(limit));
       }
       
-      const [hostess] = await this.pool.execute(query, params);
+      const hostessResult = await this.pool.query(query, params);
       
       res.json({
         success: true,
-        hostess
+        hostess: hostessResult.rows
       });
     } catch (error) {
       console.error('❌ Erro ao listar hostess:', error);
@@ -890,19 +930,20 @@ class EventosController {
       
       let query = `SELECT * FROM beneficios WHERE 1=1`;
       const params = [];
+      let paramIndex = 1;
       
       if (ativo !== undefined) {
-        query += ` AND ativo = ?`;
-        params.push(ativo === 'true' ? 1 : 0);
+        query += ` AND ativo = $${paramIndex++}`;
+        params.push(ativo === 'true' ? true : false);
       }
       
       query += ` ORDER BY tipo, nome`;
       
-      const [beneficios] = await this.pool.execute(query, params);
+      const beneficiosResult = await this.pool.query(query, params);
       
       res.json({
         success: true,
-        beneficios
+        beneficios: beneficiosResult.rows
       });
     } catch (error) {
       console.error('❌ Erro ao listar benefícios:', error);
@@ -934,25 +975,25 @@ class EventosController {
         });
       }
       
-      const [result] = await this.pool.execute(`
+      const result = await this.pool.query(`
         INSERT INTO listas (
           evento_id, promoter_responsavel_id, nome, tipo, observacoes
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5) RETURNING lista_id
       `, [evento_id, promoter_responsavel_id, nome, tipo, observacoes]);
       
-      const [novaLista] = await this.pool.execute(`
+      const novaListaResult = await this.pool.query(`
         SELECT 
           l.*,
           p.nome as promoter_nome
         FROM listas l
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        WHERE l.lista_id = ?
-      `, [result.insertId]);
+        WHERE l.lista_id = $1
+      `, [result.rows[0].lista_id]);
       
       res.status(201).json({
         success: true,
         message: 'Lista criada com sucesso',
-        lista: novaLista[0]
+        lista: novaListaResult.rows[0]
       });
     } catch (error) {
       console.error('❌ Erro ao criar lista:', error);
@@ -971,11 +1012,11 @@ class EventosController {
     try {
       const { listaId } = req.params;
       
-      const [lista] = await this.pool.execute(`
+      const listaResult = await this.pool.query(`
         SELECT 
           l.*,
           e.nome_do_evento as evento_nome,
-          e.data_do_evento as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
           e.tipo_evento,
           e.dia_da_semana,
@@ -989,34 +1030,34 @@ class EventosController {
         INNER JOIN eventos e ON l.evento_id = e.id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
-        WHERE l.lista_id = ?
-        GROUP BY l.lista_id
+        WHERE l.lista_id = $1
+        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, l.criado_em, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.tipo_evento, e.dia_da_semana, p.nome, p.email, p.telefone
       `, [listaId]);
       
-      if (lista.length === 0) {
+      if (listaResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Lista não encontrada'
         });
       }
       
-      const [convidados] = await this.pool.execute(`
+      const convidadosResult = await this.pool.query(`
         SELECT 
           lc.*,
-          GROUP_CONCAT(DISTINCT b.nome SEPARATOR ', ') as beneficios,
-          GROUP_CONCAT(DISTINCT b.beneficio_id) as beneficio_ids
+          STRING_AGG(DISTINCT b.nome, ', ') as beneficios,
+          STRING_AGG(DISTINCT CAST(b.beneficio_id AS TEXT), ', ') as beneficio_ids
         FROM listas_convidados lc
         LEFT JOIN lista_convidado_beneficio lcb ON lc.lista_convidado_id = lcb.lista_convidado_id
         LEFT JOIN beneficios b ON lcb.beneficio_id = b.beneficio_id
-        WHERE lc.lista_id = ?
+        WHERE lc.lista_id = $1
         GROUP BY lc.lista_convidado_id
         ORDER BY lc.status_checkin DESC, lc.nome_convidado ASC
       `, [listaId]);
       
       res.json({
         success: true,
-        lista: lista[0],
-        convidados
+        lista: listaResult.rows[0],
+        convidados: convidadosResult.rows
       });
     } catch (error) {
       console.error('❌ Erro ao buscar detalhes da lista:', error);
@@ -1038,29 +1079,29 @@ class EventosController {
       console.log('🔍 Buscando check-ins consolidados para evento:', eventoId);
       
       // 1. Buscar informações do evento
-      const [evento] = await this.pool.execute(`
+      const eventoResult = await this.pool.query(`
         SELECT 
           e.id as evento_id,
           e.nome_do_evento as nome,
-          e.data_do_evento as data_evento,
+          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario,
           e.tipo_evento,
           e.id_place as establishment_id,
-          COALESCE(pl.name, b.name) as establishment_name
+          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM eventos e
         LEFT JOIN places pl ON e.id_place = pl.id
         LEFT JOIN bars b ON e.id_place = b.id
-        WHERE e.id = ?
+        WHERE e.id = $1
       `, [eventoId]);
       
-      if (evento.length === 0) {
+      if (eventoResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Evento não encontrado'
         });
       }
       
-      const eventoInfo = evento[0];
+      const eventoInfo = eventoResult.rows[0];
       console.log('📋 Evento Info:', {
         evento_id: eventoInfo.evento_id,
         nome: eventoInfo.nome,
@@ -1074,14 +1115,14 @@ class EventosController {
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
           console.log('🔗 Vinculando reservas automaticamente ao evento:', eventoId);
-          const [updateResult] = await this.pool.execute(`
+          const updateResult = await this.pool.query(`
             UPDATE restaurant_reservations 
-            SET evento_id = ? 
-            WHERE establishment_id = ? 
-            AND DATE(reservation_date) = DATE(?)
+            SET evento_id = $1 
+            WHERE establishment_id = $2 
+            AND reservation_date::DATE = $3::DATE
             AND evento_id IS NULL
           `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
-          console.log(`✅ ${updateResult.affectedRows} reservas vinculadas automaticamente`);
+          console.log(`✅ ${updateResult.rowCount} reservas vinculadas automaticamente`);
         } catch (err) {
           console.error('⚠️ Erro ao vincular reservas automaticamente:', err);
           // Continua mesmo se falhar (coluna pode não existir ainda)
@@ -1089,7 +1130,7 @@ class EventosController {
       }
       
       // 2. Buscar reservas de mesa vinculadas ao evento (via convidados)
-      const [reservasMesa] = await this.pool.execute(`
+      const reservasMesaResult = await this.pool.query(`
         SELECT DISTINCT
           r.id as id,
           'reserva_mesa' as tipo,
@@ -1102,13 +1143,13 @@ class EventosController {
         FROM reservas r
         LEFT JOIN users u ON r.user_id = u.id
         LEFT JOIN convidados c ON r.id = c.reserva_id
-        WHERE r.evento_id = ?
+        WHERE r.evento_id = $1
         GROUP BY r.id
         ORDER BY r.data_reserva DESC
       `, [eventoId]);
       
       // 3. Buscar convidados de reservas
-      const [convidadosReservas] = await this.pool.execute(`
+      const convidadosReservasResult = await this.pool.query(`
         SELECT 
           c.id,
           'convidado_reserva' as tipo,
@@ -1124,12 +1165,12 @@ class EventosController {
         FROM convidados c
         INNER JOIN reservas r ON c.reserva_id = r.id
         LEFT JOIN users u ON r.user_id = u.id
-        WHERE r.evento_id = ?
+        WHERE r.evento_id = $1
         ORDER BY c.nome ASC
       `, [eventoId]);
       
       // 4. Buscar listas e convidados de promoters
-      const [listasPromoters] = await this.pool.execute(`
+      const listasPromotersResult = await this.pool.query(`
         SELECT 
           lc.lista_convidado_id as id,
           'convidado_promoter' as tipo,
@@ -1148,12 +1189,12 @@ class EventosController {
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        WHERE l.evento_id = ?
+        WHERE l.evento_id = $1
         ORDER BY lc.nome_convidado ASC
       `, [eventoId]);
       
       // 5. Buscar promoters vinculados ao evento
-      const [promoters] = await this.pool.execute(`
+      const promotersResult = await this.pool.query(`
         SELECT DISTINCT
           p.promoter_id as id,
           'promoter' as tipo,
@@ -1165,21 +1206,21 @@ class EventosController {
           COUNT(DISTINCT lc.lista_convidado_id) as total_convidados,
           SUM(CASE WHEN lc.status_checkin = 'Check-in' THEN 1 ELSE 0 END) as convidados_checkin
         FROM promoters p
-        LEFT JOIN listas l ON p.promoter_id = l.promoter_responsavel_id AND l.evento_id = ?
+        LEFT JOIN listas l ON p.promoter_id = l.promoter_responsavel_id AND l.evento_id = $1
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE EXISTS (
-          SELECT 1 FROM listas WHERE promoter_responsavel_id = p.promoter_id AND evento_id = ?
+          SELECT 1 FROM listas WHERE promoter_responsavel_id = p.promoter_id AND evento_id = $1
         )
         GROUP BY p.promoter_id
         ORDER BY p.nome ASC
-      `, [eventoId, eventoId]);
+      `, [eventoId]);
       
       // 6. Buscar reservas grandes (camarotes) do estabelecimento na mesma data
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
       let camarotes = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
-          const [camarotesResult] = await this.pool.execute(`
+          const camarotesResult = await this.pool.query(`
             SELECT 
               lr.id,
               'camarote' as tipo,
@@ -1191,16 +1232,16 @@ class EventosController {
               lr.checked_in,
               lr.checkin_time,
               COUNT(g.id) as total_convidados,
-              SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as convidados_checkin
+              SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as convidados_checkin
             FROM large_reservations lr
             LEFT JOIN guest_lists gl ON lr.id = gl.reservation_id AND gl.reservation_type = 'large'
             LEFT JOIN guests g ON gl.id = g.guest_list_id
-            WHERE lr.establishment_id = ?
-            AND DATE(lr.reservation_date) = DATE(?)
+            WHERE lr.establishment_id = $1
+            AND lr.reservation_date::DATE = $2::DATE
             GROUP BY lr.id
             ORDER BY lr.reservation_time ASC
           `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-          camarotes = camarotesResult;
+          camarotes = camarotesResult.rows;
         } catch (err) {
           console.error('Erro ao buscar camarotes:', err);
           camarotes = [];
@@ -1217,7 +1258,7 @@ class EventosController {
           // Tenta filtrar por evento_id se a coluna existir, caso contrário usa filtro tradicional
           let guestListsResult;
           try {
-            const [result] = await this.pool.execute(`
+            const result = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
@@ -1236,26 +1277,26 @@ class EventosController {
                 rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
-                COALESCE(u.name, 'Sistema') as created_by_name,
+                COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
-                SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
-              WHERE rr.establishment_id = ?
-              AND DATE(rr.reservation_date) = DATE(?)
-              AND (rr.evento_id = ? OR rr.evento_id IS NULL)
-              GROUP BY gl.id
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+              AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
               ORDER BY rr.reservation_time ASC
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
-            guestListsResult = result;
+            guestListsResult = result.rows;
           } catch (err) {
             // Fallback: se a coluna evento_id não existir, usa a query sem esse filtro
             console.log('⚠️ Coluna evento_id não encontrada, usando filtro tradicional');
-            const [result] = await this.pool.execute(`
+            const result = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
@@ -1274,21 +1315,21 @@ class EventosController {
                 rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
-                COALESCE(u.name, 'Sistema') as created_by_name,
+                COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
-                SUM(CASE WHEN g.checked_in = 1 THEN 1 ELSE 0 END) as guests_checked_in
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
-              WHERE rr.establishment_id = ?
-              AND DATE(rr.reservation_date) = DATE(?)
-              GROUP BY gl.id
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
               ORDER BY rr.reservation_time ASC
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-            guestListsResult = result;
+            guestListsResult = result.rows;
           }
           
           guestListsRestaurante = guestListsResult;
@@ -1328,7 +1369,7 @@ class EventosController {
             data_evento: eventoInfo.data_evento
           });
           
-          const [convidadosReservasRestauranteResult] = await this.pool.execute(`
+          const convidadosReservasRestauranteResult = await this.pool.query(`
             SELECT 
               g.id,
               'convidado_reserva_restaurante' as tipo,
@@ -1343,31 +1384,31 @@ class EventosController {
             FROM guests g
             INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
             INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-            WHERE rr.establishment_id = ?
-            AND DATE(rr.reservation_date) = DATE(?)
+            WHERE rr.establishment_id = $1
+            AND rr.reservation_date::DATE = $2::DATE
             ORDER BY g.name ASC
           `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
           
-          convidadosReservasRestaurante = convidadosReservasRestauranteResult;
+          convidadosReservasRestaurante = convidadosReservasRestauranteResult.rows;
           console.log(`✅ Convidados de reservas restaurante encontrados: ${convidadosReservasRestaurante.length}`);
           
           if (convidadosReservasRestaurante.length > 0) {
             console.log('📋 Primeiros convidados:', convidadosReservasRestaurante.slice(0, 3));
           } else {
             // Debug: verificar se há reservas no establishment/date
-            const [reservasDebug] = await this.pool.execute(`
+            const reservasDebugResult = await this.pool.query(`
               SELECT COUNT(*) as total FROM restaurant_reservations 
-              WHERE establishment_id = ? AND DATE(reservation_date) = DATE(?)
+              WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-            console.log('🔍 Reservas no establishment/date:', reservasDebug[0].total);
+            console.log('🔍 Reservas no establishment/date:', reservasDebugResult.rows[0]?.total || 0);
             
             // Debug: verificar se há guest_lists para essas reservas
-            const [guestListsDebug] = await this.pool.execute(`
+            const guestListsDebugResult = await this.pool.query(`
               SELECT COUNT(*) as total FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-              WHERE rr.establishment_id = ? AND DATE(rr.reservation_date) = DATE(?)
+              WHERE rr.establishment_id = $1 AND rr.reservation_date::DATE = $2::DATE
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-            console.log('🔍 Guest lists encontradas:', guestListsDebug[0].total);
+            console.log('🔍 Guest lists encontradas:', guestListsDebugResult.rows[0]?.total || 0);
           }
         } catch (err) {
           console.error('❌ Erro ao buscar convidados de reservas restaurante:', err);
@@ -1378,6 +1419,11 @@ class EventosController {
       }
       
       // 9. Calcular estatísticas gerais
+      const reservasMesa = reservasMesaResult.rows;
+      const convidadosReservas = convidadosReservasResult.rows;
+      const listasPromoters = listasPromotersResult.rows;
+      const promoters = promotersResult.rows;
+      
       const totalReservasMesa = reservasMesa.length;
       const totalConvidadosReservas = convidadosReservas.length;
       const checkinConvidadosReservas = convidadosReservas.filter(c => c.status === 'CHECK-IN').length;
@@ -1387,11 +1433,11 @@ class EventosController {
       const checkinConvidadosPromoters = listasPromoters.filter(c => c.status_checkin === 'Check-in').length;
       
       const totalCamarotes = camarotes.length;
-      const checkinCamarotes = camarotes.filter(c => c.checked_in).length;
+      const checkinCamarotes = camarotes.filter(c => c.checked_in === true || c.checked_in === 1).length;
       
       const totalReservasRestaurante = reservasRestaurante.length;
       const totalConvidadosReservasRestaurante = convidadosReservasRestaurante.length;
-      const checkinConvidadosReservasRestaurante = convidadosReservasRestaurante.filter(c => c.status_checkin === 1 || c.status_checkin === true).length;
+      const checkinConvidadosReservasRestaurante = convidadosReservasRestaurante.filter(c => c.status_checkin === true || c.status_checkin === 1).length;
       
       console.log('✅ Check-ins consolidados encontrados:');
       console.log(`   - Reservas de mesa: ${totalReservasMesa}`);
