@@ -355,23 +355,12 @@ class EventosController {
       
       query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.criado_em, p.nome, pl.name, b.name`;
       
-      // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana
+      // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana (inteiro)
       query += ` ORDER BY 
         CASE WHEN e.tipo_evento = 'unico' THEN 0 ELSE 1 END,
         CASE WHEN e.tipo_evento = 'unico' AND e.data_do_evento IS NULL THEN 1 ELSE 0 END,
         e.data_do_evento DESC NULLS LAST,
-        CASE WHEN e.tipo_evento = 'semanal' THEN 
-          CASE e.dia_da_semana
-            WHEN 'domingo' THEN 1
-            WHEN 'segunda' THEN 2
-            WHEN 'terca' THEN 3
-            WHEN 'quarta' THEN 4
-            WHEN 'quinta' THEN 5
-            WHEN 'sexta' THEN 6
-            WHEN 'sabado' THEN 7
-            ELSE 8
-          END
-        ELSE 0 END ASC,
+        (CASE WHEN e.tipo_evento = 'semanal' THEN e.dia_da_semana END) ASC NULLS LAST,
         e.hora_do_evento DESC NULLS LAST,
         e.criado_em DESC NULLS LAST
       `;

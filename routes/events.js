@@ -166,23 +166,12 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 queryParams.push(tipo);
             }
 
-            // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana
+            // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana (inteiro)
             query += ` ORDER BY 
                 CASE WHEN tipo_evento = 'unico' THEN 0 ELSE 1 END,
                 CASE WHEN tipo_evento = 'unico' AND data_do_evento IS NULL THEN 1 ELSE 0 END,
                 data_do_evento DESC NULLS LAST,
-                CASE WHEN tipo_evento = 'semanal' THEN 
-                    CASE dia_da_semana
-                        WHEN 'domingo' THEN 1
-                        WHEN 'segunda' THEN 2
-                        WHEN 'terca' THEN 3
-                        WHEN 'quarta' THEN 4
-                        WHEN 'quinta' THEN 5
-                        WHEN 'sexta' THEN 6
-                        WHEN 'sabado' THEN 7
-                        ELSE 8
-                    END
-                ELSE 0 END ASC,
+                (CASE WHEN tipo_evento = 'semanal' THEN dia_da_semana END) ASC NULLS LAST,
                 hora_do_evento DESC NULLS LAST,
                 criado_em DESC NULLS LAST`;
 
