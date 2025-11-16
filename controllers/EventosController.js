@@ -653,7 +653,7 @@ class EventosController {
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE l.evento_id = $1
-        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, COALESCE(l.criado_em, l.created_at), p.nome, p.email, p.telefone
+        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, COALESCE(l.created_at, l.created_at), p.nome, p.email, p.telefone
         ORDER BY l.tipo, l.nome
       `, [eventoId]);
       const listas = listasResult.rows;
@@ -1066,7 +1066,7 @@ class EventosController {
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE l.lista_id = $1
-        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, COALESCE(l.criado_em, l.created_at), e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.tipo_evento, e.dia_da_semana, p.nome, p.email, p.telefone
+        GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, COALESCE(l.created_at, l.created_at), e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.tipo_evento, e.dia_da_semana, p.nome, p.email, p.telefone
       `, [listaId]);
       
       if (listaResult.rows.length === 0) {
@@ -1237,7 +1237,7 @@ class EventosController {
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         WHERE 
           l.evento_id = $1
-          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.criado_em, l.created_at)::DATE = $2::DATE)
+          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at, l.created_at)::DATE = $2::DATE)
         ORDER BY lc.nome_convidado ASC
       `, [eventoId, eventoInfo.data_evento || null]);
       
@@ -1256,7 +1256,7 @@ class EventosController {
         FROM promoters p
         LEFT JOIN listas l 
           ON p.promoter_id = l.promoter_responsavel_id 
-          AND (l.evento_id = $1 OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.criado_em, l.created_at)::DATE = $2::DATE))
+          AND (l.evento_id = $1 OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at, l.created_at)::DATE = $2::DATE))
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE EXISTS (
           SELECT 1 
