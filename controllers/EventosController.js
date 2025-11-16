@@ -384,7 +384,7 @@ class EventosController {
         params.push(data_fim);
       }
       
-      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.created_at, p.nome, pl.name, b.name`;
+      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.criado_em, p.nome, pl.name, b.name`;
       
       // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana (inteiro)
       query += ` ORDER BY 
@@ -393,7 +393,7 @@ class EventosController {
         e.data_do_evento DESC NULLS LAST,
         (CASE WHEN e.tipo_evento = 'semanal' THEN e.dia_da_semana END) ASC NULLS LAST,
         e.hora_do_evento DESC NULLS LAST,
-        e.created_at DESC NULLS LAST
+        e.criado_em DESC NULLS LAST
       `;
       
       if (limit) {
