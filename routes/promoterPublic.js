@@ -281,10 +281,13 @@ module.exports = (pool) => {
           pl.endereco as local_endereco
          FROM eventos e
          LEFT JOIN places pl ON e.id_place = pl.id
+         INNER JOIN promoter_eventos pe ON e.id = pe.evento_id
          WHERE e.data_do_evento >= CURRENT_DATE
-         AND e.status = 'ativo'
+         AND pe.promoter_id = $1
+         AND pe.status = 'ativo'
          ORDER BY e.data_do_evento ASC, e.hora_do_evento ASC
-         LIMIT 10`
+         LIMIT 10`,
+        [promoter.promoter_id]
       );
       console.log('✅ Eventos encontrados:', eventosResult.rows.length);
 

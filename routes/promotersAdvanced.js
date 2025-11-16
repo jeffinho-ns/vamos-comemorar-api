@@ -67,7 +67,7 @@ module.exports = (pool) => {
           params.push(establishment_id);
         }
         
-        query += ` GROUP BY p.promoter_id`;
+        query += ` GROUP BY p.promoter_id, p.nome, p.apelido, p.email, p.telefone, p.whatsapp, p.codigo_identificador, p.tipo_categoria, p.comissao_percentual, p.link_convite, p.observacoes, p.status, p.establishment_id, p.foto_url, p.instagram, p.data_cadastro, p.ativo, p.created_at, p.updated_at, pc.max_convidados_por_evento, pc.max_convidados_por_data, pc.quota_mesas, pc.quota_entradas, pc.entradas_gratuitas, pc.desconto_especial_percentual, pc.valor_minimo_consumo, pc.pode_reservar_mesas_vip, pc.pode_selecionar_areas, pl.name`;
         query += ` ORDER BY p.nome ASC`;
         
         if (limit) {
@@ -179,7 +179,7 @@ module.exports = (pool) => {
            LEFT JOIN eventos e ON l.evento_id = e.id
            LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
            WHERE l.promoter_responsavel_id = $1
-           GROUP BY l.lista_id
+           GROUP BY l.lista_id, l.evento_id, l.promoter_responsavel_id, l.nome, l.tipo, l.observacoes, l.criado_em, e.nome_do_evento, e.data_do_evento
            ORDER BY e.data_do_evento DESC`,
           [id]
         );
@@ -727,7 +727,7 @@ module.exports = (pool) => {
         }
         
         // Buscar performance do período
-        const periodoDays = parseInt(periodo);
+        const periodoDays = parseInt(periodo) || 30;
         const performanceResult = await pool.query(
           `SELECT 
             pp.*,
@@ -738,9 +738,9 @@ module.exports = (pool) => {
            LEFT JOIN eventos e ON pp.evento_id = e.id
            LEFT JOIN places pl ON e.id_place = pl.id
            WHERE pp.promoter_id = $1 
-           AND pp.data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'
+           AND pp.data_evento >= CURRENT_DATE - INTERVAL $2
            ORDER BY pp.data_evento DESC`,
-          [id]
+          [id, `${periodoDays} days`]
         );
         
         // Calcular estatísticas gerais
@@ -754,8 +754,8 @@ module.exports = (pool) => {
             SUM(comissao_calculada) as comissao_total
            FROM promoter_performance 
            WHERE promoter_id = $1 
-           AND data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'`,
-          [id]
+           AND data_evento >= CURRENT_DATE - INTERVAL $2`,
+          [id, `${periodoDays} days`]
         );
         
         res.json({
@@ -795,7 +795,7 @@ module.exports = (pool) => {
       try {
         const { periodo = '30', limite = '10' } = req.query;
         
-        const periodoDays = parseInt(periodo);
+        const periodoDays = parseInt(periodo) || 30;
         const rankingResult = await pool.query(
           `SELECT 
             p.promoter_id,
@@ -809,12 +809,12 @@ module.exports = (pool) => {
             SUM(pp.convidados_compareceram) as total_compareceram
            FROM promoters p
            LEFT JOIN promoter_performance pp ON p.promoter_id = pp.promoter_id
-           WHERE pp.data_evento >= CURRENT_DATE - INTERVAL '${periodoDays} days'
+           WHERE pp.data_evento >= CURRENT_DATE - INTERVAL $1
            AND p.status::TEXT = 'Ativo' AND p.ativo = TRUE
-           GROUP BY p.promoter_id
+           GROUP BY p.promoter_id, p.nome, p.tipo_categoria
            ORDER BY receita_total DESC, media_taxa_comparecimento DESC
-           LIMIT $1`,
-          [parseInt(limite)]
+           LIMIT $2`,
+          [`${periodoDays} days`, parseInt(limite) || 10]
         );
         const ranking = rankingResult.rows;
         
