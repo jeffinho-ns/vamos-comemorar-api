@@ -1210,6 +1210,7 @@ class EventosController {
       `, [eventoId, eventoInfo.data_evento || null]);
       
       // 4. Buscar listas e convidados de promoters
+      // Inclui fallback por data quando l.evento_id é NULL
       const listasPromotersResult = await this.pool.query(`
         SELECT 
           lc.lista_convidado_id as id,
@@ -1229,13 +1230,15 @@ class EventosController {
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        WHERE l.evento_id = $1
+        WHERE 
+          l.evento_id = $1
+          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.criado_em::DATE = $2::DATE)
         ORDER BY lc.nome_convidado ASC
-      `, [eventoId]);
+      `, [eventoId, eventoInfo.data_evento || null]);
       
       // 5. Buscar promoters vinculados ao evento
       const promotersResult = await this.pool.query(`
-        SELECT DISTINCT
+        SELECT
           p.promoter_id as id,
           'promoter' as tipo,
           p.nome,
@@ -1246,14 +1249,19 @@ class EventosController {
           COUNT(DISTINCT lc.lista_convidado_id) as total_convidados,
           SUM(CASE WHEN lc.status_checkin = 'Check-in' THEN 1 ELSE 0 END) as convidados_checkin
         FROM promoters p
-        LEFT JOIN listas l ON p.promoter_id = l.promoter_responsavel_id AND l.evento_id = $1
+        LEFT JOIN listas l 
+          ON p.promoter_id = l.promoter_responsavel_id 
+          AND (l.evento_id = $1 OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.criado_em::DATE = $2::DATE))
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE EXISTS (
-          SELECT 1 FROM listas WHERE promoter_responsavel_id = p.promoter_id AND evento_id = $1
+          SELECT 1 
+          FROM listas l2 
+          WHERE l2.promoter_responsavel_id = p.promoter_id 
+            AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND l2.criado_em::DATE = $2::DATE))
         )
-        GROUP BY p.promoter_id
+        GROUP BY p.promoter_id, p.nome, p.email, p.telefone, p.tipo_categoria
         ORDER BY p.nome ASC
-      `, [eventoId]);
+      `, [eventoId, eventoInfo.data_evento || null]);
       
       // 6. Buscar reservas grandes (camarotes) do estabelecimento na mesma data
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
@@ -1285,6 +1293,30 @@ class EventosController {
         } catch (err) {
           console.error('Erro ao buscar camarotes:', err);
           camarotes = [];
+        }
+      }
+
+      // 6.1. Buscar reservas de aniversário (birthday_reservations) por estabelecimento e data
+      let reservasAniversario = [];
+      if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        try {
+          const aniversarioResult = await this.pool.query(`
+            SELECT 
+              br.id,
+              'reserva_aniversario' as tipo,
+              br.aniversariante_nome as responsavel,
+              br.data_aniversario::DATE as data_aniversario,
+              br.quantidade_convidados,
+              br.id_casa_evento as establishment_id
+            FROM birthday_reservations br
+            WHERE br.id_casa_evento = $1
+              AND br.data_aniversario::DATE = $2::DATE
+            ORDER BY br.data_aniversario DESC, br.id DESC
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          reservasAniversario = aniversarioResult.rows;
+        } catch (err) {
+          console.error('❌ Erro ao buscar reservas de aniversário:', err);
+          reservasAniversario = [];
         }
       }
 
@@ -1509,7 +1541,8 @@ class EventosController {
           guestListsRestaurante: guestListsRestaurante,
           promoters: promoters,
           convidadosPromoters: listasPromoters,
-          camarotes: camarotes
+          camarotes: camarotes,
+          reservasAniversario: reservasAniversario
         },
         estatisticas: {
           totalReservasMesa,
