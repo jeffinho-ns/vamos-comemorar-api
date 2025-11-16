@@ -39,7 +39,7 @@ module.exports = (pool) => {
       // Construir os filtros usando COALESCE desde o início
       let paramIndex = 1;
       if (date) {
-        whereClauses.push(`DATE(COALESCE(lr.reservation_date, rr.reservation_date)) = DATE($${paramIndex++})`);
+        whereClauses.push(`COALESCE(lr.reservation_date, rr.reservation_date)::DATE = $${paramIndex++}::DATE`);
         params.push(date);
         console.log('📅 Filtrando por data específica:', date);
       } else if (month) {

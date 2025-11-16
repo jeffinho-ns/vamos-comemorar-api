@@ -342,7 +342,7 @@ module.exports = (pool) => {
       
       // Contar passantes ativos
       const walkInsResult = await pool.query(
-        "SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM walk_ins WHERE area_id = $1 AND DATE(arrival_time) = $2 AND status = 'ATIVO'",
+        "SELECT COUNT(*) as count, SUM(number_of_people) as total_people FROM walk_ins WHERE area_id = $1 AND arrival_time::DATE = $2::DATE AND status = 'ATIVO'",
         [id, date]
       );
       

@@ -40,7 +40,7 @@ module.exports = (pool) => {
       }
       
       if (date) {
-        query += ` AND DATE(wi.arrival_time) = $${paramIndex++}`;
+        query += ` AND wi.arrival_time::DATE = $${paramIndex++}`;
         params.push(date);
       }
       
