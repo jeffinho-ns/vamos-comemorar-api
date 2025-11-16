@@ -1237,7 +1237,7 @@ class EventosController {
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         WHERE 
           l.evento_id = $1
-          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.criado_em::DATE = $2::DATE)
+          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.criado_em, l.created_at)::DATE = $2::DATE)
         ORDER BY lc.nome_convidado ASC
       `, [eventoId, eventoInfo.data_evento || null]);
       
@@ -1256,13 +1256,13 @@ class EventosController {
         FROM promoters p
         LEFT JOIN listas l 
           ON p.promoter_id = l.promoter_responsavel_id 
-          AND (l.evento_id = $1 OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.criado_em::DATE = $2::DATE))
+          AND (l.evento_id = $1 OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.criado_em, l.created_at)::DATE = $2::DATE))
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE EXISTS (
           SELECT 1 
           FROM listas l2 
           WHERE l2.promoter_responsavel_id = p.promoter_id 
-            AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND l2.criado_em::DATE = $2::DATE))
+            AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND COALESCE(l2.criado_em, l2.created_at)::DATE = $2::DATE))
         )
         GROUP BY p.promoter_id, p.nome, p.email, p.telefone, p.tipo_categoria
         ORDER BY p.nome ASC
