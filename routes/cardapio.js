@@ -688,77 +688,68 @@ module.exports = (pool) => {
         try {
             const { barId } = req.query;
             
-            // Tentar sempre incluir o campo seals, se falhar, usar versão sem seals
-            let query, hasSealsField = false;
+            // Verificar quais campos existem na tabela
+            let hasSealsField = false;
+            let hasVisibleField = false;
             
             try {
-                // Primeiro tentar com seals
-                query = `
-                    SELECT 
-                        mi.id, 
-                        mi.name, 
-                        mi.description, 
-                        mi.price, 
-                        mi.imageUrl, 
-                        mi.categoryId, 
-                        mi.barId, 
-                        mi."order", 
-                        mc.name as category,
-                        mi.subCategory as subCategoryName,
-                        mi.seals,
-                        CASE 
-                            WHEN mi.visible IS NULL THEN 1
-                            ELSE (mi.visible::int)
-                        END AS visible,
-                        string_agg(
-                            t.id::text || ':' || t.name || ':' || t.price::text, 
-                            '|'
-                        ) as toppings
-                    FROM menu_items mi 
-                    JOIN menu_categories mc ON mi.categoryId = mc.id
-                    LEFT JOIN item_toppings it ON mi.id = it.item_id
-                    LEFT JOIN toppings t ON it.topping_id = t.id
-                    ${barId ? 'WHERE mi.barId = $1' : ''}
-                    GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi."order", mc.name, mi.subCategory, mi.seals, mi.visible
-                    ORDER BY mi.barId, mi.categoryId, mi."order"
-                `;
-                await pool.query(query, barId ? [barId] : []);
-                hasSealsField = true;
-                console.log('✅ Campo seals encontrado, usando versão completa');
+                const columnsResult = await pool.query(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible')"
+                );
+                const columns = columnsResult.rows.map(row => row.column_name);
+                hasSealsField = columns.includes('seals');
+                hasVisibleField = columns.includes('visible');
             } catch (e) {
-                // Se falhar, usar versão sem seals
-                console.log('⚠️ Campo seals não encontrado, usando versão compatível');
-                query = `
-                    SELECT 
-                        mi.id, 
-                        mi.name, 
-                        mi.description, 
-                        mi.price, 
-                        mi.imageUrl, 
-                        mi.categoryId, 
-                        mi.barId, 
-                        mi."order", 
-                        mc.name as category,
-                        mi.subCategory as subCategoryName,
-                        CASE 
-                            WHEN mi.visible IS NULL THEN 1
-                            ELSE (mi.visible::int)
-                        END AS visible,
-                        string_agg(
-                            t.id::text || ':' || t.name || ':' || t.price::text, 
-                            '|'
-                        ) as toppings
-                    FROM menu_items mi 
-                    JOIN menu_categories mc ON mi.categoryId = mc.id
-                    LEFT JOIN item_toppings it ON mi.id = it.item_id
-                    LEFT JOIN toppings t ON it.topping_id = t.id
-                    ${barId ? 'WHERE mi.barId = $1' : ''}
-                    GROUP BY mi.id, mi.name, mi.description, mi.price, mi.imageUrl, 
-                             mi.categoryId, mi.barId, mi."order", mc.name, mi.subCategory, mi.visible
-                    ORDER BY mi.barId, mi.categoryId, mi."order"
-                `;
+                console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
+            
+            // Construir query baseada nos campos disponíveis
+            const groupByFields = [
+                'mi.id', 'mi.name', 'mi.description', 'mi.price', 'mi.imageUrl',
+                'mi.categoryId', 'mi.barId', 'mi."order"', 'mc.name', 'mi.subCategory'
+            ];
+            
+            if (hasSealsField) {
+                groupByFields.push('mi.seals');
+            }
+            if (hasVisibleField) {
+                groupByFields.push('mi.visible');
+            }
+            
+            const sealsSelect = hasSealsField ? 'mi.seals,' : '';
+            const visibleSelect = hasVisibleField 
+                ? `CASE 
+                    WHEN mi.visible IS NULL THEN 1
+                    ELSE (mi.visible::int)
+                   END AS visible,`
+                : '1 AS visible,';
+            
+            const query = `
+                SELECT 
+                    mi.id, 
+                    mi.name, 
+                    mi.description, 
+                    mi.price, 
+                    mi.imageUrl, 
+                    mi.categoryId, 
+                    mi.barId, 
+                    mi."order", 
+                    mc.name as category,
+                    mi.subCategory as subCategoryName,
+                    ${sealsSelect}
+                    ${visibleSelect}
+                    string_agg(
+                        t.id::text || ':' || t.name || ':' || t.price::text, 
+                        '|'
+                    ) as toppings
+                FROM menu_items mi 
+                JOIN menu_categories mc ON mi.categoryId = mc.id
+                LEFT JOIN item_toppings it ON mi.id = it.item_id
+                LEFT JOIN toppings t ON it.topping_id = t.id
+                ${barId ? 'WHERE mi.barId = $1' : ''}
+                GROUP BY ${groupByFields.join(', ')}
+                ORDER BY mi.barId, mi.categoryId, mi."order"
+            `;
             
             const result = await pool.query(query, barId ? [barId] : []);
             
