@@ -706,7 +706,10 @@ module.exports = (pool) => {
                         mc.name as category,
                         mi.subCategory as subCategoryName,
                         mi.seals,
-                        COALESCE(mi.visible, 1) AS visible,
+                        CASE 
+                            WHEN mi.visible IS NULL THEN 1
+                            ELSE (mi.visible::int)
+                        END AS visible,
                         string_agg(
                             t.id::text || ':' || t.name || ':' || t.price::text, 
                             '|'
@@ -738,7 +741,10 @@ module.exports = (pool) => {
                         mi."order", 
                         mc.name as category,
                         mi.subCategory as subCategoryName,
-                        COALESCE(mi.visible, 1) AS visible,
+                        CASE 
+                            WHEN mi.visible IS NULL THEN 1
+                            ELSE (mi.visible::int)
+                        END AS visible,
                         string_agg(
                             t.id::text || ':' || t.name || ':' || t.price::text, 
                             '|'
