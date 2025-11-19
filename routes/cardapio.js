@@ -256,7 +256,16 @@ module.exports = (pool) => {
             query += ' ORDER BY barid, "order"';
             
             const result = await pool.query(query, params);
-            res.json(result.rows);
+            
+            // Normalizar campos para garantir camelCase (PostgreSQL pode não retornar alias corretamente)
+            const categories = result.rows.map(cat => ({
+                id: cat.id,
+                name: cat.name,
+                barId: cat.barId !== undefined ? cat.barId : (cat.barid !== undefined ? cat.barid : null),
+                order: cat.order
+            }));
+            
+            res.json(categories);
         } catch (error) {
             console.error('Erro ao listar categorias:', error);
             res.status(500).json({ error: 'Erro ao listar categorias.' });
