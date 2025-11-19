@@ -244,15 +244,16 @@ module.exports = (pool) => {
     router.get('/categories', async (req, res) => {
         try {
             const { barId } = req.query;
-            let query = 'SELECT * FROM menu_categories';
+            // Colunas estão em minúsculas no PostgreSQL, usar aliases para camelCase
+            let query = 'SELECT id, name, barid as "barId", "order" FROM menu_categories';
             let params = [];
             
             if (barId) {
-                query += ' WHERE barId = $1';
+                query += ' WHERE barid = $1';
                 params.push(barId);
             }
             
-            query += ' ORDER BY barId, "order"';
+            query += ' ORDER BY barid, "order"';
             
             const result = await pool.query(query, params);
             res.json(result.rows);
