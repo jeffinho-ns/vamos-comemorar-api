@@ -690,10 +690,14 @@ module.exports = (pool) => {
                 console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
             
-            // Construir query baseada nos campos disponíveis
+            // Construir query baseada nos campos disponíveis (usando COALESCE para lidar com campos em diferentes casos)
             const groupByFields = [
-                'mi.id', 'mi.name', 'mi.description', 'mi.price', 'mi.imageUrl',
-                'mi.categoryId', 'mi.barId', 'mi."order"', 'mc.name', 'mi.subCategory'
+                'mi.id', 'mi.name', 'mi.description', 'mi.price', 
+                'COALESCE(mi."imageUrl", mi.imageurl)',
+                'COALESCE(mi."categoryId", mi.categoryid)',
+                'COALESCE(mi."barId", mi.barid)',
+                'mi."order"', 'mc.name', 
+                'COALESCE(mi."subCategory", mi.subcategory)'
             ];
             
             if (hasSealsField) {
