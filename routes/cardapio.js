@@ -694,7 +694,8 @@ module.exports = (pool) => {
             // IMPORTANTE: Todos os campos no SELECT devem estar no GROUP BY
             const groupByFields = [
                 'mi.id', 'mi.name', 'mi.description', 'mi.price', 'mi.imageurl',
-                'mi.categoryid', 'mi.barid', 'mi."order"', 'mc.name', 'mc.id', 'mi.subcategory'
+                'mi.categoryid', 'mi.barid', 'mi."order"', 'mc.name', 'mc.id', 'mi.subcategory',
+                'category_ref_id'
             ];
             
             if (hasSealsField) {
@@ -723,7 +724,7 @@ module.exports = (pool) => {
                     mi.barid as "barId", 
                     mi."order", 
                     mc.name as category,
-                    mc.id as category_id_ref,
+                    mc.id as category_ref_id,
                     mi.subcategory as "subCategoryName",
                     ${sealsSelect}
                     ${visibleSelect}
