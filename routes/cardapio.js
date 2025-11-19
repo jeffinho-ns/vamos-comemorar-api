@@ -690,14 +690,10 @@ module.exports = (pool) => {
                 console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
             
-            // Construir query baseada nos campos disponíveis (usando COALESCE para lidar com campos em diferentes casos)
+            // Construir query baseada nos campos disponíveis (colunas estão em minúsculas no PostgreSQL)
             const groupByFields = [
-                'mi.id', 'mi.name', 'mi.description', 'mi.price', 
-                'COALESCE(mi."imageUrl", mi.imageurl)',
-                'COALESCE(mi."categoryId", mi.categoryid)',
-                'COALESCE(mi."barId", mi.barid)',
-                'mi."order"', 'mc.name', 
-                'COALESCE(mi."subCategory", mi.subcategory)'
+                'mi.id', 'mi.name', 'mi.description', 'mi.price', 'mi.imageurl',
+                'mi.categoryid', 'mi.barid', 'mi."order"', 'mc.name', 'mi.subcategory'
             ];
             
             if (hasSealsField) {
@@ -721,12 +717,12 @@ module.exports = (pool) => {
                     mi.name, 
                     mi.description, 
                     mi.price, 
-                    COALESCE(mi."imageUrl", mi.imageurl) as "imageUrl",
-                    COALESCE(mi."categoryId", mi.categoryid) as "categoryId", 
-                    COALESCE(mi."barId", mi.barid) as "barId", 
+                    mi.imageurl as "imageUrl",
+                    mi.categoryid as "categoryId", 
+                    mi.barid as "barId", 
                     mi."order", 
                     mc.name as category,
-                    COALESCE(mi."subCategory", mi.subcategory) as "subCategoryName",
+                    mi.subcategory as "subCategoryName",
                     ${sealsSelect}
                     ${visibleSelect}
                     string_agg(
@@ -734,12 +730,12 @@ module.exports = (pool) => {
                         '|'
                     ) as toppings
                 FROM menu_items mi 
-                JOIN menu_categories mc ON COALESCE(mi."categoryId", mi.categoryid) = mc.id
+                JOIN menu_categories mc ON mi.categoryid = mc.id
                 LEFT JOIN item_toppings it ON mi.id = it.item_id
                 LEFT JOIN toppings t ON it.topping_id = t.id
-                ${barId ? `WHERE COALESCE(mi."barId", mi.barid) = $1` : ''}
+                ${barId ? 'WHERE mi.barid = $1' : ''}
                 GROUP BY ${groupByFields.join(', ')}
-                ORDER BY COALESCE(mi."barId", mi.barid), COALESCE(mi."categoryId", mi.categoryid), mi."order"
+                ORDER BY mi.barid, mi.categoryid, mi."order"
             `;
             
             const result = await pool.query(query, barId ? [barId] : []);
@@ -767,8 +763,8 @@ module.exports = (pool) => {
                     }
                 }
                 
-                // Garantir que imageUrl seja uma string válida (PostgreSQL pode retornar em minúsculas)
-                let imageUrl = item.imageUrl || item.imageurl || null;
+                // Garantir que imageUrl seja uma string válida (query já retorna como "imageUrl" via alias)
+                let imageUrl = item.imageUrl || null;
                 if (imageUrl && typeof imageUrl === 'string') {
                     // Se não começa com http, assumir que é apenas o filename
                     if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
@@ -780,25 +776,12 @@ module.exports = (pool) => {
                     imageUrl = null;
                 }
                 
-                // Normalizar outros campos que podem estar em minúsculas
-                const normalizedItem = { 
+                return { 
                     ...item,
                     imageUrl, 
                     toppings, 
-                    seals,
-                    categoryId: item.categoryId || item.categoryid,
-                    barId: item.barId || item.barid,
-                    subCategoryName: item.subCategoryName || item.subcategoryname || item.subCategory || item.subcategory
+                    seals
                 };
-                
-                // Remover campos duplicados
-                delete normalizedItem.imageurl;
-                delete normalizedItem.categoryid;
-                delete normalizedItem.barid;
-                delete normalizedItem.subcategoryname;
-                delete normalizedItem.subcategory;
-                
-                return normalizedItem;
             });
             
             res.json(itemsWithToppings);
@@ -829,15 +812,15 @@ module.exports = (pool) => {
                     mi.name, 
                     mi.description, 
                     mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
+                    mi.imageurl as "imageUrl", 
+                    mi.categoryid as "categoryId", 
+                    mi.barid as "barId", 
                     mi."order", 
                     mc.name as category,
-                    mi.subCategory as subCategoryName,
+                    mi.subcategory as "subCategoryName",
                     mi.seals
                 FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
+                JOIN menu_categories mc ON mi.categoryid = mc.id
                 WHERE mi.id = $1
             ` : `
                 SELECT 
@@ -845,14 +828,14 @@ module.exports = (pool) => {
                     mi.name, 
                     mi.description, 
                     mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
+                    mi.imageurl as "imageUrl", 
+                    mi.categoryid as "categoryId", 
+                    mi.barid as "barId", 
                     mi."order", 
                     mc.name as category,
-                    mi.subCategory as subCategoryName
+                    mi.subcategory as "subCategoryName"
                 FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
+                JOIN menu_categories mc ON mi.categoryid = mc.id
                 WHERE mi.id = $1
             `;
 
@@ -874,8 +857,8 @@ module.exports = (pool) => {
                 }
             }
             
-            // Garantir que imageUrl seja uma string válida (PostgreSQL pode retornar em minúsculas)
-            let imageUrl = item.imageUrl || item.imageurl || null;
+            // Garantir que imageUrl seja uma string válida (query já retorna como "imageUrl" via alias)
+            let imageUrl = item.imageUrl || null;
             if (imageUrl && typeof imageUrl === 'string') {
                 // Se não começa com http, assumir que é apenas o filename
                 if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
@@ -887,23 +870,12 @@ module.exports = (pool) => {
                 imageUrl = null;
             }
             
-            // Normalizar campos
             const normalizedItem = {
                 ...item,
                 imageUrl,
                 toppings: toppingsResult.rows,
-                seals,
-                categoryId: item.categoryId || item.categoryid,
-                barId: item.barId || item.barid,
-                subCategoryName: item.subCategoryName || item.subcategoryname || item.subCategory || item.subcategory
+                seals
             };
-            
-            // Remover campos duplicados
-            delete normalizedItem.imageurl;
-            delete normalizedItem.categoryid;
-            delete normalizedItem.barid;
-            delete normalizedItem.subcategoryname;
-            delete normalizedItem.subcategory;
             
             res.json(normalizedItem);
         } catch (error) {
