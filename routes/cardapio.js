@@ -776,7 +776,20 @@ module.exports = (pool) => {
                     }
                 }
                 
-                return { ...item, toppings, seals };
+                // Garantir que imageUrl seja uma string válida
+                let imageUrl = item.imageUrl || null;
+                if (imageUrl && typeof imageUrl === 'string') {
+                    // Se não começa com http, assumir que é apenas o filename
+                    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+                        // Remover barras iniciais se houver
+                        const cleanFilename = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
+                        imageUrl = cleanFilename; // Manter apenas o filename para o frontend construir a URL
+                    }
+                } else {
+                    imageUrl = null;
+                }
+                
+                return { ...item, imageUrl, toppings, seals };
             });
             
             res.json(itemsWithToppings);
@@ -852,8 +865,22 @@ module.exports = (pool) => {
                 }
             }
             
+            // Garantir que imageUrl seja uma string válida
+            let imageUrl = item.imageUrl || null;
+            if (imageUrl && typeof imageUrl === 'string') {
+                // Se não começa com http, assumir que é apenas o filename
+                if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+                    // Remover barras iniciais se houver
+                    const cleanFilename = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
+                    imageUrl = cleanFilename; // Manter apenas o filename para o frontend construir a URL
+                }
+            } else {
+                imageUrl = null;
+            }
+            
             item.toppings = toppingsResult.rows;
             item.seals = seals;
+            item.imageUrl = imageUrl;
             res.json(item);
         } catch (error) {
             console.error('Erro ao buscar item:', error);

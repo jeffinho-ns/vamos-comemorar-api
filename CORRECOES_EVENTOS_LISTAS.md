@@ -99,3 +99,4 @@ ORDER BY data_do_evento DESC;
 - ✅ Script de habilitação de eventos criado
 - ✅ Melhorias na interface e tratamento de erros
 
+

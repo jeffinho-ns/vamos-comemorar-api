@@ -99,3 +99,4 @@ WHERE e.id_place = 7
 GROUP BY l.lista_id
 ORDER BY l.evento_id;
 
+

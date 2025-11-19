@@ -125,3 +125,4 @@ WHERE e.id_place = 7;
 
 **Recomendação:** Use a **OPÇÃO 1** (script automatizado) pois é mais fácil e mostra o resultado automaticamente!
 
+

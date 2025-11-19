@@ -23,3 +23,4 @@ SELECT 'Áreas do Restaurante' as tabela, COUNT(*) as total FROM restaurant_area
 
 
 
+

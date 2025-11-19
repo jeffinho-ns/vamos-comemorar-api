@@ -33,3 +33,4 @@ INSERT IGNORE INTO `restaurant_areas` (`id`, `name`, `description`, `capacity_lu
 
 
 
+
