@@ -46,32 +46,55 @@ module.exports = (pool) => {
         }
     });
 
+    // Função helper para normalizar campos do bar para camelCase
+    const normalizeBarFields = (bar) => {
+        const normalized = { ...bar };
+        
+        // Normalizar campos de imagem (PostgreSQL retorna em minúsculas)
+        normalized.logoUrl = bar.logoUrl || bar.logourl || null;
+        normalized.coverImageUrl = bar.coverImageUrl || bar.coverimageurl || null;
+        normalized.popupImageUrl = bar.popupImageUrl || bar.popupimageurl || null;
+        normalized.reviewsCount = bar.reviewsCount !== undefined ? bar.reviewsCount : (bar.reviewscount !== undefined ? bar.reviewscount : null);
+        
+        // Parse amenities se existir
+        const amenitiesValue = bar.amenities || bar.Amenities;
+        if (amenitiesValue) {
+            try {
+                normalized.amenities = typeof amenitiesValue === 'string' ? JSON.parse(amenitiesValue) : amenitiesValue;
+            } catch (e) {
+                normalized.amenities = [];
+            }
+        } else {
+            normalized.amenities = [];
+        }
+        
+        // Parse coverImages se existir
+        const coverImagesValue = bar.coverImages || bar.coverimages;
+        if (coverImagesValue) {
+            try {
+                normalized.coverImages = typeof coverImagesValue === 'string' ? JSON.parse(coverImagesValue) : coverImagesValue;
+            } catch (e) {
+                normalized.coverImages = [];
+            }
+        } else {
+            normalized.coverImages = [];
+        }
+        
+        // Remover campos duplicados em minúsculas
+        delete normalized.logourl;
+        delete normalized.coverimageurl;
+        delete normalized.popupimageurl;
+        delete normalized.reviewscount;
+        delete normalized.coverimages;
+        
+        return normalized;
+    };
+
     // Rota para listar todos os estabelecimentos
     router.get('/', async (req, res) => {
         try {
             const result = await pool.query('SELECT * FROM bars');
-            const barsFormatted = result.rows.map(bar => {
-                const formatted = { ...bar };
-                if (bar.amenities) {
-                    try {
-                        formatted.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
-                    } catch (e) {
-                        formatted.amenities = [];
-                    }
-                } else {
-                    formatted.amenities = [];
-                }
-                if (bar.coverImages) {
-                    try {
-                        formatted.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
-                    } catch (e) {
-                        formatted.coverImages = [];
-                    }
-                } else {
-                    formatted.coverImages = [];
-                }
-                return formatted;
-            });
+            const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
             res.json(barsFormatted);
         } catch (error) {
             console.error('Erro ao listar estabelecimentos:', error);
@@ -87,25 +110,7 @@ module.exports = (pool) => {
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = result.rows[0];
-            if (bar.amenities) {
-                try {
-                    bar.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
-                } catch (e) {
-                    bar.amenities = [];
-                }
-            } else {
-                bar.amenities = [];
-            }
-            if (bar.coverImages) {
-                try {
-                    bar.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
-                } catch (e) {
-                    bar.coverImages = [];
-                }
-            } else {
-                bar.coverImages = [];
-            }
+            const bar = normalizeBarFields(result.rows[0]);
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);

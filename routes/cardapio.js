@@ -65,48 +65,68 @@ module.exports = (pool) => {
         }
     });
 
+    // Função helper para normalizar campos do bar para camelCase
+    const normalizeBarFields = (bar) => {
+        const normalized = { ...bar };
+        
+        // Normalizar campos de imagem (PostgreSQL retorna em minúsculas)
+        normalized.logoUrl = bar.logoUrl || bar.logourl || null;
+        normalized.coverImageUrl = bar.coverImageUrl || bar.coverimageurl || null;
+        normalized.popupImageUrl = bar.popupImageUrl || bar.popupimageurl || null;
+        normalized.reviewsCount = bar.reviewsCount !== undefined ? bar.reviewsCount : (bar.reviewscount !== undefined ? bar.reviewscount : null);
+        
+        // Parse amenities se existir
+        const amenitiesValue = bar.amenities || bar.Amenities;
+        if (amenitiesValue) {
+            try {
+                normalized.amenities = typeof amenitiesValue === 'string' ? JSON.parse(amenitiesValue) : amenitiesValue;
+            } catch (e) {
+                normalized.amenities = [];
+            }
+        } else {
+            normalized.amenities = [];
+        }
+        
+        // Parse coverImages se existir
+        const coverImagesValue = bar.coverImages || bar.coverimages;
+        if (coverImagesValue) {
+            try {
+                normalized.coverImages = typeof coverImagesValue === 'string' ? JSON.parse(coverImagesValue) : coverImagesValue;
+            } catch (e) {
+                normalized.coverImages = [];
+            }
+        } else {
+            normalized.coverImages = [];
+        }
+        
+        // Parse custom_seals se existir
+        const customSealsValue = bar.custom_seals || bar.customSeals;
+        if (customSealsValue) {
+            try {
+                normalized.custom_seals = typeof customSealsValue === 'string' ? JSON.parse(customSealsValue) : customSealsValue;
+            } catch (e) {
+                normalized.custom_seals = [];
+            }
+        } else {
+            normalized.custom_seals = [];
+        }
+        
+        // Remover campos duplicados em minúsculas
+        delete normalized.logourl;
+        delete normalized.coverimageurl;
+        delete normalized.popupimageurl;
+        delete normalized.reviewscount;
+        delete normalized.coverimages;
+        
+        return normalized;
+    };
+
     // Rota para listar todos os estabelecimentos
     router.get('/bars', async (req, res) => {
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
             const result = await pool.query('SELECT * FROM bars');
-            const barsFormatted = result.rows.map(bar => {
-                const formatted = { ...bar };
-                
-                // Parse amenities se existir
-                if (bar.amenities) {
-                    try {
-                        formatted.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
-                    } catch (e) {
-                        formatted.amenities = [];
-                    }
-                } else {
-                    formatted.amenities = [];
-                }
-                
-                // Parse coverImages se existir
-                if (bar.coverImages) {
-                    try {
-                        formatted.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
-                    } catch (e) {
-                        formatted.coverImages = [];
-                    }
-                } else {
-                    formatted.coverImages = [];
-                }
-                
-                // 🎨 Parse custom_seals se existir
-                if (bar.custom_seals) {
-                    try {
-                        formatted.custom_seals = typeof bar.custom_seals === 'string' ? JSON.parse(bar.custom_seals) : bar.custom_seals;
-                    } catch (e) {
-                        formatted.custom_seals = [];
-                    }
-                } else {
-                    formatted.custom_seals = [];
-                }
-                return formatted;
-            });
+            const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
             res.json(barsFormatted);
         } catch (error) {
             console.error('Erro ao listar estabelecimentos:', error);
@@ -123,40 +143,7 @@ module.exports = (pool) => {
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = result.rows[0];
-            
-            // Parse amenities se existir
-            if (bar.amenities) {
-                try {
-                    bar.amenities = typeof bar.amenities === 'string' ? JSON.parse(bar.amenities) : bar.amenities;
-                } catch (e) {
-                    bar.amenities = [];
-                }
-            } else {
-                bar.amenities = [];
-            }
-            
-            // Parse coverImages se existir
-            if (bar.coverImages) {
-                try {
-                    bar.coverImages = typeof bar.coverImages === 'string' ? JSON.parse(bar.coverImages) : bar.coverImages;
-                } catch (e) {
-                    bar.coverImages = [];
-                }
-            } else {
-                bar.coverImages = [];
-            }
-            
-            // 🎨 Parse custom_seals se existir
-            if (bar.custom_seals) {
-                try {
-                    bar.custom_seals = typeof bar.custom_seals === 'string' ? JSON.parse(bar.custom_seals) : bar.custom_seals;
-                } catch (e) {
-                    bar.custom_seals = [];
-                }
-            } else {
-                bar.custom_seals = [];
-            }
+            const bar = normalizeBarFields(result.rows[0]);
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
@@ -730,12 +717,12 @@ module.exports = (pool) => {
                     mi.name, 
                     mi.description, 
                     mi.price, 
-                    mi.imageUrl, 
-                    mi.categoryId, 
-                    mi.barId, 
+                    COALESCE(mi."imageUrl", mi.imageurl) as "imageUrl",
+                    COALESCE(mi."categoryId", mi.categoryid) as "categoryId", 
+                    COALESCE(mi."barId", mi.barid) as "barId", 
                     mi."order", 
                     mc.name as category,
-                    mi.subCategory as subCategoryName,
+                    COALESCE(mi."subCategory", mi.subcategory) as "subCategoryName",
                     ${sealsSelect}
                     ${visibleSelect}
                     string_agg(
@@ -743,12 +730,12 @@ module.exports = (pool) => {
                         '|'
                     ) as toppings
                 FROM menu_items mi 
-                JOIN menu_categories mc ON mi.categoryId = mc.id
+                JOIN menu_categories mc ON COALESCE(mi."categoryId", mi.categoryid) = mc.id
                 LEFT JOIN item_toppings it ON mi.id = it.item_id
                 LEFT JOIN toppings t ON it.topping_id = t.id
-                ${barId ? 'WHERE mi.barId = $1' : ''}
+                ${barId ? `WHERE COALESCE(mi."barId", mi.barid) = $1` : ''}
                 GROUP BY ${groupByFields.join(', ')}
-                ORDER BY mi.barId, mi.categoryId, mi."order"
+                ORDER BY COALESCE(mi."barId", mi.barid), COALESCE(mi."categoryId", mi.categoryid), mi."order"
             `;
             
             const result = await pool.query(query, barId ? [barId] : []);
@@ -776,8 +763,8 @@ module.exports = (pool) => {
                     }
                 }
                 
-                // Garantir que imageUrl seja uma string válida
-                let imageUrl = item.imageUrl || null;
+                // Garantir que imageUrl seja uma string válida (PostgreSQL pode retornar em minúsculas)
+                let imageUrl = item.imageUrl || item.imageurl || null;
                 if (imageUrl && typeof imageUrl === 'string') {
                     // Se não começa com http, assumir que é apenas o filename
                     if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
@@ -789,7 +776,25 @@ module.exports = (pool) => {
                     imageUrl = null;
                 }
                 
-                return { ...item, imageUrl, toppings, seals };
+                // Normalizar outros campos que podem estar em minúsculas
+                const normalizedItem = { 
+                    ...item,
+                    imageUrl, 
+                    toppings, 
+                    seals,
+                    categoryId: item.categoryId || item.categoryid,
+                    barId: item.barId || item.barid,
+                    subCategoryName: item.subCategoryName || item.subcategoryname || item.subCategory || item.subcategory
+                };
+                
+                // Remover campos duplicados
+                delete normalizedItem.imageurl;
+                delete normalizedItem.categoryid;
+                delete normalizedItem.barid;
+                delete normalizedItem.subcategoryname;
+                delete normalizedItem.subcategory;
+                
+                return normalizedItem;
             });
             
             res.json(itemsWithToppings);
@@ -865,8 +870,8 @@ module.exports = (pool) => {
                 }
             }
             
-            // Garantir que imageUrl seja uma string válida
-            let imageUrl = item.imageUrl || null;
+            // Garantir que imageUrl seja uma string válida (PostgreSQL pode retornar em minúsculas)
+            let imageUrl = item.imageUrl || item.imageurl || null;
             if (imageUrl && typeof imageUrl === 'string') {
                 // Se não começa com http, assumir que é apenas o filename
                 if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
@@ -878,10 +883,25 @@ module.exports = (pool) => {
                 imageUrl = null;
             }
             
-            item.toppings = toppingsResult.rows;
-            item.seals = seals;
-            item.imageUrl = imageUrl;
-            res.json(item);
+            // Normalizar campos
+            const normalizedItem = {
+                ...item,
+                imageUrl,
+                toppings: toppingsResult.rows,
+                seals,
+                categoryId: item.categoryId || item.categoryid,
+                barId: item.barId || item.barid,
+                subCategoryName: item.subCategoryName || item.subcategoryname || item.subCategory || item.subcategory
+            };
+            
+            // Remover campos duplicados
+            delete normalizedItem.imageurl;
+            delete normalizedItem.categoryid;
+            delete normalizedItem.barid;
+            delete normalizedItem.subcategoryname;
+            delete normalizedItem.subcategory;
+            
+            res.json(normalizedItem);
         } catch (error) {
             console.error('Erro ao buscar item:', error);
             res.status(500).json({ error: 'Erro ao buscar item.' });
