@@ -394,8 +394,9 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       // Atualizar check-in do convidado com tipo e valor de entrada
+      // PostgreSQL usa TRUE/FALSE, não 1/0
       await pool.query(
-        'UPDATE guests SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = $1, entrada_valor = $2 WHERE id = $3',
+        'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = $1, entrada_valor = $2 WHERE id = $3',
         [entrada_tipo || null, entrada_valor || null, id]
       );
 
@@ -436,9 +437,17 @@ module.exports = (pool, checkAndAwardGifts = null) => {
 
     } catch (error) {
       console.error('❌ Erro ao fazer check-in do convidado:', error);
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Detalhes do erro:', {
+        message: error.message,
+        code: error.code,
+        detail: error.detail,
+        hint: error.hint
+      });
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
@@ -472,7 +481,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       const guestStatsResult = await pool.query(
         `SELECT 
            COUNT(*) as total_guests,
-           SUM(CASE WHEN checked_in = 1 THEN 1 ELSE 0 END) as checked_in_count
+           SUM(CASE WHEN checked_in = TRUE THEN 1 ELSE 0 END) as checked_in_count
          FROM guests 
          WHERE guest_list_id = $1`,
         [id]
