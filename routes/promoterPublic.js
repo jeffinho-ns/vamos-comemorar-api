@@ -38,7 +38,6 @@ module.exports = (pool) => {
           p.instagram,
           p.observacoes,
           p.status,
-          p.user_id,
           pl.name as establishment_name
          FROM promoters p
          LEFT JOIN places pl ON p.establishment_id = pl.id
@@ -72,6 +71,20 @@ module.exports = (pool) => {
       );
       console.log('✅ Estatísticas obtidas:', statsResult.rows[0]);
 
+      // Buscar user_id se existir (pode não existir na tabela)
+      let userId = null;
+      try {
+        const userResult = await pool.query(
+          'SELECT id FROM users WHERE email = $1 LIMIT 1',
+          [promoter.email]
+        );
+        if (userResult.rows.length > 0) {
+          userId = userResult.rows[0].id;
+        }
+      } catch (userError) {
+        console.log('⚠️ Não foi possível buscar user_id:', userError.message);
+      }
+
       res.json({
         success: true,
         promoter: {
@@ -83,7 +96,7 @@ module.exports = (pool) => {
           instagram: promoter.instagram,
           observacoes: promoter.observacoes,
           establishment_name: promoter.establishment_name,
-          user_id: promoter.user_id,
+          user_id: userId,
           stats: statsResult.rows[0] || { total_convidados: 0, total_confirmados: 0 }
         }
       });
