@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
+const bcrypt = require('bcryptjs');
 
 module.exports = (pool) => {
   /**
@@ -323,22 +324,59 @@ module.exports = (pool) => {
           link: linkConviteGerado
         });
         
-        // Inserir promoter
+        // Criar usuário automaticamente para o promoter
+        let userId = null;
+        const defaultPassword = 'Promoter@2025';
+        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+        
+        // Verificar se já existe um usuário com este email
+        const existingUserResult = await client.query(
+          'SELECT id FROM users WHERE email = $1',
+          [email]
+        );
+        
+        if (existingUserResult.rows.length > 0) {
+          // Se o usuário já existe, atualizar para role promoter e senha padrão
+          userId = existingUserResult.rows[0].id;
+          await client.query(
+            `UPDATE users SET 
+              name = $1, 
+              role = 'promoter', 
+              password = $2, 
+              telefone = $3,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = $4`,
+            [nome, hashedPassword, telefone || null, userId]
+          );
+          console.log('✅ Usuário existente atualizado para promoter com ID:', userId);
+        } else {
+          // Criar novo usuário
+          const userResult = await client.query(
+            `INSERT INTO users (name, email, password, role, telefone, created_at, updated_at)
+             VALUES ($1, $2, $3, 'promoter', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING id`,
+            [nome, email, hashedPassword, telefone || null]
+          );
+          userId = userResult.rows[0].id;
+          console.log('✅ Usuário criado automaticamente com ID:', userId);
+        }
+        
+        // Inserir promoter com user_id vinculado
         const result = await client.query(
           `INSERT INTO promoters (
             nome, apelido, email, telefone, whatsapp, codigo_identificador, 
             tipo_categoria, comissao_percentual, link_convite, observacoes,
-            establishment_id, foto_url, instagram, data_cadastro, status, ativo
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
+            establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
           [
             nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
             tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
-            establishment_id, foto_url, instagram
+            establishment_id, foto_url, instagram, userId
           ]
         );
         
         const promoterId = result.rows[0].promoter_id;
-        console.log('✅ Promoter criado com ID:', promoterId);
+        console.log('✅ Promoter criado com ID:', promoterId, 'vinculado ao usuário:', userId);
         
         console.log('📝 Inserindo condições:', {
           max_convidados_por_evento, max_convidados_por_data,
