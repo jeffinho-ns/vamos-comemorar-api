@@ -33,10 +33,12 @@ module.exports = (pool) => {
           p.promoter_id,
           p.nome,
           p.apelido,
+          p.email,
           p.foto_url,
           p.instagram,
           p.observacoes,
           p.status,
+          p.user_id,
           pl.name as establishment_name
          FROM promoters p
          LEFT JOIN places pl ON p.establishment_id = pl.id
@@ -76,10 +78,12 @@ module.exports = (pool) => {
           id: promoter.promoter_id,
           nome: promoter.nome,
           apelido: promoter.apelido,
+          email: promoter.email,
           foto_url: promoter.foto_url,
           instagram: promoter.instagram,
           observacoes: promoter.observacoes,
           establishment_name: promoter.establishment_name,
+          user_id: promoter.user_id,
           stats: statsResult.rows[0] || { total_convidados: 0, total_confirmados: 0 }
         }
       });
