@@ -1248,13 +1248,9 @@ class EventosController {
           FROM listas_convidados lc
           INNER JOIN listas l ON lc.lista_id = l.lista_id
           LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
-        WHERE 
-          l.evento_id = $1
-          OR (pe.evento_id = $1)
-          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.created_at::DATE = $2::DATE)
+          WHERE l.evento_id = $1
           ORDER BY lc.nome_convidado ASC
-        `, [eventoId, eventoInfo.data_evento || null]);
+        `, [eventoId]);
         
         console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
         if (listasPromotersResult.rows.length > 0) {
