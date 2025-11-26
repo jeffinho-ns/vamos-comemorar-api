@@ -4,9 +4,15 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+// Usar a mesma configuração do config/database.js
+const connectionString = process.env.DATABASE_URL || 'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  connectionString: connectionString,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 async function runMigration() {
@@ -15,26 +21,49 @@ async function runMigration() {
   try {
     console.log('🔄 Iniciando migração de regras de brindes para promoters...');
     
+    // Definir search_path igual ao config/database.js
+    try {
+      await client.query(`SET search_path TO meu_backup_db, public`);
+      console.log('✅ Search path definido: meu_backup_db, public');
+    } catch (e) {
+      console.warn('⚠️  Aviso ao definir search_path:', e.message);
+      // Continuar mesmo se não conseguir definir o search_path
+    }
+    
     // Ler o arquivo SQL
     const migrationPath = path.join(__dirname, '../migrations/add_promoter_gift_rules.sql');
     const sql = fs.readFileSync(migrationPath, 'utf8');
     
     // Executar cada comando SQL separadamente
+    // Dividir por ponto-e-vírgula, mas manter comentários e blocos completos
     const commands = sql
-      .split(';')
+      .split(/;(?=\s*(?:--|$|\n))/)
       .map(cmd => cmd.trim())
-      .filter(cmd => cmd.length > 0 && !cmd.startsWith('--'));
+      .filter(cmd => cmd.length > 0 && !cmd.match(/^\s*--/));
     
-    for (const command of commands) {
-      if (command.trim()) {
+    console.log(`📝 Total de comandos a executar: ${commands.length}`);
+    
+    for (let i = 0; i < commands.length; i++) {
+      const command = commands[i];
+      if (command.trim() && !command.match(/^\s*--/)) {
         try {
-          await client.query(command);
-          console.log('✅ Comando executado com sucesso');
+          // Remover comentários inline
+          const cleanCommand = command.split('--')[0].trim();
+          if (cleanCommand) {
+            await client.query(cleanCommand);
+            console.log(`✅ Comando ${i + 1}/${commands.length} executado com sucesso`);
+          }
         } catch (error) {
           // Ignorar erros de "já existe" ou "não encontrado" se for apenas aviso
-          if (error.message.includes('already exists') || error.message.includes('does not exist')) {
-            console.log('⚠️  Aviso (ignorado):', error.message);
+          if (error.message.includes('already exists') || 
+              error.message.includes('does not exist') ||
+              error.message.includes('duplicate') ||
+              error.code === '42P07' || // relation already exists
+              error.code === '42710') { // duplicate object
+            console.log(`⚠️  Aviso (ignorado) no comando ${i + 1}:`, error.message.split('\n')[0]);
           } else {
+            console.error(`❌ Erro no comando ${i + 1}:`, error.message);
+            console.error('Comando:', cleanCommand.substring(0, 100) + '...');
             throw error;
           }
         }
