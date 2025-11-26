@@ -402,6 +402,20 @@ module.exports = (pool) => {
       const tipoTexto = entrada_tipo === 'VIP' ? 'VIP (grátis)' : entrada_tipo === 'SECO' ? `SECO (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : entrada_tipo === 'CONSUMA' ? `CONSUMA (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : 'Check-in';
       console.log(`✅ Check-in do convidado confirmado: ${guest.name} (ID: ${id}) - ${tipoTexto}`);
 
+      // Verificar e liberar brindes após o check-in
+      let giftsAwarded = [];
+      try {
+        const giftRulesModule = require('./giftRules');
+        const { checkAndAwardGifts } = giftRulesModule(pool);
+        const giftResult = await checkAndAwardGifts(guest.guest_list_id);
+        if (giftResult && giftResult.success && giftResult.gifts && giftResult.gifts.length > 0) {
+          giftsAwarded = giftResult.gifts;
+          console.log(`🎁 Brindes liberados para guest list ${guest.guest_list_id}:`, giftsAwarded.map(g => g.descricao).join(', '));
+        }
+      } catch (giftError) {
+        console.error('⚠️ Erro ao verificar brindes (não bloqueia o check-in):', giftError);
+      }
+
       res.json({
         success: true,
         message: 'Check-in do convidado confirmado com sucesso',
@@ -412,7 +426,8 @@ module.exports = (pool) => {
           checkin_time: new Date().toISOString(),
           entrada_tipo: entrada_tipo || null,
           entrada_valor: entrada_valor || null
-        }
+        },
+        gifts_awarded: giftsAwarded // Informa se algum brinde foi liberado
       });
 
     } catch (error) {

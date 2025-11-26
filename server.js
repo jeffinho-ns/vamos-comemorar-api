@@ -92,6 +92,7 @@ const restaurantTablesRoutes = require('./routes/restaurantTables');
 const largeReservationsRoutes = require('./routes/largeReservations');
 const guestListPublicRoutes = require('./routes/guestListPublic');
 const guestListsAdminRoutes = require('./routes/guestListsAdmin');
+const giftRulesModule = require('./routes/giftRules');
 const actionLogsRoutes = require('./routes/actionLogs');
 const eventosRoutes = require('./routes/eventos');
 const operationalDetailsRoutes = require('./routes/operationalDetails');
@@ -132,6 +133,9 @@ app.use('/api/large-reservations', largeReservationsRoutes(pool));
 // Rotas de lista de convidados
 app.use('/api/guest-list', guestListPublicRoutes(pool));
 app.use('/api/admin', guestListsAdminRoutes(pool));
+// Rotas de regras de brindes
+const { router: giftRulesRouter } = giftRulesModule(pool);
+app.use('/api/gift-rules', giftRulesRouter);
 // Rota de logs de ações
 app.use('/api/action-logs', actionLogsRoutes(pool));
 // Rotas do módulo de Eventos e Listas
