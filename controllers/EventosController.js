@@ -1227,40 +1227,48 @@ class EventosController {
       // 1. Listas vinculadas diretamente ao evento (l.evento_id = $1)
       // 2. Listas de promoters vinculados ao evento via promoter_eventos
       // 3. Fallback por data quando l.evento_id é NULL
-      const listasPromotersResult = await this.pool.query(`
-        SELECT DISTINCT
-          lc.lista_convidado_id as id,
-          'convidado_promoter' as tipo,
-          lc.nome_convidado as nome,
-          lc.telefone_convidado as telefone,
-          lc.status_checkin,
-          lc.data_checkin,
-          lc.is_vip,
-          lc.observacoes,
-          COALESCE(lc.entrada_tipo, NULL::TEXT) as entrada_tipo,
-          COALESCE(lc.entrada_valor, NULL::NUMERIC) as entrada_valor,
-          l.nome as origem,
-          l.tipo as tipo_lista,
-          p.nome as responsavel,
-          p.promoter_id
-        FROM listas_convidados lc
-        INNER JOIN listas l ON lc.lista_id = l.lista_id
-        LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+      let listasPromotersResult;
+      try {
+        listasPromotersResult = await this.pool.query(`
+          SELECT DISTINCT
+            lc.lista_convidado_id as id,
+            'convidado_promoter' as tipo,
+            lc.nome_convidado as nome,
+            lc.telefone_convidado as telefone,
+            lc.status_checkin,
+            lc.data_checkin,
+            lc.is_vip,
+            lc.observacoes,
+            COALESCE(lc.entrada_tipo, NULL::TEXT) as entrada_tipo,
+            COALESCE(lc.entrada_valor, NULL::NUMERIC) as entrada_valor,
+            l.nome as origem,
+            l.tipo as tipo_lista,
+            p.nome as responsavel,
+            p.promoter_id
+          FROM listas_convidados lc
+          INNER JOIN listas l ON lc.lista_id = l.lista_id
+          LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
         LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
         WHERE 
           l.evento_id = $1
-          OR (pe.evento_id = $1 AND (pe.status::TEXT = 'ATIVO' OR pe.status::TEXT = 'ativo'))
-          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at::DATE, CURRENT_DATE) = $2::DATE)
-        ORDER BY lc.nome_convidado ASC
-      `, [eventoId, eventoInfo.data_evento || null]);
-      
-      console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
-      if (listasPromotersResult.rows.length > 0) {
-        console.log(`   Primeiros convidados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
-          nome: c.nome,
-          promoter: c.responsavel,
-          lista_evento_id: 'N/A' // Será adicionado no resultado final
-        })));
+          OR (pe.evento_id = $1 AND pe.status IN ('ATIVO', 'ativo', 'Ativo'))
+          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.created_at::DATE = $2::DATE)
+          ORDER BY lc.nome_convidado ASC
+        `, [eventoId, eventoInfo.data_evento || null]);
+        
+        console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
+        if (listasPromotersResult.rows.length > 0) {
+          console.log(`   Primeiros convidados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
+            nome: c.nome,
+            promoter: c.responsavel,
+            lista_evento_id: 'N/A'
+          })));
+        }
+      } catch (queryError) {
+        console.error('❌ Erro na query de convidados de promoters:', queryError);
+        console.error('   Stack:', queryError.stack);
+        // Retornar array vazio em caso de erro para não quebrar o endpoint
+        listasPromotersResult = { rows: [] };
       }
       
       // 5. Buscar promoters vinculados ao evento
