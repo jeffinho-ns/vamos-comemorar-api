@@ -747,9 +747,30 @@ class EventosController {
       const lista = listaResult.rows[0];
       
       // Se a lista não está vinculada a um evento mas o promoter está vinculado ao evento,
-      // podemos sugerir vincular (mas não fazemos automaticamente para evitar problemas)
+      // tentar vincular automaticamente
       if (!lista.evento_id && lista.promoter_responsavel_id) {
-        console.log(`ℹ️ Lista ${listaId} não está vinculada a um evento. Promoter: ${lista.promoter_responsavel_id}`);
+        console.log(`ℹ️ Lista ${listaId} não está vinculada a um evento. Verificando se promoter está vinculado...`);
+        
+        // Verificar se o promoter está vinculado a algum evento via promoter_eventos
+        try {
+          const promoterEventosResult = await this.pool.query(`
+            SELECT evento_id FROM promoter_eventos 
+            WHERE promoter_id = $1 
+            ORDER BY created_at DESC 
+            LIMIT 1
+          `, [lista.promoter_responsavel_id]);
+          
+          if (promoterEventosResult.rows.length > 0) {
+            const eventoIdFromPromoter = promoterEventosResult.rows[0].evento_id;
+            // Vincular a lista ao evento do promoter
+            await this.pool.query(`
+              UPDATE listas SET evento_id = $1 WHERE lista_id = $2
+            `, [eventoIdFromPromoter, listaId]);
+            console.log(`✅ Lista ${listaId} vinculada automaticamente ao evento ${eventoIdFromPromoter}`);
+          }
+        } catch (linkError) {
+          console.error('⚠️ Erro ao tentar vincular lista ao evento:', linkError);
+        }
       }
       
       const result = await this.pool.query(`
