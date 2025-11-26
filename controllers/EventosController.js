@@ -1265,7 +1265,19 @@ class EventosController {
           // Busca por:
           // 1. Listas diretamente vinculadas ao evento
           // 2. Listas de promoters vinculados ao evento via promoter_eventos (mesmo sem evento_id na lista)
+          // 3. Todas as listas de promoters que podem estar relacionadas ao evento
           listasPromotersResult = await this.pool.query(`
+            WITH promoters_do_evento AS (
+              SELECT DISTINCT pe.promoter_id
+              FROM promoter_eventos pe
+              WHERE pe.evento_id = $1
+            ),
+            listas_relacionadas AS (
+              SELECT DISTINCT l.lista_id
+              FROM listas l
+              WHERE l.evento_id = $1
+              OR (l.promoter_responsavel_id IN (SELECT promoter_id FROM promoters_do_evento))
+            )
             SELECT DISTINCT
               lc.lista_convidado_id as id,
               'convidado_promoter' as tipo,
@@ -1282,12 +1294,9 @@ class EventosController {
               p.nome as responsavel,
               p.promoter_id
             FROM listas_convidados lc
+            INNER JOIN listas_relacionadas lr ON lc.lista_id = lr.lista_id
             INNER JOIN listas l ON lc.lista_id = l.lista_id
             LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-            LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
-            WHERE 
-              l.evento_id = $1
-              OR (pe.evento_id = $1 AND pe.promoter_id IS NOT NULL)
             ORDER BY lc.nome_convidado ASC
           `, [eventoId]);
           
