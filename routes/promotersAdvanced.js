@@ -343,8 +343,7 @@ module.exports = (pool) => {
               name = $1, 
               role = 'promoter', 
               password = $2, 
-              telefone = $3,
-              updated_at = CURRENT_TIMESTAMP
+              telefone = $3
             WHERE id = $4`,
             [nome, hashedPassword, telefone || null, userId]
           );
@@ -352,8 +351,8 @@ module.exports = (pool) => {
         } else {
           // Criar novo usuário
           const userResult = await client.query(
-            `INSERT INTO users (name, email, password, role, telefone, created_at, updated_at)
-             VALUES ($1, $2, $3, 'promoter', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            `INSERT INTO users (name, email, password, role, telefone)
+             VALUES ($1, $2, $3, 'promoter', $4)
              RETURNING id`,
             [nome, email, hashedPassword, telefone || null]
           );
