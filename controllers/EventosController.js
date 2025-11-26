@@ -1215,8 +1215,10 @@ class EventosController {
       `, [eventoId, eventoInfo.data_evento || null]);
       
       // 4. Buscar listas e convidados de promoters
-      // Inclui fallback por data quando l.evento_id é NULL
-      // Também busca por promoters vinculados ao evento via promoter_eventos
+      // Busca por:
+      // 1. Listas vinculadas diretamente ao evento (l.evento_id = $1)
+      // 2. Listas de promoters vinculados ao evento via promoter_eventos
+      // 3. Fallback por data quando l.evento_id é NULL
       const listasPromotersResult = await this.pool.query(`
         SELECT DISTINCT
           lc.lista_convidado_id as id,
@@ -1236,13 +1238,22 @@ class EventosController {
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
+        LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1 AND pe.status::TEXT = 'ATIVO'
         WHERE 
           l.evento_id = $1
-          OR (pe.evento_id = $1 AND pe.status = 'ATIVO')
-          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at, l.created_at)::DATE = $2::DATE)
+          OR (pe.evento_id = $1)
+          OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at::DATE, CURRENT_DATE) = $2::DATE)
         ORDER BY lc.nome_convidado ASC
       `, [eventoId, eventoInfo.data_evento || null]);
+      
+      console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
+      if (listasPromotersResult.rows.length > 0) {
+        console.log(`   Primeiros convidados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
+          nome: c.nome,
+          promoter: c.responsavel,
+          lista_evento_id: 'N/A' // Será adicionado no resultado final
+        })));
+      }
       
       // 5. Buscar promoters vinculados ao evento
       const promotersResult = await this.pool.query(`
