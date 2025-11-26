@@ -734,7 +734,7 @@ class EventosController {
       }
       
       const listaResult = await this.pool.query(`
-        SELECT lista_id FROM listas WHERE lista_id = $1
+        SELECT lista_id, evento_id, promoter_responsavel_id FROM listas WHERE lista_id = $1
       `, [listaId]);
       
       if (listaResult.rows.length === 0) {
@@ -742,6 +742,14 @@ class EventosController {
           success: false,
           error: 'Lista não encontrada'
         });
+      }
+      
+      const lista = listaResult.rows[0];
+      
+      // Se a lista não está vinculada a um evento mas o promoter está vinculado ao evento,
+      // podemos sugerir vincular (mas não fazemos automaticamente para evitar problemas)
+      if (!lista.evento_id && lista.promoter_responsavel_id) {
+        console.log(`ℹ️ Lista ${listaId} não está vinculada a um evento. Promoter: ${lista.promoter_responsavel_id}`);
       }
       
       const result = await this.pool.query(`
@@ -1238,10 +1246,10 @@ class EventosController {
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
         LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-        LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1 AND pe.status::TEXT = 'ATIVO'
+        LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
         WHERE 
           l.evento_id = $1
-          OR (pe.evento_id = $1)
+          OR (pe.evento_id = $1 AND (pe.status::TEXT = 'ATIVO' OR pe.status::TEXT = 'ativo'))
           OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND COALESCE(l.created_at::DATE, CURRENT_DATE) = $2::DATE)
         ORDER BY lc.nome_convidado ASC
       `, [eventoId, eventoInfo.data_evento || null]);
