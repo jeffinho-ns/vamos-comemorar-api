@@ -5,7 +5,7 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 
-module.exports = (pool) => {
+module.exports = (pool, checkAndAwardGifts = null) => {
   // Middleware de autenticação opcional - permite acesso com ou sem token
   const optionalAuth = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -404,16 +404,20 @@ module.exports = (pool) => {
 
       // Verificar e liberar brindes após o check-in
       let giftsAwarded = [];
-      try {
-        const giftRulesModule = require('./giftRules');
-        const { checkAndAwardGifts } = giftRulesModule(pool);
-        const giftResult = await checkAndAwardGifts(guest.guest_list_id);
-        if (giftResult && giftResult.success && giftResult.gifts && giftResult.gifts.length > 0) {
-          giftsAwarded = giftResult.gifts;
-          console.log(`🎁 Brindes liberados para guest list ${guest.guest_list_id}:`, giftsAwarded.map(g => g.descricao).join(', '));
+      if (checkAndAwardGifts && guest.guest_list_id) {
+        try {
+          const giftResult = await checkAndAwardGifts(guest.guest_list_id);
+          if (giftResult && giftResult.success && giftResult.gifts && giftResult.gifts.length > 0) {
+            giftsAwarded = giftResult.gifts;
+            console.log(`🎁 Brindes liberados para guest list ${guest.guest_list_id}:`, giftsAwarded.map(g => g.descricao).join(', '));
+          }
+        } catch (giftError) {
+          console.error('⚠️ Erro ao verificar brindes (não bloqueia o check-in):', giftError);
+          console.error('Stack trace:', giftError.stack);
+          // Não bloqueia o check-in mesmo se houver erro na verificação de brindes
         }
-      } catch (giftError) {
-        console.error('⚠️ Erro ao verificar brindes (não bloqueia o check-in):', giftError);
+      } else if (!guest.guest_list_id) {
+        console.warn(`⚠️ Convidado ${id} não tem guest_list_id associado. Pulando verificação de brindes.`);
       }
 
       res.json({

@@ -132,10 +132,11 @@ app.use('/api/restaurant-tables', restaurantTablesRoutes(pool));
 app.use('/api/large-reservations', largeReservationsRoutes(pool));
 // Rotas de lista de convidados
 app.use('/api/guest-list', guestListPublicRoutes(pool));
-app.use('/api/admin', guestListsAdminRoutes(pool));
-// Rotas de regras de brindes
-const { router: giftRulesRouter } = giftRulesModule(pool);
+// Rotas de regras de brindes - precisa ser importado antes de guestListsAdminRoutes
+const { router: giftRulesRouter, checkAndAwardGifts } = giftRulesModule(pool);
 app.use('/api/gift-rules', giftRulesRouter);
+// Passar checkAndAwardGifts para guestListsAdminRoutes
+app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
 // Rota de logs de ações
 app.use('/api/action-logs', actionLogsRoutes(pool));
 // Rotas do módulo de Eventos e Listas
