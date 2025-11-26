@@ -1244,40 +1244,44 @@ class EventosController {
       `, [eventoId, eventoInfo.data_evento || null]);
       
       // 4. Buscar listas e convidados de promoters
-      // Busca por múltiplas formas:
-      // 1. Listas vinculadas diretamente ao evento (l.evento_id = $1)
-      // 2. Listas de promoters vinculados ao evento via promoter_eventos
-      // 3. Listas de promoters vinculados via promoter_eventos mesmo sem evento_id na lista
-      let listasPromotersResult;
+      // Usar a mesma lógica da página de listas: buscar listas primeiro, depois convidados
+      let listasPromotersResult = { rows: [] };
       try {
-        // Primeiro tentar verificar se a tabela promoter_eventos existe
-        const checkTable = await this.pool.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = current_schema() 
-            AND table_name = 'promoter_eventos'
-          )
-        `);
-        const hasPromoterEventos = checkTable.rows[0]?.exists || false;
+        // Primeiro, buscar todas as listas relacionadas ao evento
+        // Usar a mesma query que a página de listas usa (getListasEvento)
+        const listasResult = await this.pool.query(`
+          SELECT DISTINCT
+            l.lista_id,
+            l.nome,
+            l.evento_id,
+            l.promoter_responsavel_id,
+            p.nome as promoter_nome
+          FROM listas l
+          LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+          WHERE l.evento_id = $1
+          UNION
+          SELECT DISTINCT
+            l2.lista_id,
+            l2.nome,
+            l2.evento_id,
+            l2.promoter_responsavel_id,
+            p2.nome as promoter_nome
+          FROM listas l2
+          LEFT JOIN promoters p2 ON l2.promoter_responsavel_id = p2.promoter_id
+          LEFT JOIN promoter_eventos pe ON pe.promoter_id = p2.promoter_id AND pe.evento_id = $1
+          WHERE l2.evento_id IS NULL AND pe.evento_id = $1
+        `, [eventoId]);
         
-        if (hasPromoterEventos) {
-          // Query completa com promoter_eventos - busca mais abrangente
-          // Busca por:
-          // 1. Listas diretamente vinculadas ao evento
-          // 2. Listas de promoters vinculados ao evento via promoter_eventos (mesmo sem evento_id na lista)
-          // 3. Todas as listas de promoters que podem estar relacionadas ao evento
+        const listaIds = listasResult.rows.map(l => l.lista_id);
+        
+        console.log(`📋 Listas de promoters encontradas: ${listaIds.length}`);
+        if (listaIds.length > 0) {
+          listasResult.rows.forEach(lista => {
+            console.log(`   - Lista ID: ${lista.lista_id}, Nome: ${lista.nome}, Promoter: ${lista.promoter_nome || 'N/A'}`);
+          });
+          
+          // Buscar todos os convidados dessas listas (mesma lógica que getListasEvento)
           listasPromotersResult = await this.pool.query(`
-            WITH promoters_do_evento AS (
-              SELECT DISTINCT pe.promoter_id
-              FROM promoter_eventos pe
-              WHERE pe.evento_id = $1
-            ),
-            listas_relacionadas AS (
-              SELECT DISTINCT l.lista_id
-              FROM listas l
-              WHERE l.evento_id = $1
-              OR (l.promoter_responsavel_id IN (SELECT promoter_id FROM promoters_do_evento))
-            )
             SELECT DISTINCT
               lc.lista_convidado_id as id,
               'convidado_promoter' as tipo,
@@ -1291,120 +1295,33 @@ class EventosController {
               NULL::NUMERIC as entrada_valor,
               l.nome as origem,
               l.tipo as tipo_lista,
-              p.nome as responsavel,
-              p.promoter_id
+              COALESCE(p.nome, 'N/A') as responsavel,
+              COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
             FROM listas_convidados lc
-            INNER JOIN listas_relacionadas lr ON lc.lista_id = lr.lista_id
             INNER JOIN listas l ON lc.lista_id = l.lista_id
             LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+            WHERE lc.lista_id = ANY($1)
             ORDER BY lc.nome_convidado ASC
-          `, [eventoId]);
+          `, [listaIds]);
           
-          // Log adicional para debug
-          console.log(`🔍 Query com promoter_eventos executada. Evento ID: ${eventoId}`);
-          console.log(`   Encontrados ${listasPromotersResult.rows.length} convidados`);
-          
-          // Log detalhado dos primeiros resultados
+          console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
           if (listasPromotersResult.rows.length > 0) {
-            console.log(`   Primeiros convidados encontrados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
+            console.log(`   Primeiros convidados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
               id: c.id,
-              tipo: c.tipo,
               nome: c.nome,
+              promoter: c.responsavel,
               promoter_id: c.promoter_id,
-              status_checkin: c.status_checkin,
-              tipo_lista: c.tipo_lista,
-              origem: c.origem
+              lista: c.origem
             })));
           }
-          
-          // Se não encontrou nada, tentar busca alternativa mais ampla
-          if (listasPromotersResult.rows.length === 0) {
-            console.log('⚠️ Nenhum convidado encontrado. Tentando busca alternativa...');
-            
-            // Buscar todas as listas de promoters que podem estar relacionadas
-            const listasAltResult = await this.pool.query(`
-              SELECT DISTINCT l.lista_id, l.nome, l.evento_id, l.promoter_responsavel_id, p.nome as promoter_nome
-              FROM listas l
-              LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-              LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id
-              WHERE pe.evento_id = $1 OR l.evento_id = $1
-            `, [eventoId]);
-            
-            console.log(`   Listas encontradas: ${listasAltResult.rows.length}`);
-            listasAltResult.rows.forEach(lista => {
-              console.log(`   - Lista ID: ${lista.lista_id}, Nome: ${lista.nome}, Evento ID: ${lista.evento_id || 'NULL'}, Promoter: ${lista.promoter_nome || 'NULL'}`);
-            });
-            
-            // Buscar convidados dessas listas
-            if (listasAltResult.rows.length > 0) {
-              const listaIds = listasAltResult.rows.map(l => l.lista_id);
-              const convidadosAltResult = await this.pool.query(`
-                SELECT DISTINCT
-                  lc.lista_convidado_id as id,
-                  'convidado_promoter' as tipo,
-                  lc.nome_convidado as nome,
-                  lc.telefone_convidado as telefone,
-                  lc.status_checkin,
-                  lc.data_checkin,
-                  lc.is_vip,
-                  lc.observacoes,
-                  NULL::TEXT as entrada_tipo,
-                  NULL::NUMERIC as entrada_valor,
-                  l.nome as origem,
-                  l.tipo as tipo_lista,
-                  p.nome as responsavel,
-                  p.promoter_id
-                FROM listas_convidados lc
-                INNER JOIN listas l ON lc.lista_id = l.lista_id
-                LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-                WHERE lc.lista_id = ANY($1)
-                ORDER BY lc.nome_convidado ASC
-              `, [listaIds]);
-              
-              console.log(`   Convidados encontrados na busca alternativa: ${convidadosAltResult.rows.length}`);
-              if (convidadosAltResult.rows.length > 0) {
-                listasPromotersResult = convidadosAltResult;
-              }
-            }
-          }
         } else {
-          // Query simplificada sem promoter_eventos
-          listasPromotersResult = await this.pool.query(`
-            SELECT DISTINCT
-              lc.lista_convidado_id as id,
-              'convidado_promoter' as tipo,
-              lc.nome_convidado as nome,
-              lc.telefone_convidado as telefone,
-              lc.status_checkin,
-              lc.data_checkin,
-              lc.is_vip,
-              lc.observacoes,
-              COALESCE(lc.entrada_tipo, NULL::TEXT) as entrada_tipo,
-              COALESCE(lc.entrada_valor, NULL::NUMERIC) as entrada_valor,
-              l.nome as origem,
-              l.tipo as tipo_lista,
-              p.nome as responsavel,
-              p.promoter_id
-            FROM listas_convidados lc
-            INNER JOIN listas l ON lc.lista_id = l.lista_id
-            LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-            WHERE l.evento_id = $1
-            ORDER BY lc.nome_convidado ASC
-          `, [eventoId]);
-        }
-        
-        console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
-        if (listasPromotersResult.rows.length > 0) {
-          console.log(`   Primeiros convidados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
-            nome: c.nome,
-            promoter: c.responsavel,
-            lista_evento_id: 'N/A'
-          })));
+          console.log('⚠️ Nenhuma lista de promoter encontrada para este evento');
         }
       } catch (queryError) {
         console.error('❌ Erro na query de convidados de promoters:', queryError);
         console.error('   Mensagem:', queryError.message);
         console.error('   Código:', queryError.code);
+        console.error('   Stack:', queryError.stack);
         // Retornar array vazio em caso de erro para não quebrar o endpoint
         listasPromotersResult = { rows: [] };
       }
