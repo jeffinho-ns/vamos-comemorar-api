@@ -1304,6 +1304,19 @@ class EventosController {
           console.log(`🔍 Query com promoter_eventos executada. Evento ID: ${eventoId}`);
           console.log(`   Encontrados ${listasPromotersResult.rows.length} convidados`);
           
+          // Log detalhado dos primeiros resultados
+          if (listasPromotersResult.rows.length > 0) {
+            console.log(`   Primeiros convidados encontrados:`, listasPromotersResult.rows.slice(0, 3).map(c => ({
+              id: c.id,
+              tipo: c.tipo,
+              nome: c.nome,
+              promoter_id: c.promoter_id,
+              status_checkin: c.status_checkin,
+              tipo_lista: c.tipo_lista,
+              origem: c.origem
+            })));
+          }
+          
           // Se não encontrou nada, tentar busca alternativa mais ampla
           if (listasPromotersResult.rows.length === 0) {
             console.log('⚠️ Nenhum convidado encontrado. Tentando busca alternativa...');
