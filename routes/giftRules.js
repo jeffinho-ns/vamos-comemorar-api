@@ -110,6 +110,22 @@ module.exports = (pool) => {
   router.get('/', auth, async (req, res) => {
     try {
       const { establishment_id, evento_id } = req.query;
+      
+      // Verificar se a tabela existe primeiro
+      try {
+        await pool.query('SELECT 1 FROM gift_rules LIMIT 1');
+      } catch (tableError) {
+        if (tableError.code === '42P01') {
+          console.error('❌ Tabela gift_rules não existe! Execute a migração SQL primeiro.');
+          return res.status(500).json({ 
+            success: false, 
+            error: 'Tabela gift_rules não encontrada. Execute a migração SQL: migrations/create_gift_rules_system_postgresql.sql',
+            code: 'TABLE_NOT_FOUND'
+          });
+        }
+        throw tableError;
+      }
+      
       let query = 'SELECT * FROM gift_rules WHERE 1=1';
       const params = [];
       let paramIndex = 1;
@@ -130,7 +146,12 @@ module.exports = (pool) => {
       res.status(200).json({ success: true, rules: result.rows });
     } catch (error) {
       console.error('Erro ao listar regras de brindes:', error);
-      res.status(500).json({ success: false, error: 'Erro ao listar regras de brindes' });
+      console.error('Stack trace:', error.stack);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro ao listar regras de brindes',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
@@ -186,7 +207,19 @@ module.exports = (pool) => {
       res.status(201).json({ success: true, rule: result.rows[0] });
     } catch (error) {
       console.error('Erro ao criar regra de brinde:', error);
-      res.status(500).json({ success: false, error: 'Erro ao criar regra de brinde' });
+      console.error('Stack trace:', error.stack);
+      console.error('Detalhes do erro:', {
+        code: error.code,
+        detail: error.detail,
+        table: error.table,
+        constraint: error.constraint
+      });
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro ao criar regra de brinde',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        hint: error.code === '42P01' ? 'Tabela gift_rules não existe. Execute a migração SQL primeiro.' : undefined
+      });
     }
   });
 
