@@ -1251,7 +1251,7 @@ class EventosController {
         LEFT JOIN promoter_eventos pe ON pe.promoter_id = p.promoter_id AND pe.evento_id = $1
         WHERE 
           l.evento_id = $1
-          OR (pe.evento_id = $1 AND pe.status IN ('ATIVO', 'ativo', 'Ativo'))
+          OR (pe.evento_id = $1)
           OR ($2::DATE IS NOT NULL AND l.evento_id IS NULL AND l.created_at::DATE = $2::DATE)
           ORDER BY lc.nome_convidado ASC
         `, [eventoId, eventoInfo.data_evento || null]);
