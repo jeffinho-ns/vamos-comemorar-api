@@ -6,8 +6,8 @@ const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
 const EventosController = require('../controllers/EventosController');
 
-module.exports = (pool) => {
-  const controller = new EventosController(pool);
+module.exports = (pool, checkAndAwardPromoterGifts = null) => {
+  const controller = new EventosController(pool, checkAndAwardPromoterGifts);
 
   /**
    * @route   GET /api/v1/eventos/todos

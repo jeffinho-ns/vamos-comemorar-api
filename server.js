@@ -133,15 +133,18 @@ app.use('/api/large-reservations', largeReservationsRoutes(pool));
 // Rotas de lista de convidados
 app.use('/api/guest-list', guestListPublicRoutes(pool));
 // Rotas de regras de brindes - precisa ser importado antes de guestListsAdminRoutes
-const { router: giftRulesRouter, checkAndAwardGifts } = giftRulesModule(pool);
+const { router: giftRulesRouter, checkAndAwardGifts, checkAndAwardPromoterGifts } = giftRulesModule(pool);
 app.use('/api/gift-rules', giftRulesRouter);
 // Passar checkAndAwardGifts para guestListsAdminRoutes
 app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
+// Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
+app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
 // Rota de logs de ações
 app.use('/api/action-logs', actionLogsRoutes(pool));
 // Rotas do módulo de Eventos e Listas
 // Nota: Todas as rotas estão no mesmo router com prefixo /api/v1/eventos
-app.use('/api/v1/eventos', eventosRoutes(pool));
+// Passar checkAndAwardPromoterGifts para verificar brindes após check-in de promoters
+app.use('/api/v1/eventos', eventosRoutes(pool, checkAndAwardPromoterGifts));
 // Rotas de Detalhes Operacionais
 app.use('/api/v1/operational-details', operationalDetailsRoutes(pool));
 

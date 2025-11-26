@@ -7,8 +7,9 @@
  */
 
 class EventosController {
-  constructor(pool) {
+  constructor(pool, checkAndAwardPromoterGifts = null) {
     this.pool = pool;
+    this.checkAndAwardPromoterGifts = checkAndAwardPromoterGifts;
   }
 
   /**
@@ -866,10 +867,36 @@ class EventosController {
       const convidado = convidadoResult.rows[0];
       console.log(`✅ Check-in atualizado: ${convidado?.nome_convidado || 'N/A'} - Tipo: ${entrada_tipo || 'N/A'} - Valor: R$ ${entrada_valor || 0}`);
       
+      // Verificar e liberar brindes para o promoter se o check-in foi confirmado
+      let giftsAwarded = [];
+      if (status_checkin === 'Check-in' && convidado.promoter_id && this.checkAndAwardPromoterGifts) {
+        try {
+          // Buscar o evento_id da lista
+          const listaEventoResult = await this.pool.query(`
+            SELECT l.evento_id 
+            FROM listas l 
+            WHERE l.lista_id = (SELECT lista_id FROM listas_convidados WHERE lista_convidado_id = $1)
+          `, [listaConvidadoId]);
+          
+          if (listaEventoResult.rows.length > 0) {
+            const eventoId = listaEventoResult.rows[0].evento_id;
+            const giftResult = await this.checkAndAwardPromoterGifts(convidado.promoter_id, eventoId);
+            if (giftResult && giftResult.success && giftResult.gifts && giftResult.gifts.length > 0) {
+              giftsAwarded = giftResult.gifts;
+              console.log(`🎁 Brindes liberados para promoter ${convidado.promoter_id} no evento ${eventoId}:`, giftsAwarded.map(g => g.descricao).join(', '));
+            }
+          }
+        } catch (giftError) {
+          console.error('⚠️ Erro ao verificar brindes de promoter (não bloqueia o check-in):', giftError);
+          // Não bloqueia o check-in mesmo se houver erro na verificação de brindes
+        }
+      }
+      
       res.json({
         success: true,
         message: `Check-in atualizado para: ${status_checkin}`,
-        convidado: convidado
+        convidado: convidado,
+        gifts_awarded: giftsAwarded // Informa se algum brinde foi liberado
       });
     } catch (error) {
       console.error('❌ Erro ao atualizar check-in:', error);

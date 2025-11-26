@@ -42,12 +42,13 @@ const createCheckAndAwardGifts = (pool) => {
         return { success: false, message: 'Estabelecimento não encontrado' };
       }
 
-      // 2. Buscar regras ativas para este estabelecimento/evento
+      // 2. Buscar regras ativas para este estabelecimento/evento (apenas ANIVERSARIO)
       let rulesQuery = `
         SELECT id, descricao, checkins_necessarios, status
         FROM gift_rules
         WHERE establishment_id = $1
         AND status = 'ATIVA'
+        AND tipo_beneficiario = 'ANIVERSARIO'
         AND (evento_id = $2 OR evento_id IS NULL)
         ORDER BY checkins_necessarios ASC
       `;
@@ -98,9 +99,101 @@ const createCheckAndAwardGifts = (pool) => {
   };
 };
 
+/**
+ * Função auxiliar para verificar e liberar brindes para um promoter
+ */
+const createCheckAndAwardPromoterGifts = (pool) => {
+  return async (promoterId, eventoId) => {
+    try {
+      // 1. Buscar informações do promoter e evento
+      const promoterResult = await pool.query(`
+        SELECT 
+          p.promoter_id,
+          pe.evento_id,
+          e.id_place as establishment_id,
+          COUNT(DISTINCT lc.lista_convidado_id) FILTER (WHERE lc.status_checkin = 'Check-in') as checkins_count
+        FROM promoters p
+        INNER JOIN promoter_eventos pe ON p.promoter_id = pe.promoter_id
+        INNER JOIN eventos e ON pe.evento_id = e.id
+        LEFT JOIN listas l ON l.promoter_responsavel_id = p.promoter_id AND l.evento_id = pe.evento_id
+        LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
+        WHERE p.promoter_id = $1 AND pe.evento_id = $2
+        GROUP BY p.promoter_id, pe.evento_id, e.id_place
+      `, [promoterId, eventoId]);
+
+      if (promoterResult.rows.length === 0) {
+        return { success: false, message: 'Promoter não encontrado ou não vinculado ao evento' };
+      }
+
+      const promoterData = promoterResult.rows[0];
+      const establishmentId = promoterData.establishment_id;
+      const checkinsCount = parseInt(promoterData.checkins_count || 0);
+
+      if (!establishmentId) {
+        return { success: false, message: 'Estabelecimento não encontrado' };
+      }
+
+      // 2. Buscar regras ativas para este estabelecimento/evento (apenas PROMOTER)
+      let rulesQuery = `
+        SELECT id, descricao, checkins_necessarios, status
+        FROM gift_rules
+        WHERE establishment_id = $1
+        AND status = 'ATIVA'
+        AND tipo_beneficiario = 'PROMOTER'
+        AND (evento_id = $2 OR evento_id IS NULL)
+        ORDER BY checkins_necessarios ASC
+      `;
+      const rulesParams = [establishmentId, eventoId];
+
+      const rulesResult = await pool.query(rulesQuery, rulesParams);
+      const rules = rulesResult.rows;
+
+      if (rules.length === 0) {
+        return { success: true, message: 'Nenhuma regra de brinde encontrada', gifts: [] };
+      }
+
+      // 3. Verificar quais regras foram atingidas e ainda não foram liberadas
+      const giftsAwarded = [];
+      for (const rule of rules) {
+        if (checkinsCount >= rule.checkins_necessarios) {
+          // Verificar se já foi liberado
+          const existingGiftResult = await pool.query(`
+            SELECT id, status 
+            FROM promoter_gifts 
+            WHERE promoter_id = $1 AND evento_id = $2 AND gift_rule_id = $3 AND status != 'CANCELADO'
+          `, [promoterId, eventoId, rule.id]);
+
+          if (existingGiftResult.rows.length === 0) {
+            // Liberar o brinde
+            await pool.query(`
+              INSERT INTO promoter_gifts (promoter_id, evento_id, gift_rule_id, status, checkins_count)
+              VALUES ($1, $2, $3, 'LIBERADO', $4)
+            `, [promoterId, eventoId, rule.id, checkinsCount]);
+            giftsAwarded.push({
+              id: rule.id,
+              descricao: rule.descricao,
+              checkins_necessarios: rule.checkins_necessarios
+            });
+          }
+        }
+      }
+
+      return { 
+        success: true, 
+        gifts: giftsAwarded,
+        checkins_count: checkinsCount
+      };
+    } catch (error) {
+      console.error('Erro ao verificar brindes de promoter:', error);
+      return { success: false, message: 'Erro ao verificar brindes de promoter' };
+    }
+  };
+};
+
 module.exports = (pool) => {
   const router = express.Router();
   const checkAndAwardGifts = createCheckAndAwardGifts(pool);
+  const checkAndAwardPromoterGifts = createCheckAndAwardPromoterGifts(pool);
 
   /**
    * @route   GET /api/gift-rules
@@ -109,7 +202,7 @@ module.exports = (pool) => {
    */
   router.get('/', auth, async (req, res) => {
     try {
-      const { establishment_id, evento_id } = req.query;
+      const { establishment_id, evento_id, tipo_beneficiario } = req.query;
       
       // Verificar se a tabela existe primeiro
       try {
@@ -138,6 +231,15 @@ module.exports = (pool) => {
       if (evento_id !== undefined) {
         query += ` AND (evento_id = $${paramIndex++} OR evento_id IS NULL)`;
         params.push(evento_id);
+      }
+
+      // Filtrar por tipo_beneficiario se fornecido
+      if (tipo_beneficiario) {
+        query += ` AND tipo_beneficiario = $${paramIndex++}`;
+        params.push(tipo_beneficiario);
+      } else {
+        // Por padrão, se não especificado, retorna apenas ANIVERSARIO (compatibilidade com código existente)
+        query += ` AND (tipo_beneficiario = 'ANIVERSARIO' OR tipo_beneficiario IS NULL)`;
       }
 
       query += ' ORDER BY checkins_necessarios ASC';
@@ -183,7 +285,7 @@ module.exports = (pool) => {
    */
   router.post('/', auth, async (req, res) => {
     try {
-      const { establishment_id, evento_id, descricao, checkins_necessarios, status } = req.body;
+      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario } = req.body;
 
       if (!establishment_id || !descricao || !checkins_necessarios) {
         return res.status(400).json({ 
@@ -192,16 +294,20 @@ module.exports = (pool) => {
         });
       }
 
+      // tipo_beneficiario padrão é 'ANIVERSARIO' se não fornecido (compatibilidade)
+      const beneficiario = tipo_beneficiario || 'ANIVERSARIO';
+
       const result = await pool.query(`
-        INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
       `, [
         establishment_id, 
         evento_id || null, 
         descricao, 
         parseInt(checkins_necessarios), 
-        status || 'ATIVA'
+        status || 'ATIVA',
+        beneficiario
       ]);
 
       res.status(201).json({ success: true, rule: result.rows[0] });
@@ -231,7 +337,7 @@ module.exports = (pool) => {
   router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { descricao, checkins_necessarios, status, evento_id } = req.body;
+      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario } = req.body;
 
       const updates = [];
       const params = [];
@@ -245,6 +351,11 @@ module.exports = (pool) => {
       if (checkins_necessarios !== undefined) {
         updates.push(`checkins_necessarios = $${paramIndex++}`);
         params.push(parseInt(checkins_necessarios));
+      }
+
+      if (tipo_beneficiario !== undefined) {
+        updates.push(`tipo_beneficiario = $${paramIndex++}`);
+        params.push(tipo_beneficiario);
       }
 
       if (status !== undefined) {
@@ -262,13 +373,15 @@ module.exports = (pool) => {
       }
 
       params.push(id);
-      const result = await pool.query(`
+      const query = `
         UPDATE gift_rules 
         SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $${paramIndex}
+        WHERE id = $${params.length}
         RETURNING *
-      `, params);
+      `;
 
+      const result = await pool.query(query, params);
+      
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Regra não encontrada' });
       }
@@ -288,8 +401,8 @@ module.exports = (pool) => {
   router.delete('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const result = await pool.query('DELETE FROM gift_rules WHERE id = $1 RETURNING id', [id]);
-
+      const result = await pool.query('DELETE FROM gift_rules WHERE id = $1 RETURNING *', [id]);
+      
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Regra não encontrada' });
       }
@@ -311,15 +424,11 @@ module.exports = (pool) => {
       const { guestListId } = req.params;
       const result = await pool.query(`
         SELECT 
-          glg.id,
-          glg.status,
-          glg.checkins_count,
-          glg.liberado_em,
-          glg.entregue_em,
+          glg.*,
           gr.descricao,
           gr.checkins_necessarios
         FROM guest_list_gifts glg
-        JOIN gift_rules gr ON glg.gift_rule_id = gr.id
+        INNER JOIN gift_rules gr ON glg.gift_rule_id = gr.id
         WHERE glg.guest_list_id = $1
         AND glg.status != 'CANCELADO'
         ORDER BY glg.liberado_em DESC
@@ -328,7 +437,82 @@ module.exports = (pool) => {
       res.status(200).json({ success: true, gifts: result.rows });
     } catch (error) {
       console.error('Erro ao buscar brindes da guest list:', error);
-      res.status(500).json({ success: false, error: 'Erro ao buscar brindes' });
+      res.status(500).json({ success: false, error: 'Erro ao buscar brindes da guest list' });
+    }
+  });
+
+  /**
+   * @route   GET /api/gift-rules/promoter/:promoterId/evento/:eventoId/gifts
+   * @desc    Busca brindes liberados, regras e progresso para um promoter em um evento específico
+   * @access  Private
+   */
+  router.get('/promoter/:promoterId/evento/:eventoId/gifts', auth, async (req, res) => {
+    try {
+      const { promoterId, eventoId } = req.params;
+      
+      // 1. Buscar brindes liberados
+      const giftsResult = await pool.query(`
+        SELECT 
+          pg.*,
+          gr.descricao,
+          gr.checkins_necessarios
+        FROM promoter_gifts pg
+        INNER JOIN gift_rules gr ON pg.gift_rule_id = gr.id
+        WHERE pg.promoter_id = $1
+        AND pg.evento_id = $2
+        AND pg.status != 'CANCELADO'
+        ORDER BY pg.liberado_em DESC
+      `, [promoterId, eventoId]);
+
+      // 2. Contar check-ins do promoter neste evento
+      const checkinsResult = await pool.query(`
+        SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
+        FROM listas_convidados lc
+        INNER JOIN listas l ON lc.lista_id = l.lista_id
+        WHERE l.promoter_responsavel_id = $1
+        AND l.evento_id = $2
+        AND lc.status_checkin = 'Check-in'
+      `, [promoterId, eventoId]);
+      
+      const checkinsCount = parseInt(checkinsResult.rows[0]?.total_checkins || 0);
+      
+      // 3. Buscar regras ativas para mostrar progresso
+      const eventoResult = await pool.query(`
+        SELECT e.id_place as establishment_id
+        FROM eventos e
+        WHERE e.id = $1
+      `, [eventoId]);
+      
+      let rules = [];
+      if (eventoResult.rows.length > 0 && eventoResult.rows[0].establishment_id) {
+        const establishmentId = eventoResult.rows[0].establishment_id;
+        const rulesResult = await pool.query(`
+          SELECT id, descricao, checkins_necessarios, status
+          FROM gift_rules
+          WHERE establishment_id = $1
+          AND tipo_beneficiario = 'PROMOTER'
+          AND status = 'ATIVA'
+          AND (evento_id = $2 OR evento_id IS NULL)
+          ORDER BY checkins_necessarios ASC
+        `, [establishmentId, eventoId]);
+        
+        rules = rulesResult.rows.map(rule => ({
+          ...rule,
+          progresso: Math.min(100, (checkinsCount / rule.checkins_necessarios) * 100),
+          faltam: Math.max(0, rule.checkins_necessarios - checkinsCount),
+          liberado: giftsResult.rows.find(g => g.gift_rule_id === rule.id) !== undefined
+        }));
+      }
+
+      res.status(200).json({ 
+        success: true, 
+        gifts: giftsResult.rows,
+        checkins_count: checkinsCount,
+        rules: rules
+      });
+    } catch (error) {
+      console.error('Erro ao buscar brindes do promoter:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar brindes do promoter' });
     }
   });
 
@@ -340,18 +524,31 @@ module.exports = (pool) => {
   router.put('/gifts/:giftId/deliver', auth, async (req, res) => {
     try {
       const { giftId } = req.params;
-      const result = await pool.query(`
-        UPDATE guest_list_gifts 
-        SET status = 'ENTREGUE', entregue_em = CURRENT_TIMESTAMP
-        WHERE id = $1 AND status = 'LIBERADO'
-        RETURNING *
-      `, [giftId]);
+      const { tipo } = req.body; // 'guest_list' ou 'promoter'
 
+      let query, params;
+      if (tipo === 'promoter') {
+        query = `
+          UPDATE promoter_gifts 
+          SET status = 'ENTREGUE', entregue_em = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING *
+        `;
+        params = [giftId];
+      } else {
+        query = `
+          UPDATE guest_list_gifts 
+          SET status = 'ENTREGUE', entregue_em = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING *
+        `;
+        params = [giftId];
+      }
+
+      const result = await pool.query(query, params);
+      
       if (result.rows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Brinde não encontrado ou não está no status LIBERADO' 
-        });
+        return res.status(404).json({ success: false, error: 'Brinde não encontrado' });
       }
 
       res.status(200).json({ success: true, gift: result.rows[0] });
@@ -361,9 +558,5 @@ module.exports = (pool) => {
     }
   });
 
-  // Retorna tanto o router quanto a função
-  return {
-    router,
-    checkAndAwardGifts
-  };
+  return { router, checkAndAwardGifts, checkAndAwardPromoterGifts };
 };
