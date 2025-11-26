@@ -217,13 +217,37 @@ module.exports = (pool, upload) => {
                 { expiresIn: '7d' }
             );
 
+            // Se o usuário for promoter, buscar o código identificador
+            let promoterCodigo = null;
+            if (user.role === 'promoter') {
+                try {
+                    const promoterResult = await pool.query(
+                        'SELECT codigo_identificador FROM promoters WHERE email = $1 AND ativo = TRUE AND status = $2',
+                        [user.email, 'Ativo']
+                    );
+                    if (promoterResult.rows.length > 0 && promoterResult.rows[0].codigo_identificador) {
+                        promoterCodigo = promoterResult.rows[0].codigo_identificador;
+                    }
+                } catch (promoterError) {
+                    console.error('Erro ao buscar código do promoter:', promoterError);
+                    // Continua sem o código, mas loga o erro
+                }
+            }
+
             // Retornar também o tipo de usuário (role) na resposta
-            res.json({
+            const responseData = {
                 token,
                 userId: user.id,
                 role: user.role,
-                nome: user.name 
-            });
+                nome: user.name
+            };
+
+            // Adicionar promoterCodigo se for promoter
+            if (promoterCodigo) {
+                responseData.promoterCodigo = promoterCodigo;
+            }
+
+            res.json(responseData);
         } catch (error) {
             console.error('Erro ao realizar login:', error);
             res.status(500).json({ error: 'Erro ao realizar login' });
