@@ -937,7 +937,7 @@ class EventosController {
    */
   async getPromoters(req, res) {
     try {
-      const { status, limit } = req.query;
+      const { status, limit, establishment_id } = req.query;
       
       let query = `
         SELECT 
@@ -959,8 +959,14 @@ class EventosController {
         params.push(status);
       }
       
+      // Filtrar por establishment_id se fornecido
+      if (establishment_id) {
+        query += ` AND p.establishment_id = $${paramIndex++}`;
+        params.push(parseInt(establishment_id));
+      }
+      
       query += ` GROUP BY p.promoter_id`;
-      query += ` ORDER BY total_checkins DESC, p.nome ASC`;
+      query += ` ORDER BY p.nome ASC`;
       
       if (limit) {
         query += ` LIMIT $${paramIndex++}`;
@@ -975,9 +981,13 @@ class EventosController {
       });
     } catch (error) {
       console.error('❌ Erro ao listar promoters:', error);
+      console.error('   Mensagem:', error.message);
+      console.error('   Código:', error.code);
+      console.error('   Stack:', error.stack);
       res.status(500).json({
         success: false,
-        error: 'Erro ao listar promoters'
+        error: 'Erro ao listar promoters',
+        message: error.message || 'Erro desconhecido'
       });
     }
   }
