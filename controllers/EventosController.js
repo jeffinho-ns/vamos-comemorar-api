@@ -837,15 +837,31 @@ class EventosController {
       
       const dataCheckin = status_checkin === 'Check-in' ? new Date() : null;
       
-      // Atualizar com campos de entrada
-      await this.pool.query(`
-        UPDATE listas_convidados
-        SET status_checkin = $1, 
-            data_checkin = $2,
-            entrada_tipo = $3,
-            entrada_valor = $4
-        WHERE lista_convidado_id = $5
-      `, [status_checkin, dataCheckin, entrada_tipo || null, entrada_valor || null, listaConvidadoId]);
+      // Atualizar com campos de entrada (tratamento de erro caso as colunas não existam)
+      try {
+        await this.pool.query(`
+          UPDATE listas_convidados
+          SET status_checkin = $1, 
+              data_checkin = $2,
+              entrada_tipo = $3,
+              entrada_valor = $4
+          WHERE lista_convidado_id = $5
+        `, [status_checkin, dataCheckin, entrada_tipo || null, entrada_valor || null, listaConvidadoId]);
+      } catch (updateError) {
+        // Se der erro porque as colunas não existem, tentar sem elas
+        if (updateError.code === '42703' || updateError.message?.includes('entrada_tipo') || updateError.message?.includes('entrada_valor')) {
+          console.log('⚠️ Colunas entrada_tipo/entrada_valor não existem, atualizando sem elas...');
+          await this.pool.query(`
+            UPDATE listas_convidados
+            SET status_checkin = $1, 
+                data_checkin = $2
+            WHERE lista_convidado_id = $3
+          `, [status_checkin, dataCheckin, listaConvidadoId]);
+        } else {
+          // Se for outro erro, relançar
+          throw updateError;
+        }
+      }
       
       const convidadoResult = await this.pool.query(`
         SELECT 
@@ -900,9 +916,17 @@ class EventosController {
       });
     } catch (error) {
       console.error('❌ Erro ao atualizar check-in:', error);
+      console.error('❌ Detalhes do erro:', {
+        message: error.message,
+        code: error.code,
+        detail: error.detail,
+        stack: error.stack
+      });
       res.status(500).json({
         success: false,
-        error: 'Erro ao atualizar check-in'
+        error: 'Erro ao atualizar check-in',
+        message: error.message || 'Erro desconhecido',
+        detail: error.detail || null
       });
     }
   }

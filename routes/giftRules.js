@@ -133,17 +133,21 @@ const createCheckAndAwardPromoterGifts = (pool) => {
         return { success: false, message: 'Estabelecimento não encontrado' };
       }
 
-      // 2. Buscar regras ativas para este estabelecimento/evento (apenas PROMOTER)
+      // 2. Buscar regras ativas para este estabelecimento/evento/promoter (apenas PROMOTER)
+      // Priorizar regras específicas do promoter, depois regras gerais (promoter_id IS NULL)
       let rulesQuery = `
-        SELECT id, descricao, checkins_necessarios, status
+        SELECT id, descricao, checkins_necessarios, status, promoter_id
         FROM gift_rules
         WHERE establishment_id = $1
         AND status = 'ATIVA'
         AND tipo_beneficiario = 'PROMOTER'
         AND (evento_id = $2 OR evento_id IS NULL)
-        ORDER BY checkins_necessarios ASC
+        AND (promoter_id = $3 OR promoter_id IS NULL)
+        ORDER BY 
+          CASE WHEN promoter_id = $3 THEN 0 ELSE 1 END,  -- Regras específicas primeiro
+          checkins_necessarios ASC
       `;
-      const rulesParams = [establishmentId, eventoId];
+      const rulesParams = [establishmentId, eventoId, promoterId];
 
       const rulesResult = await pool.query(rulesQuery, rulesParams);
       const rules = rulesResult.rows;
@@ -242,7 +246,22 @@ module.exports = (pool) => {
         query += ` AND (tipo_beneficiario = 'ANIVERSARIO' OR tipo_beneficiario IS NULL)`;
       }
 
-      query += ' ORDER BY checkins_necessarios ASC';
+      // Filtrar por promoter_id se fornecido
+      if (req.query.promoter_id !== undefined) {
+        const promoterId = req.query.promoter_id;
+        if (promoterId === null || promoterId === 'null' || promoterId === '') {
+          // Buscar apenas regras gerais (promoter_id IS NULL)
+          query += ` AND promoter_id IS NULL`;
+        } else {
+          // Buscar regras específicas do promoter OU regras gerais
+          query += ` AND (promoter_id = $${paramIndex++} OR promoter_id IS NULL)`;
+          params.push(promoterId);
+          // Ordenar para que regras específicas apareçam primeiro
+          query += ' ORDER BY CASE WHEN promoter_id IS NOT NULL THEN 0 ELSE 1 END, checkins_necessarios ASC';
+        }
+      } else {
+        query += ' ORDER BY checkins_necessarios ASC';
+      }
 
       const result = await pool.query(query, params);
       res.status(200).json({ success: true, rules: result.rows });
@@ -285,7 +304,7 @@ module.exports = (pool) => {
    */
   router.post('/', auth, async (req, res) => {
     try {
-      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario } = req.body;
+      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id } = req.body;
 
       if (!establishment_id || !descricao || !checkins_necessarios) {
         return res.status(400).json({ 
@@ -296,10 +315,13 @@ module.exports = (pool) => {
 
       // tipo_beneficiario padrão é 'ANIVERSARIO' se não fornecido (compatibilidade)
       const beneficiario = tipo_beneficiario || 'ANIVERSARIO';
+      
+      // Se for regra de promoter e não tiver promoter_id, pode ser regra geral (promoter_id = NULL)
+      const promoterIdValue = (beneficiario === 'PROMOTER' && promoter_id) ? parseInt(promoter_id) : null;
 
       const result = await pool.query(`
-        INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `, [
         establishment_id, 
@@ -307,7 +329,8 @@ module.exports = (pool) => {
         descricao, 
         parseInt(checkins_necessarios), 
         status || 'ATIVA',
-        beneficiario
+        beneficiario,
+        promoterIdValue
       ]);
 
       res.status(201).json({ success: true, rule: result.rows[0] });
@@ -337,7 +360,7 @@ module.exports = (pool) => {
   router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario } = req.body;
+      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id } = req.body;
 
       const updates = [];
       const params = [];
@@ -356,6 +379,15 @@ module.exports = (pool) => {
       if (tipo_beneficiario !== undefined) {
         updates.push(`tipo_beneficiario = $${paramIndex++}`);
         params.push(tipo_beneficiario);
+      }
+
+      if (promoter_id !== undefined) {
+        // Se promoter_id for null, 'null', '', ou 0, significa regra geral
+        const promoterIdValue = (promoter_id && promoter_id !== 'null' && promoter_id !== '' && promoter_id !== 0) 
+          ? parseInt(promoter_id) 
+          : null;
+        updates.push(`promoter_id = $${paramIndex++}`);
+        params.push(promoterIdValue);
       }
 
       if (status !== undefined) {
