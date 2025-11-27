@@ -329,10 +329,11 @@ module.exports = (pool) => {
                     mi.barId,
                     mc.name as categoryName,
                     b.name as barName,
-                    COUNT(mi.id) as itemsCount
+                    COUNT(mi.id) as itemsCount,
+                    MIN(mi.id) as id
                 FROM menu_items mi
-                JOIN menu_categories mc ON mi.categoryId = mc.id
-                JOIN bars b ON mi.barId = b.id
+                LEFT JOIN menu_categories mc ON mi.categoryId = mc.id
+                LEFT JOIN bars b ON mi.barId = b.id
                 WHERE mi.subCategory IS NOT NULL 
                   AND mi.subCategory != ''
                   AND mi.subCategory != ' '
@@ -342,7 +343,7 @@ module.exports = (pool) => {
             res.json(result.rows);
         } catch (error) {
             console.error('Erro ao listar sub-categorias:', error);
-            res.status(500).json({ error: 'Erro ao listar sub-categorias.' });
+            res.status(500).json({ error: 'Erro ao listar sub-categorias.', details: error.message });
         }
     });
 
