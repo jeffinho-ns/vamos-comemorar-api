@@ -55,17 +55,43 @@ module.exports = (pool) => {
       }
 
       // Buscar convidados com informações de check-in
-      const guestsResult = await pool.query(
-        `SELECT id, name, checked_in, checkin_time, email FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`,
-        [list.id]
-      );
+      // Verificar quais colunas existem na tabela guests
+      let guestsQuery;
+      try {
+        // Tentar buscar com checked_in e checkin_time (podem não existir em versões antigas)
+        const columnsResult = await pool.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_schema = current_schema()
+          AND table_name = 'guests' 
+          AND column_name IN ('checked_in', 'checkin_time', 'email')
+        `);
+        
+        const hasCheckedIn = columnsResult.rows.some(col => col.column_name === 'checked_in');
+        const hasCheckinTime = columnsResult.rows.some(col => col.column_name === 'checkin_time');
+        const hasEmail = columnsResult.rows.some(col => col.column_name === 'email');
+        
+        // Construir query dinamicamente baseado nas colunas disponíveis
+        const selectFields = ['id', 'name'];
+        if (hasCheckedIn) selectFields.push('checked_in');
+        if (hasCheckinTime) selectFields.push('checkin_time');
+        if (hasEmail) selectFields.push('email');
+        
+        guestsQuery = `SELECT ${selectFields.join(', ')} FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`;
+      } catch (error) {
+        // Fallback: usar query básica se houver erro ao verificar colunas
+        console.warn('⚠️ Erro ao verificar colunas da tabela guests, usando query básica:', error);
+        guestsQuery = 'SELECT id, name FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
+      }
+      
+      const guestsResult = await pool.query(guestsQuery, [list.id]);
 
       // Mapear convidados com status de check-in
       const guestsWithStatus = guestsResult.rows.map(g => ({
         id: g.id,
         name: g.name,
-        status: g.checked_in ? 'CHECK-IN' : 'Confirmado',
-        checked_in: g.checked_in || false,
+        status: (g.checked_in === true || g.checked_in === 1) ? 'CHECK-IN' : 'Confirmado',
+        checked_in: g.checked_in === true || g.checked_in === 1 || false,
         checkin_time: g.checkin_time || null,
         email: g.email || null
       }));
