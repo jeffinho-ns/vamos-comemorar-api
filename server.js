@@ -96,6 +96,7 @@ const giftRulesModule = require('./routes/giftRules');
 const actionLogsRoutes = require('./routes/actionLogs');
 const eventosRoutes = require('./routes/eventos');
 const operationalDetailsRoutes = require('./routes/operationalDetails');
+const checkinsSelfValidateRoutes = require('./routes/checkinsSelfValidate');
 
 
 // Usando as Rotas
@@ -132,6 +133,8 @@ app.use('/api/restaurant-tables', restaurantTablesRoutes(pool));
 app.use('/api/large-reservations', largeReservationsRoutes(pool));
 // Rotas de lista de convidados
 app.use('/api/guest-list', guestListPublicRoutes(pool));
+// Rotas de check-in automático via QR Code
+app.use('/api/checkins', checkinsSelfValidateRoutes(pool));
 // Rotas de regras de brindes - precisa ser importado antes de guestListsAdminRoutes
 const { router: giftRulesRouter, checkAndAwardGifts, checkAndAwardPromoterGifts } = giftRulesModule(pool);
 app.use('/api/gift-rules', giftRulesRouter);

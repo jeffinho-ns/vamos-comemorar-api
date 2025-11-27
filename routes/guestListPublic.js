@@ -54,14 +54,21 @@ module.exports = (pool) => {
         }
       }
 
-      // Buscar convidados
+      // Buscar convidados com informações de check-in
       const guestsResult = await pool.query(
-        `SELECT id, name, COALESCE(NULL, NULL) as status FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`,
+        `SELECT id, name, checked_in, checkin_time, email FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`,
         [list.id]
       );
 
-      // status fixo "Confirmado"
-      const guestsWithStatus = guestsResult.rows.map(g => ({ id: g.id, name: g.name, status: 'Confirmado' }));
+      // Mapear convidados com status de check-in
+      const guestsWithStatus = guestsResult.rows.map(g => ({
+        id: g.id,
+        name: g.name,
+        status: g.checked_in ? 'CHECK-IN' : 'Confirmado',
+        checked_in: g.checked_in || false,
+        checkin_time: g.checkin_time || null,
+        email: g.email || null
+      }));
 
       res.json({
         success: true,
