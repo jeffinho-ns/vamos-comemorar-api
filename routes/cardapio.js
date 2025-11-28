@@ -126,19 +126,26 @@ module.exports = (pool) => {
             const imageMap = new Map(); // Para evitar duplicatas e rastrear data mais recente
 
             // Buscar imagens da tabela cardapio_images (mais recentes primeiro)
-            const cardapioImagesResult = await pool.query(`
-                SELECT 
-                    filename,
-                    created_at,
-                    'cardapio_image' as source_type,
-                    'general' as image_type
-                FROM cardapio_images
-                WHERE filename IS NOT NULL 
-                  AND filename != ''
-                  AND filename != ' '
-                  AND filename != 'null'
-                ORDER BY created_at DESC
-            `);
+            // Usar try-catch para caso a tabela não exista ou tenha problemas
+            let cardapioImagesResult = { rows: [] };
+            try {
+                cardapioImagesResult = await pool.query(`
+                    SELECT 
+                        filename,
+                        uploaded_at as created_at,
+                        'cardapio_image' as source_type,
+                        'general' as image_type
+                    FROM cardapio_images
+                    WHERE filename IS NOT NULL 
+                      AND filename != ''
+                      AND filename != ' '
+                      AND filename != 'null'
+                    ORDER BY uploaded_at DESC
+                `);
+            } catch (cardapioError) {
+                console.warn('⚠️ [GALLERY] Erro ao buscar de cardapio_images (tabela pode não existir):', cardapioError.message);
+                // Continuar sem as imagens de cardapio_images
+            }
 
             console.log(`📊 [GALLERY] Encontradas ${cardapioImagesResult.rows.length} imagens na tabela cardapio_images`);
 
@@ -293,7 +300,8 @@ module.exports = (pool) => {
             });
 
             // Converter Map para array
-            images.push(...Array.from(imageMap.values()));
+            const imageArray = Array.from(imageMap.values());
+            images.push(...imageArray);
 
             // Ordenar por data de criação (mais recente primeiro), depois por nome
             images.sort((a, b) => {
