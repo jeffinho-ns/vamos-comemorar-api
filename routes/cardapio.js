@@ -2,6 +2,180 @@ const express = require('express');
 const router = express.Router();
 
 module.exports = (pool) => {
+    // Função helper para extrair apenas o nome do arquivo da URL
+    const extractFilename = (url) => {
+        if (!url) return null;
+        const urlStr = String(url);
+        // Se já é só o nome do arquivo (sem http/https ou /)
+        if (!urlStr.includes('http') && !urlStr.includes('/')) {
+            return urlStr.trim();
+        }
+        // Extrair nome do arquivo de URL completa
+        const parts = urlStr.split('/');
+        const filename = parts[parts.length - 1];
+        // Remover query strings se houver
+        return filename.split('?')[0].trim();
+    };
+
+    // ============================================
+    // ROTA DE GALERIA - DEVE VIR ANTES DE TODAS AS OUTRAS
+    // ============================================
+    router.get('/gallery/images', async (req, res) => {
+        try {
+            console.log('🖼️ [GALLERY] Endpoint chamado - Buscando imagens da galeria...');
+            const images = [];
+
+            // Buscar imagens de menu_items
+            const itemsResult = await pool.query(`
+                SELECT DISTINCT 
+                    imageurl,
+                    'menu_item' as source_type,
+                    'item' as image_type,
+                    COUNT(*) as usage_count,
+                    MIN(id) as first_item_id
+                FROM menu_items
+                WHERE imageurl IS NOT NULL 
+                  AND imageurl != ''
+                  AND imageurl != ' '
+                  AND imageurl != 'null'
+                  AND (deleted_at IS NULL)
+                GROUP BY imageurl
+                ORDER BY imageurl
+            `);
+
+            console.log(`📊 [GALLERY] Encontrados ${itemsResult.rows.length} itens com imagens`);
+
+            itemsResult.rows.forEach(row => {
+                const filename = extractFilename(row.imageurl);
+                if (filename && filename !== 'null' && filename.trim() !== '') {
+                    // Verificar se já existe
+                    const existingIndex = images.findIndex(img => img.filename === filename);
+                    if (existingIndex >= 0) {
+                        images[existingIndex].usageCount += parseInt(row.usage_count);
+                    } else {
+                        images.push({
+                            filename: filename,
+                            sourceType: row.source_type,
+                            imageType: row.image_type,
+                            usageCount: parseInt(row.usage_count),
+                            firstItemId: row.first_item_id
+                        });
+                    }
+                }
+            });
+
+            // Buscar imagens de bars
+            const barsResult = await pool.query(`
+                SELECT 
+                    logourl,
+                    coverimageurl,
+                    popupimageurl,
+                    id as bar_id,
+                    name as bar_name
+                FROM bars
+                WHERE (logourl IS NOT NULL AND logourl != '' AND logourl != ' ' AND logourl != 'null')
+                   OR (coverimageurl IS NOT NULL AND coverimageurl != '' AND coverimageurl != ' ' AND coverimageurl != 'null')
+                   OR (popupimageurl IS NOT NULL AND popupimageurl != '' AND popupimageurl != ' ' AND popupimageurl != 'null')
+            `);
+
+            console.log(`📊 [GALLERY] Encontrados ${barsResult.rows.length} bares com imagens`);
+
+            barsResult.rows.forEach(row => {
+                // Processar logoUrl
+                if (row.logourl && row.logourl !== 'null' && row.logourl.trim() !== '') {
+                    const filename = extractFilename(row.logourl);
+                    if (filename) {
+                        const existingIndex = images.findIndex(img => img.filename === filename);
+                        if (existingIndex >= 0) {
+                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
+                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
+                            images[existingIndex].barIds.push({
+                                id: row.bar_id,
+                                name: row.bar_name,
+                                type: 'bar_logo'
+                            });
+                        } else {
+                            images.push({
+                                filename: filename,
+                                sourceType: 'bar',
+                                imageType: 'bar_logo',
+                                usageCount: 1,
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_logo' }]
+                            });
+                        }
+                    }
+                }
+                // Processar coverImageUrl
+                if (row.coverimageurl && row.coverimageurl !== 'null' && row.coverimageurl.trim() !== '') {
+                    const filename = extractFilename(row.coverimageurl);
+                    if (filename) {
+                        const existingIndex = images.findIndex(img => img.filename === filename);
+                        if (existingIndex >= 0) {
+                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
+                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
+                            images[existingIndex].barIds.push({
+                                id: row.bar_id,
+                                name: row.bar_name,
+                                type: 'bar_cover'
+                            });
+                        } else {
+                            images.push({
+                                filename: filename,
+                                sourceType: 'bar',
+                                imageType: 'bar_cover',
+                                usageCount: 1,
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_cover' }]
+                            });
+                        }
+                    }
+                }
+                // Processar popupImageUrl
+                if (row.popupimageurl && row.popupimageurl !== 'null' && row.popupimageurl.trim() !== '') {
+                    const filename = extractFilename(row.popupimageurl);
+                    if (filename) {
+                        const existingIndex = images.findIndex(img => img.filename === filename);
+                        if (existingIndex >= 0) {
+                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
+                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
+                            images[existingIndex].barIds.push({
+                                id: row.bar_id,
+                                name: row.bar_name,
+                                type: 'bar_popup'
+                            });
+                        } else {
+                            images.push({
+                                filename: filename,
+                                sourceType: 'bar',
+                                imageType: 'bar_popup',
+                                usageCount: 1,
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_popup' }]
+                            });
+                        }
+                    }
+                }
+            });
+
+            // Ordenar por nome do arquivo
+            images.sort((a, b) => {
+                const nameA = (a.filename || '').toLowerCase();
+                const nameB = (b.filename || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+
+            console.log(`✅ [GALLERY] Total de ${images.length} imagens únicas encontradas`);
+
+            res.json({
+                success: true,
+                images: images,
+                total: images.length
+            });
+        } catch (error) {
+            console.error('❌ [GALLERY] Erro ao listar imagens da galeria:', error);
+            console.error('❌ [GALLERY] Stack trace:', error.stack);
+            res.status(500).json({ error: 'Erro ao listar imagens da galeria.', details: error.message });
+        }
+    });
+
     // Rota para criar um novo estabelecimento
     router.post('/bars', async (req, res) => {
         const { 
@@ -681,7 +855,6 @@ module.exports = (pool) => {
         }
     });
 
-
     router.get('/items', async (req, res) => {
         try {
             const { barId } = req.query;
@@ -747,7 +920,8 @@ module.exports = (pool) => {
                 JOIN menu_categories mc ON mi.categoryid = mc.id
                 LEFT JOIN item_toppings it ON mi.id = it.item_id
                 LEFT JOIN toppings t ON it.topping_id = t.id
-                ${barId ? 'WHERE mi.barid = $1' : ''}
+                WHERE mi.deleted_at IS NULL
+                ${barId ? 'AND mi.barid = $1' : ''}
                 GROUP BY ${groupByFields.join(', ')}
                 ORDER BY mi.barid, mi.categoryid, mi."order"
             `;
@@ -997,22 +1171,140 @@ module.exports = (pool) => {
         }
     });
     
-    // Rota para deletar um item (permanente)
+    // Rota para deletar um item (soft delete - vai para lixeira)
     router.delete('/items/:id', async (req, res) => {
         const { id } = req.params;
+        const { permanent } = req.query; // Se permanent=true, exclui permanentemente
+        
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
-            await client.query('DELETE FROM menu_items WHERE id = $1', [id]);
-            await client.query('COMMIT');
-            res.json({ message: 'Item deletado permanentemente com sucesso.' });
+            
+            if (permanent === 'true') {
+                // Exclusão permanente (para limpeza após 30 dias ou admin)
+                await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
+                await client.query('DELETE FROM menu_items WHERE id = $1', [id]);
+                await client.query('COMMIT');
+                res.json({ message: 'Item deletado permanentemente com sucesso.' });
+            } else {
+                // Soft delete (marca como deletado)
+                await client.query(
+                    'UPDATE menu_items SET deleted_at = NOW() WHERE id = $1',
+                    [id]
+                );
+                await client.query('COMMIT');
+                res.json({ 
+                    message: 'Item movido para a lixeira. Você pode restaurá-lo dentro de 30 dias.',
+                    deletedAt: new Date().toISOString()
+                });
+            }
         } catch (error) {
             await client.query('ROLLBACK');
             console.error('Erro ao deletar item:', error);
-            res.status(500).json({ error: 'Erro ao deletar item.' });
+            res.status(500).json({ error: 'Erro ao deletar item.', details: error.message });
         } finally {
             if (client) client.release();
+        }
+    });
+
+    // Rota para listar itens deletados (lixeira)
+    router.get('/items/trash', async (req, res) => {
+        try {
+            const query = `
+                SELECT 
+                    mi.id, 
+                    mi.name, 
+                    mi.description, 
+                    mi.price, 
+                    mi.imageurl as "imageUrl",
+                    mi.categoryid as "categoryId", 
+                    mi.barid as "barId", 
+                    mi."order", 
+                    mc.name as category,
+                    mi.subcategory as "subCategoryName",
+                    mi.deleted_at,
+                    CASE 
+                        WHEN mi.deleted_at IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM (NOW() - mi.deleted_at)) / 86400
+                    END as days_deleted,
+                    CASE 
+                        WHEN mi.visible IS NULL THEN 1
+                        ELSE (mi.visible::int)
+                    END AS visible
+                FROM menu_items mi 
+                LEFT JOIN menu_categories mc ON mi.categoryid = mc.id
+                WHERE mi.deleted_at IS NOT NULL
+                ORDER BY mi.deleted_at DESC
+            `;
+            
+            const result = await pool.query(query);
+            
+            const items = result.rows.map((item) => ({
+                ...item,
+                daysDeleted: item.days_deleted ? Math.floor(item.days_deleted) : 0,
+                canRestore: item.days_deleted ? item.days_deleted < 30 : true
+            }));
+            
+            res.json({
+                success: true,
+                items: items,
+                total: items.length,
+                itemsExpiringSoon: items.filter(item => item.daysDeleted >= 25 && item.daysDeleted < 30).length
+            });
+        } catch (error) {
+            console.error('Erro ao listar itens da lixeira:', error);
+            res.status(500).json({ error: 'Erro ao listar itens da lixeira.', details: error.message });
+        }
+    });
+
+    // Rota para restaurar item da lixeira
+    router.patch('/items/:id/restore', async (req, res) => {
+        const { id } = req.params;
+        
+        try {
+            // Verificar se o item existe e está deletado
+            const checkResult = await pool.query(
+                'SELECT id, name, deleted_at FROM menu_items WHERE id = $1',
+                [id]
+            );
+            
+            if (checkResult.rows.length === 0) {
+                return res.status(404).json({ error: 'Item não encontrado.' });
+            }
+            
+            const item = checkResult.rows[0];
+            
+            if (item.deleted_at === null) {
+                return res.status(400).json({ error: 'Item não está na lixeira. Ele já está ativo.' });
+            }
+            
+            // Verificar se já passou de 30 dias
+            const daysDeleted = (new Date().getTime() - new Date(item.deleted_at).getTime()) / (1000 * 60 * 60 * 24);
+            
+            if (daysDeleted >= 30) {
+                return res.status(400).json({ 
+                    error: 'Item não pode ser restaurado. Passou mais de 30 dias desde a exclusão.',
+                    daysDeleted: Math.floor(daysDeleted)
+                });
+            }
+            
+            // Restaurar item (remover deleted_at)
+            await pool.query(
+                'UPDATE menu_items SET deleted_at = NULL WHERE id = $1',
+                [id]
+            );
+            
+            res.json({
+                success: true,
+                message: 'Item restaurado com sucesso!',
+                item: {
+                    id: item.id,
+                    name: item.name
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao restaurar item:', error);
+            res.status(500).json({ error: 'Erro ao restaurar item.', details: error.message });
         }
     });
 
