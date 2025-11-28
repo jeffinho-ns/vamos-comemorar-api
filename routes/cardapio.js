@@ -20,6 +20,105 @@ module.exports = (pool) => {
     // ============================================
     // ROTA DE GALERIA - DEVE VIR ANTES DE TODAS AS OUTRAS
     // ============================================
+    
+    // Rota para deletar imagem da galeria (verifica uso antes de deletar)
+    router.delete('/gallery/images/:filename', async (req, res) => {
+        try {
+            const { filename } = req.params;
+            const ftpConfig = req.app.get('ftpConfig');
+            
+            if (!ftpConfig) {
+                return res.status(500).json({ error: 'Configuração FTP não disponível.' });
+            }
+            
+            console.log(`🗑️ [GALLERY] Tentando deletar imagem: ${filename}`);
+            
+            // Verificar se a imagem está sendo usada em menu_items
+            const itemsUsingImage = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM menu_items
+                WHERE (imageurl = $1 OR imageurl LIKE $2)
+                  AND deleted_at IS NULL
+            `, [filename, `%${filename}`]);
+            
+            const itemsCount = parseInt(itemsUsingImage.rows[0].count || 0);
+            
+            // Verificar se está sendo usada em bars
+            const barsUsingImage = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM bars
+                WHERE logourl = $1 OR logourl LIKE $2
+                   OR coverimageurl = $1 OR coverimageurl LIKE $2
+                   OR popupimageurl = $1 OR popupimageurl LIKE $2
+            `, [filename, `%${filename}`]);
+            
+            const barsCount = parseInt(barsUsingImage.rows[0].count || 0);
+            
+            const totalUsage = itemsCount + barsCount;
+            
+            if (totalUsage > 0) {
+                return res.status(400).json({
+                    error: 'Não é possível deletar esta imagem.',
+                    message: `Esta imagem está sendo usada em ${totalUsage} lugar(es). Remova a imagem dos itens/bares antes de deletá-la.`,
+                    usage: {
+                        items: itemsCount,
+                        bars: barsCount,
+                        total: totalUsage
+                    }
+                });
+            }
+            
+            // Se não está sendo usada, deletar do FTP
+            try {
+                const ftp = require('basic-ftp');
+                const client = new ftp.Client();
+                
+                await client.access({
+                    host: ftpConfig.host,
+                    user: ftpConfig.user,
+                    password: ftpConfig.password,
+                    secure: ftpConfig.secure,
+                    port: ftpConfig.port
+                });
+                
+                await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
+                
+                // Tentar deletar o arquivo
+                try {
+                    await client.remove(filename);
+                    console.log(`✅ [GALLERY] Arquivo ${filename} deletado do FTP`);
+                } catch (removeError) {
+                    console.warn(`⚠️ [GALLERY] Erro ao deletar do FTP (arquivo pode não existir):`, removeError.message);
+                    // Continuar mesmo se não conseguir deletar do FTP (pode não existir mais)
+                }
+                
+                client.close();
+                
+                res.json({
+                    success: true,
+                    message: 'Imagem deletada com sucesso.',
+                    filename: filename
+                });
+            } catch (ftpError) {
+                console.error('❌ [GALLERY] Erro ao deletar do FTP:', ftpError);
+                // Ainda retornar sucesso se não conseguir deletar do FTP (pode não existir)
+                res.json({
+                    success: true,
+                    message: 'Imagem removida (arquivo no FTP pode não existir).',
+                    filename: filename,
+                    warning: 'Não foi possível deletar o arquivo do servidor FTP.'
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ [GALLERY] Erro ao deletar imagem da galeria:', error);
+            res.status(500).json({ 
+                error: 'Erro ao deletar imagem da galeria.', 
+                details: error.message 
+            });
+        }
+    });
+    
     router.get('/gallery/images', async (req, res) => {
         try {
             console.log('🖼️ [GALLERY] Endpoint chamado - Buscando imagens da galeria...');
