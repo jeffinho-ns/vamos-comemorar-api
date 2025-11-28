@@ -265,9 +265,9 @@ module.exports = (pool) => {
       const { codigo } = req.params;
       console.log('🔍 Buscando eventos para promoter:', codigo);
 
-      // Buscar promoter
+      // Buscar promoter com establishment_id
       const promotersResult = await pool.query(
-        `SELECT promoter_id FROM promoters 
+        `SELECT promoter_id, establishment_id FROM promoters 
          WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
          LIMIT 1`,
         [codigo]
@@ -284,28 +284,78 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
-      console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id);
+      console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id, 'establishment_id:', promoter.establishment_id);
 
-      // Buscar eventos futuros que o promoter está associado
+      // Buscar eventos futuros que o promoter está associado E eventos únicos do estabelecimento
       console.log('📊 Buscando eventos futuros...');
-      const eventosResult = await pool.query(
-        `SELECT 
-          e.id,
-          e.nome_do_evento as nome,
-          TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
-          e.hora_do_evento as hora,
-          pl.name as local_nome,
-          pl.endereco as local_endereco
-         FROM eventos e
-         LEFT JOIN places pl ON e.id_place = pl.id
-         INNER JOIN promoter_eventos pe ON e.id = pe.evento_id
-         WHERE e.data_do_evento >= CURRENT_DATE
-         AND pe.promoter_id = $1
-         AND pe.status = 'ativo'
-         ORDER BY e.data_do_evento ASC, e.hora_do_evento ASC
-         LIMIT 10`,
-        [promoter.promoter_id]
-      );
+      const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+      
+      // Construir a query dinamicamente baseado se há establishment_id
+      let eventosResult;
+      if (promoter.establishment_id) {
+        eventosResult = await pool.query(
+          `SELECT DISTINCT
+            e.id,
+            e.nome_do_evento as nome,
+            TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
+            e.hora_do_evento as hora,
+            pl.name as local_nome,
+            pl.endereco as local_endereco,
+            CASE 
+              WHEN e.imagem_do_evento IS NOT NULL AND e.imagem_do_evento != '' 
+              THEN $2 || e.imagem_do_evento
+              ELSE NULL
+            END as imagem_url
+           FROM eventos e
+           LEFT JOIN places pl ON e.id_place = pl.id
+           LEFT JOIN promoter_eventos pe ON e.id = pe.evento_id AND pe.promoter_id = $1 AND pe.status = 'ativo'
+           WHERE (
+             -- Eventos associados ao promoter via promoter_eventos
+             (pe.promoter_id = $1 AND pe.status = 'ativo')
+             OR
+             -- OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
+             (
+               e.id_place = $3
+               AND e.tipo_evento = 'unico'
+               AND (e.data_do_evento IS NULL OR e.data_do_evento >= CURRENT_DATE)
+             )
+           )
+           ORDER BY 
+             CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
+             e.data_do_evento ASC NULLS LAST, 
+             e.hora_do_evento ASC NULLS LAST
+           LIMIT 20`,
+          [promoter.promoter_id, BASE_IMAGE_URL, promoter.establishment_id]
+        );
+      } else {
+        // Se não houver establishment_id, buscar apenas eventos associados ao promoter
+        eventosResult = await pool.query(
+          `SELECT DISTINCT
+            e.id,
+            e.nome_do_evento as nome,
+            TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
+            e.hora_do_evento as hora,
+            pl.name as local_nome,
+            pl.endereco as local_endereco,
+            CASE 
+              WHEN e.imagem_do_evento IS NOT NULL AND e.imagem_do_evento != '' 
+              THEN $2 || e.imagem_do_evento
+              ELSE NULL
+            END as imagem_url
+           FROM eventos e
+           LEFT JOIN places pl ON e.id_place = pl.id
+           INNER JOIN promoter_eventos pe ON e.id = pe.evento_id
+           WHERE pe.promoter_id = $1 
+             AND pe.status = 'ativo'
+             AND (e.data_do_evento IS NULL OR e.data_do_evento >= CURRENT_DATE)
+           ORDER BY 
+             CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
+             e.data_do_evento ASC NULLS LAST, 
+             e.hora_do_evento ASC NULLS LAST
+           LIMIT 20`,
+          [promoter.promoter_id, BASE_IMAGE_URL]
+        );
+      }
       console.log('✅ Eventos encontrados:', eventosResult.rows.length);
 
       res.json({
