@@ -123,6 +123,38 @@ module.exports = (pool) => {
         try {
             console.log('🖼️ [GALLERY] Endpoint chamado - Buscando imagens da galeria...');
             const images = [];
+            const imageMap = new Map(); // Para evitar duplicatas e rastrear data mais recente
+
+            // Buscar imagens da tabela cardapio_images (mais recentes primeiro)
+            const cardapioImagesResult = await pool.query(`
+                SELECT 
+                    filename,
+                    created_at,
+                    'cardapio_image' as source_type,
+                    'general' as image_type
+                FROM cardapio_images
+                WHERE filename IS NOT NULL 
+                  AND filename != ''
+                  AND filename != ' '
+                  AND filename != 'null'
+                ORDER BY created_at DESC
+            `);
+
+            console.log(`📊 [GALLERY] Encontradas ${cardapioImagesResult.rows.length} imagens na tabela cardapio_images`);
+
+            cardapioImagesResult.rows.forEach(row => {
+                const filename = row.filename;
+                if (filename && filename !== 'null' && filename.trim() !== '') {
+                    imageMap.set(filename, {
+                        filename: filename,
+                        sourceType: row.source_type,
+                        imageType: row.image_type,
+                        usageCount: 0,
+                        createdAt: row.created_at,
+                        isFromCardapioImages: true
+                    });
+                }
+            });
 
             // Buscar imagens de menu_items
             const itemsResult = await pool.query(`
@@ -147,17 +179,20 @@ module.exports = (pool) => {
             itemsResult.rows.forEach(row => {
                 const filename = extractFilename(row.imageurl);
                 if (filename && filename !== 'null' && filename.trim() !== '') {
-                    // Verificar se já existe
-                    const existingIndex = images.findIndex(img => img.filename === filename);
-                    if (existingIndex >= 0) {
-                        images[existingIndex].usageCount += parseInt(row.usage_count);
+                    if (imageMap.has(filename)) {
+                        // Atualizar contagem de uso
+                        const existing = imageMap.get(filename);
+                        existing.usageCount = (existing.usageCount || 0) + parseInt(row.usage_count);
+                        existing.firstItemId = row.first_item_id;
                     } else {
-                        images.push({
+                        // Adicionar nova imagem
+                        imageMap.set(filename, {
                             filename: filename,
                             sourceType: row.source_type,
                             imageType: row.image_type,
                             usageCount: parseInt(row.usage_count),
-                            firstItemId: row.first_item_id
+                            firstItemId: row.first_item_id,
+                            isFromCardapioImages: false
                         });
                     }
                 }
@@ -184,22 +219,23 @@ module.exports = (pool) => {
                 if (row.logourl && row.logourl !== 'null' && row.logourl.trim() !== '') {
                     const filename = extractFilename(row.logourl);
                     if (filename) {
-                        const existingIndex = images.findIndex(img => img.filename === filename);
-                        if (existingIndex >= 0) {
-                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
-                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
-                            images[existingIndex].barIds.push({
+                        if (imageMap.has(filename)) {
+                            const existing = imageMap.get(filename);
+                            existing.usageCount = (existing.usageCount || 0) + 1;
+                            if (!existing.barIds) existing.barIds = [];
+                            existing.barIds.push({
                                 id: row.bar_id,
                                 name: row.bar_name,
                                 type: 'bar_logo'
                             });
                         } else {
-                            images.push({
+                            imageMap.set(filename, {
                                 filename: filename,
                                 sourceType: 'bar',
                                 imageType: 'bar_logo',
                                 usageCount: 1,
-                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_logo' }]
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_logo' }],
+                                isFromCardapioImages: false
                             });
                         }
                     }
@@ -208,22 +244,23 @@ module.exports = (pool) => {
                 if (row.coverimageurl && row.coverimageurl !== 'null' && row.coverimageurl.trim() !== '') {
                     const filename = extractFilename(row.coverimageurl);
                     if (filename) {
-                        const existingIndex = images.findIndex(img => img.filename === filename);
-                        if (existingIndex >= 0) {
-                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
-                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
-                            images[existingIndex].barIds.push({
+                        if (imageMap.has(filename)) {
+                            const existing = imageMap.get(filename);
+                            existing.usageCount = (existing.usageCount || 0) + 1;
+                            if (!existing.barIds) existing.barIds = [];
+                            existing.barIds.push({
                                 id: row.bar_id,
                                 name: row.bar_name,
                                 type: 'bar_cover'
                             });
                         } else {
-                            images.push({
+                            imageMap.set(filename, {
                                 filename: filename,
                                 sourceType: 'bar',
                                 imageType: 'bar_cover',
                                 usageCount: 1,
-                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_cover' }]
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_cover' }],
+                                isFromCardapioImages: false
                             });
                         }
                     }
@@ -232,30 +269,42 @@ module.exports = (pool) => {
                 if (row.popupimageurl && row.popupimageurl !== 'null' && row.popupimageurl.trim() !== '') {
                     const filename = extractFilename(row.popupimageurl);
                     if (filename) {
-                        const existingIndex = images.findIndex(img => img.filename === filename);
-                        if (existingIndex >= 0) {
-                            images[existingIndex].usageCount = (images[existingIndex].usageCount || 1) + 1;
-                            if (!images[existingIndex].barIds) images[existingIndex].barIds = [];
-                            images[existingIndex].barIds.push({
+                        if (imageMap.has(filename)) {
+                            const existing = imageMap.get(filename);
+                            existing.usageCount = (existing.usageCount || 0) + 1;
+                            if (!existing.barIds) existing.barIds = [];
+                            existing.barIds.push({
                                 id: row.bar_id,
                                 name: row.bar_name,
                                 type: 'bar_popup'
                             });
                         } else {
-                            images.push({
+                            imageMap.set(filename, {
                                 filename: filename,
                                 sourceType: 'bar',
                                 imageType: 'bar_popup',
                                 usageCount: 1,
-                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_popup' }]
+                                barIds: [{ id: row.bar_id, name: row.bar_name, type: 'bar_popup' }],
+                                isFromCardapioImages: false
                             });
                         }
                     }
                 }
             });
 
-            // Ordenar por nome do arquivo
+            // Converter Map para array
+            images.push(...Array.from(imageMap.values()));
+
+            // Ordenar por data de criação (mais recente primeiro), depois por nome
             images.sort((a, b) => {
+                // Se ambas têm createdAt, ordenar por data (mais recente primeiro)
+                if (a.createdAt && b.createdAt) {
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                }
+                // Se apenas uma tem createdAt, ela vem primeiro
+                if (a.createdAt && !b.createdAt) return -1;
+                if (!a.createdAt && b.createdAt) return 1;
+                // Se nenhuma tem createdAt, ordenar por nome
                 const nameA = (a.filename || '').toLowerCase();
                 const nameB = (b.filename || '').toLowerCase();
                 return nameA.localeCompare(nameB);
