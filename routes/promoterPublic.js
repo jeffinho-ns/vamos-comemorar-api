@@ -276,102 +276,63 @@ module.exports = (pool) => {
       }
 
       // Adicionar o convidado na tabela promoter_convidados
-      // Se whatsapp é NULL e a coluna não aceita NULL, usar string vazia
-      const whatsappForInsert = whatsappValue || '';
-      
+      // Se whatsapp está vazio, verificar ANTES se já existe outro registro com whatsapp vazio para o mesmo evento
+      // Isso evita violação do índice único idx_promoter_whatsapp_evento
+      let whatsappForInsert = whatsappValue || '';
       let result;
-      try {
-        result = await pool.query(
-          `INSERT INTO meu_backup_db.promoter_convidados (
-            promoter_id, 
-            nome, 
-            whatsapp,
-            evento_id,
-            status
-          ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
-          [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
+      
+      if (!whatsappValue) {
+        // Verificar se já existe um registro com whatsapp vazio para o mesmo evento
+        const checkEmptyWhatsapp = await pool.query(
+          `SELECT id, nome FROM meu_backup_db.promoter_convidados 
+           WHERE promoter_id = $1 AND evento_id = $2 AND (whatsapp IS NULL OR whatsapp = '')
+           LIMIT 1`,
+          [promoter.promoter_id, evento_id || null]
         );
-        console.log('✅ [CONVIDADO] Convidado adicionado com sucesso:', result.rows[0].id);
-      } catch (insertError) {
-        console.error('❌ [CONVIDADO] Erro ao inserir convidado:', insertError);
         
-        // Tratar erro de constraint única (duplicate key)
-        if (insertError.code === '23505') {
-          // Verificar se é realmente um duplicado ou apenas violação do índice único
-          // Se whatsapp está vazio, pode ser que já existe outro convidado sem WhatsApp para o mesmo evento
-          // Nesse caso, verificar se o nome é diferente - se for, é um problema do índice único
-          if (!whatsappValue) {
-            // Verificar se já existe um convidado com o mesmo nome
-            const checkNomeResult = await pool.query(
-              `SELECT id, nome FROM meu_backup_db.promoter_convidados 
-               WHERE promoter_id = $1 AND evento_id = $2 AND (whatsapp IS NULL OR whatsapp = '')
-               ORDER BY id DESC LIMIT 1`,
-              [promoter.promoter_id, evento_id || null]
-            );
-            
-            if (checkNomeResult.rows.length > 0) {
-              const existingNome = checkNomeResult.rows[0].nome;
-              if (existingNome.toLowerCase().trim() === nome.toLowerCase().trim()) {
-                // É realmente um duplicado por nome
-                console.log('⚠️ [CONVIDADO] Convidado já existe na lista (mesmo nome)');
-                return res.status(400).json({ 
-                  success: false, 
-                  error: 'Você já está nesta lista!' 
-                });
-              } else {
-                // Nome diferente, mas índice único está bloqueando
-                // Isso acontece porque o índice único inclui whatsapp vazio
-                // Vamos usar NULL em vez de string vazia (se a coluna permitir)
-                // Ou usar um valor único que não interfira na funcionalidade
-                try {
-                  // Tentar com NULL primeiro
-                  result = await pool.query(
-                    `INSERT INTO meu_backup_db.promoter_convidados (
-                      promoter_id, 
-                      nome, 
-                      whatsapp,
-                      evento_id,
-                      status
-                    ) VALUES ($1, $2, NULL, $3, 'pendente') RETURNING id`,
-                    [promoter.promoter_id, nome.trim(), evento_id || null]
-                  );
-                  console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (usando NULL para WhatsApp):', result.rows[0].id);
-                } catch (nullError) {
-                  // Se NULL não funcionar, usar um valor único temporário
-                  // Usar um formato que não interfira: "no_whatsapp_{timestamp}_{random}"
-                  const uniqueWhatsapp = `no_whatsapp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                  result = await pool.query(
-                    `INSERT INTO meu_backup_db.promoter_convidados (
-                      promoter_id, 
-                      nome, 
-                      whatsapp,
-                      evento_id,
-                      status
-                    ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
-                    [promoter.promoter_id, nome.trim(), uniqueWhatsapp, evento_id || null]
-                  );
-                  console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (usando valor único temporário):', result.rows[0].id);
-                }
-              }
-            } else {
-              // Não encontrou nenhum registro, mas o erro diz que existe
-              // Pode ser um problema de timing/race condition
-              console.log('⚠️ [CONVIDADO] Erro de constraint única, mas não encontrou registro existente');
-              return res.status(400).json({ 
-                success: false, 
-                error: 'Convidado já existe nesta lista!' 
-              });
-            }
-          } else {
-            // WhatsApp foi fornecido, então é realmente um duplicado
-            console.log('⚠️ [CONVIDADO] Convidado já existe na lista (mesmo WhatsApp)');
+        if (checkEmptyWhatsapp.rows.length > 0) {
+          // Já existe um registro com whatsapp vazio
+          // Verificar se é o mesmo nome
+          const existingNome = checkEmptyWhatsapp.rows[0].nome;
+          if (existingNome.toLowerCase().trim() === nome.toLowerCase().trim()) {
+            // É realmente um duplicado por nome
+            console.log('⚠️ [CONVIDADO] Convidado já existe na lista (mesmo nome)');
             return res.status(400).json({ 
               success: false, 
               error: 'Você já está nesta lista!' 
             });
           }
-        } else if (insertError.code === '23502' || insertError.message.includes('NOT NULL')) {
-          // Se falhar por causa de NOT NULL, tentar com string vazia
+          
+          // Nome diferente, mas índice único bloqueia string vazia
+          // Tentar usar NULL primeiro
+          try {
+            result = await pool.query(
+              `INSERT INTO meu_backup_db.promoter_convidados (
+                promoter_id, 
+                nome, 
+                whatsapp,
+                evento_id,
+                status
+              ) VALUES ($1, $2, NULL, $3, 'pendente') RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null]
+            );
+            console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (usando NULL para WhatsApp):', result.rows[0].id);
+          } catch (nullError) {
+            // Se NULL não funcionar, usar um valor único curto (máximo 20 caracteres)
+            // Formato: "nw_{timestamp_curto}_{random_curto}"
+            const timestamp = Date.now().toString(36).substr(-6); // Últimos 6 caracteres
+            const random = Math.random().toString(36).substr(2, 6); // 6 caracteres
+            const uniqueWhatsapp = `nw_${timestamp}_${random}`; // Total: 3 + 1 + 6 + 1 + 6 = 17 caracteres
+            whatsappForInsert = uniqueWhatsapp;
+            console.log('📊 [CONVIDADO] Usando valor único temporário para WhatsApp:', uniqueWhatsapp);
+            // Continuar para inserir com o valor único
+          }
+        }
+      }
+      
+      // Se ainda não foi inserido (não entrou no bloco acima com NULL), inserir normalmente
+      if (!result) {
+        try {
           result = await pool.query(
             `INSERT INTO meu_backup_db.promoter_convidados (
               promoter_id, 
@@ -379,12 +340,37 @@ module.exports = (pool) => {
               whatsapp,
               evento_id,
               status
-            ) VALUES ($1, $2, '', $3, 'pendente') RETURNING id`,
-            [promoter.promoter_id, nome.trim(), evento_id || null]
+            ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
+            [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
           );
-          console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (sem WhatsApp):', result.rows[0].id);
-        } else {
-          throw insertError;
+          console.log('✅ [CONVIDADO] Convidado adicionado com sucesso:', result.rows[0].id);
+        } catch (insertError) {
+          console.error('❌ [CONVIDADO] Erro ao inserir convidado:', insertError);
+          
+          // Tratar outros erros
+          if (insertError.code === '23505') {
+            // Ainda assim deu erro de constraint única
+            console.log('⚠️ [CONVIDADO] Erro de constraint única após verificação');
+            return res.status(400).json({ 
+              success: false, 
+              error: 'Convidado já existe nesta lista!' 
+            });
+          } else if (insertError.code === '23502' || insertError.message.includes('NOT NULL')) {
+            // Se falhar por causa de NOT NULL, tentar com string vazia
+            result = await pool.query(
+              `INSERT INTO meu_backup_db.promoter_convidados (
+                promoter_id, 
+                nome, 
+                whatsapp,
+                evento_id,
+                status
+              ) VALUES ($1, $2, '', $3, 'pendente') RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null]
+            );
+            console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (sem WhatsApp):', result.rows[0].id);
+          } else {
+            throw insertError;
+          }
         }
       }
 
