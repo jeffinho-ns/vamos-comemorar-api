@@ -294,30 +294,29 @@ module.exports = (pool) => {
       const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
       const API_BASE_URL = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
       
+      // Buscar todos os eventos da API /api/events
+      let allEvents = [];
       try {
-        // Buscar todos os eventos da API /api/events
-        let allEvents = [];
-        try {
-          const eventsResponse = await fetch(`${API_BASE_URL}/api/events?tipo=unico`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (eventsResponse.ok) {
-            allEvents = await eventsResponse.json();
-            console.log('✅ Eventos obtidos da API:', allEvents.length);
-          } else {
-            const errorText = await eventsResponse.text();
-            console.error('❌ Erro ao buscar eventos da API:', eventsResponse.status, errorText);
-            throw new Error(`API retornou status ${eventsResponse.status}`);
+        const eventsResponse = await fetch(`${API_BASE_URL}/api/events?tipo=unico`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
           }
-        } catch (fetchError) {
-          console.error('❌ Erro ao buscar da API:', fetchError.message);
-          throw fetchError;
+        });
+
+        if (eventsResponse.ok) {
+          allEvents = await eventsResponse.json();
+          console.log('✅ Eventos obtidos da API:', allEvents.length);
+        } else {
+          const errorText = await eventsResponse.text();
+          console.error('❌ Erro ao buscar eventos da API:', eventsResponse.status, errorText);
+          throw new Error(`API retornou status ${eventsResponse.status}`);
         }
-        console.log('📊 Total de eventos retornados pela API:', allEvents.length);
+      } catch (fetchError) {
+        console.error('❌ Erro ao buscar da API:', fetchError.message);
+        throw fetchError;
+      }
+      console.log('📊 Total de eventos retornados pela API:', allEvents.length);
 
         // Buscar eventos associados ao promoter via promoter_eventos
         const promoterEventsResult = await pool.query(
