@@ -171,6 +171,8 @@ module.exports = (pool) => {
       const { codigo } = req.params;
       const { nome, whatsapp, evento_id } = req.body;
 
+      console.log('🔍 [CONVIDADO] Adicionando convidado:', { codigo, nome, whatsapp: whatsapp ? 'fornecido' : 'não fornecido', evento_id });
+
       if (!nome || !nome.trim()) {
         return res.status(400).json({ 
           success: false, 
@@ -178,23 +180,38 @@ module.exports = (pool) => {
         });
       }
 
-      if (!whatsapp || !whatsapp.trim()) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'WhatsApp é obrigatório' 
-        });
-      }
+      // WhatsApp é opcional - normalizar para NULL se vazio
+      const whatsappValue = whatsapp && whatsapp.trim() ? whatsapp.trim() : null;
 
       // Verificar se promoter existe e está ativo
-      const promotersResult = await pool.query(
-        `SELECT promoter_id, nome 
-         FROM meu_backup_db.promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND LOWER(status) = 'ativo'
-         LIMIT 1`,
-        [codigo]
-      );
+      let promotersResult;
+      try {
+        promotersResult = await pool.query(
+          `SELECT promoter_id, nome 
+           FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+           LIMIT 1`,
+          [codigo]
+        );
+        console.log('📊 [CONVIDADO] Query de promoter executada com sucesso (status::TEXT)');
+      } catch (queryError) {
+        console.log('⚠️ [CONVIDADO] Erro na primeira tentativa, tentando sem cast:', queryError.message);
+        // Tentar sem cast se falhar
+        promotersResult = await pool.query(
+          `SELECT promoter_id, nome 
+           FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE
+           LIMIT 1`,
+          [codigo]
+        );
+        // Filtrar por status em JavaScript se necessário
+        if (promotersResult.rows.length > 0 && promotersResult.rows[0].status !== 'Ativo') {
+          promotersResult.rows = [];
+        }
+      }
 
       if (promotersResult.rows.length === 0) {
+        console.log('❌ [CONVIDADO] Promoter não encontrado:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -202,26 +219,49 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
+      console.log('✅ [CONVIDADO] Promoter encontrado:', promoter.promoter_id);
 
-      // Verificar se já existe um convidado com o mesmo WhatsApp para este promoter
+      // Verificar se já existe um convidado com o mesmo nome e WhatsApp (se fornecido) para este promoter
+      // Se WhatsApp não foi fornecido, verificar apenas por nome e evento
       let existingGuestsResult;
-      if (evento_id) {
-        existingGuestsResult = await pool.query(
-          `SELECT id FROM meu_backup_db.promoter_convidados 
-           WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
-           LIMIT 1`,
-          [promoter.promoter_id, whatsapp.trim(), evento_id]
-        );
+      if (whatsappValue) {
+        // Se WhatsApp foi fornecido, verificar duplicata por WhatsApp
+        if (evento_id) {
+          existingGuestsResult = await pool.query(
+            `SELECT id FROM meu_backup_db.promoter_convidados 
+             WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
+             LIMIT 1`,
+            [promoter.promoter_id, whatsappValue, evento_id]
+          );
+        } else {
+          existingGuestsResult = await pool.query(
+            `SELECT id FROM meu_backup_db.promoter_convidados 
+             WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
+             LIMIT 1`,
+            [promoter.promoter_id, whatsappValue]
+          );
+        }
       } else {
-        existingGuestsResult = await pool.query(
-          `SELECT id FROM meu_backup_db.promoter_convidados 
-           WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
-           LIMIT 1`,
-          [promoter.promoter_id, whatsapp.trim()]
-        );
+        // Se WhatsApp não foi fornecido, verificar duplicata apenas por nome e evento
+        if (evento_id) {
+          existingGuestsResult = await pool.query(
+            `SELECT id FROM meu_backup_db.promoter_convidados 
+             WHERE promoter_id = $1 AND nome = $2 AND evento_id = $3 AND (whatsapp IS NULL OR whatsapp = '')
+             LIMIT 1`,
+            [promoter.promoter_id, nome.trim(), evento_id]
+          );
+        } else {
+          existingGuestsResult = await pool.query(
+            `SELECT id FROM meu_backup_db.promoter_convidados 
+             WHERE promoter_id = $1 AND nome = $2 AND evento_id IS NULL AND (whatsapp IS NULL OR whatsapp = '')
+             LIMIT 1`,
+            [promoter.promoter_id, nome.trim()]
+          );
+        }
       }
 
       if (existingGuestsResult.rows.length > 0) {
+        console.log('⚠️ [CONVIDADO] Convidado já existe na lista');
         return res.status(400).json({ 
           success: false, 
           error: 'Você já está nesta lista!' 
@@ -229,16 +269,41 @@ module.exports = (pool) => {
       }
 
       // Adicionar o convidado na tabela promoter_convidados
-      const result = await pool.query(
-        `INSERT INTO meu_backup_db.promoter_convidados (
-          promoter_id, 
-          nome, 
-          whatsapp,
-          evento_id,
-          status
-        ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
-        [promoter.promoter_id, nome.trim(), whatsapp.trim(), evento_id || null]
-      );
+      // Se whatsapp é NULL e a coluna não aceita NULL, usar string vazia
+      const whatsappForInsert = whatsappValue || '';
+      
+      let result;
+      try {
+        result = await pool.query(
+          `INSERT INTO meu_backup_db.promoter_convidados (
+            promoter_id, 
+            nome, 
+            whatsapp,
+            evento_id,
+            status
+          ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
+          [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
+        );
+        console.log('✅ [CONVIDADO] Convidado adicionado com sucesso:', result.rows[0].id);
+      } catch (insertError) {
+        console.error('❌ [CONVIDADO] Erro ao inserir convidado:', insertError);
+        // Se falhar por causa de NOT NULL, tentar com string vazia
+        if (insertError.code === '23502' || insertError.message.includes('NOT NULL')) {
+          result = await pool.query(
+            `INSERT INTO meu_backup_db.promoter_convidados (
+              promoter_id, 
+              nome, 
+              whatsapp,
+              evento_id,
+              status
+            ) VALUES ($1, $2, '', $3, 'pendente') RETURNING id`,
+            [promoter.promoter_id, nome.trim(), evento_id || null]
+          );
+          console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (sem WhatsApp):', result.rows[0].id);
+        } else {
+          throw insertError;
+        }
+      }
 
       // NOVO: Também adicionar na tabela listas_convidados se houver uma lista para este promoter/evento
       try {
@@ -255,14 +320,25 @@ module.exports = (pool) => {
             const lista_id = listasResult.rows[0].lista_id;
 
             // Verificar se já existe na lista (evitar duplicatas)
-            const existeNaListaResult = await pool.query(
-              `SELECT lista_convidado_id FROM meu_backup_db.listas_convidados 
-               WHERE lista_id = $1 AND nome_convidado = $2 AND telefone_convidado = $3`,
-              [lista_id, nome.trim(), whatsapp.trim()]
-            );
+            // Se WhatsApp foi fornecido, verificar por nome e telefone, senão apenas por nome
+            let existeNaListaResult;
+            if (whatsappValue) {
+              existeNaListaResult = await pool.query(
+                `SELECT lista_convidado_id FROM meu_backup_db.listas_convidados 
+                 WHERE lista_id = $1 AND nome_convidado = $2 AND telefone_convidado = $3`,
+                [lista_id, nome.trim(), whatsappValue]
+              );
+            } else {
+              existeNaListaResult = await pool.query(
+                `SELECT lista_convidado_id FROM meu_backup_db.listas_convidados 
+                 WHERE lista_id = $1 AND nome_convidado = $2 AND (telefone_convidado IS NULL OR telefone_convidado = '')`,
+                [lista_id, nome.trim()]
+              );
+            }
 
             if (existeNaListaResult.rows.length === 0) {
               // Inserir na tabela listas_convidados
+              // telefone_convidado pode ser NULL
               await pool.query(
                 `INSERT INTO meu_backup_db.listas_convidados (
                   lista_id,
@@ -271,16 +347,16 @@ module.exports = (pool) => {
                   status_checkin,
                   is_vip
                 ) VALUES ($1, $2, $3, 'Pendente', FALSE)`,
-                [lista_id, nome.trim(), whatsapp.trim()]
+                [lista_id, nome.trim(), whatsappValue || null]
               );
 
-              console.log(`✅ Convidado também adicionado à lista ${lista_id}`);
+              console.log(`✅ [CONVIDADO] Convidado também adicionado à lista ${lista_id}`);
             }
           }
         }
       } catch (listaError) {
         // Log do erro mas não falha a operação principal
-        console.error('⚠️ Erro ao adicionar convidado à lista:', listaError);
+        console.error('⚠️ [CONVIDADO] Erro ao adicionar convidado à lista:', listaError);
       }
 
       res.status(201).json({ 
