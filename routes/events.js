@@ -145,7 +145,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
     });
     
     // ---- ROTA GET (LISTA DE EVENTOS) ----
-    router.get('/', auth, async (req, res) => {
+    // Permite acesso público para leitura de eventos (sem autenticação)
+    router.get('/', async (req, res) => {
         try {
             const { tipo } = req.query;
             let query = `
@@ -157,7 +158,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
                     tipo_evento AS tipoEvento, dia_da_semana, id_place
-                FROM eventos
+                FROM meu_backup_db.eventos
             `;
             let queryParams = [];
 

@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const fetch = require('node-fetch');
 
 module.exports = (pool) => {
   /**
@@ -266,8 +267,10 @@ module.exports = (pool) => {
       console.log('🔍 Buscando eventos para promoter:', codigo);
 
       // Buscar promoter com establishment_id - simplificado para evitar problemas com tipos de dados
+      // Usar schema explícito se necessário
       const promotersResult = await pool.query(
-        `SELECT promoter_id, establishment_id FROM promoters 
+        `SELECT promoter_id, establishment_id 
+         FROM meu_backup_db.promoters 
          WHERE codigo_identificador = $1 AND ativo = TRUE
          LIMIT 1`,
         [codigo]
@@ -286,82 +289,98 @@ module.exports = (pool) => {
       const promoter = promotersResult.rows[0];
       console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id, 'establishment_id:', promoter.establishment_id);
 
-      // Buscar eventos futuros que o promoter está associado E eventos únicos do estabelecimento
-      console.log('📊 Buscando eventos futuros...');
+      // Buscar eventos usando a API /api/events
+      console.log('📊 Buscando eventos via API...');
       const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+      const API_BASE_URL = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
       
-      // Construir a query dinamicamente baseado se há establishment_id
-      let eventosResult;
-      if (promoter.establishment_id) {
-        eventosResult = await pool.query(
-          `SELECT DISTINCT
-            e.id,
-            e.nome_do_evento as nome,
-            TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
-            e.hora_do_evento as hora,
-            pl.name as local_nome,
-            pl.endereco as local_endereco,
-            CASE 
-              WHEN e.imagem_do_evento IS NOT NULL AND e.imagem_do_evento != '' 
-              THEN $2 || e.imagem_do_evento
-              ELSE NULL
-            END as imagem_url
-           FROM eventos e
-           LEFT JOIN places pl ON e.id_place = pl.id
-           LEFT JOIN promoter_eventos pe ON e.id = pe.evento_id AND pe.promoter_id = $1 AND pe.status = 'ativo'
-           WHERE (
-             -- Eventos associados ao promoter via promoter_eventos
-             (pe.promoter_id = $1 AND pe.status = 'ativo')
-             OR
-             -- OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
-             (
-               e.id_place = $3
-               AND e.tipo_evento = 'unico'
-               AND (e.data_do_evento IS NULL OR e.data_do_evento >= CURRENT_DATE)
-             )
-           )
-           ORDER BY 
-             CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
-             e.data_do_evento ASC NULLS LAST, 
-             e.hora_do_evento ASC NULLS LAST
-           LIMIT 20`,
-          [promoter.promoter_id, BASE_IMAGE_URL, promoter.establishment_id]
-        );
-      } else {
-        // Se não houver establishment_id, buscar apenas eventos associados ao promoter
-        eventosResult = await pool.query(
-          `SELECT DISTINCT
-            e.id,
-            e.nome_do_evento as nome,
-            TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data,
-            e.hora_do_evento as hora,
-            pl.name as local_nome,
-            pl.endereco as local_endereco,
-            CASE 
-              WHEN e.imagem_do_evento IS NOT NULL AND e.imagem_do_evento != '' 
-              THEN $2 || e.imagem_do_evento
-              ELSE NULL
-            END as imagem_url
-           FROM eventos e
-           LEFT JOIN places pl ON e.id_place = pl.id
-           INNER JOIN promoter_eventos pe ON e.id = pe.evento_id
-           WHERE pe.promoter_id = $1 
-             AND pe.status = 'ativo'
-             AND (e.data_do_evento IS NULL OR e.data_do_evento >= CURRENT_DATE)
-           ORDER BY 
-             CASE WHEN e.data_do_evento IS NULL THEN 1 ELSE 0 END,
-             e.data_do_evento ASC NULLS LAST, 
-             e.hora_do_evento ASC NULLS LAST
-           LIMIT 20`,
-          [promoter.promoter_id, BASE_IMAGE_URL]
-        );
-      }
-      console.log('✅ Eventos encontrados:', eventosResult.rows.length);
+      try {
+        // Buscar todos os eventos da API /api/events
+        let allEvents = [];
+        try {
+          const eventsResponse = await fetch(`${API_BASE_URL}/api/events?tipo=unico`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
 
-      res.json({
-        success: true,
-        eventos: eventosResult.rows
-      });
+          if (eventsResponse.ok) {
+            allEvents = await eventsResponse.json();
+            console.log('✅ Eventos obtidos da API:', allEvents.length);
+          } else {
+            const errorText = await eventsResponse.text();
+            console.error('❌ Erro ao buscar eventos da API:', eventsResponse.status, errorText);
+            throw new Error(`API retornou status ${eventsResponse.status}`);
+          }
+        } catch (fetchError) {
+          console.error('❌ Erro ao buscar da API:', fetchError.message);
+          throw fetchError;
+        }
+        console.log('📊 Total de eventos retornados pela API:', allEvents.length);
+
+        // Buscar eventos associados ao promoter via promoter_eventos
+        const promoterEventsResult = await pool.query(
+          `SELECT DISTINCT evento_id 
+           FROM meu_backup_db.promoter_eventos 
+           WHERE promoter_id = $1 AND LOWER(status) = 'ativo'`,
+          [promoter.promoter_id]
+        );
+        const promoterEventIds = new Set(promoterEventsResult.rows.map(row => row.evento_id));
+
+        // Filtrar eventos
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const filteredEvents = allEvents
+          .filter(event => {
+            // Eventos associados ao promoter
+            if (promoterEventIds.has(event.id)) {
+              return true;
+            }
+            
+            // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
+            if (promoter.establishment_id) {
+              const matchesEstablishment = event.id_place === promoter.establishment_id || 
+                                          (event.casa_do_evento && 
+                                           event.casa_do_evento.toLowerCase().includes('high'));
+              
+              if (matchesEstablishment && event.tipoEvento === 'unico') {
+                if (!event.data_do_evento) {
+                  return true;
+                }
+                const eventDate = new Date(event.data_do_evento);
+                eventDate.setHours(0, 0, 0, 0);
+                return eventDate >= today;
+              }
+            }
+            
+            return false;
+          })
+          .map(event => ({
+            id: event.id,
+            nome: event.nome_do_evento,
+            data: event.data_do_evento || null,
+            hora: event.hora_do_evento || null,
+            local_nome: event.local_do_evento || null,
+            local_endereco: null, // A API não retorna endereço diretamente
+            imagem_url: event.imagem_do_evento_url || (event.imagem_do_evento ? `${BASE_IMAGE_URL}${event.imagem_do_evento}` : null)
+          }))
+          .sort((a, b) => {
+            // Ordenar: eventos sem data primeiro, depois por data
+            if (!a.data && !b.data) return 0;
+            if (!a.data) return 1;
+            if (!b.data) return -1;
+            return new Date(a.data) - new Date(b.data);
+          })
+          .slice(0, 20);
+
+        console.log('✅ Eventos filtrados:', filteredEvents.length);
+
+        res.json({
+          success: true,
+          eventos: filteredEvents
+        });
 
     } catch (error) {
       console.error('❌ Erro ao buscar eventos do promoter:', error);
