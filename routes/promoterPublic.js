@@ -265,10 +265,10 @@ module.exports = (pool) => {
       const { codigo } = req.params;
       console.log('🔍 Buscando eventos para promoter:', codigo);
 
-      // Buscar promoter com establishment_id
+      // Buscar promoter com establishment_id - simplificado para evitar problemas com tipos de dados
       const promotersResult = await pool.query(
         `SELECT promoter_id, establishment_id FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+         WHERE codigo_identificador = $1 AND ativo = TRUE
          LIMIT 1`,
         [codigo]
       );
@@ -366,11 +366,25 @@ module.exports = (pool) => {
     } catch (error) {
       console.error('❌ Erro ao buscar eventos do promoter:', error);
       console.error('❌ Stack:', error.stack);
-      console.error('❌ SQL Message:', error.sqlMessage);
+      if (error.code) {
+        console.error('❌ Error Code:', error.code);
+      }
+      if (error.detail) {
+        console.error('❌ Error Detail:', error.detail);
+      }
+      if (error.hint) {
+        console.error('❌ Error Hint:', error.hint);
+      }
       res.status(500).json({ 
         success: false, 
         error: 'Erro interno do servidor',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          detail: error.detail,
+          hint: error.hint
+        } : undefined
       });
     }
   });
