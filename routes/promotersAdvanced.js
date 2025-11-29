@@ -324,55 +324,102 @@ module.exports = (pool) => {
           link: linkConviteGerado
         });
         
-        // Criar usuário automaticamente para o promoter
-        let userId = null;
-        const defaultPassword = 'Promoter@2025';
-        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-        
-        // Verificar se já existe um usuário com este email
-        const existingUserResult = await client.query(
-          'SELECT id FROM users WHERE email = $1',
-          [email]
-        );
-        
-        if (existingUserResult.rows.length > 0) {
-          // Se o usuário já existe, atualizar para role promoter e senha padrão
-          userId = existingUserResult.rows[0].id;
-          await client.query(
-            `UPDATE users SET 
-              name = $1, 
-              role = 'promoter', 
-              password = $2, 
-              telefone = $3
-            WHERE id = $4`,
-            [nome, hashedPassword, telefone || null, userId]
-          );
-          console.log('✅ Usuário existente atualizado para promoter com ID:', userId);
-        } else {
-          // Criar novo usuário
-          const userResult = await client.query(
-            `INSERT INTO users (name, email, password, role, telefone)
-             VALUES ($1, $2, $3, 'promoter', $4)
-             RETURNING id`,
-            [nome, email, hashedPassword, telefone || null]
-          );
-          userId = userResult.rows[0].id;
-          console.log('✅ Usuário criado automaticamente com ID:', userId);
+        // Verificar se a coluna user_id existe na tabela promoters
+        let hasUserIdColumn = false;
+        try {
+          // Tentar verificar em diferentes schemas possíveis
+          const columnCheckResult = await client.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'promoters' 
+            AND column_name = 'user_id'
+            LIMIT 1
+          `);
+          hasUserIdColumn = columnCheckResult.rows.length > 0;
+          console.log('ℹ️ Verificação da coluna user_id:', hasUserIdColumn ? 'existe' : 'não existe');
+        } catch (checkError) {
+          console.warn('⚠️ Não foi possível verificar se a coluna user_id existe:', checkError.message);
+          // Em caso de erro, assumir que não existe para evitar problemas
+          hasUserIdColumn = false;
         }
         
-        // Inserir promoter com user_id vinculado
-        const result = await client.query(
-          `INSERT INTO promoters (
-            nome, apelido, email, telefone, whatsapp, codigo_identificador, 
-            tipo_categoria, comissao_percentual, link_convite, observacoes,
-            establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
-          [
-            nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
-            tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
-            establishment_id, foto_url, instagram, userId
-          ]
-        );
+        // Criar usuário automaticamente para o promoter (se a coluna user_id existir)
+        let userId = null;
+        if (hasUserIdColumn) {
+          try {
+            const defaultPassword = 'Promoter@2025';
+            const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+            
+            // Verificar se já existe um usuário com este email
+            const existingUserResult = await client.query(
+              'SELECT id FROM users WHERE email = $1',
+              [email]
+            );
+            
+            if (existingUserResult.rows.length > 0) {
+              // Se o usuário já existe, atualizar para role promoter e senha padrão
+              userId = existingUserResult.rows[0].id;
+              await client.query(
+                `UPDATE users SET 
+                  name = $1, 
+                  role = 'promoter', 
+                  password = $2, 
+                  telefone = $3
+                WHERE id = $4`,
+                [nome, hashedPassword, telefone || null, userId]
+              );
+              console.log('✅ Usuário existente atualizado para promoter com ID:', userId);
+            } else {
+              // Criar novo usuário
+              const userResult = await client.query(
+                `INSERT INTO users (name, email, password, role, telefone)
+                 VALUES ($1, $2, $3, 'promoter', $4)
+                 RETURNING id`,
+                [nome, email, hashedPassword, telefone || null]
+              );
+              userId = userResult.rows[0].id;
+              console.log('✅ Usuário criado automaticamente com ID:', userId);
+            }
+          } catch (userError) {
+            console.error('⚠️ Erro ao criar/atualizar usuário para promoter:', userError.message);
+            // Continuar sem user_id se houver erro na criação do usuário
+            userId = null;
+          }
+        } else {
+          console.log('ℹ️ Coluna user_id não existe na tabela promoters, pulando criação de usuário');
+        }
+        
+        // Inserir promoter (com ou sem user_id dependendo da estrutura da tabela)
+        let result;
+        if (hasUserIdColumn) {
+          // Se a coluna existe, sempre incluir (mesmo que seja NULL)
+          result = await client.query(
+            `INSERT INTO promoters (
+              nome, apelido, email, telefone, whatsapp, codigo_identificador, 
+              tipo_categoria, comissao_percentual, link_convite, observacoes,
+              establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
+            [
+              nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
+              tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
+              establishment_id, foto_url, instagram, userId
+            ]
+          );
+        } else {
+          // Se a coluna não existe, não incluir na query
+          result = await client.query(
+            `INSERT INTO promoters (
+              nome, apelido, email, telefone, whatsapp, codigo_identificador, 
+              tipo_categoria, comissao_percentual, link_convite, observacoes,
+              establishment_id, foto_url, instagram, data_cadastro, status, ativo
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
+            [
+              nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
+              tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
+              establishment_id, foto_url, instagram
+            ]
+          );
+        }
         
         const promoterId = result.rows[0].promoter_id;
         console.log('✅ Promoter criado com ID:', promoterId, 'vinculado ao usuário:', userId);
@@ -450,13 +497,17 @@ module.exports = (pool) => {
         });
         
       } catch (error) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(rollbackError => {
+          console.error('❌ Erro ao fazer rollback:', rollbackError);
+        });
         console.error('❌ Erro ao criar promoter:', error);
         console.error('❌ Stack trace:', error.stack);
+        console.error('❌ Dados recebidos:', JSON.stringify(req.body, null, 2));
         res.status(500).json({
           success: false,
           error: 'Erro ao criar promoter',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+          details: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
       } finally {
         client.release();
