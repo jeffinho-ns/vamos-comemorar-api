@@ -365,7 +365,7 @@ module.exports = (pool) => {
         convidado: { 
           id: result.rows[0].id, 
           nome: nome.trim(), 
-          whatsapp: whatsapp.trim(),
+          whatsapp: whatsappValue || null,
           promoter_nome: promoter.nome
         }
       });
