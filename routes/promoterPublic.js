@@ -224,40 +224,47 @@ module.exports = (pool) => {
       // Verificar se já existe um convidado com o mesmo nome e WhatsApp (se fornecido) para este promoter
       // Se WhatsApp não foi fornecido, verificar apenas por nome e evento
       let existingGuestsResult;
-      if (whatsappValue) {
-        // Se WhatsApp foi fornecido, verificar duplicata por WhatsApp
-        if (evento_id) {
-          existingGuestsResult = await pool.query(
-            `SELECT id FROM meu_backup_db.promoter_convidados 
-             WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
-             LIMIT 1`,
-            [promoter.promoter_id, whatsappValue, evento_id]
-          );
+      try {
+        if (whatsappValue) {
+          // Se WhatsApp foi fornecido, verificar duplicata por WhatsApp
+          if (evento_id) {
+            existingGuestsResult = await pool.query(
+              `SELECT id FROM meu_backup_db.promoter_convidados 
+               WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
+               LIMIT 1`,
+              [promoter.promoter_id, whatsappValue, evento_id]
+            );
+          } else {
+            existingGuestsResult = await pool.query(
+              `SELECT id FROM meu_backup_db.promoter_convidados 
+               WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
+               LIMIT 1`,
+              [promoter.promoter_id, whatsappValue]
+            );
+          }
         } else {
-          existingGuestsResult = await pool.query(
-            `SELECT id FROM meu_backup_db.promoter_convidados 
-             WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
-             LIMIT 1`,
-            [promoter.promoter_id, whatsappValue]
-          );
+          // Se WhatsApp não foi fornecido, verificar duplicata apenas por nome e evento
+          if (evento_id) {
+            existingGuestsResult = await pool.query(
+              `SELECT id FROM meu_backup_db.promoter_convidados 
+               WHERE promoter_id = $1 AND nome = $2 AND evento_id = $3 AND (whatsapp IS NULL OR whatsapp = '')
+               LIMIT 1`,
+              [promoter.promoter_id, nome.trim(), evento_id]
+            );
+          } else {
+            existingGuestsResult = await pool.query(
+              `SELECT id FROM meu_backup_db.promoter_convidados 
+               WHERE promoter_id = $1 AND nome = $2 AND evento_id IS NULL AND (whatsapp IS NULL OR whatsapp = '')
+               LIMIT 1`,
+              [promoter.promoter_id, nome.trim()]
+            );
+          }
         }
-      } else {
-        // Se WhatsApp não foi fornecido, verificar duplicata apenas por nome e evento
-        if (evento_id) {
-          existingGuestsResult = await pool.query(
-            `SELECT id FROM meu_backup_db.promoter_convidados 
-             WHERE promoter_id = $1 AND nome = $2 AND evento_id = $3 AND (whatsapp IS NULL OR whatsapp = '')
-             LIMIT 1`,
-            [promoter.promoter_id, nome.trim(), evento_id]
-          );
-        } else {
-          existingGuestsResult = await pool.query(
-            `SELECT id FROM meu_backup_db.promoter_convidados 
-             WHERE promoter_id = $1 AND nome = $2 AND evento_id IS NULL AND (whatsapp IS NULL OR whatsapp = '')
-             LIMIT 1`,
-            [promoter.promoter_id, nome.trim()]
-          );
-        }
+        console.log('📊 [CONVIDADO] Verificação de duplicatas concluída');
+      } catch (duplicateCheckError) {
+        console.error('⚠️ [CONVIDADO] Erro ao verificar duplicatas (continuando):', duplicateCheckError.message);
+        // Continuar mesmo se a verificação de duplicatas falhar
+        existingGuestsResult = { rows: [] };
       }
 
       if (existingGuestsResult.rows.length > 0) {
@@ -371,10 +378,31 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      console.error('❌ Erro ao adicionar convidado à lista do promoter:', error);
+      console.error('❌ [CONVIDADO] Erro ao adicionar convidado à lista do promoter:', error);
+      console.error('❌ [CONVIDADO] Stack:', error.stack);
+      if (error.code) {
+        console.error('❌ [CONVIDADO] Error Code:', error.code);
+      }
+      if (error.detail) {
+        console.error('❌ [CONVIDADO] Error Detail:', error.detail);
+      }
+      if (error.hint) {
+        console.error('❌ [CONVIDADO] Error Hint:', error.hint);
+      }
+      if (error.message) {
+        console.error('❌ [CONVIDADO] Error Message:', error.message);
+      }
       res.status(500).json({ 
         success: false, 
-        error: 'Erro interno do servidor' 
+        error: 'Erro interno do servidor',
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          detail: error.detail,
+          hint: error.hint,
+          stack: error.stack
+        } : undefined
       });
     }
   });
