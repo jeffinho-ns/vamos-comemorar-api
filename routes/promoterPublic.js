@@ -39,9 +39,9 @@ module.exports = (pool) => {
           p.observacoes,
           p.status,
           pl.name as establishment_name
-         FROM promoters p
-         LEFT JOIN places pl ON p.establishment_id = pl.id
-         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND p.status::TEXT = 'Ativo'
+         FROM meu_backup_db.promoters p
+         LEFT JOIN meu_backup_db.places pl ON p.establishment_id = pl.id
+         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND LOWER(p.status) = 'ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -65,7 +65,7 @@ module.exports = (pool) => {
         `SELECT 
           COUNT(DISTINCT c.id) as total_convidados,
           COUNT(DISTINCT CASE WHEN c.status = 'confirmado' THEN c.id END) as total_confirmados
-         FROM promoter_convidados c
+         FROM meu_backup_db.promoter_convidados c
          WHERE c.promoter_id = $1`,
         [promoter.promoter_id]
       );
@@ -75,7 +75,7 @@ module.exports = (pool) => {
       let userId = null;
       try {
         const userResult = await pool.query(
-          'SELECT id FROM users WHERE email = $1 LIMIT 1',
+          'SELECT id FROM meu_backup_db.users WHERE email = $1 LIMIT 1',
           [promoter.email]
         );
         if (userResult.rows.length > 0) {
@@ -140,8 +140,8 @@ module.exports = (pool) => {
       // Verificar se promoter existe e está ativo
       const promotersResult = await pool.query(
         `SELECT promoter_id, nome 
-         FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+         FROM meu_backup_db.promoters 
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND LOWER(status) = 'ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -159,14 +159,14 @@ module.exports = (pool) => {
       let existingGuestsResult;
       if (evento_id) {
         existingGuestsResult = await pool.query(
-          `SELECT id FROM promoter_convidados 
+          `SELECT id FROM meu_backup_db.promoter_convidados 
            WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id = $3
            LIMIT 1`,
           [promoter.promoter_id, whatsapp.trim(), evento_id]
         );
       } else {
         existingGuestsResult = await pool.query(
-          `SELECT id FROM promoter_convidados 
+          `SELECT id FROM meu_backup_db.promoter_convidados 
            WHERE promoter_id = $1 AND whatsapp = $2 AND evento_id IS NULL
            LIMIT 1`,
           [promoter.promoter_id, whatsapp.trim()]
@@ -182,7 +182,7 @@ module.exports = (pool) => {
 
       // Adicionar o convidado na tabela promoter_convidados
       const result = await pool.query(
-        `INSERT INTO promoter_convidados (
+        `INSERT INTO meu_backup_db.promoter_convidados (
           promoter_id, 
           nome, 
           whatsapp,
@@ -197,7 +197,7 @@ module.exports = (pool) => {
         if (evento_id) {
           // Buscar lista do promoter para este evento
           const listasResult = await pool.query(
-            `SELECT lista_id FROM listas 
+            `SELECT lista_id FROM meu_backup_db.listas 
              WHERE promoter_responsavel_id = $1 AND evento_id = $2
              LIMIT 1`,
             [promoter.promoter_id, evento_id]
@@ -208,7 +208,7 @@ module.exports = (pool) => {
 
             // Verificar se já existe na lista (evitar duplicatas)
             const existeNaListaResult = await pool.query(
-              `SELECT lista_convidado_id FROM listas_convidados 
+              `SELECT lista_convidado_id FROM meu_backup_db.listas_convidados 
                WHERE lista_id = $1 AND nome_convidado = $2 AND telefone_convidado = $3`,
               [lista_id, nome.trim(), whatsapp.trim()]
             );
@@ -216,7 +216,7 @@ module.exports = (pool) => {
             if (existeNaListaResult.rows.length === 0) {
               // Inserir na tabela listas_convidados
               await pool.query(
-                `INSERT INTO listas_convidados (
+                `INSERT INTO meu_backup_db.listas_convidados (
                   lista_id,
                   nome_convidado,
                   telefone_convidado,
@@ -263,22 +263,28 @@ module.exports = (pool) => {
   router.get('/:codigo/eventos', async (req, res) => {
     try {
       const { codigo } = req.params;
-      console.log('🔍 Buscando eventos para promoter:', codigo);
+      console.log('🔍 [EVENTOS] Buscando eventos para promoter:', codigo);
 
-      // Buscar promoter com establishment_id - simplificado para evitar problemas com tipos de dados
-      // Usar schema explícito se necessário
-      const promotersResult = await pool.query(
-        `SELECT promoter_id, establishment_id 
-         FROM meu_backup_db.promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE
-         LIMIT 1`,
-        [codigo]
-      );
+      // Buscar promoter com establishment_id - usar schema explícito
+      let promotersResult;
+      try {
+        promotersResult = await pool.query(
+          `SELECT promoter_id, establishment_id 
+           FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE
+           LIMIT 1`,
+          [codigo]
+        );
+        console.log('📊 [EVENTOS] Query de promoter executada com sucesso');
+      } catch (promoterQueryError) {
+        console.error('❌ [EVENTOS] Erro na query de promoter:', promoterQueryError);
+        throw promoterQueryError;
+      }
 
-      console.log('📊 Promoters encontrados para eventos:', promotersResult.rows.length);
+      console.log('📊 [EVENTOS] Promoters encontrados:', promotersResult.rows.length);
 
       if (promotersResult.rows.length === 0) {
-        console.log('❌ Promoter não encontrado para eventos:', codigo);
+        console.log('❌ [EVENTOS] Promoter não encontrado:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -286,28 +292,39 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
-      console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id, 'establishment_id:', promoter.establishment_id);
+      console.log('✅ [EVENTOS] Promoter encontrado:', {
+        promoter_id: promoter.promoter_id,
+        establishment_id: promoter.establishment_id,
+        establishment_id_type: typeof promoter.establishment_id
+      });
 
-      // Buscar eventos diretamente do banco de dados (mais eficiente que fazer requisição HTTP interna)
-      console.log('📊 Buscando eventos do banco de dados...');
+      // Buscar eventos diretamente do banco de dados
+      console.log('📊 [EVENTOS] Buscando eventos do banco de dados...');
       const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
       
       // Buscar eventos únicos diretamente do banco
-      const eventsResult = await pool.query(
-        `SELECT
-          id, casa_do_evento, nome_do_evento, 
-          TO_CHAR(data_do_evento, 'YYYY-MM-DD') as data_do_evento, 
-          hora_do_evento,
-          local_do_evento, tipo_evento, id_place,
-          imagem_do_evento
-        FROM meu_backup_db.eventos
-        WHERE tipo_evento = 'unico'
-        ORDER BY 
-          CASE WHEN data_do_evento IS NULL THEN 1 ELSE 0 END,
-          data_do_evento ASC NULLS LAST,
-          hora_do_evento ASC NULLS LAST`,
-        []
-      );
+      let eventsResult;
+      try {
+        eventsResult = await pool.query(
+          `SELECT
+            id, casa_do_evento, nome_do_evento, 
+            TO_CHAR(data_do_evento, 'YYYY-MM-DD') as data_do_evento, 
+            hora_do_evento,
+            local_do_evento, tipo_evento, id_place,
+            imagem_do_evento
+          FROM meu_backup_db.eventos
+          WHERE tipo_evento = 'unico'
+          ORDER BY 
+            CASE WHEN data_do_evento IS NULL THEN 1 ELSE 0 END,
+            data_do_evento ASC NULLS LAST,
+            hora_do_evento ASC NULLS LAST`,
+          []
+        );
+        console.log('📊 [EVENTOS] Query de eventos executada com sucesso');
+      } catch (eventsQueryError) {
+        console.error('❌ [EVENTOS] Erro na query de eventos:', eventsQueryError);
+        throw eventsQueryError;
+      }
       
       // Adicionar URLs completas das imagens
       const allEvents = eventsResult.rows.map(event => ({
@@ -319,41 +336,82 @@ module.exports = (pool) => {
           : null
       }));
       
-      console.log('📊 Total de eventos obtidos do banco:', allEvents.length);
+      console.log('📊 [EVENTOS] Total de eventos obtidos do banco:', allEvents.length);
 
       // Buscar eventos associados ao promoter via promoter_eventos
-      const promoterEventsResult = await pool.query(
-        `SELECT DISTINCT evento_id 
-         FROM meu_backup_db.promoter_eventos 
-         WHERE promoter_id = $1 AND LOWER(status) = 'ativo'`,
-        [promoter.promoter_id]
-      );
+      let promoterEventsResult;
+      try {
+        // No PostgreSQL, ENUMs podem precisar de cast explícito
+        promoterEventsResult = await pool.query(
+          `SELECT DISTINCT evento_id 
+           FROM meu_backup_db.promoter_eventos 
+           WHERE promoter_id = $1 AND status::TEXT = 'ativo'`,
+          [promoter.promoter_id]
+        );
+        console.log('📊 [EVENTOS] Query de promoter_eventos executada com sucesso');
+      } catch (promoterEventsQueryError) {
+        console.error('❌ [EVENTOS] Erro na query de promoter_eventos:', promoterEventsQueryError.message);
+        // Tentar sem o cast se falhar
+        try {
+          promoterEventsResult = await pool.query(
+            `SELECT DISTINCT evento_id 
+             FROM meu_backup_db.promoter_eventos 
+             WHERE promoter_id = $1 AND status = 'ativo'`,
+            [promoter.promoter_id]
+          );
+          console.log('📊 [EVENTOS] Query de promoter_eventos executada com sucesso (sem cast)');
+        } catch (secondError) {
+          console.error('❌ [EVENTOS] Erro na segunda tentativa:', secondError.message);
+          // Não falhar se a tabela não existir ou houver erro, apenas logar
+          promoterEventsResult = { rows: [] };
+        }
+      }
+      
       const promoterEventIds = new Set(promoterEventsResult.rows.map(row => row.evento_id));
+      console.log('📊 [EVENTOS] Eventos associados ao promoter:', promoterEventIds.size);
 
       // Filtrar eventos
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
+      // Converter establishment_id para número se necessário
+      const establishmentId = promoter.establishment_id ? 
+        (typeof promoter.establishment_id === 'string' ? parseInt(promoter.establishment_id, 10) : promoter.establishment_id) 
+        : null;
+      
+      console.log('📊 [EVENTOS] Filtrando eventos com establishment_id:', establishmentId);
+
       const filteredEvents = allEvents
         .filter(event => {
           // Eventos associados ao promoter
           if (promoterEventIds.has(event.id)) {
+            console.log('✅ [EVENTOS] Evento', event.id, 'associado ao promoter');
             return true;
           }
           
           // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
-          if (promoter.establishment_id) {
-            const matchesEstablishment = event.id_place === promoter.establishment_id || 
+          if (establishmentId) {
+            // Converter id_place para número se necessário
+            const eventPlaceId = event.id_place ? 
+              (typeof event.id_place === 'string' ? parseInt(event.id_place, 10) : event.id_place) 
+              : null;
+            
+            const matchesEstablishment = eventPlaceId === establishmentId || 
                                         (event.casa_do_evento && 
                                          event.casa_do_evento.toLowerCase().includes('high'));
             
             if (matchesEstablishment && event.tipoEvento === 'unico') {
               if (!event.data_do_evento) {
+                console.log('✅ [EVENTOS] Evento', event.id, 'sem data, incluindo');
                 return true;
               }
               const eventDate = new Date(event.data_do_evento);
               eventDate.setHours(0, 0, 0, 0);
-              return eventDate >= today;
+              const isFuture = eventDate >= today;
+              if (isFuture) {
+                console.log('✅ [EVENTOS] Evento', event.id, 'com data futura, incluindo');
+              }
+              return isFuture;
             }
           }
           
@@ -377,7 +435,8 @@ module.exports = (pool) => {
         })
         .slice(0, 20);
 
-      console.log('✅ Eventos filtrados:', filteredEvents.length);
+      console.log('✅ [EVENTOS] Eventos filtrados:', filteredEvents.length);
+      console.log('📊 [EVENTOS] Detalhes dos eventos filtrados:', filteredEvents.map(e => ({ id: e.id, nome: e.nome, data: e.data })));
 
       res.json({
         success: true,
@@ -385,16 +444,19 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      console.error('❌ Erro ao buscar eventos do promoter:', error);
-      console.error('❌ Stack:', error.stack);
+      console.error('❌ [EVENTOS] Erro ao buscar eventos do promoter:', error);
+      console.error('❌ [EVENTOS] Stack:', error.stack);
       if (error.code) {
-        console.error('❌ Error Code:', error.code);
+        console.error('❌ [EVENTOS] Error Code:', error.code);
       }
       if (error.detail) {
-        console.error('❌ Error Detail:', error.detail);
+        console.error('❌ [EVENTOS] Error Detail:', error.detail);
       }
       if (error.hint) {
-        console.error('❌ Error Hint:', error.hint);
+        console.error('❌ [EVENTOS] Error Hint:', error.hint);
+      }
+      if (error.message) {
+        console.error('❌ [EVENTOS] Error Message:', error.message);
       }
       res.status(500).json({ 
         success: false, 
@@ -404,7 +466,8 @@ module.exports = (pool) => {
           message: error.message,
           code: error.code,
           detail: error.detail,
-          hint: error.hint
+          hint: error.hint,
+          stack: error.stack
         } : undefined
       });
     }
@@ -423,8 +486,8 @@ module.exports = (pool) => {
 
       // Buscar promoter
       const promotersResult = await pool.query(
-        `SELECT promoter_id FROM promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+        `SELECT promoter_id FROM meu_backup_db.promoters 
+         WHERE codigo_identificador = $1 AND ativo = TRUE AND LOWER(status) = 'ativo'
          LIMIT 1`,
         [codigo]
       );
@@ -451,8 +514,8 @@ module.exports = (pool) => {
           c.created_at,
           e.nome_do_evento as evento_nome,
           e.data_do_evento as evento_data
-        FROM promoter_convidados c
-        LEFT JOIN eventos e ON c.evento_id = e.id
+        FROM meu_backup_db.promoter_convidados c
+        LEFT JOIN meu_backup_db.eventos e ON c.evento_id = e.id
         WHERE c.promoter_id = $1
       `;
 
