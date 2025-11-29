@@ -2,7 +2,6 @@
 
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
 
 module.exports = (pool) => {
   /**
@@ -289,97 +288,101 @@ module.exports = (pool) => {
       const promoter = promotersResult.rows[0];
       console.log('✅ Promoter encontrado para eventos:', promoter.promoter_id, 'establishment_id:', promoter.establishment_id);
 
-      // Buscar eventos usando a API /api/events
-      console.log('📊 Buscando eventos via API...');
+      // Buscar eventos diretamente do banco de dados (mais eficiente que fazer requisição HTTP interna)
+      console.log('📊 Buscando eventos do banco de dados...');
       const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
-      const API_BASE_URL = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
       
-      // Buscar todos os eventos da API /api/events
-      let allEvents = [];
-      try {
-        const eventsResponse = await fetch(`${API_BASE_URL}/api/events?tipo=unico`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
+      // Buscar eventos únicos diretamente do banco
+      const eventsResult = await pool.query(
+        `SELECT
+          id, casa_do_evento, nome_do_evento, 
+          TO_CHAR(data_do_evento, 'YYYY-MM-DD') as data_do_evento, 
+          hora_do_evento,
+          local_do_evento, tipo_evento, id_place,
+          imagem_do_evento
+        FROM meu_backup_db.eventos
+        WHERE tipo_evento = 'unico'
+        ORDER BY 
+          CASE WHEN data_do_evento IS NULL THEN 1 ELSE 0 END,
+          data_do_evento ASC NULLS LAST,
+          hora_do_evento ASC NULLS LAST`,
+        []
+      );
+      
+      // Adicionar URLs completas das imagens
+      const allEvents = eventsResult.rows.map(event => ({
+        ...event,
+        tipoEvento: event.tipo_evento,
+        nome_do_evento: event.nome_do_evento,
+        imagem_do_evento_url: event.imagem_do_evento 
+          ? `${BASE_IMAGE_URL}${event.imagem_do_evento}`
+          : null
+      }));
+      
+      console.log('📊 Total de eventos obtidos do banco:', allEvents.length);
+
+      // Buscar eventos associados ao promoter via promoter_eventos
+      const promoterEventsResult = await pool.query(
+        `SELECT DISTINCT evento_id 
+         FROM meu_backup_db.promoter_eventos 
+         WHERE promoter_id = $1 AND LOWER(status) = 'ativo'`,
+        [promoter.promoter_id]
+      );
+      const promoterEventIds = new Set(promoterEventsResult.rows.map(row => row.evento_id));
+
+      // Filtrar eventos
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const filteredEvents = allEvents
+        .filter(event => {
+          // Eventos associados ao promoter
+          if (promoterEventIds.has(event.id)) {
+            return true;
           }
-        });
-
-        if (eventsResponse.ok) {
-          allEvents = await eventsResponse.json();
-          console.log('✅ Eventos obtidos da API:', allEvents.length);
-        } else {
-          const errorText = await eventsResponse.text();
-          console.error('❌ Erro ao buscar eventos da API:', eventsResponse.status, errorText);
-          throw new Error(`API retornou status ${eventsResponse.status}`);
-        }
-      } catch (fetchError) {
-        console.error('❌ Erro ao buscar da API:', fetchError.message);
-        throw fetchError;
-      }
-      console.log('📊 Total de eventos retornados pela API:', allEvents.length);
-
-        // Buscar eventos associados ao promoter via promoter_eventos
-        const promoterEventsResult = await pool.query(
-          `SELECT DISTINCT evento_id 
-           FROM meu_backup_db.promoter_eventos 
-           WHERE promoter_id = $1 AND LOWER(status) = 'ativo'`,
-          [promoter.promoter_id]
-        );
-        const promoterEventIds = new Set(promoterEventsResult.rows.map(row => row.evento_id));
-
-        // Filtrar eventos
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const filteredEvents = allEvents
-          .filter(event => {
-            // Eventos associados ao promoter
-            if (promoterEventIds.has(event.id)) {
-              return true;
-            }
+          
+          // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
+          if (promoter.establishment_id) {
+            const matchesEstablishment = event.id_place === promoter.establishment_id || 
+                                        (event.casa_do_evento && 
+                                         event.casa_do_evento.toLowerCase().includes('high'));
             
-            // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
-            if (promoter.establishment_id) {
-              const matchesEstablishment = event.id_place === promoter.establishment_id || 
-                                          (event.casa_do_evento && 
-                                           event.casa_do_evento.toLowerCase().includes('high'));
-              
-              if (matchesEstablishment && event.tipoEvento === 'unico') {
-                if (!event.data_do_evento) {
-                  return true;
-                }
-                const eventDate = new Date(event.data_do_evento);
-                eventDate.setHours(0, 0, 0, 0);
-                return eventDate >= today;
+            if (matchesEstablishment && event.tipoEvento === 'unico') {
+              if (!event.data_do_evento) {
+                return true;
               }
+              const eventDate = new Date(event.data_do_evento);
+              eventDate.setHours(0, 0, 0, 0);
+              return eventDate >= today;
             }
-            
-            return false;
-          })
-          .map(event => ({
-            id: event.id,
-            nome: event.nome_do_evento,
-            data: event.data_do_evento || null,
-            hora: event.hora_do_evento || null,
-            local_nome: event.local_do_evento || null,
-            local_endereco: null, // A API não retorna endereço diretamente
-            imagem_url: event.imagem_do_evento_url || (event.imagem_do_evento ? `${BASE_IMAGE_URL}${event.imagem_do_evento}` : null)
-          }))
-          .sort((a, b) => {
-            // Ordenar: eventos sem data primeiro, depois por data
-            if (!a.data && !b.data) return 0;
-            if (!a.data) return 1;
-            if (!b.data) return -1;
-            return new Date(a.data) - new Date(b.data);
-          })
-          .slice(0, 20);
+          }
+          
+          return false;
+        })
+        .map(event => ({
+          id: event.id,
+          nome: event.nome_do_evento,
+          data: event.data_do_evento || null,
+          hora: event.hora_do_evento || null,
+          local_nome: event.local_do_evento || null,
+          local_endereco: null,
+          imagem_url: event.imagem_do_evento_url || (event.imagem_do_evento ? `${BASE_IMAGE_URL}${event.imagem_do_evento}` : null)
+        }))
+        .sort((a, b) => {
+          // Ordenar: eventos sem data primeiro, depois por data
+          if (!a.data && !b.data) return 0;
+          if (!a.data) return 1;
+          if (!b.data) return -1;
+          return new Date(a.data) - new Date(b.data);
+        })
+        .slice(0, 20);
 
-        console.log('✅ Eventos filtrados:', filteredEvents.length);
+      console.log('✅ Eventos filtrados:', filteredEvents.length);
 
-        res.json({
-          success: true,
-          eventos: filteredEvents
-        });
+      res.json({
+        success: true,
+        eventos: filteredEvents
+      });
 
     } catch (error) {
       console.error('❌ Erro ao buscar eventos do promoter:', error);
