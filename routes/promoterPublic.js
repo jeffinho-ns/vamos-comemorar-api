@@ -25,31 +25,59 @@ module.exports = (pool) => {
   router.get('/:codigo', async (req, res) => {
     try {
       const { codigo } = req.params;
-      console.log('🔍 Buscando promoter público com código:', codigo);
+      console.log('🔍 [PROMOTER] Buscando promoter público com código:', codigo);
 
-      // Buscar promoter
-      const promotersResult = await pool.query(
-        `SELECT 
-          p.promoter_id,
-          p.nome,
-          p.apelido,
-          p.email,
-          p.foto_url,
-          p.instagram,
-          p.observacoes,
-          p.status,
-          pl.name as establishment_name
-         FROM meu_backup_db.promoters p
-         LEFT JOIN meu_backup_db.places pl ON p.establishment_id = pl.id
-         WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND LOWER(p.status) = 'ativo'
-         LIMIT 1`,
-        [codigo]
-      );
+      // Buscar promoter - tentar com status::TEXT primeiro (PostgreSQL)
+      let promotersResult;
+      try {
+        promotersResult = await pool.query(
+          `SELECT 
+            p.promoter_id,
+            p.nome,
+            p.apelido,
+            p.email,
+            p.foto_url,
+            p.instagram,
+            p.observacoes,
+            p.status,
+            pl.name as establishment_name
+           FROM meu_backup_db.promoters p
+           LEFT JOIN meu_backup_db.places pl ON p.establishment_id = pl.id
+           WHERE p.codigo_identificador = $1 AND p.ativo = TRUE AND p.status::TEXT = 'Ativo'
+           LIMIT 1`,
+          [codigo]
+        );
+        console.log('📊 [PROMOTER] Query executada com sucesso (status::TEXT)');
+      } catch (queryError) {
+        console.log('⚠️ [PROMOTER] Erro na primeira tentativa, tentando sem cast:', queryError.message);
+        // Tentar sem cast se falhar
+        promotersResult = await pool.query(
+          `SELECT 
+            p.promoter_id,
+            p.nome,
+            p.apelido,
+            p.email,
+            p.foto_url,
+            p.instagram,
+            p.observacoes,
+            p.status,
+            pl.name as establishment_name
+           FROM meu_backup_db.promoters p
+           LEFT JOIN meu_backup_db.places pl ON p.establishment_id = pl.id
+           WHERE p.codigo_identificador = $1 AND p.ativo = TRUE
+           LIMIT 1`,
+          [codigo]
+        );
+        // Filtrar por status em JavaScript se necessário
+        if (promotersResult.rows.length > 0 && promotersResult.rows[0].status !== 'Ativo') {
+          promotersResult.rows = [];
+        }
+      }
 
-      console.log('📊 Promoters encontrados:', promotersResult.rows.length);
+      console.log('📊 [PROMOTER] Promoters encontrados:', promotersResult.rows.length);
 
       if (promotersResult.rows.length === 0) {
-        console.log('❌ Promoter não encontrado com código:', codigo);
+        console.log('❌ [PROMOTER] Promoter não encontrado com código:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -57,19 +85,25 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
-      console.log('✅ Promoter encontrado:', { id: promoter.promoter_id, nome: promoter.nome });
+      console.log('✅ [PROMOTER] Promoter encontrado:', { id: promoter.promoter_id, nome: promoter.nome });
 
       // Buscar estatísticas do promoter
-      console.log('📊 Buscando estatísticas...');
-      const statsResult = await pool.query(
-        `SELECT 
-          COUNT(DISTINCT c.id) as total_convidados,
-          COUNT(DISTINCT CASE WHEN c.status = 'confirmado' THEN c.id END) as total_confirmados
-         FROM meu_backup_db.promoter_convidados c
-         WHERE c.promoter_id = $1`,
-        [promoter.promoter_id]
-      );
-      console.log('✅ Estatísticas obtidas:', statsResult.rows[0]);
+      console.log('📊 [PROMOTER] Buscando estatísticas...');
+      let statsResult;
+      try {
+        statsResult = await pool.query(
+          `SELECT 
+            COUNT(DISTINCT c.id) as total_convidados,
+            COUNT(DISTINCT CASE WHEN c.status = 'confirmado' THEN c.id END) as total_confirmados
+           FROM meu_backup_db.promoter_convidados c
+           WHERE c.promoter_id = $1`,
+          [promoter.promoter_id]
+        );
+        console.log('✅ [PROMOTER] Estatísticas obtidas:', statsResult.rows[0]);
+      } catch (statsError) {
+        console.error('⚠️ [PROMOTER] Erro ao buscar estatísticas:', statsError.message);
+        statsResult = { rows: [{ total_convidados: 0, total_confirmados: 0 }] };
+      }
 
       // Buscar user_id se existir (pode não existir na tabela)
       let userId = null;
@@ -82,7 +116,7 @@ module.exports = (pool) => {
           userId = userResult.rows[0].id;
         }
       } catch (userError) {
-        console.log('⚠️ Não foi possível buscar user_id:', userError.message);
+        console.log('⚠️ [PROMOTER] Não foi possível buscar user_id:', userError.message);
       }
 
       res.json({
@@ -102,13 +136,27 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      console.error('❌ Erro ao buscar promoter público:', error);
-      console.error('❌ Stack:', error.stack);
-      console.error('❌ SQL Message:', error.sqlMessage);
+      console.error('❌ [PROMOTER] Erro ao buscar promoter público:', error);
+      console.error('❌ [PROMOTER] Stack:', error.stack);
+      if (error.code) {
+        console.error('❌ [PROMOTER] Error Code:', error.code);
+      }
+      if (error.detail) {
+        console.error('❌ [PROMOTER] Error Detail:', error.detail);
+      }
+      if (error.hint) {
+        console.error('❌ [PROMOTER] Error Hint:', error.hint);
+      }
       res.status(500).json({ 
         success: false, 
         error: 'Erro interno do servidor',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          detail: error.detail,
+          hint: error.hint
+        } : undefined
       });
     }
   });
@@ -482,20 +530,37 @@ module.exports = (pool) => {
     try {
       const { codigo } = req.params;
       const { evento_id } = req.query;
-      console.log('🔍 Buscando convidados para promoter:', codigo);
+      console.log('🔍 [CONVIDADOS] Buscando convidados para promoter:', codigo);
 
-      // Buscar promoter
-      const promotersResult = await pool.query(
-        `SELECT promoter_id FROM meu_backup_db.promoters 
-         WHERE codigo_identificador = $1 AND ativo = TRUE AND LOWER(status) = 'ativo'
-         LIMIT 1`,
-        [codigo]
-      );
+      // Buscar promoter - tentar com status::TEXT primeiro (PostgreSQL)
+      let promotersResult;
+      try {
+        promotersResult = await pool.query(
+          `SELECT promoter_id FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+           LIMIT 1`,
+          [codigo]
+        );
+        console.log('📊 [CONVIDADOS] Query de promoter executada com sucesso (status::TEXT)');
+      } catch (queryError) {
+        console.log('⚠️ [CONVIDADOS] Erro na primeira tentativa, tentando sem cast:', queryError.message);
+        // Tentar sem cast se falhar
+        promotersResult = await pool.query(
+          `SELECT promoter_id FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE
+           LIMIT 1`,
+          [codigo]
+        );
+        // Filtrar por status em JavaScript se necessário
+        if (promotersResult.rows.length > 0 && promotersResult.rows[0].status !== 'Ativo') {
+          promotersResult.rows = [];
+        }
+      }
 
-      console.log('📊 Promoters encontrados para convidados:', promotersResult.rows.length);
+      console.log('📊 [CONVIDADOS] Promoters encontrados:', promotersResult.rows.length);
 
       if (promotersResult.rows.length === 0) {
-        console.log('❌ Promoter não encontrado para convidados:', codigo);
+        console.log('❌ [CONVIDADOS] Promoter não encontrado:', codigo);
         return res.status(404).json({ 
           success: false, 
           error: 'Promoter não encontrado' 
@@ -503,7 +568,7 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
-      console.log('✅ Promoter encontrado para convidados:', promoter.promoter_id);
+      console.log('✅ [CONVIDADOS] Promoter encontrado:', promoter.promoter_id);
 
       // Buscar convidados
       let query = `
@@ -528,9 +593,9 @@ module.exports = (pool) => {
 
       query += ` ORDER BY c.created_at DESC`;
 
-      console.log('📊 Executando query de convidados...');
+      console.log('📊 [CONVIDADOS] Executando query de convidados...');
       const convidadosResult = await pool.query(query, params);
-      console.log('✅ Convidados encontrados:', convidadosResult.rows.length);
+      console.log('✅ [CONVIDADOS] Convidados encontrados:', convidadosResult.rows.length);
 
       // Ocultar informações sensíveis (WhatsApp) na listagem pública
       const convidadosPublicos = convidadosResult.rows.map(c => ({
@@ -547,13 +612,27 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      console.error('❌ Erro ao buscar convidados do promoter:', error);
-      console.error('❌ Stack:', error.stack);
-      console.error('❌ SQL Message:', error.sqlMessage);
+      console.error('❌ [CONVIDADOS] Erro ao buscar convidados do promoter:', error);
+      console.error('❌ [CONVIDADOS] Stack:', error.stack);
+      if (error.code) {
+        console.error('❌ [CONVIDADOS] Error Code:', error.code);
+      }
+      if (error.detail) {
+        console.error('❌ [CONVIDADOS] Error Detail:', error.detail);
+      }
+      if (error.hint) {
+        console.error('❌ [CONVIDADOS] Error Hint:', error.hint);
+      }
       res.status(500).json({ 
         success: false, 
         error: 'Erro interno do servidor',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          detail: error.detail,
+          hint: error.hint
+        } : undefined
       });
     }
   });
