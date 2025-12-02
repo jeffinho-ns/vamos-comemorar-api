@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { customAlphabet } = require('nanoid');
-const onedriveService = require('../services/onedriveService');
+const cloudinaryService = require('../services/cloudinaryService');
 
 const router = express.Router();
 
@@ -52,7 +52,7 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota de upload unificada para todos os tipos de imagem
 router.post('/upload', upload.single('image'), handleMulterError, async (req, res) => {
-  console.log('📤 Iniciando upload de imagem para OneDrive...');
+  console.log('📤 Iniciando upload de imagem para Cloudinary...');
   const pool = req.app.get('pool');
 
   if (!pool) {
@@ -72,34 +72,43 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
   console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
   console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
 
-  let oneDriveSuccess = false;
+  let cloudinarySuccess = false;
   let publicUrl = null;
+  let publicId = null;
 
   try {
-    // Faz upload para o OneDrive e obtém URL pública
-    console.log(`📤 Fazendo upload de ${remoteFilename} para OneDrive...`);
-    publicUrl = await onedriveService.uploadFileAndGetPublicUrl(remoteFilename, file.buffer);
-    console.log(`✅ Upload OneDrive concluído: ${remoteFilename}`);
+    // Faz upload para o Cloudinary e obtém URL pública
+    console.log(`📤 Fazendo upload de ${remoteFilename} para Cloudinary...`);
+    const uploadResult = await cloudinaryService.uploadFile(remoteFilename, file.buffer, {
+      folder: 'cardapio-agilizaiapp',
+      overwrite: false
+    });
+    
+    publicUrl = uploadResult.secureUrl;
+    publicId = uploadResult.publicId;
+    
+    console.log(`✅ Upload Cloudinary concluído: ${remoteFilename}`);
+    console.log(`   Public ID: ${publicId}`);
     console.log(`   URL pública: ${publicUrl}`);
     
-    oneDriveSuccess = true;
+    cloudinarySuccess = true;
 
-  } catch (onedriveError) {
-    console.error('❌ Erro no upload para o OneDrive:', onedriveError.message);
-    console.error('Stack trace:', onedriveError.stack);
+  } catch (cloudinaryError) {
+    console.error('❌ Erro no upload para o Cloudinary:', cloudinaryError.message);
+    console.error('Stack trace:', cloudinaryError.stack);
     return res.status(500).json({
-      error: 'Erro ao fazer upload para o OneDrive',
-      details: onedriveError.message
+      error: 'Erro ao fazer upload para o Cloudinary',
+      details: cloudinaryError.message
     });
   }
 
-  // Salvar no banco - URL completa do OneDrive para exibição
+  // Salvar no banco - URL completa do Cloudinary para exibição
   const imageData = {
     filename: remoteFilename,
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: publicUrl, // URL pública do OneDrive
+    url: publicUrl, // URL pública do Cloudinary
     type: req.body.type || 'general',
     entityId: req.body.entityId || null,
     entityType: req.body.entityType || null
@@ -127,7 +136,8 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       success: true,
       imageId: result.rows[0].id,
       filename: remoteFilename,
-      url: publicUrl, // URL completa do OneDrive
+      url: publicUrl, // URL completa do Cloudinary
+      publicId: publicId, // Public ID do Cloudinary (para futuras operações)
       message: 'Imagem enviada com sucesso'
     });
 
@@ -135,13 +145,13 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     console.error('❌ Erro ao salvar no banco:', dbError.message);
     console.error('Stack trace:', dbError.stack);
     
-    // Remove do OneDrive se falhar no banco
-    if (oneDriveSuccess) {
+    // Remove do Cloudinary se falhar no banco
+    if (cloudinarySuccess && publicId) {
       try {
-        await onedriveService.deleteFile(remoteFilename);
-        console.log('🗑️ Arquivo removido do OneDrive após erro no banco.');
+        await cloudinaryService.deleteFile(publicId);
+        console.log('🗑️ Arquivo removido do Cloudinary após erro no banco.');
       } catch (removeError) {
-        console.warn('⚠️ Falha ao remover arquivo do OneDrive após erro no banco:', removeError.message);
+        console.warn('⚠️ Falha ao remover arquivo do Cloudinary após erro no banco:', removeError.message);
       }
     }
     
@@ -192,13 +202,15 @@ router.delete('/:imageId', async (req, res) => {
 
     await pool.query('DELETE FROM cardapio_images WHERE id = $1', [imageId]);
 
-    // Tenta deletar do OneDrive
+    // Tenta deletar do Cloudinary
     try {
-      await onedriveService.deleteFile(image.filename);
-      console.log(`✅ Arquivo ${image.filename} deletado do OneDrive`);
-    } catch (onedriveError) {
-      console.warn('⚠️ Erro ao deletar do OneDrive (arquivo pode não existir):', onedriveError.message);
-      // Não falha a requisição se o arquivo não existir no OneDrive
+      // Extrai o Public ID da URL do Cloudinary ou usa o filename
+      const publicId = cloudinaryService.extractPublicIdFromUrl(image.url) || image.filename;
+      await cloudinaryService.deleteFile(publicId);
+      console.log(`✅ Arquivo ${publicId} deletado do Cloudinary`);
+    } catch (cloudinaryError) {
+      console.warn('⚠️ Erro ao deletar do Cloudinary (arquivo pode não existir):', cloudinaryError.message);
+      // Não falha a requisição se o arquivo não existir no Cloudinary
     }
 
     res.json({ success: true, message: 'Imagem deletada com sucesso' });

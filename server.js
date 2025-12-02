@@ -172,53 +172,66 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Endpoint de teste do OneDrive (apenas para diagnóstico)
-app.get('/test-onedrive', async (req, res) => {
+// Endpoint de teste do Cloudinary (apenas para diagnóstico)
+app.get('/test-cloudinary', async (req, res) => {
   try {
-    const onedriveService = require('./services/onedriveService');
+    const cloudinaryService = require('./services/cloudinaryService');
     
     // Verificar variáveis de ambiente
-    const hasClientId = !!process.env.MS_CLIENT_ID;
-    const hasTenantId = !!process.env.MS_TENANT_ID;
-    const hasSecret = !!process.env.MS_CLIENT_SECRET;
+    const hasCloudName = !!process.env.CLOUDINARY_CLOUD_NAME;
+    const hasApiKey = !!process.env.CLOUDINARY_API_KEY;
+    const hasApiSecret = !!process.env.CLOUDINARY_API_SECRET;
     
-    if (!hasClientId || !hasTenantId || !hasSecret) {
+    if (!hasCloudName || !hasApiKey || !hasApiSecret) {
       return res.status(500).json({
         success: false,
         error: 'Variáveis de ambiente não configuradas',
         details: {
-          MS_CLIENT_ID: hasClientId ? '✅ Configurado' : '❌ Não configurado',
-          MS_TENANT_ID: hasTenantId ? '✅ Configurado' : '❌ Não configurado',
-          MS_CLIENT_SECRET: hasSecret ? '✅ Configurado' : '❌ Não configurado'
+          CLOUDINARY_CLOUD_NAME: hasCloudName ? '✅ Configurado' : '❌ Não configurado',
+          CLOUDINARY_API_KEY: hasApiKey ? '✅ Configurado' : '❌ Não configurado',
+          CLOUDINARY_API_SECRET: hasApiSecret ? '✅ Configurado' : '❌ Não configurado'
         }
       });
     }
     
-    // Tentar obter access token
-    console.log('🧪 Testando autenticação OneDrive...');
-    const token = await onedriveService.getAccessToken();
+    // Testar upload de arquivo de teste
+    console.log('🧪 Testando Cloudinary...');
+    const testBuffer = Buffer.from('Teste Cloudinary - ' + new Date().toISOString());
+    const testFileName = `test-${Date.now()}.txt`;
     
-    if (token) {
+    const uploadResult = await cloudinaryService.uploadFile(testFileName, testBuffer, {
+      folder: 'test',
+      resource_type: 'raw'
+    });
+    
+    if (uploadResult && uploadResult.secureUrl) {
+      // Deletar arquivo de teste
+      try {
+        await cloudinaryService.deleteFile(uploadResult.publicId, { resource_type: 'raw' });
+      } catch (deleteError) {
+        console.warn('⚠️ Erro ao deletar arquivo de teste:', deleteError.message);
+      }
+      
       return res.status(200).json({
         success: true,
-        message: '✅ Autenticação OneDrive funcionando!',
+        message: '✅ Cloudinary funcionando!',
         details: {
-          tokenPreview: token.substring(0, 20) + '...',
-          tokenLength: token.length,
+          cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+          uploadTest: '✅ Sucesso',
           timestamp: new Date().toISOString()
         }
       });
     } else {
       return res.status(500).json({
         success: false,
-        error: 'Token não retornado'
+        error: 'Upload de teste não retornou URL'
       });
     }
   } catch (error) {
-    console.error('❌ Erro no teste OneDrive:', error);
+    console.error('❌ Erro no teste Cloudinary:', error);
     return res.status(500).json({
       success: false,
-      error: 'Erro na autenticação OneDrive',
+      error: 'Erro no Cloudinary',
       details: {
         message: error.message,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined

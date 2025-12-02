@@ -26,7 +26,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
 
     /**
      * Função auxiliar para construir URL completa de imagem
-     * Suporta URLs completas do OneDrive e filenames legados do FTP
+     * Suporta URLs completas do Cloudinary e filenames legados do FTP
      */
     const buildImageUrl = (imageValue) => {
         if (!imageValue) return null;
@@ -34,7 +34,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
         const trimmed = String(imageValue).trim();
         if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
         
-        // Se já é uma URL completa (OneDrive ou outro serviço), usar diretamente
+        // Se já é uma URL completa (Cloudinary, FTP ou outro serviço), usar diretamente
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
             return trimmed;
         }

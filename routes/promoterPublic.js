@@ -521,7 +521,7 @@ module.exports = (pool) => {
         if (!imageValue) return null;
         const trimmed = String(imageValue).trim();
         if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
-        // Se já é uma URL completa (OneDrive), usar diretamente
+        // Se já é uma URL completa (Cloudinary, FTP ou outro serviço), usar diretamente
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
           return trimmed;
         }
