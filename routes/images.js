@@ -1,9 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const ftp = require('basic-ftp');
 const { customAlphabet } = require('nanoid');
-const { Readable } = require('stream');
+const onedriveService = require('../services/onedriveService');
 
 const router = express.Router();
 
@@ -53,13 +52,12 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota de upload unificada para todos os tipos de imagem
 router.post('/upload', upload.single('image'), handleMulterError, async (req, res) => {
-  console.log('📤 Iniciando upload de imagem...');
+  console.log('📤 Iniciando upload de imagem para OneDrive...');
   const pool = req.app.get('pool');
-  const ftpConfig = req.app.get('ftpConfig');
 
-  if (!pool || !ftpConfig) {
-    console.error('Dependências do servidor não disponíveis.');
-    return res.status(500).json({ error: 'Erro interno do servidor: configuração ausente.' });
+  if (!pool) {
+    console.error('Pool de conexão não disponível.');
+    return res.status(500).json({ error: 'Erro interno do servidor: pool de conexão ausente.' });
   }
 
   if (!req.file) {
@@ -70,60 +68,38 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
   const file = req.file;
   const extension = path.extname(file.originalname);
   const remoteFilename = `${nanoid()}${extension}`;
-  const imageUrl = `${ftpConfig.baseUrl}${remoteFilename}`;
   
   console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
   console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
 
-  const client = new ftp.Client();
-  client.ftp.verbose = true;
-  let ftpSuccess = false;
+  let oneDriveSuccess = false;
+  let publicUrl = null;
 
   try {
-    console.log('Tentando conectar ao FTP...');
-    console.log('Configurações FTP:', {
-      host: ftpConfig.host,
-      user: ftpConfig.user,
-      port: ftpConfig.port,
-      secure: ftpConfig.secure
-    });
+    // Faz upload para o OneDrive e obtém URL pública
+    console.log(`📤 Fazendo upload de ${remoteFilename} para OneDrive...`);
+    publicUrl = await onedriveService.uploadFileAndGetPublicUrl(remoteFilename, file.buffer);
+    console.log(`✅ Upload OneDrive concluído: ${remoteFilename}`);
+    console.log(`   URL pública: ${publicUrl}`);
     
-    await client.access({
-      host: ftpConfig.host,
-      user: ftpConfig.user,
-      password: ftpConfig.password,
-      secure: ftpConfig.secure,
-      port: ftpConfig.port
-    });
-    console.log('Conexão FTP estabelecida com sucesso.');
+    oneDriveSuccess = true;
 
-    console.log('Verificando diretório remoto...');
-    await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
-    console.log('✅ Diretório criado/verificado com sucesso.');
-
-    console.log(`Enviando arquivo ${remoteFilename} para o FTP...`);
-    const readableStream = Readable.from(file.buffer);
-    await client.uploadFrom(readableStream, remoteFilename);
-    console.log(`Upload FTP concluído: ${remoteFilename} (${file.size} bytes)`);
-    
-    ftpSuccess = true;
-
-  } catch (ftpError) {
-    console.error('❌ Erro no upload para o FTP:', ftpError.message);
-    console.error('Stack trace:', ftpError.stack);
+  } catch (onedriveError) {
+    console.error('❌ Erro no upload para o OneDrive:', onedriveError.message);
+    console.error('Stack trace:', onedriveError.stack);
     return res.status(500).json({
-      error: 'Erro ao fazer upload para o servidor FTP',
-      details: ftpError.message
+      error: 'Erro ao fazer upload para o OneDrive',
+      details: onedriveError.message
     });
   }
 
-  // Salvar no banco - URL completa para exibição
+  // Salvar no banco - URL completa do OneDrive para exibição
   const imageData = {
     filename: remoteFilename,
     originalName: file.originalname,
     fileSize: file.size,
     mimeType: file.mimetype,
-    url: `${ftpConfig.baseUrl}${remoteFilename}`, 
+    url: publicUrl, // URL pública do OneDrive
     type: req.body.type || 'general',
     entityId: req.body.entityId || null,
     entityType: req.body.entityType || null
@@ -150,8 +126,8 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     res.json({
       success: true,
       imageId: result.rows[0].id,
-      filename: remoteFilename, // Apenas o nome do arquivo, como o front-end espera
-      url: `${ftpConfig.baseUrl}${remoteFilename}`,
+      filename: remoteFilename,
+      url: publicUrl, // URL completa do OneDrive
       message: 'Imagem enviada com sucesso'
     });
 
@@ -159,13 +135,13 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     console.error('❌ Erro ao salvar no banco:', dbError.message);
     console.error('Stack trace:', dbError.stack);
     
-    // Remove do FTP se falhar no banco
-    if (ftpSuccess) {
+    // Remove do OneDrive se falhar no banco
+    if (oneDriveSuccess) {
       try {
-        await client.remove(remoteFilename);
-        console.log('🗑️ Arquivo removido do FTP após erro no banco.');
+        await onedriveService.deleteFile(remoteFilename);
+        console.log('🗑️ Arquivo removido do OneDrive após erro no banco.');
       } catch (removeError) {
-        console.warn('⚠️ Falha ao remover arquivo do FTP após erro no banco:', removeError.message);
+        console.warn('⚠️ Falha ao remover arquivo do OneDrive após erro no banco:', removeError.message);
       }
     }
     
@@ -173,9 +149,6 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       error: 'Erro ao salvar imagem no banco de dados',
       details: dbError.message 
     });
-  } finally {
-    client.close();
-    console.log('🔌 Conexão FTP fechada.');
   }
 });
 
@@ -207,7 +180,6 @@ router.get('/list', async (req, res) => {
 // Deleta imagem
 router.delete('/:imageId', async (req, res) => {
   const pool = req.app.get('pool');
-  const ftpConfig = req.app.get('ftpConfig');
 
   if (!pool) return res.status(500).json({ error: 'Pool de conexão indisponível' });
 
@@ -220,14 +192,13 @@ router.delete('/:imageId', async (req, res) => {
 
     await pool.query('DELETE FROM cardapio_images WHERE id = $1', [imageId]);
 
+    // Tenta deletar do OneDrive
     try {
-      const client = new ftp.Client();
-      await client.access(ftpConfig);
-      await client.ensureDir(ftpConfig.remoteDirectory.replace(/\/+$/, ''));
-      await client.remove(image.filename);
-      client.close();
-    } catch (ftpError) {
-      console.warn('Erro ao deletar do FTP:', ftpError.message);
+      await onedriveService.deleteFile(image.filename);
+      console.log(`✅ Arquivo ${image.filename} deletado do OneDrive`);
+    } catch (onedriveError) {
+      console.warn('⚠️ Erro ao deletar do OneDrive (arquivo pode não existir):', onedriveError.message);
+      // Não falha a requisição se o arquivo não existir no OneDrive
     }
 
     res.json({ success: true, message: 'Imagem deletada com sucesso' });

@@ -516,6 +516,19 @@ module.exports = (pool) => {
       console.log('📊 [EVENTOS] Buscando eventos do banco de dados...');
       const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
       
+      // Função auxiliar para construir URL completa de imagem
+      const buildImageUrl = (imageValue) => {
+        if (!imageValue) return null;
+        const trimmed = String(imageValue).trim();
+        if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+        // Se já é uma URL completa (OneDrive), usar diretamente
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          return trimmed;
+        }
+        // Se ainda é apenas um filename (legado do FTP), construir URL do FTP
+        return `${BASE_IMAGE_URL}${trimmed}`;
+      };
+      
       // Buscar eventos únicos diretamente do banco
       let eventsResult;
       try {
@@ -545,9 +558,7 @@ module.exports = (pool) => {
         ...event,
         tipoEvento: event.tipo_evento,
         nome_do_evento: event.nome_do_evento,
-        imagem_do_evento_url: event.imagem_do_evento 
-          ? `${BASE_IMAGE_URL}${event.imagem_do_evento}`
-          : null
+        imagem_do_evento_url: buildImageUrl(event.imagem_do_evento)
       }));
       
       console.log('📊 [EVENTOS] Total de eventos obtidos do banco:', allEvents.length);

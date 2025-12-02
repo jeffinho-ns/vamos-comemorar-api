@@ -18,7 +18,9 @@
     "migrate-promoter-eventos": "node scripts/run-promoter-eventos-migration.js",
     "check-promoter-eventos": "node scripts/check-promoter-eventos-table.js",
     "diagnose-promoters": "node scripts/diagnose-promoter-system.js",
-    "check-db": "node scripts/check-remote-db.js"
+    "check-db": "node scripts/check-remote-db.js",
+    "test-onedrive": "node scripts/test-onedrive-service.js",
+    "migrate-onedrive": "node scripts/migrate-images-to-onedrive.js"
   },
   "keywords": [],
   "author": "",

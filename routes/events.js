@@ -21,19 +21,35 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 module.exports = (pool, checkAndAwardBrindes) => {
     const router = express.Router();
 
-    // URL base das imagens (mesma do cardápio - FTP)
+    // URL base das imagens (FTP - usado apenas para URLs legadas durante migração)
     const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+
+    /**
+     * Função auxiliar para construir URL completa de imagem
+     * Suporta URLs completas do OneDrive e filenames legados do FTP
+     */
+    const buildImageUrl = (imageValue) => {
+        if (!imageValue) return null;
+        
+        const trimmed = String(imageValue).trim();
+        if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+        
+        // Se já é uma URL completa (OneDrive ou outro serviço), usar diretamente
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+            return trimmed;
+        }
+        
+        // Se ainda é apenas um filename (legado do FTP), construir URL do FTP
+        // Isso permite compatibilidade durante a migração
+        return `${BASE_IMAGE_URL}${trimmed}`;
+    };
 
     const addFullImageUrls = (event) => {
         if (!event) return null;
         return {
             ...event,
-            imagem_do_evento_url: event.imagem_do_evento
-                ? `${BASE_IMAGE_URL}${event.imagem_do_evento}`
-                : null,
-            imagem_do_combo_url: event.imagem_do_combo
-                ? `${BASE_IMAGE_URL}${event.imagem_do_combo}`
-                : null,
+            imagem_do_evento_url: buildImageUrl(event.imagem_do_evento),
+            imagem_do_combo_url: buildImageUrl(event.imagem_do_combo),
         };
     };
 

@@ -172,6 +172,61 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Endpoint de teste do OneDrive (apenas para diagnóstico)
+app.get('/test-onedrive', async (req, res) => {
+  try {
+    const onedriveService = require('./services/onedriveService');
+    
+    // Verificar variáveis de ambiente
+    const hasClientId = !!process.env.MS_CLIENT_ID;
+    const hasTenantId = !!process.env.MS_TENANT_ID;
+    const hasSecret = !!process.env.MS_CLIENT_SECRET;
+    
+    if (!hasClientId || !hasTenantId || !hasSecret) {
+      return res.status(500).json({
+        success: false,
+        error: 'Variáveis de ambiente não configuradas',
+        details: {
+          MS_CLIENT_ID: hasClientId ? '✅ Configurado' : '❌ Não configurado',
+          MS_TENANT_ID: hasTenantId ? '✅ Configurado' : '❌ Não configurado',
+          MS_CLIENT_SECRET: hasSecret ? '✅ Configurado' : '❌ Não configurado'
+        }
+      });
+    }
+    
+    // Tentar obter access token
+    console.log('🧪 Testando autenticação OneDrive...');
+    const token = await onedriveService.getAccessToken();
+    
+    if (token) {
+      return res.status(200).json({
+        success: true,
+        message: '✅ Autenticação OneDrive funcionando!',
+        details: {
+          tokenPreview: token.substring(0, 20) + '...',
+          tokenLength: token.length,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: 'Token não retornado'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Erro no teste OneDrive:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro na autenticação OneDrive',
+      details: {
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }
+    });
+  }
+});
+
 
 // Iniciar o servidor
 server.listen(PORT, config.server.host, () => {
