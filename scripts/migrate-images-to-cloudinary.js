@@ -23,7 +23,7 @@
 
 require('dotenv').config();
 const pool = require('../config/database');
-const ftp = require('basic-ftp');
+const fetch = require('node-fetch');
 const cloudinaryService = require('../services/cloudinaryService');
 
 // Configurações FTP (para download das imagens antigas)
@@ -77,37 +77,28 @@ function extractFilenameFromUrl(url) {
 }
 
 /**
- * Faz download de um arquivo do FTP
+ * Faz download de um arquivo via HTTP (já que as imagens estão acessíveis publicamente)
  */
 async function downloadFromFTP(filename) {
-  const client = new ftp.Client();
-  client.ftp.verbose = false;
-  
   try {
-    await client.access({
-      host: FTP_CONFIG.host,
-      user: FTP_CONFIG.user,
-      password: FTP_CONFIG.password,
-      secure: FTP_CONFIG.secure,
-      port: FTP_CONFIG.port
-    });
+    // Constrói a URL HTTP completa
+    const url = `${OLD_FTP_BASE_URL}${filename}`;
     
-    const remotePath = FTP_CONFIG.remoteDirectory.replace(/\/+$/, '') + '/' + filename;
-    const chunks = [];
+    // Faz download via HTTP
+    const response = await fetch(url);
     
-    await client.downloadTo((chunk) => {
-      chunks.push(chunk);
-    }, remotePath);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
     
-    client.close();
+    // Converte para buffer
+    const buffer = await response.buffer();
     
-    const buffer = Buffer.concat(chunks);
-    console.log(`   ✅ Download do FTP: ${filename} (${buffer.length} bytes)`);
+    console.log(`   ✅ Download via HTTP: ${filename} (${buffer.length} bytes)`);
     
     return buffer;
   } catch (error) {
-    client.close();
-    throw new Error(`Erro ao fazer download do FTP: ${error.message}`);
+    throw new Error(`Erro ao fazer download: ${error.message}`);
   }
 }
 
