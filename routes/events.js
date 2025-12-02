@@ -50,6 +50,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
             ...event,
             imagem_do_evento_url: buildImageUrl(event.imagem_do_evento),
             imagem_do_combo_url: buildImageUrl(event.imagem_do_combo),
+            // Garantir que tipoEvento está presente (pode vir como tipoevento do PostgreSQL)
+            tipoEvento: event.tipoEvento || event.tipo_evento || event.tipoevento,
         };
     };
 

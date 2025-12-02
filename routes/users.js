@@ -12,11 +12,22 @@ const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrende
 // Função auxiliar para adicionar a URL completa das imagens ao objeto do usuário
 const addFullImageUrlsToUser = (user) => {
     if (!user) return user;
+    
+    // Se foto_perfil já é uma URL completa (Cloudinary), usar diretamente
+    // Caso contrário, não construir URL de /uploads/ pois essas imagens não existem mais
+    let foto_perfil_url = null;
+    if (user.foto_perfil) {
+        if (user.foto_perfil.startsWith('http://') || user.foto_perfil.startsWith('https://')) {
+            // Já é uma URL completa (Cloudinary)
+            foto_perfil_url = user.foto_perfil;
+        }
+        // Se for apenas nome de arquivo, não construir URL de /uploads/ (legado que não funciona)
+        // As imagens devem estar no Cloudinary agora
+    }
+    
     return {
         ...user,
-        foto_perfil_url: user.foto_perfil 
-            ? `${baseUrl}/uploads/${user.foto_perfil}` 
-            : null,
+        foto_perfil_url: foto_perfil_url,
     };
 };
 
