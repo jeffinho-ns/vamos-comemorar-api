@@ -1671,6 +1671,27 @@ class EventosController {
       console.log(`   - Convidados de promoters: ${totalConvidadosPromoters} (${checkinConvidadosPromoters} check-ins)`);
       console.log(`   - Camarotes: ${totalCamarotes} (${checkinCamarotes} check-ins)`);
       
+      // 9. Buscar atrações do evento
+      let atracoes = [];
+      try {
+        const atracoesResult = await this.pool.query(`
+          SELECT 
+            id,
+            nome_atracao,
+            ambiente,
+            horario_inicio,
+            horario_termino
+          FROM evento_atracoes
+          WHERE evento_id = $1
+          ORDER BY horario_inicio ASC
+        `, [eventoId]);
+        atracoes = atracoesResult.rows;
+        console.log(`✅ Atrações encontradas: ${atracoes.length}`);
+      } catch (err) {
+        console.error('❌ Erro ao buscar atrações:', err);
+        atracoes = [];
+      }
+
       console.log('📊 Resumo final dos dados:', {
         reservasMesa: reservasMesa.length,
         convidadosReservas: convidadosReservas.length,
@@ -1678,7 +1699,8 @@ class EventosController {
         convidadosReservasRestaurante: convidadosReservasRestaurante.length,
         promoters: promoters.length,
         convidadosPromoters: listasPromoters.length,
-        camarotes: camarotes.length
+        camarotes: camarotes.length,
+        atracoes: atracoes.length
       });
 
       res.json({
@@ -1693,7 +1715,8 @@ class EventosController {
           promoters: promoters,
           convidadosPromoters: listasPromoters,
           camarotes: camarotes,
-          reservasAniversario: reservasAniversario
+          reservasAniversario: reservasAniversario,
+          atracoes: atracoes
         },
         estatisticas: {
           totalReservasMesa,

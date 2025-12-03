@@ -117,16 +117,21 @@ module.exports = (pool, checkAndAwardBrindes) => {
 
     router.post('/', auth, async (req, res) => {
         console.log('--- INICIANDO ROTA DE CRIAÇÃO DE EVENTO ---');
+        const client = await pool.connect();
         try {
+            await client.query('BEGIN');
+            
             const {
                 casa_do_evento, nome_do_evento, data_do_evento, hora_do_evento,
                 local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                 numero_de_convidados, descricao, valor_da_entrada, observacao,
                 tipo_evento, dia_da_semana, id_place,
-                imagem_do_evento, imagem_do_combo // Agora recebe os filenames no body
+                imagem_do_evento, imagem_do_combo, // Agora recebe os filenames no body
+                atracoes // Array de atrações
             } = req.body;
 
             if (!nome_do_evento || !casa_do_evento) {
+                await client.query('ROLLBACK');
                 return res.status(400).json({ message: 'Nome do evento e casa do evento são obrigatórios.' });
             }
             
@@ -149,16 +154,41 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 id_place, req.user.id // Adiciona o ID do usuário que criou o evento
             ];
 
-            const result = await pool.query(insertQuery, insertParams);
+            const result = await client.query(insertQuery, insertParams);
+            const eventoId = result.rows[0].id;
 
-            const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [result.rows[0].id]);
+            // Inserir atrações se houver
+            if (atracoes && Array.isArray(atracoes) && atracoes.length > 0) {
+                console.log(`📋 Inserindo ${atracoes.length} atração(ões) para o evento ${eventoId}`);
+                for (const atracao of atracoes) {
+                    if (atracao.nome_atracao && atracao.ambiente && atracao.horario_inicio && atracao.horario_termino) {
+                        await client.query(`
+                            INSERT INTO evento_atracoes (evento_id, nome_atracao, ambiente, horario_inicio, horario_termino)
+                            VALUES ($1, $2, $3, $4, $5)
+                        `, [
+                            eventoId,
+                            atracao.nome_atracao,
+                            atracao.ambiente,
+                            atracao.horario_inicio,
+                            atracao.horario_termino
+                        ]);
+                    }
+                }
+            }
+
+            await client.query('COMMIT');
+
+            const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [eventoId]);
             const newEventWithUrls = addFullImageUrls(rowsResult.rows[0]);
 
             res.status(201).json(newEventWithUrls);
 
         } catch (error) {
+            await client.query('ROLLBACK');
             console.error('!!! ERRO DETALHADO AO CRIAR EVENTO (POST /) !!!:', error);
             res.status(500).json({ message: 'Erro ao criar evento.', error: error.message, stack: error.stack });
+        } finally {
+            client.release();
         }
     });
     
