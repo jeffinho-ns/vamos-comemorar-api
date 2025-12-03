@@ -97,6 +97,7 @@ module.exports = (pool) => {
                 cardapioImagesResult = await pool.query(`
                     SELECT 
                         filename,
+                        url,
                         uploaded_at as created_at,
                         'cardapio_image' as source_type,
                         'general' as image_type
@@ -119,6 +120,7 @@ module.exports = (pool) => {
                 if (filename && filename !== 'null' && filename.trim() !== '') {
                     imageMap.set(filename, {
                         filename: filename,
+                        url: row.url || null, // URL completa do Cloudinary se disponível
                         sourceType: row.source_type,
                         imageType: row.image_type,
                         usageCount: 0,
