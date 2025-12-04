@@ -1199,20 +1199,39 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se a reserva existe
-      const reservationsResult2 = await pool.query(
-        'SELECT * FROM restaurant_reservations WHERE id = $1',
+      // Verificar se a reserva existe em restaurant_reservations ou large_reservations
+      // Primeiro tenta restaurant_reservations
+      let reservationsResult2 = await pool.query(
+        'SELECT *, \'restaurant\' as reservation_type FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
-      if (reservationsResult2.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Reserva não encontrada'
-        });
-      }
+      let reservation = null;
+      let reservationType = 'restaurant';
 
-      const reservation = reservationsResult2.rows[0];
+      // Se não encontrou em restaurant_reservations, tenta large_reservations
+      if (reservationsResult2.rows.length === 0) {
+        console.log(`🔍 Reserva ${id} não encontrada em restaurant_reservations, buscando em large_reservations...`);
+        const largeReservationsResult = await pool.query(
+          'SELECT *, \'large\' as reservation_type FROM large_reservations WHERE id = $1',
+          [id]
+        );
+
+        if (largeReservationsResult.rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'Reserva não encontrada'
+          });
+        }
+
+        reservation = largeReservationsResult.rows[0];
+        reservationType = 'large';
+        console.log(`✅ Reserva ${id} encontrada em large_reservations`);
+      } else {
+        reservation = reservationsResult2.rows[0];
+        reservationType = 'restaurant';
+        console.log(`✅ Reserva ${id} encontrada em restaurant_reservations`);
+      }
 
       // Verificar se o evento existe
       const eventosResult2 = await pool.query(
@@ -1259,10 +1278,10 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se a reserva tem uma guest_list
+      // Verificar se a reserva tem uma guest_list (pode ser do tipo 'restaurant' ou 'large')
       const guestListsResult = await pool.query(
         'SELECT id FROM guest_lists WHERE reservation_id = $1 AND reservation_type = $2',
-        [id, 'restaurant']
+        [id, reservationType]
       );
 
       if (guestListsResult.rows.length === 0) {
@@ -1281,11 +1300,20 @@ module.exports = (pool) => {
       );
       const guests = guestsResult2.rows;
 
-      // Atualizar a reserva para vincular ao evento
-      await pool.query(
-        'UPDATE restaurant_reservations SET evento_id = $1 WHERE id = $2',
-        [evento_id, id]
-      );
+      // Atualizar a reserva para vincular ao evento (pode ser restaurant_reservations ou large_reservations)
+      if (reservationType === 'restaurant') {
+        await pool.query(
+          'UPDATE restaurant_reservations SET evento_id = $1 WHERE id = $2',
+          [evento_id, id]
+        );
+      } else {
+        await pool.query(
+          'UPDATE large_reservations SET evento_id = $1 WHERE id = $2',
+          [evento_id, id]
+        );
+      }
+      
+      console.log(`✅ Reserva ${id} (tipo: ${reservationType}) vinculada ao evento ${evento_id}`);
 
       // Criar uma lista no evento se não existir uma para esta reserva
       const existingListaResult = await pool.query(
