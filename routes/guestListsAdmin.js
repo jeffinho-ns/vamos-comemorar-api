@@ -651,5 +651,50 @@ module.exports = (pool, checkAndAwardGifts = null) => {
     }
   });
 
+  /**
+   * @route   DELETE /api/admin/guest-lists/:id
+   * @desc    Exclui uma lista de convidados (apenas para usuários autorizados)
+   * @access  Private (Administrador específico)
+   */
+  router.delete('/guest-lists/:id', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Verificar se a lista existe
+      const guestListResult = await pool.query(
+        'SELECT id, reservation_id, reservation_type FROM guest_lists WHERE id = $1',
+        [id]
+      );
+
+      if (guestListResult.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Lista de convidados não encontrada' 
+        });
+      }
+
+      const guestList = guestListResult.rows[0];
+
+      // Excluir todos os convidados da lista (cascade)
+      await pool.query('DELETE FROM guests WHERE guest_list_id = $1', [id]);
+
+      // Excluir a lista
+      await pool.query('DELETE FROM guest_lists WHERE id = $1', [id]);
+
+      console.log(`✅ Lista de convidados ${id} excluída com sucesso`);
+
+      res.json({ 
+        success: true, 
+        message: 'Lista de convidados excluída com sucesso' 
+      });
+    } catch (error) {
+      console.error('❌ Erro ao excluir lista de convidados:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro interno do servidor' 
+      });
+    }
+  });
+
   return router;
 };
