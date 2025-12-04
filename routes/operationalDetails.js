@@ -117,16 +117,16 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se já existe um detalhe para esta data
+      // Verificar se já existe um detalhe para esta data E este tipo de OS
       const existingResult = await pool.query(
-        'SELECT id FROM operational_details WHERE event_date = $1',
-        [event_date]
+        'SELECT id FROM operational_details WHERE event_date = $1 AND os_type = $2',
+        [event_date, os_type]
       );
 
       if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
-          error: 'Já existe um detalhe operacional para esta data. Use PUT para atualizar.'
+          error: `Já existe um detalhe operacional do tipo '${os_type}' para esta data. Use PUT para atualizar.`
         });
       }
 
