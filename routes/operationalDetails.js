@@ -246,9 +246,19 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao criar detalhe operacional:', error);
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Dados recebidos:', {
+        os_type: req.body.os_type,
+        event_date: req.body.event_date,
+        artistic_attraction: req.body.artistic_attraction,
+        ticket_prices: req.body.ticket_prices,
+        establishment_id: req.body.establishment_id
+      });
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro interno do servidor',
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   });
