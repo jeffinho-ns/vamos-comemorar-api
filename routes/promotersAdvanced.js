@@ -390,6 +390,15 @@ module.exports = (pool) => {
         }
         
         // Inserir promoter (com ou sem user_id dependendo da estrutura da tabela)
+        // Tratar valores vazios como null e establishment_id 0 como null
+        const cleanApelido = apelido && apelido.trim() !== '' ? apelido : null;
+        const cleanTelefone = telefone && telefone.trim() !== '' ? telefone : null;
+        const cleanWhatsapp = whatsapp && whatsapp.trim() !== '' ? whatsapp : null;
+        const cleanObservacoes = observacoes && observacoes.trim() !== '' ? observacoes : null;
+        const cleanFotoUrl = foto_url && foto_url.trim() !== '' ? foto_url : null;
+        const cleanInstagram = instagram && instagram.trim() !== '' ? instagram : null;
+        const cleanEstablishmentId = establishment_id && establishment_id !== 0 ? establishment_id : null;
+        
         let result;
         if (hasUserIdColumn) {
           // Se a coluna existe, sempre incluir (mesmo que seja NULL)
@@ -400,9 +409,20 @@ module.exports = (pool) => {
               establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
             [
-              nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
-              tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
-              establishment_id, foto_url, instagram, userId
+              nome, 
+              cleanApelido, 
+              email, 
+              cleanTelefone, 
+              cleanWhatsapp, 
+              finalCodigoIdentificador,
+              tipo_categoria || 'Standard', 
+              comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
+              linkConviteGerado, 
+              cleanObservacoes,
+              cleanEstablishmentId, 
+              cleanFotoUrl, 
+              cleanInstagram, 
+              userId
             ]
           );
         } else {
@@ -414,9 +434,19 @@ module.exports = (pool) => {
               establishment_id, foto_url, instagram, data_cadastro, status, ativo
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
             [
-              nome, apelido, email, telefone, whatsapp, finalCodigoIdentificador,
-              tipo_categoria || 'Standard', comissao_percentual || 0, linkConviteGerado, observacoes,
-              establishment_id, foto_url, instagram
+              nome, 
+              cleanApelido, 
+              email, 
+              cleanTelefone, 
+              cleanWhatsapp, 
+              finalCodigoIdentificador,
+              tipo_categoria || 'Standard', 
+              comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
+              linkConviteGerado, 
+              cleanObservacoes,
+              cleanEstablishmentId, 
+              cleanFotoUrl, 
+              cleanInstagram
             ]
           );
         }
@@ -431,59 +461,83 @@ module.exports = (pool) => {
         });
         
         // Inserir condições padrão
-        await client.query(
-          `INSERT INTO promoter_condicoes (
-            promoter_id, max_convidados_por_evento, max_convidados_por_data,
-            quota_mesas, quota_entradas, entradas_gratuitas, desconto_especial_percentual,
-            valor_minimo_consumo, horario_checkin_inicio, horario_checkin_fim,
-            politica_no_show, pode_reservar_mesas_vip, pode_selecionar_areas, 
-            areas_permitidas, mesas_reservadas, ativo
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE)`,
-          [
-            promoterId, 
-            max_convidados_por_evento !== undefined ? max_convidados_por_evento : null, 
-            max_convidados_por_data !== undefined ? max_convidados_por_data : null,
-            quota_mesas !== undefined ? quota_mesas : null, 
-            quota_entradas !== undefined ? quota_entradas : null, 
-            entradas_gratuitas !== undefined ? entradas_gratuitas : null, 
-            desconto_especial_percentual !== undefined ? desconto_especial_percentual : null,
-            valor_minimo_consumo !== undefined ? valor_minimo_consumo : null, 
-            horario_checkin_inicio || null, 
-            horario_checkin_fim || null,
-            politica_no_show || null, 
-            pode_reservar_mesas_vip || false, 
-            pode_selecionar_areas || false,
-            areas_permitidas ? JSON.stringify(areas_permitidas) : null,
-            mesas_reservadas ? JSON.stringify(mesas_reservadas) : null
-          ]
-        );
-        console.log('✅ Condições inseridas');
+        try {
+          await client.query(
+            `INSERT INTO promoter_condicoes (
+              promoter_id, max_convidados_por_evento, max_convidados_por_data,
+              quota_mesas, quota_entradas, entradas_gratuitas, desconto_especial_percentual,
+              valor_minimo_consumo, horario_checkin_inicio, horario_checkin_fim,
+              politica_no_show, pode_reservar_mesas_vip, pode_selecionar_areas, 
+              areas_permitidas, mesas_reservadas, ativo
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE)`,
+            [
+              promoterId, 
+              max_convidados_por_evento !== undefined && max_convidados_por_evento !== null ? max_convidados_por_evento : null, 
+              max_convidados_por_data !== undefined && max_convidados_por_data !== null ? max_convidados_por_data : null,
+              quota_mesas !== undefined && quota_mesas !== null ? quota_mesas : null, 
+              quota_entradas !== undefined && quota_entradas !== null ? quota_entradas : null, 
+              entradas_gratuitas !== undefined && entradas_gratuitas !== null ? entradas_gratuitas : null, 
+              desconto_especial_percentual !== undefined && desconto_especial_percentual !== null ? desconto_especial_percentual : null,
+              valor_minimo_consumo !== undefined && valor_minimo_consumo !== null ? valor_minimo_consumo : null, 
+              horario_checkin_inicio || null, 
+              horario_checkin_fim || null,
+              politica_no_show || null, 
+              pode_reservar_mesas_vip !== undefined ? (pode_reservar_mesas_vip ? true : false) : false, 
+              pode_selecionar_areas !== undefined ? (pode_selecionar_areas ? true : false) : false,
+              areas_permitidas ? JSON.stringify(areas_permitidas) : null,
+              mesas_reservadas ? JSON.stringify(mesas_reservadas) : null
+            ]
+          );
+          console.log('✅ Condições inseridas');
+        } catch (condicoesError) {
+          console.error('❌ Erro ao inserir condições:', condicoesError);
+          console.error('❌ Detalhes do erro de condições:', {
+            message: condicoesError.message,
+            code: condicoesError.code,
+            constraint: condicoesError.constraint,
+            column: condicoesError.column
+          });
+          // Continuar mesmo se houver erro nas condições (não é crítico)
+          console.warn('⚠️ Continuando sem condições, promoter será criado sem elas');
+        }
         
         // Inserir permissões padrão
         console.log('📝 Inserindo permissões...');
-        await client.query(
-          `INSERT INTO promoter_permissoes (
-            promoter_id, pode_ver_lista_convidados, pode_adicionar_convidados,
-            pode_remover_convidados, pode_gerar_link_convite, pode_gerar_qr_code,
-            pode_ver_historico, pode_ver_relatorios, pode_ultrapassar_limites,
-            pode_aprovar_convidados_extra, pode_editar_eventos, pode_criar_eventos
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-          [
-            promoterId,
-            permissoes?.pode_ver_lista_convidados !== false,
-            permissoes?.pode_adicionar_convidados !== false,
-            permissoes?.pode_remover_convidados !== false,
-            permissoes?.pode_gerar_link_convite !== false,
-            permissoes?.pode_gerar_qr_code !== false,
-            permissoes?.pode_ver_historico !== false,
-            permissoes?.pode_ver_relatorios || false,
-            permissoes?.pode_ultrapassar_limites || false,
-            permissoes?.pode_aprovar_convidados_extra || false,
-            permissoes?.pode_editar_eventos || false,
-            permissoes?.pode_criar_eventos || false
-          ]
-        );
-        console.log('✅ Permissões inseridas');
+        try {
+          await client.query(
+            `INSERT INTO promoter_permissoes (
+              promoter_id, pode_ver_lista_convidados, pode_adicionar_convidados,
+              pode_remover_convidados, pode_gerar_link_convite, pode_gerar_qr_code,
+              pode_ver_historico, pode_ver_relatorios, pode_ultrapassar_limites,
+              pode_aprovar_convidados_extra, pode_editar_eventos, pode_criar_eventos
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            [
+              promoterId,
+              permissoes?.pode_ver_lista_convidados !== false,
+              permissoes?.pode_adicionar_convidados !== false,
+              permissoes?.pode_remover_convidados !== false,
+              permissoes?.pode_gerar_link_convite !== false,
+              permissoes?.pode_gerar_qr_code !== false,
+              permissoes?.pode_ver_historico !== false,
+              permissoes?.pode_ver_relatorios || false,
+              permissoes?.pode_ultrapassar_limites || false,
+              permissoes?.pode_aprovar_convidados_extra || false,
+              permissoes?.pode_editar_eventos || false,
+              permissoes?.pode_criar_eventos || false
+            ]
+          );
+          console.log('✅ Permissões inseridas');
+        } catch (permissoesError) {
+          console.error('❌ Erro ao inserir permissões:', permissoesError);
+          console.error('❌ Detalhes do erro de permissões:', {
+            message: permissoesError.message,
+            code: permissoesError.code,
+            constraint: permissoesError.constraint,
+            column: permissoesError.column
+          });
+          // Continuar mesmo se houver erro nas permissões (não é crítico)
+          console.warn('⚠️ Continuando sem permissões, promoter será criado sem elas');
+        }
         
         await client.query('COMMIT');
         console.log('✅ Transaction committed com sucesso');
@@ -503,10 +557,29 @@ module.exports = (pool) => {
         console.error('❌ Erro ao criar promoter:', error);
         console.error('❌ Stack trace:', error.stack);
         console.error('❌ Dados recebidos:', JSON.stringify(req.body, null, 2));
+        console.error('❌ Código do erro:', error.code);
+        console.error('❌ Detalhes do erro:', error.detail);
+        console.error('❌ Constraint violada:', error.constraint);
+        
+        // Retornar mensagem de erro mais detalhada
+        let errorMessage = 'Erro ao criar promoter';
+        if (error.code === '23505') { // Unique violation
+          errorMessage = 'Já existe um promoter com este email ou código identificador';
+        } else if (error.code === '23503') { // Foreign key violation
+          errorMessage = 'Erro de referência: verifique se o estabelecimento existe';
+        } else if (error.code === '23502') { // Not null violation
+          errorMessage = `Campo obrigatório não informado: ${error.column || 'desconhecido'}`;
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        
         res.status(500).json({
           success: false,
-          error: 'Erro ao criar promoter',
+          error: errorMessage,
           details: error.message,
+          code: error.code,
+          constraint: error.constraint,
+          column: error.column,
           stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
       } finally {
