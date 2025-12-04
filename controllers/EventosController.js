@@ -1240,14 +1240,26 @@ class EventosController {
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
           console.log('🔗 Vinculando reservas automaticamente ao evento:', eventoId);
-          const updateResult = await this.pool.query(`
+          
+          // Vincular restaurant_reservations
+          const updateResultRestaurant = await this.pool.query(`
             UPDATE restaurant_reservations 
             SET evento_id = $1 
             WHERE establishment_id = $2 
             AND reservation_date::DATE = $3::DATE
             AND evento_id IS NULL
           `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
-          console.log(`✅ ${updateResult.rowCount} reservas vinculadas automaticamente`);
+          console.log(`✅ ${updateResultRestaurant.rowCount} reservas de restaurante vinculadas automaticamente`);
+          
+          // Vincular large_reservations (listas criadas sem reserva de restaurante)
+          const updateResultLarge = await this.pool.query(`
+            UPDATE large_reservations 
+            SET evento_id = $1 
+            WHERE establishment_id = $2 
+            AND reservation_date::DATE = $3::DATE
+            AND evento_id IS NULL
+          `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
+          console.log(`✅ ${updateResultLarge.rowCount} reservas grandes vinculadas automaticamente`);
         } catch (err) {
           console.error('⚠️ Erro ao vincular reservas automaticamente:', err);
           // Continua mesmo se falhar (coluna pode não existir ainda)
@@ -1478,10 +1490,13 @@ class EventosController {
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
           // Buscar guest_lists completas (estrutura igual ao Sistema de Reservas)
+          // Busca tanto listas vinculadas a restaurant_reservations quanto a large_reservations
           // Tenta filtrar por evento_id se a coluna existir, caso contrário usa filtro tradicional
-          let guestListsResult;
+          let guestListsResult = [];
+          
           try {
-            const result = await this.pool.query(`
+            // Query para listas vinculadas a restaurant_reservations
+            const resultRestaurant = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
@@ -1513,13 +1528,58 @@ class EventosController {
               AND rr.reservation_date::DATE = $2::DATE
               AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
-              ORDER BY rr.reservation_time ASC
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
-            guestListsResult = result.rows;
+            
+            // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
+            const resultLarge = await this.pool.query(`
+              SELECT 
+                gl.id as guest_list_id,
+                gl.reservation_type,
+                gl.event_type,
+                gl.shareable_link_token,
+                gl.expires_at,
+                gl.owner_checked_in,
+                gl.owner_checkin_time,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+                lr.client_name as owner_name,
+                lr.id as reservation_id,
+                lr.reservation_date,
+                lr.reservation_time,
+                lr.number_of_people,
+                lr.origin,
+                NULL as table_number,
+                CASE WHEN lr.status = 'CHECKED_IN' THEN 1 ELSE 0 END as reservation_checked_in,
+                lr.check_in_time as reservation_checkin_time,
+                COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
+                NULL as area_name,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
+              FROM guest_lists gl
+              INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+              LEFT JOIN users u ON lr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
+              WHERE lr.establishment_id = $1
+              AND lr.reservation_date::DATE = $2::DATE
+              AND (lr.evento_id = $3 OR lr.evento_id IS NULL)
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            
+            // Combinar resultados
+            guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
+            
+            // Ordenar por horário
+            guestListsResult.sort((a, b) => {
+              const timeA = a.reservation_time || '00:00:00';
+              const timeB = b.reservation_time || '00:00:00';
+              return timeA.localeCompare(timeB);
+            });
+            
           } catch (err) {
             // Fallback: se a coluna evento_id não existir, usa a query sem esse filtro
             console.log('⚠️ Coluna evento_id não encontrada, usando filtro tradicional');
-            const result = await this.pool.query(`
+            
+            // Query para restaurant_reservations (sem filtro de evento_id)
+            const resultRestaurant = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
@@ -1550,9 +1610,50 @@ class EventosController {
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
-              ORDER BY rr.reservation_time ASC
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-            guestListsResult = result.rows;
+            
+            // Query para large_reservations (sem filtro de evento_id)
+            const resultLarge = await this.pool.query(`
+              SELECT 
+                gl.id as guest_list_id,
+                gl.reservation_type,
+                gl.event_type,
+                gl.shareable_link_token,
+                gl.expires_at,
+                gl.owner_checked_in,
+                gl.owner_checkin_time,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+                lr.client_name as owner_name,
+                lr.id as reservation_id,
+                lr.reservation_date,
+                lr.reservation_time,
+                lr.number_of_people,
+                lr.origin,
+                NULL as table_number,
+                CASE WHEN lr.status = 'CHECKED_IN' THEN 1 ELSE 0 END as reservation_checked_in,
+                lr.check_in_time as reservation_checkin_time,
+                COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
+                NULL as area_name,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
+              FROM guest_lists gl
+              INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+              LEFT JOIN users u ON lr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
+              WHERE lr.establishment_id = $1
+              AND lr.reservation_date::DATE = $2::DATE
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            
+            // Combinar resultados
+            guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
+            
+            // Ordenar por horário
+            guestListsResult.sort((a, b) => {
+              const timeA = a.reservation_time || '00:00:00';
+              const timeB = b.reservation_time || '00:00:00';
+              return timeA.localeCompare(timeB);
+            });
           }
           
           guestListsRestaurante = guestListsResult;
