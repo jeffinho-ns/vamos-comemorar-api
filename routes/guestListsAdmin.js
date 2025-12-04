@@ -308,10 +308,30 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    */
   router.post('/guest-lists/create', optionalAuth, async (req, res) => {
     try {
-      const { client_name, reservation_date, event_type, establishment_id } = req.body; // Adicionado establishment_id
+      const { client_name, reservation_date, event_type, establishment_id } = req.body;
+      
+      console.log('📥 Dados recebidos para criar lista:', {
+        client_name,
+        reservation_date,
+        event_type,
+        establishment_id,
+        body_completo: req.body
+      });
 
-      if (!client_name || !reservation_date || !establishment_id) {
-        return res.status(400).json({ success: false, error: 'Nome do cliente, data e estabelecimento são obrigatórios' });
+      if (!client_name || !reservation_date) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Nome do cliente e data são obrigatórios',
+          received: { client_name, reservation_date, establishment_id }
+        });
+      }
+      
+      if (!establishment_id || establishment_id === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Estabelecimento é obrigatório. Por favor, selecione um estabelecimento.',
+          received: { client_name, reservation_date, establishment_id }
+        });
       }
 
       const crypto = require('crypto');
@@ -320,12 +340,22 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       const expiresAt = `${reservation_date} 23:59:59`;
 
       // 1. Cria a reserva grande primeiro
+      // Se req.user não existir (optionalAuth), usar null para created_by
+      const createdBy = req.user?.id || null;
+      
+      console.log('📝 Criando reserva grande com:', {
+        establishment_id,
+        client_name,
+        reservation_date,
+        created_by: createdBy
+      });
+      
       const reservationResult = await pool.query(
         `INSERT INTO large_reservations (
           establishment_id, client_name, reservation_date, reservation_time, 
           number_of_people, status, origin, created_by
         ) VALUES ($1, $2, $3, '18:00:00', 11, 'NOVA', 'ADMIN', $4) RETURNING id`, // Pessoas >= 11 para ser grande
-        [establishment_id, client_name, reservation_date, req.user.id]
+        [establishment_id, client_name, reservation_date, createdBy]
       );
       const reservationId = reservationResult.rows[0].id;
 
@@ -356,7 +386,30 @@ module.exports = (pool, checkAndAwardGifts = null) => {
 
     } catch (error) {
       console.error('❌ Erro ao criar lista de convidados:', error);
-      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Código do erro:', error.code);
+      console.error('❌ Constraint:', error.constraint);
+      console.error('❌ Detalhes:', error.detail);
+      
+      let errorMessage = 'Erro interno do servidor';
+      if (error.code === '23505') { // Unique violation
+        errorMessage = 'Já existe uma lista de convidados com estes dados';
+      } else if (error.code === '23503') { // Foreign key violation
+        errorMessage = 'Erro de referência: verifique se o estabelecimento existe';
+      } else if (error.code === '23502') { // Not null violation
+        errorMessage = `Campo obrigatório não informado: ${error.column || 'desconhecido'}`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      res.status(500).json({ 
+        success: false, 
+        error: errorMessage,
+        details: error.message,
+        code: error.code,
+        constraint: error.constraint,
+        column: error.column
+      });
     }
   });
 
