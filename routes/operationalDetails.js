@@ -248,6 +248,16 @@ module.exports = (pool) => {
         establishment_id
       });
 
+      // Verificar se o número de parâmetros corresponde
+      const paramCount = (query.match(/\$/g) || []).length;
+      if (paramCount !== values.length) {
+        console.error('❌ Erro: Número de parâmetros não corresponde!', {
+          queryParams: paramCount,
+          valuesLength: values.length
+        });
+        throw new Error(`Número de parâmetros incorreto: query tem ${paramCount} parâmetros mas foram fornecidos ${values.length} valores`);
+      }
+
       const result = await pool.query(query, values);
 
       res.status(201).json({
