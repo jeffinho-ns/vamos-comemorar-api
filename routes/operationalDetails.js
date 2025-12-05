@@ -463,9 +463,19 @@ module.exports = (pool) => {
         });
       }
       
+      // Garantir que event_date seja uma string no formato YYYY-MM-DD
+      const detail = detailsResult.rows[0];
+      if (detail.event_date) {
+        if (detail.event_date instanceof Date) {
+          detail.event_date = detail.event_date.toISOString().split('T')[0];
+        } else if (typeof detail.event_date === 'string' && detail.event_date.includes('T')) {
+          detail.event_date = detail.event_date.split('T')[0];
+        }
+      }
+      
       res.json({
         success: true,
-        data: detailsResult.rows[0]
+        data: detail
       });
       
     } catch (error) {
