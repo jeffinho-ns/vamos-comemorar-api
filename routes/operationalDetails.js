@@ -269,6 +269,8 @@ module.exports = (pool) => {
     } catch (error) {
       console.error('❌ Erro ao criar detalhe operacional:', error);
       console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Código do erro:', error.code);
+      console.error('❌ Detalhes do erro:', error.detail);
       console.error('❌ Dados recebidos:', {
         os_type: req.body.os_type,
         event_date: req.body.event_date,
@@ -276,10 +278,22 @@ module.exports = (pool) => {
         ticket_prices: req.body.ticket_prices,
         establishment_id: req.body.establishment_id
       });
+      
+      // Verificar se é erro de coluna não encontrada
+      if (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist')) {
+        return res.status(500).json({
+          success: false,
+          error: 'Erro: Alguma coluna não existe na tabela. Verifique se a migration foi executada.',
+          details: error.message,
+          hint: 'Execute a migration add_os_type_fields.sql no banco de dados PostgreSQL'
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
         details: error.message,
+        code: error.code,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
