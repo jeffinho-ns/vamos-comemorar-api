@@ -44,12 +44,54 @@ module.exports = (pool, checkAndAwardBrindes) => {
         return `${BASE_IMAGE_URL}${trimmed}`;
     };
 
-    const addFullImageUrls = (event) => {
+    // Função assíncrona para buscar URL do Cloudinary na tabela cardapio_images
+    const getCloudinaryUrl = async (filename) => {
+        if (!filename || filename.startsWith('http://') || filename.startsWith('https://')) {
+            return null; // Já é uma URL completa ou não tem filename
+        }
+        
+        try {
+            const result = await pool.query(
+                'SELECT url FROM cardapio_images WHERE filename = $1 LIMIT 1',
+                [filename]
+            );
+            
+            if (result.rows.length > 0 && result.rows[0].url) {
+                return result.rows[0].url; // Retorna URL completa do Cloudinary
+            }
+        } catch (error) {
+            console.error('Erro ao buscar URL do Cloudinary:', error);
+        }
+        
+        return null;
+    };
+
+    const addFullImageUrls = async (event) => {
         if (!event) return null;
+        
+        // Buscar URLs do Cloudinary se necessário
+        let imagemEventoUrl = buildImageUrl(event.imagem_do_evento);
+        let imagemComboUrl = buildImageUrl(event.imagem_do_combo);
+        
+        // Se a URL foi construída do FTP, tentar buscar no Cloudinary
+        if (imagemEventoUrl && imagemEventoUrl.startsWith(BASE_IMAGE_URL)) {
+            const cloudinaryUrl = await getCloudinaryUrl(event.imagem_do_evento);
+            if (cloudinaryUrl) {
+                imagemEventoUrl = cloudinaryUrl;
+            }
+        }
+        
+        if (imagemComboUrl && imagemComboUrl.startsWith(BASE_IMAGE_URL)) {
+            const cloudinaryUrl = await getCloudinaryUrl(event.imagem_do_combo);
+            if (cloudinaryUrl) {
+                imagemComboUrl = cloudinaryUrl;
+            }
+        }
+        
         return {
             ...event,
-            imagem_do_evento_url: buildImageUrl(event.imagem_do_evento),
-            imagem_do_combo_url: buildImageUrl(event.imagem_do_combo),
+            imagem_do_evento_url: imagemEventoUrl,
+            imagem_do_combo_url: imagemComboUrl,
             // Garantir que tipoEvento está presente (pode vir como tipoevento do PostgreSQL)
             tipoEvento: event.tipoEvento || event.tipo_evento || event.tipoevento,
         };
@@ -74,7 +116,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
             `, [userId, userId]);
 
             // Adiciona URLs completas das imagens
-            const eventsWithUrls = result.rows.map(addFullImageUrls);
+            const eventsWithUrls = await Promise.all(result.rows.map(event => addFullImageUrls(event)));
 
             console.log(`Encontrados ${eventsWithUrls.length} eventos para o promoter ${userId}`);
             res.status(200).json(eventsWithUrls);
@@ -179,7 +221,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
             await client.query('COMMIT');
 
             const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [eventoId]);
-            const newEventWithUrls = addFullImageUrls(rowsResult.rows[0]);
+            const newEventWithUrls = await addFullImageUrls(rowsResult.rows[0]);
 
             res.status(201).json(newEventWithUrls);
 
@@ -226,7 +268,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
 
             const result = await pool.query(query, queryParams);
             
-            const eventsWithUrls = result.rows.map(addFullImageUrls);
+            const eventsWithUrls = await Promise.all(result.rows.map(event => addFullImageUrls(event)));
 
             res.status(200).json(eventsWithUrls);
         } catch (error) {
@@ -244,7 +286,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 return res.status(404).json({ message: 'Evento não encontrado' });
             }
 
-            const eventWithUrls = addFullImageUrls(result.rows[0]);
+            const eventWithUrls = await addFullImageUrls(result.rows[0]);
 
             res.status(200).json(eventWithUrls);
         } catch (error) {
@@ -301,7 +343,7 @@ module.exports = (pool, checkAndAwardBrindes) => {
             }
 
             const rowsResult = await pool.query('SELECT * FROM eventos WHERE id = $1', [eventId]);
-            const updatedEventWithUrls = addFullImageUrls(rowsResult.rows[0]);
+            const updatedEventWithUrls = await addFullImageUrls(rowsResult.rows[0]);
 
             res.status(200).json({ message: 'Evento atualizado com sucesso!', event: updatedEventWithUrls });
 
