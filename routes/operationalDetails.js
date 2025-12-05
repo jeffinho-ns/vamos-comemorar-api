@@ -355,7 +355,19 @@ module.exports = (pool) => {
       }
       
       const detailsResult = await pool.query(query, params);
-      const details = detailsResult.rows;
+      // Garantir que event_date seja uma string no formato YYYY-MM-DD
+      const details = detailsResult.rows.map(row => {
+        if (row.event_date) {
+          // Se for um objeto Date, converter para string
+          if (row.event_date instanceof Date) {
+            row.event_date = row.event_date.toISOString().split('T')[0];
+          } else if (typeof row.event_date === 'string' && row.event_date.includes('T')) {
+            // Se já for string com hora, remover a hora
+            row.event_date = row.event_date.split('T')[0];
+          }
+        }
+        return row;
+      });
       
       res.json({
         success: true,
