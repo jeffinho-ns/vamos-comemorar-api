@@ -317,7 +317,7 @@ module.exports = (pool) => {
         SELECT 
           od.*,
           p.name as establishment_name,
-          e.nome_do_evento as event_name
+          COALESCE(od.event_name, e.nome_do_evento) as event_name
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
         LEFT JOIN eventos e ON od.event_id = e.id
@@ -435,7 +435,7 @@ module.exports = (pool) => {
         SELECT 
           od.*,
           p.name as establishment_name,
-          e.nome_do_evento as event_name
+          COALESCE(od.event_name, e.nome_do_evento) as event_name
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
         LEFT JOIN eventos e ON od.event_id = e.id
