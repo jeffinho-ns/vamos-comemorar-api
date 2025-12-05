@@ -93,3 +93,6 @@ Se você tiver acesso a outro tenant do Azure, tente criar o App Registration l�
 
 O código está **100% implementado e correto**. O problema é exclusivamente com a autenticação do Azure, que está retornando erro mesmo com configurações corretas. Isso é um problema conhecido do Azure em alguns casos.
 
+
+
+

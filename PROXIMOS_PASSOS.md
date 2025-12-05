@@ -208,3 +208,6 @@ Se encontrar problemas:
 - [ ] Passo 4: Migração executada
 - [ ] Passo 5: Resultados verificados
 
+
+
+

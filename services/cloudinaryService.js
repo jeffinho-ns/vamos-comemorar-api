@@ -201,3 +201,6 @@ class CloudinaryService {
 // Exporta uma instância singleton do serviço
 module.exports = new CloudinaryService();
 
+
+
+

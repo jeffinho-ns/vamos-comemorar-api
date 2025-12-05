@@ -196,3 +196,6 @@ O script de migração processa as seguintes tabelas:
 - [Cloudinary Documentation](https://cloudinary.com/documentation)
 - [Cloudinary Node.js SDK](https://cloudinary.com/documentation/node_integration)
 
+
+
+

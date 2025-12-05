@@ -48,3 +48,6 @@ Após conceder o consentimento, você deve ver:
 - O **Admin consent** deve estar concedido (Granted)
 - Sem o Admin consent, a autenticação falhará mesmo com o secret correto
 
+
+
+
