@@ -528,6 +528,28 @@ module.exports = (pool) => {
         // Se ainda é apenas um filename (legado do FTP), construir URL do FTP
         return `${BASE_IMAGE_URL}${trimmed}`;
       };
+
+      // Função assíncrona para buscar URL do Cloudinary na tabela cardapio_images
+      const getCloudinaryUrl = async (filename) => {
+        if (!filename || filename.startsWith('http://') || filename.startsWith('https://')) {
+          return null; // Já é uma URL completa ou não tem filename
+        }
+        
+        try {
+          const result = await pool.query(
+            'SELECT url FROM cardapio_images WHERE filename = $1 LIMIT 1',
+            [filename]
+          );
+          
+          if (result.rows.length > 0 && result.rows[0].url) {
+            return result.rows[0].url; // Retorna URL completa do Cloudinary
+          }
+        } catch (error) {
+          console.error('Erro ao buscar URL do Cloudinary:', error);
+        }
+        
+        return null;
+      };
       
       // Buscar eventos únicos diretamente do banco
       let eventsResult;
@@ -553,12 +575,24 @@ module.exports = (pool) => {
         throw eventsQueryError;
       }
       
-      // Adicionar URLs completas das imagens
-      const allEvents = eventsResult.rows.map(event => ({
-        ...event,
-        tipoEvento: event.tipo_evento,
-        nome_do_evento: event.nome_do_evento,
-        imagem_do_evento_url: buildImageUrl(event.imagem_do_evento)
+      // Adicionar URLs completas das imagens (buscando do Cloudinary quando necessário)
+      const allEvents = await Promise.all(eventsResult.rows.map(async (event) => {
+        let imagemEventoUrl = buildImageUrl(event.imagem_do_evento);
+        
+        // Se a URL foi construída do FTP, tentar buscar no Cloudinary
+        if (imagemEventoUrl && imagemEventoUrl.startsWith(BASE_IMAGE_URL)) {
+          const cloudinaryUrl = await getCloudinaryUrl(event.imagem_do_evento);
+          if (cloudinaryUrl) {
+            imagemEventoUrl = cloudinaryUrl;
+          }
+        }
+        
+        return {
+          ...event,
+          tipoEvento: event.tipo_evento,
+          nome_do_evento: event.nome_do_evento,
+          imagem_do_evento_url: imagemEventoUrl
+        };
       }));
       
       console.log('📊 [EVENTOS] Total de eventos obtidos do banco:', allEvents.length);
