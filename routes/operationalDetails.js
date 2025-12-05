@@ -118,17 +118,43 @@ module.exports = (pool) => {
       }
 
       // Verificar se já existe um detalhe para esta data E este tipo de OS
-      const existingResult = await pool.query(
-        'SELECT id FROM operational_details WHERE event_date = $1 AND os_type = $2',
-        [event_date, os_type]
-      );
+      // Verificar se a coluna os_type existe antes de usar
+      let existingResult;
+      try {
+        existingResult = await pool.query(
+          'SELECT id FROM operational_details WHERE event_date = $1 AND (os_type = $2 OR os_type IS NULL)',
+          [event_date, os_type]
+        );
+      } catch (error) {
+        // Se os_type não existe, verificar apenas por data
+        if (error.code === '42703') {
+          existingResult = await pool.query(
+            'SELECT id FROM operational_details WHERE event_date = $1',
+            [event_date]
+          );
+        } else {
+          throw error;
+        }
+      }
 
       if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
-          error: `Já existe um detalhe operacional do tipo '${os_type}' para esta data. Use PUT para atualizar.`
+          error: `Já existe um detalhe operacional para esta data. Use PUT para atualizar.`
         });
       }
+
+      // Verificar quais colunas existem na tabela
+      const columnsResult = await pool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'operational_details' 
+        AND table_schema = 'meu_backup_db'
+        ORDER BY ordinal_position
+      `);
+      
+      const existingColumns = columnsResult.rows.map(row => row.column_name);
+      console.log('📊 Colunas existentes na tabela:', existingColumns);
 
       const query = `
         INSERT INTO operational_details (
@@ -239,24 +265,16 @@ module.exports = (pool) => {
         provider_signature || null
       ];
 
-      console.log('📊 Valores para inserção:', {
-        totalParams: values.length,
+      console.log('📊 Query construída:', {
+        columns: columnsToInsert.length,
+        columnsList: columnsToInsert,
+        valuesCount: values.length,
         event_date,
         artistic_attraction,
         ticket_prices,
         os_type,
         establishment_id
       });
-
-      // Verificar se o número de parâmetros corresponde
-      const paramCount = (query.match(/\$/g) || []).length;
-      if (paramCount !== values.length) {
-        console.error('❌ Erro: Número de parâmetros não corresponde!', {
-          queryParams: paramCount,
-          valuesLength: values.length
-        });
-        throw new Error(`Número de parâmetros incorreto: query tem ${paramCount} parâmetros mas foram fornecidos ${values.length} valores`);
-      }
 
       const result = await pool.query(query, values);
 
