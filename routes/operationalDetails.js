@@ -156,6 +156,93 @@ module.exports = (pool) => {
       const existingColumns = columnsResult.rows.map(row => row.column_name);
       console.log('📊 Colunas existentes na tabela:', existingColumns);
 
+      // Mapear campos para valores
+      const fieldMap = {
+        os_type: os_type || null,
+        os_number: os_number || null,
+        event_id: event_id || null,
+        establishment_id: establishment_id || null,
+        event_date: event_date,
+        artistic_attraction: artistic_attraction || '',
+        show_schedule: show_schedule || null,
+        ticket_prices: ticket_prices || '',
+        promotions: promotions || null,
+        visual_reference_url: visual_reference_url || null,
+        admin_notes: admin_notes || null,
+        operational_instructions: operational_instructions || null,
+        is_active: is_active !== undefined ? (is_active ? 1 : 0) : 1,
+        contractor_name: contractor_name || null,
+        contractor_cnpj: contractor_cnpj || null,
+        contractor_address: contractor_address || null,
+        contractor_legal_responsible: contractor_legal_responsible || null,
+        contractor_legal_cpf: contractor_legal_cpf || null,
+        contractor_phone: contractor_phone || null,
+        contractor_email: contractor_email || null,
+        artist_artistic_name: artist_artistic_name || null,
+        artist_full_name: artist_full_name || null,
+        artist_cpf_cnpj: artist_cpf_cnpj || null,
+        artist_address: artist_address || null,
+        artist_phone: artist_phone || null,
+        artist_email: artist_email || null,
+        artist_responsible_name: artist_responsible_name || null,
+        artist_bank_name: artist_bank_name || null,
+        artist_bank_agency: artist_bank_agency || null,
+        artist_bank_account: artist_bank_account || null,
+        artist_bank_account_type: artist_bank_account_type || null,
+        event_name: event_name || null,
+        event_location_address: event_location_address || null,
+        event_presentation_date: event_presentation_date || null,
+        event_presentation_time: event_presentation_time || null,
+        event_duration: event_duration || null,
+        event_soundcheck_time: event_soundcheck_time || null,
+        event_structure_offered: event_structure_offered || null,
+        event_equipment_provided_by_contractor: event_equipment_provided_by_contractor || null,
+        event_equipment_brought_by_artist: event_equipment_brought_by_artist || null,
+        financial_total_value: financial_total_value || null,
+        financial_payment_method: financial_payment_method || null,
+        financial_payment_conditions: financial_payment_conditions || null,
+        financial_discounts_or_fees: financial_discounts_or_fees || null,
+        general_penalties: general_penalties || null,
+        general_transport_responsibility: general_transport_responsibility || null,
+        general_image_rights: general_image_rights || null,
+        contractor_signature: contractor_signature || null,
+        artist_signature: artist_signature || null,
+        provider_name: provider_name || null,
+        provider_cnpj: provider_cnpj || null,
+        provider_address: provider_address || null,
+        provider_responsible_name: provider_responsible_name || null,
+        provider_responsible_contact: provider_responsible_contact || null,
+        provider_bank_name: provider_bank_name || null,
+        provider_bank_agency: provider_bank_agency || null,
+        provider_bank_account: provider_bank_account || null,
+        provider_bank_account_type: provider_bank_account_type || null,
+        service_type: service_type || null,
+        service_professionals_count: service_professionals_count || null,
+        service_materials_included: service_materials_included || null,
+        service_start_date: service_start_date || null,
+        service_start_time: service_start_time || null,
+        service_end_date: service_end_date || null,
+        service_end_time: service_end_time || null,
+        service_setup_location: service_setup_location || null,
+        service_technical_responsible: service_technical_responsible || null,
+        commercial_total_value: commercial_total_value || null,
+        commercial_payment_method: commercial_payment_method || null,
+        commercial_payment_deadline: commercial_payment_deadline || null,
+        commercial_cancellation_policy: commercial_cancellation_policy || null,
+        commercial_additional_costs: commercial_additional_costs || null,
+        general_damage_responsibility: general_damage_responsibility || null,
+        general_conduct_rules: general_conduct_rules || null,
+        general_insurance: general_insurance || null,
+        provider_signature: provider_signature || null
+      };
+
+      // Filtrar apenas campos que existem na tabela (excluindo id, created_at, updated_at)
+      const columnsToInsert = existingColumns.filter(col => 
+        !['id', 'created_at', 'updated_at'].includes(col) && fieldMap.hasOwnProperty(col)
+      );
+      
+      // Construir query dinamicamente
+      const placeholders = columnsToInsert.map((_, index) => `$${index + 1}`).join(', ');
       const query = `
         INSERT INTO operational_details (
           os_type, os_number, event_id, establishment_id, event_date, artistic_attraction,
