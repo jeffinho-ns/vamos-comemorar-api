@@ -150,6 +150,8 @@ app.use('/api/action-logs', actionLogsRoutes(pool));
 app.use('/api/v1/eventos', eventosRoutes(pool, checkAndAwardPromoterGifts));
 // Rotas de Detalhes Operacionais
 app.use('/api/v1/operational-details', operationalDetailsRoutes(pool));
+// Rota adicional sem /v1 para compatibilidade
+app.use('/api/operational-details', operationalDetailsRoutes(pool));
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
