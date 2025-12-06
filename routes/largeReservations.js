@@ -511,14 +511,33 @@ module.exports = (pool) => {
       res.status(201).json(responseBody);
 
     } catch (error) {
-      console.error('❌ Erro ao criar reserva grande:', error);
-      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ ========== ERRO CRÍTICO AO CRIAR RESERVA GRANDE ==========');
+      console.error('❌ Mensagem:', error.message);
+      console.error('❌ Código do erro:', error.code);
+      console.error('❌ Stack trace completo:', error.stack);
       console.error('❌ Dados recebidos:', JSON.stringify(req.body, null, 2));
+      console.error('❌ Tipo do erro:', error.constructor.name);
+      
+      // Log adicional para erros do PostgreSQL
+      if (error.code) {
+        console.error('❌ Código PostgreSQL:', error.code);
+        console.error('❌ Detalhes PostgreSQL:', error.detail);
+        console.error('❌ Hint PostgreSQL:', error.hint);
+        console.error('❌ Posição do erro:', error.position);
+      }
+      
+      console.error('❌ ============================================================');
+      
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor',
-        details: error.message,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        error: 'Erro interno do servidor ao criar reserva',
+        message: error.message,
+        code: error.code || 'UNKNOWN_ERROR',
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          detail: error.detail,
+          hint: error.hint
+        } : undefined
       });
     }
   });
