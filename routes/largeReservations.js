@@ -419,16 +419,30 @@ module.exports = (pool) => {
       const reservationDateObj = new Date(reservation_date + 'T00:00:00');
       const dayOfWeek = reservationDateObj.getDay();
       if (dayOfWeek === 5 || dayOfWeek === 6) { // Sexta ou Sábado
-        const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (event_type || null);
-        const token = require('crypto').randomBytes(24).toString('hex');
-        const expiresAt = `${reservation_date} 23:59:59`;
+        try {
+          const detectedEventType = (dayOfWeek === 5) ? 'lista_sexta' : (event_type || null);
+          const token = require('crypto').randomBytes(24).toString('hex');
+          const expiresAt = `${reservation_date} 23:59:59`;
 
-        await pool.query(
-          `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES ($1, 'large', $2, $3, $4)`,
-          [reservationId, detectedEventType, token, expiresAt]
-        );
-        const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
-        guestListLink = `${baseUrl}/lista/${token}`;
+          console.log('📝 Criando guest_list para reserva:', {
+            reservationId,
+            detectedEventType,
+            expiresAt
+          });
+
+          await pool.query(
+            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES ($1, $2, $3, $4, $5)`,
+            [reservationId, 'large', detectedEventType, token, expiresAt]
+          );
+          const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+          guestListLink = `${baseUrl}/lista/${token}`;
+          console.log('✅ Guest list criada com sucesso:', guestListLink);
+        } catch (guestListError) {
+          console.error('❌ Erro ao criar guest_list:', guestListError.message);
+          console.error('❌ Stack:', guestListError.stack);
+          // Não falhar a criação da reserva se a guest_list falhar
+          // A guest_list pode ser criada depois
+        }
       }
       
       const notificationService = new NotificationService();
