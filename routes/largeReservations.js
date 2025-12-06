@@ -262,12 +262,18 @@ module.exports = (pool) => {
       
       let result;
       try {
+        console.log('📝 Executando INSERT com query:', insertQuery.substring(0, 100) + '...');
+        console.log('📝 Número de parâmetros:', insertParams.length);
         result = await pool.query(insertQuery, insertParams);
         console.log('✅ Inserção bem-sucedida com todos os campos. ID:', result.rows[0]?.id);
       } catch (insertError) {
-        console.error('❌ Erro ao inserir reserva:', insertError.message);
+        console.error('❌ ========== ERRO NO INSERT ==========');
+        console.error('❌ Mensagem:', insertError.message);
+        console.error('❌ Código:', insertError.code);
         console.error('❌ Stack:', insertError.stack);
-        console.error('❌ Código do erro:', insertError.code);
+        console.error('❌ Query:', insertQuery);
+        console.error('❌ Parâmetros:', insertParams);
+        console.error('❌ ======================================');
         
         // Se o erro for relacionado a colunas que não existem, tenta sem event_type e evento_id
         // PostgreSQL retorna erros como: column "event_type" does not exist
@@ -304,8 +310,14 @@ module.exports = (pool) => {
             establishmentIdNumber
           ];
           console.log('📝 Tentando inserir sem event_type/evento_id com params:', insertParams.map((p, i) => `$${i+1}=${p}`).join(', '));
-          result = await pool.query(insertQuery, insertParams);
-          console.log('✅ Inserção bem-sucedida sem event_type/evento_id. ID:', result.rows[0]?.id);
+          try {
+            result = await pool.query(insertQuery, insertParams);
+            console.log('✅ Inserção bem-sucedida sem event_type/evento_id. ID:', result.rows[0]?.id);
+          } catch (fallbackError) {
+            console.error('❌ Erro mesmo no fallback:', fallbackError.message);
+            console.error('❌ Código:', fallbackError.code);
+            throw fallbackError;
+          }
         } else {
           // Se for outro erro, relança
           throw insertError;
