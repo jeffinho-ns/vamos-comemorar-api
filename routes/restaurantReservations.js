@@ -846,15 +846,15 @@ module.exports = (pool) => {
         'SELECT * FROM restaurant_reservations WHERE id = $1',
         [id]
       );
-      const reservation = reservationResult.rows[0];
 
-      if (reservation.length === 0) {
+      if (!reservationResult.rows || reservationResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
         });
       }
 
+      const reservation = reservationResult.rows[0];
       const reservationData = reservation;
 
       // Verificar se já existe uma guest list para esta reserva
