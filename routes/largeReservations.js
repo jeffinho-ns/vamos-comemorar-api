@@ -186,7 +186,7 @@ module.exports = (pool) => {
         reservation_date, reservation_time, number_of_people, area_id,
         selected_tables, status = 'NOVA', origin = 'CLIENTE',
         notes, admin_notes, created_by, establishment_id,
-        send_email, send_whatsapp, event_type
+        send_email, send_whatsapp, event_type, evento_id
       } = req.body;
 
       // Validações
@@ -202,8 +202,9 @@ module.exports = (pool) => {
         INSERT INTO large_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, selected_tables,
-          status, origin, notes, admin_notes, created_by, establishment_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
+          status, origin, notes, admin_notes, created_by, establishment_id,
+          event_type, evento_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id
       `;
 
       // ### CORREÇÃO DEFINITIVA AQUI ###
@@ -223,7 +224,9 @@ module.exports = (pool) => {
         notes || null,
         admin_notes || null,
         created_by || null,
-        establishment_id
+        establishment_id,
+        event_type || null,
+        evento_id || null
       ];
       
       const result = await pool.query(insertQuery, insertParams);

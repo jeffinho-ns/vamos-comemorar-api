@@ -1192,10 +1192,26 @@ module.exports = (pool) => {
       const { id } = req.params;
       const { evento_id } = req.body;
 
+      console.log('🔗 Recebendo requisição para vincular reserva ao evento:', {
+        reservation_id: id,
+        evento_id: evento_id,
+        evento_id_type: typeof evento_id,
+        body: req.body
+      });
+
       if (!evento_id) {
         return res.status(400).json({
           success: false,
           error: 'evento_id é obrigatório'
+        });
+      }
+
+      // Garantir que evento_id seja um número válido
+      const eventoIdNumber = Number(evento_id);
+      if (isNaN(eventoIdNumber) || eventoIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'evento_id deve ser um número válido maior que zero'
         });
       }
 
@@ -1233,10 +1249,10 @@ module.exports = (pool) => {
         console.log(`✅ Reserva ${id} encontrada em restaurant_reservations`);
       }
 
-      // Verificar se o evento existe
+      // Verificar se o evento existe (usar o número convertido)
       const eventosResult2 = await pool.query(
         'SELECT id FROM eventos WHERE id = $1',
-        [evento_id]
+        [eventoIdNumber]
       );
 
       if (eventosResult2.rows.length === 0) {
@@ -1246,28 +1262,37 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se o evento pertence ao mesmo estabelecimento
+      // Verificar se o evento pertence ao mesmo estabelecimento (usar o número convertido)
       const eventoDetalhesResult2 = await pool.query(
         'SELECT id_place as establishment_id FROM eventos WHERE id = $1',
-        [evento_id]
+        [eventoIdNumber]
       );
 
       // Converter para números para comparação (evita problemas de tipo string vs number)
-      const eventoEstablishmentId = eventoDetalhesResult2.rows.length > 0 ? Number(eventoDetalhesResult2.rows[0].establishment_id) : null;
+      // Se id_place for null, manter como null (não converter para 0)
+      const eventoEstablishmentIdRaw = eventoDetalhesResult2.rows.length > 0 ? eventoDetalhesResult2.rows[0].establishment_id : null;
+      const eventoEstablishmentId = eventoEstablishmentIdRaw !== null && eventoEstablishmentIdRaw !== undefined 
+        ? Number(eventoEstablishmentIdRaw) 
+        : null;
       const reservaEstablishmentId = Number(reservation.establishment_id);
 
       console.log('🔍 Verificando estabelecimentos:', {
-        evento_id: evento_id,
+        evento_id: eventoIdNumber,
+        evento_establishment_id_raw: eventoEstablishmentIdRaw,
         evento_establishment_id: eventoEstablishmentId,
         reserva_establishment_id: reservaEstablishmentId,
         tipos: {
+          evento_raw: typeof eventoEstablishmentIdRaw,
           evento: typeof eventoEstablishmentId,
           reserva: typeof reservaEstablishmentId
         },
-        sao_iguais: eventoEstablishmentId === reservaEstablishmentId
+        sao_iguais: eventoEstablishmentId === reservaEstablishmentId,
+        evento_tem_id_place: eventoEstablishmentId !== null
       });
 
-      if (eventoDetalhesResult2.rows.length > 0 && eventoEstablishmentId !== reservaEstablishmentId) {
+      // Só verificar estabelecimento se o evento tiver id_place definido
+      // Se o evento não tiver id_place (null), permitir a vinculação
+      if (eventoEstablishmentId !== null && eventoEstablishmentId !== reservaEstablishmentId) {
         console.log('❌ Estabelecimentos não correspondem:', {
           evento: eventoEstablishmentId,
           reserva: reservaEstablishmentId
@@ -1301,24 +1326,25 @@ module.exports = (pool) => {
       const guests = guestsResult2.rows;
 
       // Atualizar a reserva para vincular ao evento (pode ser restaurant_reservations ou large_reservations)
+      // Usar o número convertido
       if (reservationType === 'restaurant') {
         await pool.query(
           'UPDATE restaurant_reservations SET evento_id = $1 WHERE id = $2',
-          [evento_id, id]
+          [eventoIdNumber, id]
         );
       } else {
         await pool.query(
           'UPDATE large_reservations SET evento_id = $1 WHERE id = $2',
-          [evento_id, id]
+          [eventoIdNumber, id]
         );
       }
       
-      console.log(`✅ Reserva ${id} (tipo: ${reservationType}) vinculada ao evento ${evento_id}`);
+      console.log(`✅ Reserva ${id} (tipo: ${reservationType}) vinculada ao evento ${eventoIdNumber}`);
 
-      // Criar uma lista no evento se não existir uma para esta reserva
+      // Criar uma lista no evento se não existir uma para esta reserva (usar o número convertido)
       const existingListaResult = await pool.query(
         'SELECT lista_id FROM listas WHERE evento_id = $1 AND nome ILIKE $2',
-        [evento_id, `%${reservation.client_name}%`]
+        [eventoIdNumber, `%${reservation.client_name}%`]
       );
 
       let listaId;
@@ -1326,11 +1352,11 @@ module.exports = (pool) => {
         listaId = existingListaResult.rows[0].lista_id;
         console.log(`ℹ️ Lista já existe para esta reserva: ${listaId}`);
       } else {
-        // Criar nova lista
+        // Criar nova lista (usar o número convertido)
         const nomeLista = `Reserva - ${reservation.client_name}`;
         const listaResult = await pool.query(
           'INSERT INTO listas (evento_id, nome, tipo, observacoes) VALUES ($1, $2, $3, $4) RETURNING lista_id',
-          [evento_id, nomeLista, 'Aniversário', `Lista de convidados da reserva #${id}`]
+          [eventoIdNumber, nomeLista, 'Aniversário', `Lista de convidados da reserva #${id}`]
         );
         listaId = listaResult.rows[0].lista_id;
         console.log(`✅ Lista criada para o evento: ${listaId}`);
@@ -1354,13 +1380,13 @@ module.exports = (pool) => {
         }
       }
 
-      console.log(`✅ Reserva ${id} vinculada ao evento ${evento_id}. ${copiedGuests} convidados copiados para a lista ${listaId}`);
+      console.log(`✅ Reserva ${id} vinculada ao evento ${eventoIdNumber}. ${copiedGuests} convidados copiados para a lista ${listaId}`);
 
       res.json({
         success: true,
         message: `Reserva vinculada ao evento com sucesso! ${copiedGuests} convidados foram copiados para a lista do evento.`,
         reservation_id: id,
-        evento_id: evento_id,
+        evento_id: eventoIdNumber,
         lista_id: listaId,
         convidados_copiados: copiedGuests
       });
