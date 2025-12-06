@@ -190,11 +190,39 @@ module.exports = (pool) => {
       } = req.body;
 
       // Validações
-      if (!client_name || !reservation_date || !reservation_time || !number_of_people || establishment_id === undefined) {
-        return res.status(400).json({ success: false, error: 'Campos essenciais faltando (nome, data, hora, pessoas, estabelecimento).' });
+      console.log('🔍 Validando dados recebidos:', {
+        client_name: !!client_name,
+        reservation_date: !!reservation_date,
+        reservation_time: !!reservation_time,
+        number_of_people: number_of_people,
+        establishment_id: establishment_id,
+        establishment_id_type: typeof establishment_id
+      });
+
+      if (!client_name || !reservation_date || !reservation_time || !number_of_people || establishment_id === undefined || establishment_id === null) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Campos essenciais faltando (nome, data, hora, pessoas, estabelecimento).',
+          received: {
+            client_name: !!client_name,
+            reservation_date: !!reservation_date,
+            reservation_time: !!reservation_time,
+            number_of_people: number_of_people,
+            establishment_id: establishment_id
+          }
+        });
       }
       if (Number(number_of_people) < 11) {
         return res.status(400).json({ success: false, error: 'Esta rota é apenas para reservas com 11+ pessoas.' });
+      }
+
+      // Garantir que establishment_id seja um número
+      const establishmentIdNumber = Number(establishment_id);
+      if (isNaN(establishmentIdNumber)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'establishment_id deve ser um número válido.' 
+        });
       }
 
       // Inserção no Banco de Dados
@@ -225,21 +253,30 @@ module.exports = (pool) => {
         notes || null,
         admin_notes || null,
         created_by || null,
-        establishment_id,
+        establishmentIdNumber,
         event_type || null,
         evento_id || null
       ];
       
+      console.log('📝 Tentando inserir com todos os campos. Params:', insertParams.map((p, i) => `$${i+1}=${p}`).join(', '));
+      
       let result;
       try {
         result = await pool.query(insertQuery, insertParams);
+        console.log('✅ Inserção bem-sucedida com todos os campos. ID:', result.rows[0]?.id);
       } catch (insertError) {
+        console.error('❌ Erro ao inserir reserva:', insertError.message);
+        console.error('❌ Stack:', insertError.stack);
+        console.error('❌ Código do erro:', insertError.code);
+        
         // Se o erro for relacionado a colunas que não existem, tenta sem event_type e evento_id
+        // PostgreSQL retorna erros como: column "event_type" does not exist
         if (insertError.message && (
           insertError.message.includes('column "event_type"') || 
           insertError.message.includes('column "evento_id"') ||
           insertError.message.includes('Unknown column') ||
-          insertError.message.includes('does not exist')
+          insertError.message.includes('does not exist') ||
+          insertError.code === '42703' // PostgreSQL error code for undefined column
         )) {
           console.log('⚠️ Campos event_type ou evento_id não existem na tabela. Tentando inserir sem eles...');
           insertQuery = `
@@ -264,9 +301,11 @@ module.exports = (pool) => {
             notes || null,
             admin_notes || null,
             created_by || null,
-            establishment_id
+            establishmentIdNumber
           ];
+          console.log('📝 Tentando inserir sem event_type/evento_id com params:', insertParams.map((p, i) => `$${i+1}=${p}`).join(', '));
           result = await pool.query(insertQuery, insertParams);
+          console.log('✅ Inserção bem-sucedida sem event_type/evento_id. ID:', result.rows[0]?.id);
         } else {
           // Se for outro erro, relança
           throw insertError;
