@@ -198,7 +198,8 @@ module.exports = (pool) => {
       }
 
       // Inserção no Banco de Dados
-      const insertQuery = `
+      // Primeiro tenta com todos os campos (incluindo event_type e evento_id)
+      let insertQuery = `
         INSERT INTO large_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, selected_tables,
@@ -209,7 +210,7 @@ module.exports = (pool) => {
 
       // ### CORREÇÃO DEFINITIVA AQUI ###
       // Garantimos que todos os campos que podem ser nulos recebam `null` ao invés de `undefined`.
-      const insertParams = [
+      let insertParams = [
         client_name,
         client_phone || null,
         client_email || null,
@@ -229,48 +230,145 @@ module.exports = (pool) => {
         evento_id || null
       ];
       
-      const result = await pool.query(insertQuery, insertParams);
+      let result;
+      try {
+        result = await pool.query(insertQuery, insertParams);
+      } catch (insertError) {
+        // Se o erro for relacionado a colunas que não existem, tenta sem event_type e evento_id
+        if (insertError.message && (
+          insertError.message.includes('column "event_type"') || 
+          insertError.message.includes('column "evento_id"') ||
+          insertError.message.includes('Unknown column') ||
+          insertError.message.includes('does not exist')
+        )) {
+          console.log('⚠️ Campos event_type ou evento_id não existem na tabela. Tentando inserir sem eles...');
+          insertQuery = `
+            INSERT INTO large_reservations (
+              client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
+              reservation_time, number_of_people, area_id, selected_tables,
+              status, origin, notes, admin_notes, created_by, establishment_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
+          `;
+          insertParams = [
+            client_name,
+            client_phone || null,
+            client_email || null,
+            data_nascimento_cliente || null,
+            reservation_date,
+            reservation_time,
+            number_of_people,
+            area_id || null,
+            selected_tables ? JSON.stringify(selected_tables) : null,
+            (status || 'NOVA').toUpperCase(),
+            (origin || 'CLIENTE').toUpperCase(),
+            notes || null,
+            admin_notes || null,
+            created_by || null,
+            establishment_id
+          ];
+          result = await pool.query(insertQuery, insertParams);
+        } else {
+          // Se for outro erro, relança
+          throw insertError;
+        }
+      }
+      
       const reservationId = result.rows[0].id;
 
       // O restante do código para buscar a reserva, criar a lista e enviar notificações continua o mesmo.
-      const newReservationResult = await pool.query(`
-        SELECT
-          lr.id,
-          lr.establishment_id,
-          lr.client_name,
-          lr.client_phone,
-          lr.client_email,
-          lr.data_nascimento_cliente,
-          lr.reservation_date,
-          lr.reservation_time,
-          lr.number_of_people,
-          lr.area_id,
-          lr.selected_tables,
-          lr.status::TEXT as status,
-          lr.origin::TEXT as origin,
-          lr.notes,
-          lr.admin_notes,
-          lr.created_by,
-          lr.check_in_time,
-          lr.check_out_time,
-          lr.email_sent,
-          lr.whatsapp_sent,
-          lr.created_at,
-          lr.updated_at,
-          lr.checked_in,
-          lr.checkin_time,
-          lr.event_type,
-          lr.evento_id,
-          ra.name as area_name,
-          u.name as created_by_name,
-          COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
-        FROM large_reservations lr
-        LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
-        LEFT JOIN users u ON lr.created_by = u.id
-        LEFT JOIN places p ON lr.establishment_id = p.id
-        LEFT JOIN bars b ON lr.establishment_id = b.id
-        WHERE lr.id = $1
-      `, [reservationId]);
+      // Tenta buscar com todos os campos, se der erro tenta sem event_type e evento_id
+      let newReservationResult;
+      try {
+        newReservationResult = await pool.query(`
+          SELECT
+            lr.id,
+            lr.establishment_id,
+            lr.client_name,
+            lr.client_phone,
+            lr.client_email,
+            lr.data_nascimento_cliente,
+            lr.reservation_date,
+            lr.reservation_time,
+            lr.number_of_people,
+            lr.area_id,
+            lr.selected_tables,
+            lr.status::TEXT as status,
+            lr.origin::TEXT as origin,
+            lr.notes,
+            lr.admin_notes,
+            lr.created_by,
+            lr.check_in_time,
+            lr.check_out_time,
+            lr.email_sent,
+            lr.whatsapp_sent,
+            lr.created_at,
+            lr.updated_at,
+            lr.checked_in,
+            lr.checkin_time,
+            lr.event_type,
+            lr.evento_id,
+            ra.name as area_name,
+            u.name as created_by_name,
+            COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
+          FROM large_reservations lr
+          LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
+          LEFT JOIN users u ON lr.created_by = u.id
+          LEFT JOIN places p ON lr.establishment_id = p.id
+          LEFT JOIN bars b ON lr.establishment_id = b.id
+          WHERE lr.id = $1
+        `, [reservationId]);
+      } catch (selectError) {
+        // Se o erro for relacionado a colunas que não existem, tenta sem event_type e evento_id
+        if (selectError.message && (
+          selectError.message.includes('column "event_type"') || 
+          selectError.message.includes('column "evento_id"') ||
+          selectError.message.includes('Unknown column') ||
+          selectError.message.includes('does not exist')
+        )) {
+          console.log('⚠️ Campos event_type ou evento_id não existem na tabela. Buscando sem eles...');
+          newReservationResult = await pool.query(`
+            SELECT
+              lr.id,
+              lr.establishment_id,
+              lr.client_name,
+              lr.client_phone,
+              lr.client_email,
+              lr.data_nascimento_cliente,
+              lr.reservation_date,
+              lr.reservation_time,
+              lr.number_of_people,
+              lr.area_id,
+              lr.selected_tables,
+              lr.status::TEXT as status,
+              lr.origin::TEXT as origin,
+              lr.notes,
+              lr.admin_notes,
+              lr.created_by,
+              lr.check_in_time,
+              lr.check_out_time,
+              lr.email_sent,
+              lr.whatsapp_sent,
+              lr.created_at,
+              lr.updated_at,
+              lr.checked_in,
+              lr.checkin_time,
+              NULL as event_type,
+              NULL as evento_id,
+              ra.name as area_name,
+              u.name as created_by_name,
+              COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
+            FROM large_reservations lr
+            LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
+            LEFT JOIN users u ON lr.created_by = u.id
+            LEFT JOIN places p ON lr.establishment_id = p.id
+            LEFT JOIN bars b ON lr.establishment_id = b.id
+            WHERE lr.id = $1
+          `, [reservationId]);
+        } else {
+          // Se for outro erro, relança
+          throw selectError;
+        }
+      }
 
       if (!newReservationResult || newReservationResult.rows.length === 0) {
         console.error(`🚨 FALHA CRÍTICA: Reserva com ID ${reservationId} foi inserida mas não pôde ser recuperada.`);
@@ -318,10 +416,13 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao criar reserva grande:', error);
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Dados recebidos:', JSON.stringify(req.body, null, 2));
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
-        details: error.message
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   });
