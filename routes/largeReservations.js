@@ -315,7 +315,7 @@ module.exports = (pool) => {
       const reservationId = result.rows[0].id;
 
       // O restante do código para buscar a reserva, criar a lista e enviar notificações continua o mesmo.
-      // Tenta buscar com todos os campos, se der erro tenta sem event_type e evento_id
+      // Tenta buscar com todos os campos, se der erro tenta com campos mínimos
       let newReservationResult;
       try {
         newReservationResult = await pool.query(`
@@ -331,8 +331,8 @@ module.exports = (pool) => {
             lr.number_of_people,
             lr.area_id,
             lr.selected_tables,
-            lr.status::TEXT as status,
-            lr.origin::TEXT as origin,
+            CAST(lr.status AS TEXT) as status,
+            CAST(lr.origin AS TEXT) as origin,
             lr.notes,
             lr.admin_notes,
             lr.created_by,
@@ -357,52 +357,95 @@ module.exports = (pool) => {
           WHERE lr.id = $1
         `, [reservationId]);
       } catch (selectError) {
-        // Se o erro for relacionado a colunas que não existem, tenta sem event_type e evento_id
+        console.error('❌ Erro ao buscar reserva criada:', selectError.message);
+        console.error('❌ Código do erro:', selectError.code);
+        console.error('❌ Stack:', selectError.stack);
+        
+        // Se o erro for relacionado a colunas que não existem, tenta com campos mínimos
         if (selectError.message && (
-          selectError.message.includes('column "event_type"') || 
-          selectError.message.includes('column "evento_id"') ||
+          selectError.message.includes('column') && selectError.message.includes('does not exist') ||
           selectError.message.includes('Unknown column') ||
-          selectError.message.includes('does not exist')
+          selectError.code === '42703' // PostgreSQL error code for undefined column
         )) {
-          console.log('⚠️ Campos event_type ou evento_id não existem na tabela. Buscando sem eles...');
-          newReservationResult = await pool.query(`
-            SELECT
-              lr.id,
-              lr.establishment_id,
-              lr.client_name,
-              lr.client_phone,
-              lr.client_email,
-              lr.data_nascimento_cliente,
-              lr.reservation_date,
-              lr.reservation_time,
-              lr.number_of_people,
-              lr.area_id,
-              lr.selected_tables,
-              lr.status::TEXT as status,
-              lr.origin::TEXT as origin,
-              lr.notes,
-              lr.admin_notes,
-              lr.created_by,
-              lr.check_in_time,
-              lr.check_out_time,
-              lr.email_sent,
-              lr.whatsapp_sent,
-              lr.created_at,
-              lr.updated_at,
-              lr.checked_in,
-              lr.checkin_time,
-              NULL as event_type,
-              NULL as evento_id,
-              ra.name as area_name,
-              u.name as created_by_name,
-              COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
-            FROM large_reservations lr
-            LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
-            LEFT JOIN users u ON lr.created_by = u.id
-            LEFT JOIN places p ON lr.establishment_id = p.id
-            LEFT JOIN bars b ON lr.establishment_id = b.id
-            WHERE lr.id = $1
-          `, [reservationId]);
+          console.log('⚠️ Alguns campos não existem na tabela. Buscando apenas campos básicos...');
+          try {
+            newReservationResult = await pool.query(`
+              SELECT
+                lr.id,
+                lr.establishment_id,
+                lr.client_name,
+                lr.client_phone,
+                lr.client_email,
+                lr.data_nascimento_cliente,
+                lr.reservation_date,
+                lr.reservation_time,
+                lr.number_of_people,
+                lr.area_id,
+                lr.selected_tables,
+                CAST(lr.status AS TEXT) as status,
+                CAST(lr.origin AS TEXT) as origin,
+                lr.notes,
+                lr.admin_notes,
+                lr.created_by,
+                lr.created_at,
+                lr.updated_at,
+                COALESCE(lr.check_in_time, NULL) as check_in_time,
+                COALESCE(lr.check_out_time, NULL) as check_out_time,
+                COALESCE(lr.email_sent, 0) as email_sent,
+                COALESCE(lr.whatsapp_sent, 0) as whatsapp_sent,
+                COALESCE(lr.checked_in, 0) as checked_in,
+                COALESCE(lr.checkin_time, NULL) as checkin_time,
+                NULL as event_type,
+                NULL as evento_id,
+                ra.name as area_name,
+                u.name as created_by_name,
+                COALESCE(CAST(p.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
+              FROM large_reservations lr
+              LEFT JOIN restaurant_areas ra ON lr.area_id = ra.id
+              LEFT JOIN users u ON lr.created_by = u.id
+              LEFT JOIN places p ON lr.establishment_id = p.id
+              LEFT JOIN bars b ON lr.establishment_id = b.id
+              WHERE lr.id = $1
+            `, [reservationId]);
+            console.log('✅ Busca bem-sucedida com campos mínimos');
+          } catch (minimalSelectError) {
+            console.error('❌ Erro mesmo com campos mínimos:', minimalSelectError.message);
+            // Última tentativa: apenas campos essenciais
+            newReservationResult = await pool.query(`
+              SELECT
+                lr.id,
+                lr.establishment_id,
+                lr.client_name,
+                lr.client_phone,
+                lr.client_email,
+                lr.reservation_date,
+                lr.reservation_time,
+                lr.number_of_people,
+                CAST(lr.status AS TEXT) as status,
+                CAST(lr.origin AS TEXT) as origin,
+                lr.notes,
+                lr.created_at,
+                lr.updated_at,
+                NULL as area_id,
+                NULL as selected_tables,
+                NULL as admin_notes,
+                NULL as created_by,
+                NULL as check_in_time,
+                NULL as check_out_time,
+                0 as email_sent,
+                0 as whatsapp_sent,
+                0 as checked_in,
+                NULL as checkin_time,
+                NULL as event_type,
+                NULL as evento_id,
+                NULL as area_name,
+                NULL as created_by_name,
+                NULL as establishment_name
+              FROM large_reservations lr
+              WHERE lr.id = $1
+            `, [reservationId]);
+            console.log('✅ Busca bem-sucedida com apenas campos essenciais');
+          }
         } else {
           // Se for outro erro, relança
           throw selectError;
