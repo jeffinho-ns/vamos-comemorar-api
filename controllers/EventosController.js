@@ -1488,6 +1488,11 @@ class EventosController {
       let reservasRestaurante = [];
       let guestListsRestaurante = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        console.log('🔍 Buscando guest lists para evento:', {
+          evento_id: eventoId,
+          establishment_id: eventoInfo.establishment_id,
+          data_evento: eventoInfo.data_evento
+        });
         try {
           // Buscar guest_lists completas (estrutura igual ao Sistema de Reservas)
           // Busca tanto listas vinculadas a restaurant_reservations quanto a large_reservations
@@ -1495,6 +1500,7 @@ class EventosController {
           let guestListsResult = [];
           
           try {
+            console.log('📝 Tentando buscar guest lists com filtro de evento_id...');
             // Query para listas vinculadas a restaurant_reservations
             const resultRestaurant = await this.pool.query(`
               SELECT 
@@ -1566,6 +1572,7 @@ class EventosController {
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
+            console.log(`📊 Resultados encontrados: ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
             
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
@@ -1576,7 +1583,8 @@ class EventosController {
             
           } catch (err) {
             // Fallback: se a coluna evento_id não existir, usa a query sem esse filtro
-            console.log('⚠️ Coluna evento_id não encontrada, usando filtro tradicional');
+            console.log('⚠️ Erro ao buscar com evento_id, tentando sem filtro:', err.message);
+            console.log('⚠️ Stack:', err.stack);
             
             // Query para restaurant_reservations (sem filtro de evento_id)
             const resultRestaurant = await this.pool.query(`
@@ -1647,6 +1655,7 @@ class EventosController {
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
+            console.log(`📊 Resultados encontrados (fallback): ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
             
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
@@ -1658,6 +1667,14 @@ class EventosController {
           
           guestListsRestaurante = guestListsResult;
           console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
+          console.log('📋 Detalhes das guest lists encontradas:', guestListsRestaurante.map(gl => ({
+            guest_list_id: gl.guest_list_id,
+            owner_name: gl.owner_name,
+            reservation_id: gl.reservation_id,
+            reservation_date: gl.reservation_date,
+            total_guests: gl.total_guests,
+            guests_checked_in: gl.guests_checked_in
+          })));
           
           // Para compatibilidade: também retornar no formato antigo
           reservasRestaurante = guestListsResult.map(gl => ({
