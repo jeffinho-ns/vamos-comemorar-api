@@ -882,6 +882,84 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   POST /api/large-reservations/:id/add-guest-list
+   * @desc    Adiciona uma lista de convidados a uma reserva grande
+   * @access  Private
+   */
+  router.post('/:id/add-guest-list', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { event_type } = req.body;
+
+      // Verificar se a reserva existe
+      const reservationResult = await pool.query(
+        'SELECT * FROM large_reservations WHERE id = $1',
+        [id]
+      );
+
+      if (!reservationResult.rows || reservationResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva não encontrada'
+        });
+      }
+
+      const reservation = reservationResult.rows[0];
+      const reservationData = reservation;
+
+      // Verificar se já existe uma guest list para esta reserva
+      const existingGuestListResult = await pool.query(
+        `SELECT id FROM guest_lists WHERE reservation_id = $1 AND reservation_type = 'large'`,
+        [id]
+      );
+
+      if (existingGuestListResult.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Esta reserva já possui uma lista de convidados'
+        });
+      }
+
+      // Criar a lista de convidados
+      const crypto = require('crypto');
+      const token = crypto.randomBytes(24).toString('hex');
+      
+      // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
+      const reservationDateObj = new Date(reservationData.reservation_date + 'T00:00:00');
+      reservationDateObj.setDate(reservationDateObj.getDate() + 1); // +1 dia
+      reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
+      const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
+
+      await pool.query(
+        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
+         VALUES ($1, 'large', $2, $3, $4)`,
+        [id, event_type || null, token, expiresAt]
+      );
+
+      const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+      const guestListLink = `${baseUrl}/lista/${token}`;
+
+      console.log('✅ Lista de convidados adicionada à reserva grande:', id);
+
+      res.status(201).json({
+        success: true,
+        message: 'Lista de convidados criada com sucesso',
+        guest_list_link: guestListLink,
+        shareable_link_token: token
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao adicionar lista de convidados à reserva grande:', error);
+      console.error('❌ Stack:', error.stack);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor',
+        details: error.message
+      });
+    }
+  });
+
+  /**
    * @route   POST /api/large-reservations/:id/checkin
    * @desc    Faz check-in da reserva grande
    * @access  Private (Admin)
