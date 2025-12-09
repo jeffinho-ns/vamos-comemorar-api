@@ -189,7 +189,7 @@ module.exports = (pool) => {
         }
       }
 
-      // 4. Validação de Geolocalização: Verificar se está dentro do raio de 200m
+      // 4. Validação de Geolocalização: Verificar se está dentro do raio de 30m
       if (establishmentLat && establishmentLon) {
         const distance = calculateDistance(
           latitude,
@@ -198,11 +198,11 @@ module.exports = (pool) => {
           establishmentLon
         );
 
-        if (distance > 200) {
+        if (distance > 30) {
           await client.query('ROLLBACK');
           return res.status(403).json({
             success: false,
-            error: `Você não está no local do evento. Distância: ${Math.round(distance)}m (máximo: 200m)`
+            error: `Você não está no local do evento. Distância: ${Math.round(distance)}m (máximo: 30m)`
           });
         }
       } else {
