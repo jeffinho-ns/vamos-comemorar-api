@@ -109,28 +109,74 @@ module.exports = (pool) => {
       const itemsToLink = new Set();
       
       if (Array.isArray(category_ids) && category_ids.length > 0) {
-        const categoryItems = await client.query(
-          `SELECT id FROM ${SCHEMA}.menu_items 
+        // Verificar se campos deleted_at e visible existem
+        let hasDeletedAt = false;
+        let hasVisible = false;
+        try {
+          const columnsResult = await client.query(
+            `SELECT column_name 
+             FROM information_schema.columns 
+             WHERE table_schema = $1 
+               AND table_name = 'menu_items' 
+               AND column_name IN ('deleted_at', 'visible')`,
+            [SCHEMA]
+          );
+          const columns = columnsResult.rows.map(row => row.column_name);
+          hasDeletedAt = columns.includes('deleted_at');
+          hasVisible = columns.includes('visible');
+        } catch (e) {
+          console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
+        }
+
+        let query = `SELECT id FROM ${SCHEMA}.menu_items 
            WHERE "categoryId" = ANY($1::int[])
-             AND "barId" = $2
-             AND deleted_at IS NULL
-             AND (visible IS NULL OR visible = true)`,
-          [category_ids, establishment_id]
-        );
+             AND "barId" = $2`;
+        
+        if (hasDeletedAt) {
+          query += ` AND deleted_at IS NULL`;
+        }
+        if (hasVisible) {
+          query += ` AND (visible IS NULL OR visible = true)`;
+        }
+
+        const categoryItems = await client.query(query, [category_ids, establishment_id]);
         categoryItems.rows.forEach(row => itemsToLink.add(row.id));
       }
 
       // AUTOMAÇÃO: Buscar itens por subcategorias
       if (Array.isArray(subcategory_ids) && subcategory_ids.length > 0) {
         // Nota: subcategory_ids são nomes (VARCHAR), não IDs
-        const subcategoryItems = await client.query(
-          `SELECT id FROM ${SCHEMA}.menu_items 
+        // Verificar se campos deleted_at e visible existem
+        let hasDeletedAt = false;
+        let hasVisible = false;
+        try {
+          const columnsResult = await client.query(
+            `SELECT column_name 
+             FROM information_schema.columns 
+             WHERE table_schema = $1 
+               AND table_name = 'menu_items' 
+               AND column_name IN ('deleted_at', 'visible')`,
+            [SCHEMA]
+          );
+          const columns = columnsResult.rows.map(row => row.column_name);
+          hasDeletedAt = columns.includes('deleted_at');
+          hasVisible = columns.includes('visible');
+        } catch (e) {
+          console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
+        }
+
+        let query = `SELECT id FROM ${SCHEMA}.menu_items 
            WHERE "subCategory" = ANY($1::varchar[])
-             AND "barId" = $2
-             AND deleted_at IS NULL
-             AND (visible IS NULL OR visible = true)`,
-          [subcategory_ids, establishment_id]
-        );
+             AND "barId" = $2`;
+        
+        if (hasDeletedAt) {
+          query += ` AND deleted_at IS NULL`;
+        }
+        if (hasVisible) {
+          query += ` AND (visible IS NULL OR visible = true)`;
+        }
+
+        const subcategoryItems = await client.query(query, [subcategory_ids, establishment_id]);
         subcategoryItems.rows.forEach(row => itemsToLink.add(row.id));
       }
 
