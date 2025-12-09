@@ -271,9 +271,27 @@ module.exports = (pool) => {
           : settings.wifi_info;
       }
 
+      // Verificar se campos deleted_at e visible existem
+      let hasDeletedAt = false;
+      let hasVisible = false;
+      try {
+        const columnsResult = await pool.query(
+          `SELECT column_name 
+           FROM information_schema.columns 
+           WHERE table_schema = $1 
+             AND table_name = 'menu_items' 
+             AND column_name IN ('deleted_at', 'visible')`,
+          [SCHEMA]
+        );
+        const columns = columnsResult.rows.map(row => row.column_name);
+        hasDeletedAt = columns.includes('deleted_at');
+        hasVisible = columns.includes('visible');
+      } catch (e) {
+        console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
+      }
+
       // Buscar itens do evento (SEM PREÇOS na resposta)
-      const itemsResult = await pool.query(
-        `SELECT 
+      let itemsQuery = `SELECT 
           mi.id,
           mi.name,
           mi.description,
@@ -286,12 +304,18 @@ module.exports = (pool) => {
         FROM ${SCHEMA}.event_items ei
         JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
         JOIN ${SCHEMA}.menu_categories mc ON mi."categoryId" = mc.id
-        WHERE ei.event_id = $1
-          AND mi.deleted_at IS NULL
-          AND (mi.visible IS NULL OR mi.visible = true)
-        ORDER BY mc."order", ei.display_order, mi."order"`,
-        [event.id]
-      );
+        WHERE ei.event_id = $1`;
+      
+      if (hasDeletedAt) {
+        itemsQuery += ` AND mi.deleted_at IS NULL`;
+      }
+      if (hasVisible) {
+        itemsQuery += ` AND (mi.visible IS NULL OR mi.visible = true)`;
+      }
+      
+      itemsQuery += ` ORDER BY mc."order", ei.display_order, mi."order"`;
+
+      const itemsResult = await pool.query(itemsQuery, [event.id]);
 
       // Verificar se campo seals existe
       let hasSealsField = false;
