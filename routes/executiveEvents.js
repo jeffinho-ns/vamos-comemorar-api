@@ -646,8 +646,8 @@ module.exports = (pool) => {
           e.created_at,
           e.updated_at,
           b.name as establishment_name
-        FROM executive_events e
-        JOIN bars b ON e.establishment_id = b.id
+        FROM ${SCHEMA}.executive_events e
+        JOIN ${SCHEMA}.bars b ON e.establishment_id = b.id
         WHERE e.id = $1`,
         [eventId]
       );
