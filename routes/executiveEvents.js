@@ -545,7 +545,7 @@ module.exports = (pool) => {
         
         if (Array.isArray(category_ids) && category_ids.length > 0) {
           const categoryItems = await client.query(
-            `SELECT id FROM menu_items 
+            `SELECT id FROM ${SCHEMA}.menu_items 
              WHERE "categoryId" = ANY($1::int[])
                AND "barId" = $2
                AND deleted_at IS NULL
@@ -557,7 +557,7 @@ module.exports = (pool) => {
 
         if (Array.isArray(subcategory_ids) && subcategory_ids.length > 0) {
           const subcategoryItems = await client.query(
-            `SELECT id FROM menu_items 
+            `SELECT id FROM ${SCHEMA}.menu_items 
              WHERE "subCategory" = ANY($1::varchar[])
                AND "barId" = $2
                AND deleted_at IS NULL
@@ -574,7 +574,7 @@ module.exports = (pool) => {
           
           for (const itemId of itemIds) {
             await client.query(
-              `INSERT INTO event_items (event_id, item_id, display_order)
+              `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order)
                VALUES ($1, $2, $3)`,
               [id, itemId, displayOrder]
             );
