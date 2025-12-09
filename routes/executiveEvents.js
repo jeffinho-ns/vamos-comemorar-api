@@ -187,10 +187,10 @@ module.exports = (pool) => {
         
         for (const itemId of itemIds) {
           await client.query(
-            `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order)
-             VALUES ($1, $2, $3)
+            `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order, visible)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (event_id, item_id) DO NOTHING`,
-            [eventId, itemId, displayOrder]
+            [eventId, itemId, displayOrder, true] // Por padrão, novos itens são visíveis
           );
           displayOrder++;
         }
@@ -291,6 +291,7 @@ module.exports = (pool) => {
       }
 
       // Buscar itens do evento (SEM PREÇOS na resposta)
+      // Filtrar apenas itens visíveis no evento (ei.visible = true)
       let itemsQuery = `SELECT 
           mi.id,
           mi.name,
@@ -304,7 +305,8 @@ module.exports = (pool) => {
         FROM ${SCHEMA}.event_items ei
         JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
         JOIN ${SCHEMA}.menu_categories mc ON mi.categoryid = mc.id
-        WHERE ei.event_id = $1`;
+        WHERE ei.event_id = $1
+          AND (ei.visible IS NULL OR ei.visible = true)`;
       
       if (hasDeletedAt) {
         itemsQuery += ` AND mi.deleted_at IS NULL`;
@@ -444,6 +446,55 @@ module.exports = (pool) => {
   });
 
   // ============================================
+  // GET /api/executive-events/:id/items - Buscar Itens do Evento com Visibilidade
+  // ============================================
+  router.get('/:id/items', auth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Verificar se evento existe
+      const eventCheck = await pool.query(
+        `SELECT id FROM ${SCHEMA}.executive_events WHERE id = $1`,
+        [id]
+      );
+      
+      if (eventCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Evento não encontrado.' });
+      }
+
+      // Buscar todos os itens do evento com informações de visibilidade
+      const itemsResult = await pool.query(
+        `SELECT 
+          mi.id,
+          mi.name,
+          mi.description,
+          mi.imageurl as "imageUrl",
+          mi.categoryid as "categoryId",
+          mc.name as category,
+          mi.subcategory as "subCategoryName",
+          ei.visible,
+          ei.display_order
+        FROM ${SCHEMA}.event_items ei
+        JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
+        JOIN ${SCHEMA}.menu_categories mc ON mi.categoryid = mc.id
+        WHERE ei.event_id = $1
+        ORDER BY mc."order", ei.display_order, mi."order"`,
+        [id]
+      );
+
+      res.json({
+        items: itemsResult.rows.map(item => ({
+          ...item,
+          visible: item.visible !== false // null ou true = visível
+        }))
+      });
+    } catch (error) {
+      console.error('❌ Erro ao buscar itens do evento:', error);
+      res.status(500).json({ error: 'Erro ao buscar itens do evento.', details: error.message });
+    }
+  });
+
+  // ============================================
   // GET /api/executive-events/:id - Buscar Evento por ID (Admin)
   // IMPORTANTE: Esta rota deve vir DEPOIS de /public/:slug para evitar conflitos
   // ============================================
@@ -486,6 +537,7 @@ module.exports = (pool) => {
         is_active,
         category_ids = [],
         subcategory_ids = [],
+        visible_item_ids = [], // Array de IDs de itens que devem estar visíveis
         custom_colors = {},
         welcome_message = null,
         wifi_info = null
@@ -671,12 +723,32 @@ module.exports = (pool) => {
           
           for (const itemId of itemIds) {
             await client.query(
-              `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order)
-               VALUES ($1, $2, $3)`,
-              [id, itemId, displayOrder]
+              `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order, visible)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (event_id, item_id) DO UPDATE SET display_order = $3`,
+              [id, itemId, displayOrder, true] // Por padrão, novos itens são visíveis
             );
             displayOrder++;
           }
+        }
+      }
+
+      // Atualizar visibilidade dos itens se visible_item_ids foi fornecido
+      if (Array.isArray(visible_item_ids) && visible_item_ids.length >= 0) {
+        // Primeiro, marcar todos os itens do evento como ocultos
+        await client.query(
+          `UPDATE ${SCHEMA}.event_items SET visible = false WHERE event_id = $1`,
+          [id]
+        );
+        
+        // Depois, marcar apenas os itens especificados como visíveis
+        if (visible_item_ids.length > 0) {
+          await client.query(
+            `UPDATE ${SCHEMA}.event_items 
+             SET visible = true 
+             WHERE event_id = $1 AND item_id = ANY($2::int[])`,
+            [id, visible_item_ids]
+          );
         }
       }
 
