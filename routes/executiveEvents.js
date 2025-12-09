@@ -18,6 +18,9 @@ function generateSlug(text) {
     .replace(/-+$/, '');             // Remove hífens do fim
 }
 
+// Schema padrão (tabelas estão em meu_backup_db)
+const SCHEMA = 'meu_backup_db';
+
 module.exports = (pool) => {
   
   // ============================================
@@ -51,7 +54,7 @@ module.exports = (pool) => {
 
       // Verificar se establishment existe
       const establishmentCheck = await client.query(
-        'SELECT id FROM bars WHERE id = $1',
+        `SELECT id FROM ${SCHEMA}.bars WHERE id = $1`,
         [establishment_id]
       );
       if (establishmentCheck.rows.length === 0) {
@@ -67,7 +70,7 @@ module.exports = (pool) => {
 
       while (slugExists) {
         const slugCheck = await client.query(
-          'SELECT id FROM executive_events WHERE slug = $1',
+          `SELECT id FROM ${SCHEMA}.executive_events WHERE slug = $1`,
           [slug]
         );
         if (slugCheck.rows.length === 0) {
@@ -80,7 +83,7 @@ module.exports = (pool) => {
 
       // Criar evento
       const eventResult = await client.query(
-        `INSERT INTO executive_events 
+        `INSERT INTO ${SCHEMA}.executive_events 
          (establishment_id, name, event_date, logo_url, cover_image_url, slug)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id`,
@@ -91,7 +94,7 @@ module.exports = (pool) => {
 
       // Criar settings
       await client.query(
-        `INSERT INTO event_settings 
+        `INSERT INTO ${SCHEMA}.event_settings 
          (event_id, custom_colors, welcome_message, wifi_info)
          VALUES ($1, $2, $3, $4)`,
         [
@@ -107,7 +110,7 @@ module.exports = (pool) => {
       
       if (Array.isArray(category_ids) && category_ids.length > 0) {
         const categoryItems = await client.query(
-          `SELECT id FROM menu_items 
+          `SELECT id FROM ${SCHEMA}.menu_items 
            WHERE "categoryId" = ANY($1::int[])
              AND "barId" = $2
              AND deleted_at IS NULL
@@ -121,7 +124,7 @@ module.exports = (pool) => {
       if (Array.isArray(subcategory_ids) && subcategory_ids.length > 0) {
         // Nota: subcategory_ids são nomes (VARCHAR), não IDs
         const subcategoryItems = await client.query(
-          `SELECT id FROM menu_items 
+          `SELECT id FROM ${SCHEMA}.menu_items 
            WHERE "subCategory" = ANY($1::varchar[])
              AND "barId" = $2
              AND deleted_at IS NULL
@@ -138,7 +141,7 @@ module.exports = (pool) => {
         
         for (const itemId of itemIds) {
           await client.query(
-            `INSERT INTO event_items (event_id, item_id, display_order)
+            `INSERT INTO ${SCHEMA}.event_items (event_id, item_id, display_order)
              VALUES ($1, $2, $3)
              ON CONFLICT (event_id, item_id) DO NOTHING`,
             [eventId, itemId, displayOrder]
@@ -156,9 +159,12 @@ module.exports = (pool) => {
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('❌ Erro ao criar evento:', error);
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Request body:', JSON.stringify(req.body, null, 2));
       res.status(500).json({ 
         error: 'Erro ao criar evento.', 
-        details: error.message 
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     } finally {
       client.release();
@@ -185,8 +191,8 @@ module.exports = (pool) => {
           e.slug,
           e.is_active,
           b.name as establishment_name
-        FROM executive_events e
-        JOIN bars b ON e.establishment_id = b.id
+        FROM ${SCHEMA}.executive_events e
+        JOIN ${SCHEMA}.bars b ON e.establishment_id = b.id
         WHERE e.slug = $1 AND e.is_active = true`,
         [slug]
       );
@@ -200,7 +206,7 @@ module.exports = (pool) => {
       // Buscar settings
       const settingsResult = await pool.query(
         `SELECT custom_colors, welcome_message, wifi_info
-         FROM event_settings
+         FROM ${SCHEMA}.event_settings
          WHERE event_id = $1`,
         [event.id]
       );
@@ -231,9 +237,9 @@ module.exports = (pool) => {
           mi."subCategory" as "subCategoryName",
           mi.seals,
           ei.display_order
-        FROM event_items ei
-        JOIN menu_items mi ON ei.item_id = mi.id
-        JOIN menu_categories mc ON mi."categoryId" = mc.id
+        FROM ${SCHEMA}.event_items ei
+        JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
+        JOIN ${SCHEMA}.menu_categories mc ON mi."categoryId" = mc.id
         WHERE ei.event_id = $1
           AND mi.deleted_at IS NULL
           AND (mi.visible IS NULL OR mi.visible = true)
@@ -296,7 +302,7 @@ module.exports = (pool) => {
       // Buscar selos do evento
       const sealsResult = await pool.query(
         `SELECT id, name, color, type, display_order
-         FROM event_seals
+         FROM ${SCHEMA}.event_seals
          WHERE event_id = $1
          ORDER BY display_order`,
         [event.id]
@@ -337,8 +343,8 @@ module.exports = (pool) => {
           e.created_at,
           e.updated_at,
           b.name as establishment_name
-        FROM executive_events e
-        JOIN bars b ON e.establishment_id = b.id
+        FROM ${SCHEMA}.executive_events e
+        JOIN ${SCHEMA}.bars b ON e.establishment_id = b.id
         WHERE 1=1
       `;
       
@@ -417,7 +423,7 @@ module.exports = (pool) => {
 
       // Verificar se evento existe
       const eventCheck = await client.query(
-        'SELECT id FROM executive_events WHERE id = $1',
+        `SELECT id FROM ${SCHEMA}.executive_events WHERE id = $1`,
         [id]
       );
       if (eventCheck.rows.length === 0) {
@@ -459,7 +465,7 @@ module.exports = (pool) => {
       if (updateFields.length > 0) {
         updateValues.push(id);
         await client.query(
-          `UPDATE executive_events 
+          `UPDATE ${SCHEMA}.executive_events 
            SET ${updateFields.join(', ')}
            WHERE id = $${paramCount}`,
           updateValues
@@ -468,7 +474,7 @@ module.exports = (pool) => {
 
       // Atualizar settings
       const settingsCheck = await client.query(
-        'SELECT id FROM event_settings WHERE event_id = $1',
+        `SELECT id FROM ${SCHEMA}.event_settings WHERE event_id = $1`,
         [id]
       );
 
@@ -499,7 +505,7 @@ module.exports = (pool) => {
         if (settingsUpdateFields.length > 0) {
           settingsUpdateValues.push(id);
           await client.query(
-            `UPDATE event_settings 
+            `UPDATE ${SCHEMA}.event_settings 
              SET ${settingsUpdateFields.join(', ')}
              WHERE event_id = $${settingsParamCount}`,
             settingsUpdateValues
@@ -508,7 +514,7 @@ module.exports = (pool) => {
       } else {
         // Criar settings se não existir
         await client.query(
-          `INSERT INTO event_settings 
+          `INSERT INTO ${SCHEMA}.event_settings 
            (event_id, custom_colors, welcome_message, wifi_info)
            VALUES ($1, $2, $3, $4)`,
           [
@@ -525,11 +531,11 @@ module.exports = (pool) => {
           (Array.isArray(subcategory_ids) && subcategory_ids.length > 0)) {
         
         // Remover itens existentes
-        await client.query('DELETE FROM event_items WHERE event_id = $1', [id]);
+        await client.query(`DELETE FROM ${SCHEMA}.event_items WHERE event_id = $1`, [id]);
 
         // Buscar establishment_id do evento
         const eventData = await client.query(
-          'SELECT establishment_id FROM executive_events WHERE id = $1',
+          `SELECT establishment_id FROM ${SCHEMA}.executive_events WHERE id = $1`,
           [id]
         );
         const establishmentId = eventData.rows[0].establishment_id;
@@ -604,7 +610,7 @@ module.exports = (pool) => {
       
       // Verificar se evento existe
       const eventCheck = await pool.query(
-        'SELECT id FROM executive_events WHERE id = $1',
+        `SELECT id FROM ${SCHEMA}.executive_events WHERE id = $1`,
         [id]
       );
       
@@ -613,7 +619,7 @@ module.exports = (pool) => {
       }
 
       // Deletar evento (CASCADE vai deletar event_settings, event_items, event_seals)
-      await pool.query('DELETE FROM executive_events WHERE id = $1', [id]);
+      await pool.query(`DELETE FROM ${SCHEMA}.executive_events WHERE id = $1`, [id]);
       
       res.json({ message: 'Evento deletado com sucesso.' });
     } catch (error) {
@@ -655,7 +661,7 @@ module.exports = (pool) => {
       // Buscar settings
       const settingsResult = await pool.query(
         `SELECT custom_colors, welcome_message, wifi_info
-         FROM event_settings
+         FROM ${SCHEMA}.event_settings
          WHERE event_id = $1`,
         [eventId]
       );
@@ -675,7 +681,7 @@ module.exports = (pool) => {
 
       // Buscar contagem de itens
       const itemsCountResult = await pool.query(
-        'SELECT COUNT(*) as count FROM event_items WHERE event_id = $1',
+        `SELECT COUNT(*) as count FROM ${SCHEMA}.event_items WHERE event_id = $1`,
         [eventId]
       );
 
