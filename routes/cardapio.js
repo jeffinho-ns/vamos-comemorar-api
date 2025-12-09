@@ -682,19 +682,23 @@ module.exports = (pool) => {
                     mc.name as categoryName,
                     COUNT(mi.id) as itemsCount,
                     MIN(mi.id) as id
-                FROM menu_items mi
-                JOIN menu_categories mc ON mi.categoryId = mc.id
-                WHERE mi.barId = $1 
-                  AND mi.subCategory IS NOT NULL 
-                  AND mi.subCategory != ''
-                  AND mi.subCategory != ' '
-                GROUP BY mi.subCategory, mi.categoryId, mi.barId, mc.name, mc."order"
-                ORDER BY mc."order", mi.subCategory
+                FROM meu_backup_db.menu_items mi
+                JOIN meu_backup_db.menu_categories mc ON mi."categoryId" = mc.id
+                WHERE mi."barId" = $1 
+                  AND mi."subCategory" IS NOT NULL 
+                  AND mi."subCategory" != ''
+                  AND mi."subCategory" != ' '
+                GROUP BY mi."subCategory", mi."categoryId", mi."barId", mc.name, mc."order"
+                ORDER BY mc."order", mi."subCategory"
             `, [barId]);
             res.json(result.rows);
         } catch (error) {
-            console.error('Erro ao listar sub-categorias do bar:', error);
-            res.status(500).json({ error: 'Erro ao listar sub-categorias do bar.' });
+            console.error('❌ Erro ao listar sub-categorias do bar:', error);
+            console.error('❌ Stack trace:', error.stack);
+            res.status(500).json({ 
+                error: 'Erro ao listar sub-categorias do bar.',
+                details: error.message 
+            });
         }
     });
 
