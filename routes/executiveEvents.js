@@ -782,10 +782,29 @@ module.exports = (pool) => {
         [eventId]
       );
 
+      // Buscar categorias e subcategorias selecionadas através dos itens vinculados
+      const itemsResult = await pool.query(
+        `SELECT DISTINCT 
+          mi.categoryid,
+          mi.subcategory
+        FROM ${SCHEMA}.event_items ei
+        JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
+        WHERE ei.event_id = $1`,
+        [eventId]
+      );
+
+      // Extrair categorias únicas
+      const categoryIds = [...new Set(itemsResult.rows.map(row => row.categoryid).filter(Boolean))];
+      
+      // Extrair subcategorias únicas
+      const subcategoryNames = [...new Set(itemsResult.rows.map(row => row.subcategory).filter(Boolean))];
+
       return {
         ...event,
         settings,
-        items_count: parseInt(itemsCountResult.rows[0].count || 0)
+        items_count: parseInt(itemsCountResult.rows[0].count || 0),
+        category_ids: categoryIds,
+        subcategory_ids: subcategoryNames
       };
     } catch (error) {
       console.error('Erro ao buscar evento:', error);
