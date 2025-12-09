@@ -129,8 +129,8 @@ module.exports = (pool) => {
         }
 
         let query = `SELECT id FROM ${SCHEMA}.menu_items 
-           WHERE "categoryId" = ANY($1::int[])
-             AND "barId" = $2`;
+           WHERE categoryid = ANY($1::int[])
+             AND barid = $2`;
         
         if (hasDeletedAt) {
           query += ` AND deleted_at IS NULL`;
@@ -166,8 +166,8 @@ module.exports = (pool) => {
         }
 
         let query = `SELECT id FROM ${SCHEMA}.menu_items 
-           WHERE "subCategory" = ANY($1::varchar[])
-             AND "barId" = $2`;
+           WHERE subcategory = ANY($1::varchar[])
+             AND barid = $2`;
         
         if (hasDeletedAt) {
           query += ` AND deleted_at IS NULL`;
@@ -296,14 +296,14 @@ module.exports = (pool) => {
           mi.name,
           mi.description,
           mi.imageurl as "imageUrl",
-          mi."categoryId" as "categoryId",
+          mi.categoryid as "categoryId",
           mc.name as category,
-          mi."subCategory" as "subCategoryName",
+          mi.subcategory as "subCategoryName",
           mi.seals,
           ei.display_order
         FROM ${SCHEMA}.event_items ei
         JOIN ${SCHEMA}.menu_items mi ON ei.item_id = mi.id
-        JOIN ${SCHEMA}.menu_categories mc ON mi."categoryId" = mc.id
+        JOIN ${SCHEMA}.menu_categories mc ON mi.categoryid = mc.id
         WHERE ei.event_id = $1`;
       
       if (hasDeletedAt) {
@@ -634,8 +634,8 @@ module.exports = (pool) => {
 
         if (Array.isArray(category_ids) && category_ids.length > 0) {
           let query = `SELECT id FROM ${SCHEMA}.menu_items 
-             WHERE "categoryId" = ANY($1::int[])
-               AND "barId" = $2`;
+             WHERE categoryid = ANY($1::int[])
+               AND barid = $2`;
           
           if (hasDeletedAt) {
             query += ` AND deleted_at IS NULL`;
@@ -650,8 +650,8 @@ module.exports = (pool) => {
 
         if (Array.isArray(subcategory_ids) && subcategory_ids.length > 0) {
           let query = `SELECT id FROM ${SCHEMA}.menu_items 
-             WHERE "subCategory" = ANY($1::varchar[])
-               AND "barId" = $2`;
+             WHERE subcategory = ANY($1::varchar[])
+               AND barid = $2`;
           
           if (hasDeletedAt) {
             query += ` AND deleted_at IS NULL`;

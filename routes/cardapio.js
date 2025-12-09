@@ -675,21 +675,22 @@ module.exports = (pool) => {
         const { barId } = req.params;
         try {
             const result = await pool.query(`
-                SELECT DISTINCT 
-                    mi.subCategory as name,
-                    mi.categoryId,
-                    mi.barId,
+                SELECT 
+                    mi.subcategory as name,
+                    mi.categoryid as "categoryId",
+                    mi.barid as "barId",
                     mc.name as categoryName,
                     COUNT(mi.id) as itemsCount,
-                    MIN(mi.id) as id
+                    MIN(mi.id) as id,
+                    mc."order" as categoryOrder
                 FROM meu_backup_db.menu_items mi
-                JOIN meu_backup_db.menu_categories mc ON mi."categoryId" = mc.id
-                WHERE mi."barId" = $1 
-                  AND mi."subCategory" IS NOT NULL 
-                  AND mi."subCategory" != ''
-                  AND mi."subCategory" != ' '
-                GROUP BY mi."subCategory", mi."categoryId", mi."barId", mc.name, mc."order"
-                ORDER BY mc."order", mi."subCategory"
+                JOIN meu_backup_db.menu_categories mc ON mi.categoryid = mc.id
+                WHERE mi.barid = $1 
+                  AND mi.subcategory IS NOT NULL 
+                  AND mi.subcategory != ''
+                  AND mi.subcategory != ' '
+                GROUP BY mi.subcategory, mi.categoryid, mi.barid, mc.name, mc."order"
+                ORDER BY mc."order", mi.subcategory
             `, [barId]);
             res.json(result.rows);
         } catch (error) {
