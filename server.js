@@ -97,6 +97,7 @@ const actionLogsRoutes = require('./routes/actionLogs');
 const eventosRoutes = require('./routes/eventos');
 const operationalDetailsRoutes = require('./routes/operationalDetails');
 const checkinsSelfValidateRoutes = require('./routes/checkinsSelfValidate');
+const executiveEventsRoutes = require('./routes/executiveEvents');
 
 
 // Usando as Rotas
@@ -152,6 +153,8 @@ app.use('/api/v1/eventos', eventosRoutes(pool, checkAndAwardPromoterGifts));
 app.use('/api/v1/operational-details', operationalDetailsRoutes(pool));
 // Rota adicional sem /v1 para compatibilidade
 app.use('/api/operational-details', operationalDetailsRoutes(pool));
+// Rotas de Executive Event Menus
+app.use('/api/executive-events', executiveEventsRoutes(pool));
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
