@@ -613,27 +613,54 @@ module.exports = (pool) => {
         // Buscar novos itens
         const itemsToLink = new Set();
         
-        if (Array.isArray(category_ids) && category_ids.length > 0) {
-          const categoryItems = await client.query(
-            `SELECT id FROM ${SCHEMA}.menu_items 
-             WHERE "categoryId" = ANY($1::int[])
-               AND "barId" = $2
-               AND deleted_at IS NULL
-               AND (visible IS NULL OR visible = true)`,
-            [category_ids, establishmentId]
+        // Verificar se campos deleted_at e visible existem
+        let hasDeletedAt = false;
+        let hasVisible = false;
+        try {
+          const columnsResult = await client.query(
+            `SELECT column_name 
+             FROM information_schema.columns 
+             WHERE table_schema = $1 
+               AND table_name = 'menu_items' 
+               AND column_name IN ('deleted_at', 'visible')`,
+            [SCHEMA]
           );
+          const columns = columnsResult.rows.map(row => row.column_name);
+          hasDeletedAt = columns.includes('deleted_at');
+          hasVisible = columns.includes('visible');
+        } catch (e) {
+          console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
+        }
+
+        if (Array.isArray(category_ids) && category_ids.length > 0) {
+          let query = `SELECT id FROM ${SCHEMA}.menu_items 
+             WHERE "categoryId" = ANY($1::int[])
+               AND "barId" = $2`;
+          
+          if (hasDeletedAt) {
+            query += ` AND deleted_at IS NULL`;
+          }
+          if (hasVisible) {
+            query += ` AND (visible IS NULL OR visible = true)`;
+          }
+
+          const categoryItems = await client.query(query, [category_ids, establishmentId]);
           categoryItems.rows.forEach(row => itemsToLink.add(row.id));
         }
 
         if (Array.isArray(subcategory_ids) && subcategory_ids.length > 0) {
-          const subcategoryItems = await client.query(
-            `SELECT id FROM ${SCHEMA}.menu_items 
+          let query = `SELECT id FROM ${SCHEMA}.menu_items 
              WHERE "subCategory" = ANY($1::varchar[])
-               AND "barId" = $2
-               AND deleted_at IS NULL
-               AND (visible IS NULL OR visible = true)`,
-            [subcategory_ids, establishmentId]
-          );
+               AND "barId" = $2`;
+          
+          if (hasDeletedAt) {
+            query += ` AND deleted_at IS NULL`;
+          }
+          if (hasVisible) {
+            query += ` AND (visible IS NULL OR visible = true)`;
+          }
+
+          const subcategoryItems = await client.query(query, [subcategory_ids, establishmentId]);
           subcategoryItems.rows.forEach(row => itemsToLink.add(row.id));
         }
 
