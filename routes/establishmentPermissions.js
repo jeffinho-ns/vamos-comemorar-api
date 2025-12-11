@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
-const actionLogger = require('../middleware/actionLogger');
 
 module.exports = (pool) => {
   /**
@@ -152,7 +151,7 @@ module.exports = (pool) => {
    * @desc    Cria uma nova permissão
    * @access  Private (Admin)
    */
-  router.post('/', auth, actionLogger, async (req, res) => {
+  router.post('/', auth, async (req, res) => {
     try {
       const {
         user_id,
@@ -267,7 +266,7 @@ module.exports = (pool) => {
    * @desc    Atualiza uma permissão
    * @access  Private (Admin)
    */
-  router.put('/:id', auth, actionLogger, async (req, res) => {
+  router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -388,7 +387,7 @@ module.exports = (pool) => {
    * @desc    Remove uma permissão (soft delete)
    * @access  Private (Admin)
    */
-  router.delete('/:id', auth, actionLogger, async (req, res) => {
+  router.delete('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
       
