@@ -22,6 +22,10 @@ services:
         value: u621081794
       - key: FTP_PASSWORD
         value: "Jeffl1ma!@"
+      # ⚠️ TEMPORÁRIO: Validação de geolocalização desabilitada para testes
+      # REMOVER ESTA LINHA APÓS OS TESTES!
+      - key: SKIP_GEO_VALIDATION
+        value: "true"
     disk:
       name: uploads
       mountPath: /opt/render/project/src/uploads

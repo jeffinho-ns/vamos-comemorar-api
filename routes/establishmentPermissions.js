@@ -78,12 +78,13 @@ module.exports = (pool) => {
       const query = `
         SELECT 
           uep.*,
-          p.name as establishment_name,
-          p.id as establishment_id
+          COALESCE(p.name, b.name) as establishment_name,
+          uep.establishment_id
         FROM user_establishment_permissions uep
         LEFT JOIN places p ON uep.establishment_id = p.id
+        LEFT JOIN bars b ON uep.establishment_id = b.id
         WHERE uep.user_id = $1 AND uep.is_active = TRUE
-        ORDER BY p.name
+        ORDER BY COALESCE(p.name, b.name)
       `;
       
       const result = await pool.query(query, [userId]);

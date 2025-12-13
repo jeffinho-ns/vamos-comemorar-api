@@ -152,45 +152,99 @@ module.exports = (pool) => {
       }
 
       // 3. Validação Temporal: Verificar se está dentro do horário do evento
-      if (reservationDate) {
+      // Permitir check-in a partir da hora da reserva até o final do dia seguinte
+      // Modo de teste: pode ser desabilitado via variável de ambiente ou parâmetro skip_time_validation
+      const skipTimeValidation = process.env.SKIP_TIME_VALIDATION === 'true' || req.body.skip_time_validation === true;
+      
+      if (reservationDate && !skipTimeValidation) {
         const now = new Date();
-        const eventDate = new Date(reservationDate);
+        
+        // Parse da data da reserva (pode vir como string 'YYYY-MM-DD' ou Date)
+        let eventDate;
+        if (typeof reservationDate === 'string') {
+          // Se for string, criar data no timezone local
+          const [year, month, day] = reservationDate.split('-').map(Number);
+          eventDate = new Date(year, month - 1, day); // month - 1 porque Date usa 0-11
+        } else {
+          eventDate = new Date(reservationDate);
+        }
         
         // Se houver horário, validar também o horário
         if (reservationTime) {
-          const [hours, minutes] = reservationTime.split(':');
-          eventDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          const [hours, minutes] = reservationTime.split(':').map(Number);
+          eventDate.setHours(hours, minutes, 0, 0);
           
-          // Permitir check-in até 2 horas após o horário do evento
+          // Permitir check-in a partir da hora da reserva até o final do dia seguinte (23:59:59)
           const eventEndTime = new Date(eventDate);
-          eventEndTime.setHours(eventEndTime.getHours() + 2);
+          eventEndTime.setDate(eventEndTime.getDate() + 1); // Adiciona 1 dia
+          eventEndTime.setHours(23, 59, 59, 999); // Final do dia seguinte
+          
+          // Log para debug (pode remover em produção)
+          console.log(`[CHECK-IN] Validação de horário:`);
+          console.log(`  - Agora: ${now.toLocaleString('pt-BR')}`);
+          console.log(`  - Início permitido: ${eventDate.toLocaleString('pt-BR')}`);
+          console.log(`  - Fim permitido: ${eventEndTime.toLocaleString('pt-BR')}`);
+          console.log(`  - Dentro do período: ${now >= eventDate && now <= eventEndTime}`);
           
           if (now < eventDate || now > eventEndTime) {
             await client.query('ROLLBACK');
+            const eventDateStr = eventDate.toLocaleString('pt-BR', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'America/Sao_Paulo'
+            });
+            const eventEndTimeStr = eventEndTime.toLocaleString('pt-BR', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'America/Sao_Paulo'
+            });
             return res.status(403).json({
               success: false,
-              error: 'Check-in só é permitido dentro do horário do evento'
+              error: `Check-in só é permitido a partir de ${eventDateStr} até ${eventEndTimeStr}. Horário atual: ${now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`
             });
           }
+        } else if (skipTimeValidation) {
+          console.warn(`⚠️ [MODO TESTE] Validação de horário desabilitada para teste`);
         } else {
-          // Se não houver horário, validar apenas a data
+          // Se não houver horário, validar apenas a data (permitir no dia da reserva e no dia seguinte)
           const eventDateOnly = new Date(eventDate);
           eventDateOnly.setHours(0, 0, 0, 0);
-          const nowDateOnly = new Date(now);
-          nowDateOnly.setHours(0, 0, 0, 0);
+          const eventEndDateOnly = new Date(eventDateOnly);
+          eventEndDateOnly.setDate(eventEndDateOnly.getDate() + 1); // Dia seguinte
+          eventEndDateOnly.setHours(23, 59, 59, 999); // Final do dia seguinte
           
-          if (nowDateOnly.getTime() !== eventDateOnly.getTime()) {
+          const nowDateOnly = new Date(now);
+          
+          // Log para debug
+          console.log(`[CHECK-IN] Validação de data (sem horário):`);
+          console.log(`  - Agora: ${nowDateOnly.toLocaleString('pt-BR')}`);
+          console.log(`  - Data início: ${eventDateOnly.toLocaleString('pt-BR')}`);
+          console.log(`  - Data fim: ${eventEndDateOnly.toLocaleString('pt-BR')}`);
+          console.log(`  - Dentro do período: ${nowDateOnly >= eventDateOnly && nowDateOnly <= eventEndDateOnly}`);
+          
+          if (nowDateOnly < eventDateOnly || nowDateOnly > eventEndDateOnly) {
             await client.query('ROLLBACK');
             return res.status(403).json({
               success: false,
-              error: 'Check-in só é permitido na data do evento'
+              error: `Check-in só é permitido na data da reserva ou no dia seguinte. Data da reserva: ${eventDateOnly.toLocaleDateString('pt-BR')}, Data atual: ${nowDateOnly.toLocaleDateString('pt-BR')}`
             });
           }
         }
+      } else if (skipTimeValidation) {
+        console.warn(`⚠️ [MODO TESTE] Validação de horário desabilitada para teste`);
       }
 
       // 4. Validação de Geolocalização: Verificar se está dentro do raio de 30m
-      if (establishmentLat && establishmentLon) {
+      // Modo de teste: pode ser desabilitado via variável de ambiente ou parâmetro skip_geo_validation
+      const skipGeoValidation = process.env.SKIP_GEO_VALIDATION === 'true' || req.body.skip_geo_validation === true;
+      
+      if (establishmentLat && establishmentLon && !skipGeoValidation) {
         const distance = calculateDistance(
           latitude,
           longitude,
@@ -206,9 +260,13 @@ module.exports = (pool) => {
           });
         }
       } else {
-        // Se não houver coordenadas do estabelecimento, apenas logar um aviso
-        console.warn(`⚠️ Estabelecimento sem coordenadas para a reserva ${list.reservation_id}`);
-        // Não bloquear o check-in, mas avisar
+        if (skipGeoValidation) {
+          console.warn(`⚠️ [MODO TESTE] Validação de geolocalização desabilitada para teste`);
+        } else if (!establishmentLat || !establishmentLon) {
+          // Se não houver coordenadas do estabelecimento, apenas logar um aviso
+          console.warn(`⚠️ Estabelecimento sem coordenadas para a reserva ${list.reservation_id}`);
+          // Não bloquear o check-in, mas avisar
+        }
       }
 
       // 5. Buscar o convidado na lista por nome (case-insensitive)
