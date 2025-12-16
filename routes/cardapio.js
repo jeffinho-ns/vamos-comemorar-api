@@ -159,9 +159,17 @@ module.exports = (pool) => {
                         existing.usageCount = (existing.usageCount || 0) + parseInt(row.usage_count);
                         existing.firstItemId = row.first_item_id;
                     } else {
+                        // Buscar URL completa na tabela cardapio_images se existir
+                        let cloudinaryUrl = null;
+                        const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
+                        if (cardapioImage && cardapioImage.url && cardapioImage.url.startsWith('https://res.cloudinary.com')) {
+                            cloudinaryUrl = cardapioImage.url;
+                        }
+                        
                         // Adicionar nova imagem
                         imageMap.set(filename, {
                             filename: filename,
+                            url: cloudinaryUrl, // URL completa do Cloudinary se encontrada
                             sourceType: row.source_type,
                             imageType: row.image_type,
                             usageCount: parseInt(row.usage_count),
@@ -189,6 +197,15 @@ module.exports = (pool) => {
             console.log(`📊 [GALLERY] Encontrados ${barsResult.rows.length} bares com imagens`);
 
             barsResult.rows.forEach(row => {
+                // Função helper para buscar URL do Cloudinary
+                const getCloudinaryUrl = (filename) => {
+                    if (!filename) return null;
+                    const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
+                    return (cardapioImage && cardapioImage.url && cardapioImage.url.startsWith('https://res.cloudinary.com')) 
+                        ? cardapioImage.url 
+                        : null;
+                };
+                
                 // Processar logoUrl
                 if (row.logourl && row.logourl !== 'null' && row.logourl.trim() !== '') {
                     const filename = extractFilename(row.logourl);
@@ -202,9 +219,14 @@ module.exports = (pool) => {
                                 name: row.bar_name,
                                 type: 'bar_logo'
                             });
+                            // Atualizar URL se não tiver e encontrar na tabela
+                            if (!existing.url) {
+                                existing.url = getCloudinaryUrl(filename);
+                            }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
+                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_logo',
                                 usageCount: 1,
@@ -227,9 +249,14 @@ module.exports = (pool) => {
                                 name: row.bar_name,
                                 type: 'bar_cover'
                             });
+                            // Atualizar URL se não tiver e encontrar na tabela
+                            if (!existing.url) {
+                                existing.url = getCloudinaryUrl(filename);
+                            }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
+                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_cover',
                                 usageCount: 1,
@@ -252,9 +279,14 @@ module.exports = (pool) => {
                                 name: row.bar_name,
                                 type: 'bar_popup'
                             });
+                            // Atualizar URL se não tiver e encontrar na tabela
+                            if (!existing.url) {
+                                existing.url = getCloudinaryUrl(filename);
+                            }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
+                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_popup',
                                 usageCount: 1,
