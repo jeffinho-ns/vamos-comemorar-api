@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { customAlphabet } = require('nanoid');
-const cloudinaryService = require('../services/cloudinaryService');
+const firebaseStorage = require('../services/firebaseStorageAdminService');
 
 const router = express.Router();
 
@@ -52,7 +52,7 @@ const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
 // Rota de upload unificada para todos os tipos de imagem
 router.post('/upload', upload.single('image'), handleMulterError, async (req, res) => {
-  console.log('📤 Iniciando upload de imagem para Cloudinary...');
+  console.log('📤 Iniciando upload de imagem para Firebase Storage...');
   const pool = req.app.get('pool');
 
   if (!pool) {
@@ -68,53 +68,38 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
   const file = req.file;
   const extension = path.extname(file.originalname);
   const remoteFilename = `${nanoid()}${extension}`;
+  const folder = req.body.folder || 'cardapio-agilizaiapp';
+  const objectPath = `${String(folder).replace(/^\/+/, '').replace(/\/+$/, '')}/${remoteFilename}`;
   
   console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
-  console.log(`🆔 Nome do arquivo remoto: ${remoteFilename}`);
-
-  let cloudinarySuccess = false;
-  let publicUrl = null;
-  let publicId = null;
+  console.log(`🆔 Objeto remoto: ${objectPath}`);
 
   try {
-    // Faz upload para o Cloudinary e obtém URL pública
-    console.log(`📤 Fazendo upload de ${remoteFilename} para Cloudinary...`);
-    const uploadResult = await cloudinaryService.uploadFile(remoteFilename, file.buffer, {
-      folder: 'cardapio-agilizaiapp',
-      overwrite: false
+    // Faz upload para o Firebase Storage (Admin) e obtém URL pública via token
+    console.log(`📤 Fazendo upload de ${objectPath} para Firebase Storage...`);
+    const uploadResult = await firebaseStorage.uploadBuffer({
+      objectPath,
+      buffer: file.buffer,
+      contentType: file.mimetype,
     });
-    
-    publicUrl = uploadResult.secureUrl;
-    publicId = uploadResult.publicId;
-    
-    console.log(`✅ Upload Cloudinary concluído: ${remoteFilename}`);
-    console.log(`   Public ID: ${publicId}`);
+
+    const publicUrl = uploadResult.url;
+
+    console.log(`✅ Upload Firebase concluído: ${objectPath}`);
     console.log(`   URL pública: ${publicUrl}`);
-    
-    cloudinarySuccess = true;
 
-  } catch (cloudinaryError) {
-    console.error('❌ Erro no upload para o Cloudinary:', cloudinaryError.message);
-    console.error('Stack trace:', cloudinaryError.stack);
-    return res.status(500).json({
-      error: 'Erro ao fazer upload para o Cloudinary',
-      details: cloudinaryError.message
-    });
-  }
+    // Salvar no banco - armazenar filename como objectPath (estável) e url como downloadURL
+    const imageData = {
+      filename: objectPath,
+      originalName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      url: publicUrl,
+      type: req.body.type || 'general',
+      entityId: req.body.entityId || null,
+      entityType: req.body.entityType || null,
+    };
 
-  // Salvar no banco - URL completa do Cloudinary para exibição
-  const imageData = {
-    filename: remoteFilename,
-    originalName: file.originalname,
-    fileSize: file.size,
-    mimeType: file.mimetype,
-    url: publicUrl, // URL pública do Cloudinary
-    type: req.body.type || 'general',
-    entityId: req.body.entityId || null,
-    entityType: req.body.entityType || null
-  };
-
-  try {
     const result = await pool.query(
       `INSERT INTO cardapio_images (filename, original_name, file_size, mime_type, url, type, entity_id, entity_type) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
@@ -126,38 +111,25 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
         imageData.url,
         imageData.type,
         imageData.entityId,
-        imageData.entityType
-      ]
+        imageData.entityType,
+      ],
     );
 
-    console.log(`✅ Imagem salva no banco: ID ${result.rows[0].id}, Filename: ${remoteFilename}`);
-    
-    res.json({
+    console.log(`✅ Imagem salva no banco: ID ${result.rows[0].id}, Filename: ${objectPath}`);
+
+    return res.json({
       success: true,
       imageId: result.rows[0].id,
-      filename: remoteFilename,
-      url: publicUrl, // URL completa do Cloudinary
-      publicId: publicId, // Public ID do Cloudinary (para futuras operações)
-      message: 'Imagem enviada com sucesso'
+      filename: objectPath,
+      url: publicUrl,
+      message: 'Imagem enviada com sucesso',
     });
-
-  } catch (dbError) {
-    console.error('❌ Erro ao salvar no banco:', dbError.message);
-    console.error('Stack trace:', dbError.stack);
-    
-    // Remove do Cloudinary se falhar no banco
-    if (cloudinarySuccess && publicId) {
-      try {
-        await cloudinaryService.deleteFile(publicId);
-        console.log('🗑️ Arquivo removido do Cloudinary após erro no banco.');
-      } catch (removeError) {
-        console.warn('⚠️ Falha ao remover arquivo do Cloudinary após erro no banco:', removeError.message);
-      }
-    }
-    
-    return res.status(500).json({ 
-      error: 'Erro ao salvar imagem no banco de dados',
-      details: dbError.message 
+  } catch (err) {
+    console.error('❌ Erro no upload Firebase:', err.message);
+    console.error('Stack trace:', err.stack);
+    return res.status(500).json({
+      error: 'Erro ao fazer upload para o Firebase Storage',
+      details: err.message,
     });
   }
 });
@@ -202,15 +174,12 @@ router.delete('/:imageId', async (req, res) => {
 
     await pool.query('DELETE FROM cardapio_images WHERE id = $1', [imageId]);
 
-    // Tenta deletar do Cloudinary
+    // Tenta deletar do Firebase Storage
     try {
-      // Extrai o Public ID da URL do Cloudinary ou usa o filename
-      const publicId = cloudinaryService.extractPublicIdFromUrl(image.url) || image.filename;
-      await cloudinaryService.deleteFile(publicId);
-      console.log(`✅ Arquivo ${publicId} deletado do Cloudinary`);
-    } catch (cloudinaryError) {
-      console.warn('⚠️ Erro ao deletar do Cloudinary (arquivo pode não existir):', cloudinaryError.message);
-      // Não falha a requisição se o arquivo não existir no Cloudinary
+      await firebaseStorage.deleteByUrlOrPath(image.filename || image.url);
+      console.log(`✅ Arquivo deletado do Firebase Storage: ${image.filename || image.url}`);
+    } catch (storageError) {
+      console.warn('⚠️ Erro ao deletar do Firebase Storage (arquivo pode não existir):', storageError.message);
     }
 
     res.json({ success: true, message: 'Imagem deletada com sucesso' });

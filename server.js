@@ -248,6 +248,54 @@ app.get('/test-cloudinary', async (req, res) => {
   }
 });
 
+// Endpoint de teste do Firebase Storage (Admin) - útil para validar env no Render
+app.get('/test-firebase-storage', async (req, res) => {
+  try {
+    const firebaseStorage = require('./services/firebaseStorageAdminService');
+
+    const bucket = process.env.FIREBASE_STORAGE_BUCKET;
+    if (!bucket) {
+      return res.status(500).json({
+        success: false,
+        error: 'FIREBASE_STORAGE_BUCKET não configurado',
+      });
+    }
+
+    const objectPath = `health/test-${Date.now()}.txt`;
+    const buf = Buffer.from('Firebase Storage test - ' + new Date().toISOString());
+
+    const upload = await firebaseStorage.uploadBuffer({
+      objectPath,
+      buffer: buf,
+      contentType: 'text/plain',
+    });
+
+    // tentar deletar
+    await firebaseStorage.deleteByUrlOrPath(upload.objectPath);
+
+    return res.status(200).json({
+      success: true,
+      message: '✅ Firebase Storage (Admin) funcionando!',
+      details: {
+        bucket,
+        objectPath: upload.objectPath,
+        url: upload.url,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erro no teste Firebase Storage:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro no Firebase Storage',
+      details: {
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }
+    });
+  }
+});
+
 
 // Iniciar o servidor
 server.listen(PORT, config.server.host, () => {

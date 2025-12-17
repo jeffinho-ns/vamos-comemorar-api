@@ -6,6 +6,17 @@ module.exports = (pool) => {
     const extractFilename = (url) => {
         if (!url) return null;
         const urlStr = String(url);
+        // Firebase Storage download URL: extrair o objectPath (decodificado) após /o/
+        if (urlStr.includes('firebasestorage.googleapis.com')) {
+            const match = urlStr.match(/\/o\/([^?]+)(?:\?|$)/);
+            if (match && match[1]) {
+                try {
+                    return decodeURIComponent(match[1]);
+                } catch {
+                    return match[1];
+                }
+            }
+        }
         // Se já é só o nome do arquivo (sem http/https ou /)
         if (!urlStr.includes('http') && !urlStr.includes('/')) {
             return urlStr.trim();
@@ -66,14 +77,119 @@ module.exports = (pool) => {
                 });
             }
             
-            // Imagens agora são gerenciadas via Cloudinary através de /api/images/:imageId
-            // Esta rota apenas retorna sucesso para compatibilidade
-            res.json({
-                success: true,
-                message: 'Imagem removida (use /api/images/:imageId para deletar do Cloudinary).',
-                filename: filename,
-                warning: 'Esta rota está obsoleta. Use /api/images/:imageId (DELETE) em vez disso.'
-            });
+            // Deletar registro em cardapio_images (se existir) e tentar deletar do Storage (Firebase)
+            // Para compatibilidade, aceitamos tanto filename (objectPath) quanto URL completa.
+            const firebaseStorage = require('../services/firebaseStorageAdminService');
+            const encodedPath = encodeURIComponent(filename).replace(/%2F/g, '%2F'); // manter compatível
+            
+            // Buscar registro no banco (priorizar match exato)
+            const imgResult = await pool.query(
+                `SELECT id, filename, url FROM cardapio_images 
+                 WHERE filename = $1 OR url = $1
+                 LIMIT 1`,
+                [filename]
+            );
+
+            if (imgResult.rows.length > 0) {
+                const img = imgResult.rows[0];
+
+                // Checar uso por URL e por path (quando aparece URL encoded)
+                const targetUrl = img.url;
+                const encodedObjPath = encodeURIComponent(img.filename || filename);
+
+                const itemsUsingImage = await pool.query(`
+                    SELECT COUNT(*) as count
+                    FROM menu_items
+                    WHERE (
+                        (imageurl = $1) OR
+                        (imageurl LIKE '%' || $2 || '%') OR
+                        (imageurl LIKE '%' || $3 || '%')
+                    )
+                      AND deleted_at IS NULL
+                `, [targetUrl, encodedObjPath, filename]);
+                
+                const itemsCount = parseInt(itemsUsingImage.rows[0].count || 0);
+
+                const barsUsingImage = await pool.query(`
+                    SELECT COUNT(*) as count
+                    FROM bars
+                    WHERE (
+                        (logourl = $1 OR logourl LIKE '%' || $2 || '%' OR logourl LIKE '%' || $3 || '%')
+                        OR (coverimageurl = $1 OR coverimageurl LIKE '%' || $2 || '%' OR coverimageurl LIKE '%' || $3 || '%')
+                        OR (popupimageurl = $1 OR popupimageurl LIKE '%' || $2 || '%' OR popupimageurl LIKE '%' || $3 || '%')
+                    )
+                `, [targetUrl, encodedObjPath, filename]);
+
+                const barsCount = parseInt(barsUsingImage.rows[0].count || 0);
+                const totalUsage2 = itemsCount + barsCount;
+
+                if (totalUsage2 > 0) {
+                    return res.status(400).json({
+                        error: 'Não é possível deletar esta imagem.',
+                        message: `Esta imagem está sendo usada em ${totalUsage2} lugar(es). Remova a imagem dos itens/bares antes de deletá-la.`,
+                        usage: { items: itemsCount, bars: barsCount, total: totalUsage2 }
+                    });
+                }
+
+                await pool.query('DELETE FROM cardapio_images WHERE id = $1', [img.id]);
+                try {
+                    await firebaseStorage.deleteByUrlOrPath(img.filename || img.url);
+                } catch (e) {
+                    console.warn('⚠️ [GALLERY] Falha ao deletar do Firebase Storage:', e.message);
+                }
+
+                return res.json({ success: true, message: 'Imagem deletada com sucesso', filename: img.filename, imageId: img.id });
+            }
+
+            // Se não achou em cardapio_images, ainda podemos deletar do Firebase Storage
+            // se a imagem NÃO estiver sendo usada e se o "filename" for um objectPath válido.
+            const encodedObjPath = encodeURIComponent(filename);
+            const itemsUsingByPath = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM menu_items
+                WHERE (
+                    imageurl LIKE '%' || $1 || '%'
+                    OR imageurl = $2
+                )
+                  AND deleted_at IS NULL
+            `, [encodedObjPath, filename]);
+            const itemsCount2 = parseInt(itemsUsingByPath.rows[0].count || 0);
+
+            const barsUsingByPath = await pool.query(`
+                SELECT COUNT(*) as count
+                FROM bars
+                WHERE (
+                    logourl LIKE '%' || $1 || '%' OR logourl = $2
+                    OR coverimageurl LIKE '%' || $1 || '%' OR coverimageurl = $2
+                    OR popupimageurl LIKE '%' || $1 || '%' OR popupimageurl = $2
+                )
+            `, [encodedObjPath, filename]);
+            const barsCount2 = parseInt(barsUsingByPath.rows[0].count || 0);
+            const totalUsage3 = itemsCount2 + barsCount2;
+
+            if (totalUsage3 > 0) {
+                return res.status(400).json({
+                    error: 'Não é possível deletar esta imagem.',
+                    message: `Esta imagem está sendo usada em ${totalUsage3} lugar(es). Remova a imagem dos itens/bares antes de deletá-la.`,
+                    usage: { items: itemsCount2, bars: barsCount2, total: totalUsage3 }
+                });
+            }
+
+            try {
+                await firebaseStorage.deleteByUrlOrPath(filename);
+                return res.json({
+                    success: true,
+                    message: 'Imagem deletada do Firebase Storage (sem registro em cardapio_images).',
+                    filename
+                });
+            } catch (e) {
+                return res.status(404).json({
+                    error: 'Imagem não encontrada em cardapio_images',
+                    filename,
+                    message: 'A imagem não está registrada na galeria (cardapio_images) e não foi possível deletar do Firebase Storage.',
+                    details: e.message
+                });
+            }
             
         } catch (error) {
             console.error('❌ [GALLERY] Erro ao deletar imagem da galeria:', error);
@@ -151,25 +267,32 @@ module.exports = (pool) => {
             console.log(`📊 [GALLERY] Encontrados ${itemsResult.rows.length} itens com imagens`);
 
             itemsResult.rows.forEach(row => {
-                const filename = extractFilename(row.imageurl);
+                const rawValue = row.imageurl ? String(row.imageurl).trim() : '';
+                const filename = extractFilename(rawValue);
+                const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
+
                 if (filename && filename !== 'null' && filename.trim() !== '') {
                     if (imageMap.has(filename)) {
                         // Atualizar contagem de uso
                         const existing = imageMap.get(filename);
                         existing.usageCount = (existing.usageCount || 0) + parseInt(row.usage_count);
                         existing.firstItemId = row.first_item_id;
+                        // Se já temos uma URL direta (Firebase/Cloudinary), preservar
+                        if (!existing.url && directUrl) {
+                            existing.url = directUrl;
+                        }
                     } else {
-                        // Buscar URL completa na tabela cardapio_images se existir
-                        let cloudinaryUrl = null;
+                        // Buscar URL completa na tabela cardapio_images se existir, ou usar URL direta
+                        let finalUrl = directUrl;
                         const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
-                        if (cardapioImage && cardapioImage.url && cardapioImage.url.startsWith('https://res.cloudinary.com')) {
-                            cloudinaryUrl = cardapioImage.url;
+                        if (!finalUrl && cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) {
+                            finalUrl = cardapioImage.url;
                         }
                         
                         // Adicionar nova imagem
                         imageMap.set(filename, {
                             filename: filename,
-                            url: cloudinaryUrl, // URL completa do Cloudinary se encontrada
+                            url: finalUrl, // URL completa (Firebase/Cloudinary) se encontrada
                             sourceType: row.source_type,
                             imageType: row.image_type,
                             usageCount: parseInt(row.usage_count),
@@ -197,18 +320,20 @@ module.exports = (pool) => {
             console.log(`📊 [GALLERY] Encontrados ${barsResult.rows.length} bares com imagens`);
 
             barsResult.rows.forEach(row => {
-                // Função helper para buscar URL do Cloudinary
+                // Função helper para buscar URL na tabela cardapio_images (Firebase/Cloudinary)
                 const getCloudinaryUrl = (filename) => {
                     if (!filename) return null;
                     const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
-                    return (cardapioImage && cardapioImage.url && cardapioImage.url.startsWith('https://res.cloudinary.com')) 
+                    return (cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) 
                         ? cardapioImage.url 
                         : null;
                 };
                 
                 // Processar logoUrl
                 if (row.logourl && row.logourl !== 'null' && row.logourl.trim() !== '') {
-                    const filename = extractFilename(row.logourl);
+                    const rawValue = String(row.logourl).trim();
+                    const filename = extractFilename(rawValue);
+                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -221,12 +346,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = getCloudinaryUrl(filename);
+                                existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
-                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
+                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_logo',
                                 usageCount: 1,
@@ -238,7 +363,9 @@ module.exports = (pool) => {
                 }
                 // Processar coverImageUrl
                 if (row.coverimageurl && row.coverimageurl !== 'null' && row.coverimageurl.trim() !== '') {
-                    const filename = extractFilename(row.coverimageurl);
+                    const rawValue = String(row.coverimageurl).trim();
+                    const filename = extractFilename(rawValue);
+                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -251,12 +378,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = getCloudinaryUrl(filename);
+                                existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
-                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
+                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_cover',
                                 usageCount: 1,
@@ -268,7 +395,9 @@ module.exports = (pool) => {
                 }
                 // Processar popupImageUrl
                 if (row.popupimageurl && row.popupimageurl !== 'null' && row.popupimageurl.trim() !== '') {
-                    const filename = extractFilename(row.popupimageurl);
+                    const rawValue = String(row.popupimageurl).trim();
+                    const filename = extractFilename(rawValue);
+                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -281,12 +410,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = getCloudinaryUrl(filename);
+                                existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
                             imageMap.set(filename, {
                                 filename: filename,
-                                url: getCloudinaryUrl(filename), // URL completa do Cloudinary se encontrada
+                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
                                 imageType: 'bar_popup',
                                 usageCount: 1,
