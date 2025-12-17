@@ -25,6 +25,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18 <23"
+  },
   "dependencies": {
     "basic-ftp": "^5.0.0",
     "bcrypt": "^6.0.0",
