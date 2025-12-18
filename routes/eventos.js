@@ -36,24 +36,24 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   /**
    * @route   GET /api/v1/eventos
    * @desc    Lista todos os eventos com filtros opcionais
-   * @access  Private (Admin, Gerente, Promoter)
+   * @access  Private (Admin, Gerente, Promoter, Recepção)
    */
   router.get(
     '/',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'recepção'),
     (req, res) => controller.getEventos(req, res)
   );
 
   /**
    * @route   GET /api/v1/eventos/:eventoId
    * @desc    Busca um evento específico com detalhes
-   * @access  Private (Admin, Gerente, Promoter)
+   * @access  Private (Admin, Gerente, Promoter, Recepção)
    */
   router.get(
     '/:eventoId',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'recepção'),
     (req, res) => controller.getEvento(req, res)
   );
 
@@ -144,24 +144,24 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   /**
    * @route   GET /api/v1/eventos/:eventoId/checkins
    * @desc    Retorna check-ins consolidados de um evento (reservas, promoters, camarotes)
-   * @access  Private (Admin, Gerente, Hostess)
+   * @access  Private (Admin, Gerente, Hostess, Promoter, Recepção)
    */
   router.get(
     '/:eventoId/checkins',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'hostess', 'promoter'),
+    authorizeRoles('admin', 'gerente', 'hostess', 'promoter', 'recepção'),
     (req, res) => controller.getCheckinsConsolidados(req, res)
   );
 
   /**
    * @route   PUT /api/v1/checkin/:listaConvidadoId
    * @desc    Atualiza o status de check-in de um convidado
-   * @access  Private (Admin, Gerente, Promoter, Hostess)
+   * @access  Private (Admin, Gerente, Promoter, Hostess, Recepção)
    */
   router.put(
     '/checkin/:listaConvidadoId',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter', 'hostess'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'hostess', 'recepção'),
     (req, res) => controller.updateCheckin(req, res)
   );
 
