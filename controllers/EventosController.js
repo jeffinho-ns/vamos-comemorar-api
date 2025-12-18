@@ -1574,6 +1574,24 @@ class EventosController {
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
             console.log(`📊 Resultados encontrados: ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
             
+            // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
+            for (const gl of guestListsResult) {
+              if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
+                try {
+                  const notesResult = await this.pool.query(
+                    'SELECT notes, admin_notes FROM restaurant_reservations WHERE id = $1 LIMIT 1',
+                    [gl.reservation_id]
+                  );
+                  if (notesResult.rows.length > 0) {
+                    gl.notes = notesResult.rows[0].notes || null;
+                    gl.admin_notes = notesResult.rows[0].admin_notes || null;
+                  }
+                } catch (err) {
+                  console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
+                }
+              }
+            }
+            
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
               const timeA = a.reservation_time || '00:00:00';
@@ -1608,8 +1626,6 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                MAX(rr.notes) as notes,
-                MAX(rr.admin_notes) as admin_notes,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
@@ -1658,6 +1674,24 @@ class EventosController {
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
             console.log(`📊 Resultados encontrados (fallback): ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
+            
+            // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
+            for (const gl of guestListsResult) {
+              if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
+                try {
+                  const notesResult = await this.pool.query(
+                    'SELECT notes, admin_notes FROM restaurant_reservations WHERE id = $1 LIMIT 1',
+                    [gl.reservation_id]
+                  );
+                  if (notesResult.rows.length > 0) {
+                    gl.notes = notesResult.rows[0].notes || null;
+                    gl.admin_notes = notesResult.rows[0].admin_notes || null;
+                  }
+                } catch (err) {
+                  console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
+                }
+              }
+            }
             
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
