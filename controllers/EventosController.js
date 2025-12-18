@@ -1503,7 +1503,7 @@ class EventosController {
             console.log('📝 Tentando buscar guest lists com filtro de evento_id...');
             // Query para listas vinculadas a restaurant_reservations
             const resultRestaurant = await this.pool.query(`
-              SELECT DISTINCT ON (gl.id)
+              SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
                 gl.event_type,
@@ -1523,23 +1523,24 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                rr.notes,
-                rr.admin_notes,
-                (SELECT COUNT(*) FROM guests g2 WHERE g2.guest_list_id = gl.id) as total_guests,
-                (SELECT COUNT(*) FROM guests g3 WHERE g3.guest_list_id = gl.id AND g3.checked_in = TRUE) as guests_checked_in
+                MAX(rr.notes) as notes,
+                MAX(rr.admin_notes) as admin_notes,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
               AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
-              ORDER BY gl.id
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
             const resultLarge = await this.pool.query(`
-              SELECT DISTINCT ON (gl.id)
+              SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
                 gl.event_type,
@@ -1559,15 +1560,16 @@ class EventosController {
                 lr.check_in_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 NULL as area_name,
-                (SELECT COUNT(*) FROM guests g2 WHERE g2.guest_list_id = gl.id) as total_guests,
-                (SELECT COUNT(*) FROM guests g3 WHERE g3.guest_list_id = gl.id AND g3.checked_in = TRUE) as guests_checked_in
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
               LEFT JOIN users u ON lr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
               AND (lr.evento_id = $3 OR lr.evento_id IS NULL)
-              ORDER BY gl.id
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             
             // Combinar resultados
@@ -1588,7 +1590,7 @@ class EventosController {
             
             // Query para restaurant_reservations (sem filtro de evento_id)
             const resultRestaurant = await this.pool.query(`
-              SELECT DISTINCT ON (gl.id)
+              SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
                 gl.event_type,
@@ -1608,22 +1610,23 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                rr.notes,
-                rr.admin_notes,
-                (SELECT COUNT(*) FROM guests g2 WHERE g2.guest_list_id = gl.id) as total_guests,
-                (SELECT COUNT(*) FROM guests g3 WHERE g3.guest_list_id = gl.id AND g3.checked_in = TRUE) as guests_checked_in
+                MAX(rr.notes) as notes,
+                MAX(rr.admin_notes) as admin_notes,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               LEFT JOIN users u ON rr.created_by = u.id
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              ORDER BY gl.id
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para large_reservations (sem filtro de evento_id)
             const resultLarge = await this.pool.query(`
-              SELECT DISTINCT ON (gl.id)
+              SELECT 
                 gl.id as guest_list_id,
                 gl.reservation_type,
                 gl.event_type,
@@ -1643,14 +1646,15 @@ class EventosController {
                 lr.check_in_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 NULL as area_name,
-                (SELECT COUNT(*) FROM guests g2 WHERE g2.guest_list_id = gl.id) as total_guests,
-                (SELECT COUNT(*) FROM guests g3 WHERE g3.guest_list_id = gl.id AND g3.checked_in = TRUE) as guests_checked_in
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
               INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
               LEFT JOIN users u ON lr.created_by = u.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              ORDER BY gl.id
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Combinar resultados
