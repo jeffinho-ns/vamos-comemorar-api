@@ -271,31 +271,115 @@ module.exports = (pool) => {
       }
 
       // Validação: se table_number foi informado, verificar conflito no dia inteiro
+      // Suporta múltiplas mesas separadas por vírgula (ex: "1, 2" ou "1,2")
       if (table_number && area_id && reservation_date) {
-        const conflictsResult = await pool.query(
-          `SELECT id FROM restaurant_reservations
-           WHERE reservation_date = $1 AND area_id = $2 AND table_number = $3
-           AND status NOT IN ('CANCELADA')
-           LIMIT 1`,
-          [reservation_date, area_id, String(table_number)]
-        );
-        if (conflictsResult.rows.length > 0) {
-          return res.status(400).json({
-            success: false,
-            error: 'Mesa já reservada para este dia'
-          });
+        const tableNumberStr = String(table_number).trim();
+        const hasMultipleTables = tableNumberStr.includes(',');
+        
+        if (hasMultipleTables) {
+          // Múltiplas mesas: validar cada uma individualmente
+          const tableNumbers = tableNumberStr.split(',').map(t => t.trim()).filter(t => t);
+          
+          // Verificar conflitos para cada mesa
+          // Buscar todas as reservas do dia na mesma área e verificar se alguma mesa se sobrepõe
+          const allReservationsResult = await pool.query(
+            `SELECT id, table_number FROM restaurant_reservations
+             WHERE reservation_date = $1 AND area_id = $2 
+             AND status NOT IN ('CANCELADA')`,
+            [reservation_date, area_id]
+          );
+          
+          // Verificar se alguma mesa que queremos reservar já está reservada
+          for (const singleTableNumber of tableNumbers) {
+            for (const existingReservation of allReservationsResult.rows) {
+              const existingTableNumber = String(existingReservation.table_number || '').trim();
+              
+              // Verificar se a mesa está na reserva existente (pode ser única ou múltipla)
+              if (existingTableNumber === singleTableNumber) {
+                // Mesa única que coincide exatamente
+                return res.status(400).json({
+                  success: false,
+                  error: `Mesa ${singleTableNumber} já está reservada para este dia`
+                });
+              }
+              
+              // Se a reserva existente tem múltiplas mesas, verificar se nossa mesa está na lista
+              if (existingTableNumber.includes(',')) {
+                const existingTables = existingTableNumber.split(',').map(t => t.trim());
+                if (existingTables.includes(singleTableNumber)) {
+                  return res.status(400).json({
+                    success: false,
+                    error: `Mesa ${singleTableNumber} já está reservada para este dia`
+                  });
+                }
+              }
+            }
+          }
+        } else {
+          // Mesa única: verificar conflitos (incluindo se está em reservas com múltiplas mesas)
+          const allReservationsResult = await pool.query(
+            `SELECT id, table_number FROM restaurant_reservations
+             WHERE reservation_date = $1 AND area_id = $2 
+             AND status NOT IN ('CANCELADA')`,
+            [reservation_date, area_id]
+          );
+          
+          for (const existingReservation of allReservationsResult.rows) {
+            const existingTableNumber = String(existingReservation.table_number || '').trim();
+            
+            // Verificar se a mesa coincide exatamente
+            if (existingTableNumber === tableNumberStr) {
+              return res.status(400).json({
+                success: false,
+                error: 'Mesa já reservada para este dia'
+              });
+            }
+            
+            // Se a reserva existente tem múltiplas mesas, verificar se nossa mesa está na lista
+            if (existingTableNumber.includes(',')) {
+              const existingTables = existingTableNumber.split(',').map(t => t.trim());
+              if (existingTables.includes(tableNumberStr)) {
+                return res.status(400).json({
+                  success: false,
+                  error: 'Mesa já reservada para este dia'
+                });
+              }
+            }
+          }
         }
       }
 
-      // Validação: se table_number foi informado, conferir se a mesa existe e pertence à área
+      // Validação: se table_number foi informado, conferir se a(s) mesa(s) existe(m) e pertence(m) à área
       if (table_number && area_id) {
         try {
-          const tableRowResult = await pool.query(
-            `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
-            [area_id, String(table_number)]
-          );
-          if (tableRowResult.rows.length === 0) {
-            return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
+          const tableNumberStr = String(table_number).trim();
+          const hasMultipleTables = tableNumberStr.includes(',');
+          
+          if (hasMultipleTables) {
+            // Múltiplas mesas: validar cada uma individualmente
+            const tableNumbers = tableNumberStr.split(',').map(t => t.trim()).filter(t => t);
+            
+            for (const singleTableNumber of tableNumbers) {
+              const tableRowResult = await pool.query(
+                `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
+                [area_id, singleTableNumber]
+              );
+              if (tableRowResult.rows.length === 0) {
+                return res.status(400).json({ 
+                  success: false, 
+                  error: `Mesa ${singleTableNumber} inválida para a área selecionada` 
+                });
+              }
+            }
+          } else {
+            // Mesa única: validação original
+            const tableRowResult = await pool.query(
+              `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
+              [area_id, tableNumberStr]
+            );
+            if (tableRowResult.rows.length === 0) {
+              return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
+            }
           }
         } catch (e) {
           // Se a tabela de mesas não existir ainda, segue sem impedir criação
