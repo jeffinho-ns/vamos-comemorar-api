@@ -350,10 +350,13 @@ module.exports = (pool) => {
       }
 
       // Validação: se table_number foi informado, conferir se a(s) mesa(s) existe(m) e pertence(m) à área
+      // NOTA: Para reservas criadas por admin (origin = 'PESSOAL'), permitir mesas virtuais
+      // (mesas que não existem na tabela restaurant_tables mas são válidas para Seu Justino/Highline)
       if (table_number && area_id) {
         try {
           const tableNumberStr = String(table_number).trim();
           const hasMultipleTables = tableNumberStr.includes(',');
+          const isAdminReservation = origin === 'PESSOAL'; // Admin cria com origin 'PESSOAL'
           
           if (hasMultipleTables) {
             // Múltiplas mesas: validar cada uma individualmente
@@ -364,11 +367,18 @@ module.exports = (pool) => {
                 `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
                 [area_id, singleTableNumber]
               );
-              if (tableRowResult.rows.length === 0) {
+              
+              // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
+              if (tableRowResult.rows.length === 0 && !isAdminReservation) {
                 return res.status(400).json({ 
                   success: false, 
                   error: `Mesa ${singleTableNumber} inválida para a área selecionada` 
                 });
+              }
+              
+              // Se é admin, apenas logar que está usando mesa virtual
+              if (tableRowResult.rows.length === 0 && isAdminReservation) {
+                console.log(`ℹ️ Admin usando mesa virtual: ${singleTableNumber} na área ${area_id}`);
               }
             }
           } else {
@@ -377,8 +387,15 @@ module.exports = (pool) => {
               `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
               [area_id, tableNumberStr]
             );
-            if (tableRowResult.rows.length === 0) {
+            
+            // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
+            if (tableRowResult.rows.length === 0 && !isAdminReservation) {
               return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
+            }
+            
+            // Se é admin, apenas logar que está usando mesa virtual
+            if (tableRowResult.rows.length === 0 && isAdminReservation) {
+              console.log(`ℹ️ Admin usando mesa virtual: ${tableNumberStr} na área ${area_id}`);
             }
           }
         } catch (e) {
