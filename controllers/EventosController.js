@@ -1523,8 +1523,6 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                MAX(rr.notes) as notes,
-                MAX(rr.admin_notes) as admin_notes,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
