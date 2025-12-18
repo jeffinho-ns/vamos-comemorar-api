@@ -1523,8 +1523,8 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                MAX(rr.notes) as notes,
-                MAX(rr.admin_notes) as admin_notes,
+                rr.notes,
+                rr.admin_notes,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
@@ -1535,7 +1535,7 @@ class EventosController {
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
               AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name, rr.notes, rr.admin_notes
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
@@ -1610,8 +1610,8 @@ class EventosController {
                 rr.checkin_time as reservation_checkin_time,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
-                MAX(rr.notes) as notes,
-                MAX(rr.admin_notes) as admin_notes,
+                rr.notes,
+                rr.admin_notes,
                 COUNT(DISTINCT g.id) as total_guests,
                 SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
               FROM guest_lists gl
@@ -1621,7 +1621,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name, rr.notes, rr.admin_notes
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para large_reservations (sem filtro de evento_id)
