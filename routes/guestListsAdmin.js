@@ -522,6 +522,73 @@ module.exports = (pool, checkAndAwardGifts = null) => {
   });
 
   /**
+   * @route   DELETE /api/admin/guest-lists/by-owner/:ownerName
+   * @desc    Exclui lista(s) de convidados pelo nome do dono
+   * @access  Private (Administrador)
+   */
+  router.delete('/guest-lists/by-owner/:ownerName', optionalAuth, async (req, res) => {
+    try {
+      const { ownerName } = req.params;
+      const decodedOwnerName = decodeURIComponent(ownerName);
+      
+      console.log(`🔍 Buscando listas do dono: ${decodedOwnerName}`);
+      
+      // Buscar todas as listas desse dono
+      const searchResult = await pool.query(`
+        SELECT 
+          gl.id as guest_list_id,
+          gl.reservation_id,
+          gl.reservation_type,
+          COALESCE(lr.client_name, rr.client_name) as owner_name
+        FROM guest_lists gl
+        LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+        LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+        WHERE 
+          LOWER(COALESCE(lr.client_name, rr.client_name)) LIKE LOWER($1)
+      `, [`%${decodedOwnerName}%`]);
+      
+      if (searchResult.rows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: `Nenhuma lista encontrada para "${decodedOwnerName}"` 
+        });
+      }
+      
+      const guestListIds = searchResult.rows.map(row => row.guest_list_id);
+      let totalGuestsDeleted = 0;
+      
+      // Excluir todos os convidados das listas
+      for (const id of guestListIds) {
+        const deleteGuestsResult = await pool.query(
+          'DELETE FROM guests WHERE guest_list_id = $1',
+          [id]
+        );
+        totalGuestsDeleted += deleteGuestsResult.rowCount;
+      }
+      
+      // Excluir as listas
+      for (const id of guestListIds) {
+        await pool.query('DELETE FROM guest_lists WHERE id = $1', [id]);
+      }
+      
+      console.log(`✅ ${guestListIds.length} lista(s) e ${totalGuestsDeleted} convidado(s) excluídos para "${decodedOwnerName}"`);
+      
+      res.json({ 
+        success: true, 
+        message: `${guestListIds.length} lista(s) e ${totalGuestsDeleted} convidado(s) excluídos com sucesso`,
+        deletedLists: guestListIds.length,
+        deletedGuests: totalGuestsDeleted
+      });
+    } catch (error) {
+      console.error('❌ Erro ao excluir lista por nome do dono:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Erro interno do servidor' 
+      });
+    }
+  });
+
+  /**
    * @route   DELETE /api/admin/guest-lists/:id
    * @desc    Exclui uma lista de convidados (apenas para usuários autorizados)
    * @access  Private (Administrador específico)
