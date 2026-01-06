@@ -57,6 +57,38 @@ class NotificationService {
   }
 
   /**
+   * Obtém a URL da imagem do header do e-mail baseado no estabelecimento
+   * @param {string} establishmentName - Nome do estabelecimento
+   * @returns {string} URL da imagem do header
+   */
+  getEmailHeaderImage(establishmentName) {
+    if (!establishmentName) {
+      // Fallback para Highline se não houver nome
+      return 'https://grupoideiaum.com.br/emails/highline/header.png';
+    }
+    
+    const nameLower = establishmentName.toLowerCase();
+    
+    // Verificar Pracinha primeiro (para não confundir com Seu Justino)
+    if (nameLower.includes('pracinha')) {
+      return 'https://grupoideiaum.com.br/emails/pracinha/header-pracinha.png';
+    }
+    
+    // Verificar Seu Justino (mas não Pracinha)
+    if (nameLower.includes('seu justino') && !nameLower.includes('pracinha')) {
+      return 'https://grupoideiaum.com.br/emails/justino/header-justino.png';
+    }
+    
+    // Verificar Highline
+    if (nameLower.includes('high')) {
+      return 'https://grupoideiaum.com.br/emails/highline/header.png';
+    }
+    
+    // Fallback para Highline
+    return 'https://grupoideiaum.com.br/emails/highline/header.png';
+  }
+
+  /**
    * Obtém o nome correto da subárea do High Line baseado no número da mesa
    * @param {string|number} tableNumber - Número da mesa
    * @param {string} defaultAreaName - Nome da área padrão do banco
@@ -136,6 +168,9 @@ class NotificationService {
     // Verifica se é High Line e obtém o nome correto da subárea baseado na mesa
     const isHighLine = establishment_name && establishment_name.toLowerCase().includes('high');
     const displayAreaName = isHighLine ? this.getHighlineSubareaName(table_number, area_name) : area_name;
+    
+    // Obtém a URL da imagem do header baseado no estabelecimento
+    const headerImageUrl = this.getEmailHeaderImage(establishment_name);
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -145,7 +180,7 @@ class NotificationService {
         html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #333; text-align: center;">
 
-          <img src="https://grupoideiaum.com.br/emails/highline/header.png" alt="High Line" style="width: 100%; max-width: 600px; height: auto;">
+          <img src="${headerImageUrl}" alt="${establishment_name}" style="width: 100%; max-width: 600px; height: auto;">
 
           <div style="padding: 20px;">
             <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✨ Obrigado pela sua reserva${client_name ? ', ' + client_name : ''}! ✨</h1>
@@ -438,6 +473,9 @@ class NotificationService {
     // Verifica se é High Line e obtém o nome correto da subárea baseado na mesa
     const isHighLine = establishment_name && establishment_name.toLowerCase().includes('high');
     const displayAreaName = isHighLine ? this.getHighlineSubareaName(table_number, area_name) : area_name;
+    
+    // Obtém a URL da imagem do header baseado no estabelecimento
+    const headerImageUrl = this.getEmailHeaderImage(establishment_name);
 
     try {
       const { data, error } = await this.resend.emails.send({
@@ -447,7 +485,7 @@ class NotificationService {
         html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #333; text-align: center;">
 
-          <img src="https://grupoideiaum.com.br/emails/highline/header.png" alt="High Line" style="width: 100%; max-width: 600px; height: auto;">
+          <img src="${headerImageUrl}" alt="${establishment_name}" style="width: 100%; max-width: 600px; height: auto;">
 
           <div style="padding: 20px;">
             <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">✅ Sua Reserva Foi Confirmada! ✅</h1>
