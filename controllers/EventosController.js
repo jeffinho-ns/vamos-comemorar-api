@@ -1204,6 +1204,7 @@ class EventosController {
       console.log('🔍 Buscando check-ins consolidados para evento:', eventoId);
       
       // 1. Buscar informações do evento
+      // Se id_place estiver NULL, tenta buscar baseado no casa_do_evento
       const eventoResult = await this.pool.query(`
         SELECT 
           e.id as evento_id,
@@ -1211,13 +1212,39 @@ class EventosController {
           TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario,
           e.tipo_evento,
-          e.id_place as establishment_id,
-          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
+          e.casa_do_evento,
+          COALESCE(
+            e.id_place,
+            (SELECT p.id FROM places p WHERE REPLACE(LOWER(p.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
+            (SELECT b.id FROM bars b WHERE REPLACE(LOWER(b.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
+            CASE 
+              WHEN e.casa_do_evento LIKE '%High%Line%' OR e.casa_do_evento LIKE '%Highline%' THEN 7
+              ELSE NULL
+            END
+          ) as establishment_id,
+          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT), 
+            (SELECT p.name FROM places p WHERE REPLACE(LOWER(p.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
+            (SELECT b2.name FROM bars b2 WHERE REPLACE(LOWER(b2.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1)
+          ) as establishment_name
         FROM eventos e
         LEFT JOIN places pl ON e.id_place = pl.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.id = $1
       `, [eventoId]);
+      
+      // Se encontrou establishment_id mas o evento não tinha, atualizar no banco
+      if (eventoResult.rows.length > 0 && eventoResult.rows[0].establishment_id && !eventoResult.rows[0].id_place) {
+        try {
+          await this.pool.query(`
+            UPDATE eventos 
+            SET id_place = $1 
+            WHERE id = $2 AND id_place IS NULL
+          `, [eventoResult.rows[0].establishment_id, eventoId]);
+          console.log(`✅ Atualizado id_place do evento ${eventoId} para ${eventoResult.rows[0].establishment_id}`);
+        } catch (updateErr) {
+          console.warn(`⚠️ Erro ao atualizar id_place do evento ${eventoId}:`, updateErr.message);
+        }
+      }
       
       if (eventoResult.rows.length === 0) {
         return res.status(404).json({
