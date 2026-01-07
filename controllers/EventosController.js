@@ -1307,21 +1307,32 @@ class EventosController {
       // Atualizar eventoInfo com establishment_id
       eventoInfo.establishment_id = establishment_id;
       
-      if (eventoResult.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Evento não encontrado'
-        });
-      }
-      
-      const eventoInfo = eventoResult.rows[0];
-      console.log('📋 Evento Info:', {
+      console.log('📋 Evento Info (FINAL):', {
         evento_id: eventoInfo.evento_id,
         nome: eventoInfo.nome,
         data_evento: eventoInfo.data_evento,
         establishment_id: eventoInfo.establishment_id,
-        establishment_name: eventoInfo.establishment_name
+        establishment_name: eventoInfo.establishment_name,
+        casa_do_evento: eventoInfo.casa_do_evento
       });
+      
+      // Se ainda não tem establishment_id, tentar uma última vez com busca direta
+      if (!eventoInfo.establishment_id) {
+        console.warn(`⚠️ ATENÇÃO: Evento ${eventoId} ainda não tem establishment_id após todas as tentativas!`);
+        console.warn(`⚠️ casa_do_evento: "${eventoInfo.casa_do_evento}"`);
+        
+        // Última tentativa: buscar diretamente por "Highline"
+        if (eventoInfo.casa_do_evento && eventoInfo.casa_do_evento.toLowerCase().includes('highline')) {
+          console.log(`🔧 Última tentativa: forçando id_place = 7 para Highline`);
+          try {
+            await this.pool.query(`UPDATE eventos SET id_place = 7 WHERE id = $1`, [eventoId]);
+            eventoInfo.establishment_id = 7;
+            console.log(`✅ Forçado id_place = 7 para evento ${eventoId}`);
+          } catch (err) {
+            console.error(`❌ Erro ao forçar id_place:`, err.message);
+          }
+        }
+      }
       
       // Vincular automaticamente reservas de restaurante a este evento
       // quando têm o mesmo establishment_id e data_evento
