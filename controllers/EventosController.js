@@ -1239,7 +1239,20 @@ class EventosController {
       // quando têm o mesmo establishment_id e data_evento
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
-          console.log('🔗 Vinculando reservas automaticamente ao evento:', eventoId);
+          console.log('🔗 Vinculando reservas automaticamente ao evento:', {
+            evento_id: eventoId,
+            establishment_id: eventoInfo.establishment_id,
+            data_evento: eventoInfo.data_evento
+          });
+          
+          // Verificar quantas reservas existem antes da vinculação
+          const checkBeforeRestaurant = await this.pool.query(`
+            SELECT COUNT(*) as total FROM restaurant_reservations 
+            WHERE establishment_id = $1 
+            AND reservation_date::DATE = $2::DATE
+            AND evento_id IS NULL
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          console.log(`📊 Reservas de restaurante sem evento_id antes da vinculação: ${checkBeforeRestaurant.rows[0].total}`);
           
           // Vincular restaurant_reservations
           const updateResultRestaurant = await this.pool.query(`
@@ -1250,6 +1263,15 @@ class EventosController {
             AND evento_id IS NULL
           `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
           console.log(`✅ ${updateResultRestaurant.rowCount} reservas de restaurante vinculadas automaticamente`);
+          
+          // Verificar quantas reservas grandes existem antes da vinculação
+          const checkBeforeLarge = await this.pool.query(`
+            SELECT COUNT(*) as total FROM large_reservations 
+            WHERE establishment_id = $1 
+            AND reservation_date::DATE = $2::DATE
+            AND evento_id IS NULL
+          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          console.log(`📊 Reservas grandes sem evento_id antes da vinculação: ${checkBeforeLarge.rows[0].total}`);
           
           // Vincular large_reservations (listas criadas sem reserva de restaurante)
           const updateResultLarge = await this.pool.query(`
@@ -1503,6 +1525,12 @@ class EventosController {
           try {
             console.log('📝 Tentando buscar guest lists com filtro de evento_id...');
             // Query para listas vinculadas a restaurant_reservations
+            // Busca apenas reservas vinculadas ao evento (a vinculação automática já foi feita acima)
+            console.log('🔍 Buscando guest lists de restaurant_reservations:', {
+              establishment_id: eventoInfo.establishment_id,
+              data_evento: eventoInfo.data_evento,
+              evento_id: eventoId
+            });
             const resultRestaurant = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
@@ -1533,11 +1561,18 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
+              AND rr.evento_id = $3
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
+            // Busca apenas reservas vinculadas ao evento (a vinculação automática já foi feita acima)
+            console.log('🔍 Buscando guest lists de large_reservations:', {
+              establishment_id: eventoInfo.establishment_id,
+              data_evento: eventoInfo.data_evento,
+              evento_id: eventoId
+            });
             const resultLarge = await this.pool.query(`
               SELECT 
                 gl.id as guest_list_id,
@@ -1567,9 +1602,10 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              AND (lr.evento_id = $3 OR lr.evento_id IS NULL)
+              AND lr.evento_id = $3
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log(`✅ Encontradas ${resultLarge.rows.length} guest lists de large_reservations`);
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
