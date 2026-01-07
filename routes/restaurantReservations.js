@@ -317,47 +317,69 @@ module.exports = (pool) => {
         });
       }
 
-      // Validação: se table_number foi informado, verificar conflito no dia inteiro
+      // Validação: se table_number foi informado, verificar conflito considerando horário
+      // Para reservas de admin (origin = 'PESSOAL'), permitir criar mesmo com conflito (apenas avisar)
       // Suporta múltiplas mesas separadas por vírgula (ex: "1, 2" ou "1,2")
+      const isAdminReservation = origin === 'PESSOAL';
+      
       if (table_number && areaIdNumber && reservation_date) {
         const tableNumberStr = String(table_number).trim();
         const hasMultipleTables = tableNumberStr.includes(',');
+        
+        // Função auxiliar para verificar sobreposição de horários
+        const hasTimeOverlap = (time1, time2) => {
+          // Considera que uma reserva dura aproximadamente 2 horas
+          // Se os horários estão dentro de 2 horas um do outro, há sobreposição
+          const [h1, m1] = time1.split(':').map(Number);
+          const [h2, m2] = time2.split(':').map(Number);
+          const minutes1 = h1 * 60 + (m1 || 0);
+          const minutes2 = h2 * 60 + (m2 || 0);
+          const diff = Math.abs(minutes1 - minutes2);
+          return diff < 120; // 2 horas em minutos
+        };
         
         if (hasMultipleTables) {
           // Múltiplas mesas: validar cada uma individualmente
           const tableNumbers = tableNumberStr.split(',').map(t => t.trim()).filter(t => t);
           
-          // Verificar conflitos para cada mesa
-          // Buscar todas as reservas do dia na mesma área e verificar se alguma mesa se sobrepõe
+          // Buscar todas as reservas do dia na mesma área com horário
           const allReservationsResult = await pool.query(
-            `SELECT id, table_number FROM restaurant_reservations
+            `SELECT id, table_number, reservation_time FROM restaurant_reservations
              WHERE reservation_date = $1 AND area_id = $2 
              AND status NOT IN ('CANCELADA')`,
             [reservation_date, areaIdNumber]
           );
           
-          // Verificar se alguma mesa que queremos reservar já está reservada
+          // Verificar se alguma mesa que queremos reservar já está reservada no mesmo horário
           for (const singleTableNumber of tableNumbers) {
             for (const existingReservation of allReservationsResult.rows) {
               const existingTableNumber = String(existingReservation.table_number || '').trim();
+              const existingTime = existingReservation.reservation_time;
               
               // Verificar se a mesa está na reserva existente (pode ser única ou múltipla)
+              let tableMatches = false;
               if (existingTableNumber === singleTableNumber) {
-                // Mesa única que coincide exatamente
-                return res.status(400).json({
-                  success: false,
-                  error: `Mesa ${singleTableNumber} já está reservada para este dia`
-                });
-              }
-              
-              // Se a reserva existente tem múltiplas mesas, verificar se nossa mesa está na lista
-              if (existingTableNumber.includes(',')) {
+                tableMatches = true;
+              } else if (existingTableNumber.includes(',')) {
                 const existingTables = existingTableNumber.split(',').map(t => t.trim());
                 if (existingTables.includes(singleTableNumber)) {
-                  return res.status(400).json({
-                    success: false,
-                    error: `Mesa ${singleTableNumber} já está reservada para este dia`
-                  });
+                  tableMatches = true;
+                }
+              }
+              
+              // Se a mesa coincide, verificar sobreposição de horário
+              if (tableMatches) {
+                if (hasTimeOverlap(reservation_time, existingTime)) {
+                  if (isAdminReservation) {
+                    // Para admin, apenas avisar mas permitir criar
+                    console.log(`⚠️ Aviso: Mesa ${singleTableNumber} já tem reserva no horário ${existingTime}, mas permitindo criação (admin)`);
+                  } else {
+                    // Para clientes, bloquear
+                    return res.status(400).json({
+                      success: false,
+                      error: `Mesa ${singleTableNumber} já está reservada para este horário (${existingTime})`
+                    });
+                  }
                 }
               }
             }
@@ -365,7 +387,7 @@ module.exports = (pool) => {
         } else {
           // Mesa única: verificar conflitos (incluindo se está em reservas com múltiplas mesas)
           const allReservationsResult = await pool.query(
-            `SELECT id, table_number FROM restaurant_reservations
+            `SELECT id, table_number, reservation_time FROM restaurant_reservations
              WHERE reservation_date = $1 AND area_id = $2 
              AND status NOT IN ('CANCELADA')`,
             [reservation_date, areaIdNumber]
@@ -373,23 +395,32 @@ module.exports = (pool) => {
           
           for (const existingReservation of allReservationsResult.rows) {
             const existingTableNumber = String(existingReservation.table_number || '').trim();
+            const existingTime = existingReservation.reservation_time;
             
-            // Verificar se a mesa coincide exatamente
+            // Verificar se a mesa coincide
+            let tableMatches = false;
             if (existingTableNumber === tableNumberStr) {
-              return res.status(400).json({
-                success: false,
-                error: 'Mesa já reservada para este dia'
-              });
-            }
-            
-            // Se a reserva existente tem múltiplas mesas, verificar se nossa mesa está na lista
-            if (existingTableNumber.includes(',')) {
+              tableMatches = true;
+            } else if (existingTableNumber.includes(',')) {
               const existingTables = existingTableNumber.split(',').map(t => t.trim());
               if (existingTables.includes(tableNumberStr)) {
-                return res.status(400).json({
-                  success: false,
-                  error: 'Mesa já reservada para este dia'
-                });
+                tableMatches = true;
+              }
+            }
+            
+            // Se a mesa coincide, verificar sobreposição de horário
+            if (tableMatches) {
+              if (hasTimeOverlap(reservation_time, existingTime)) {
+                if (isAdminReservation) {
+                  // Para admin, apenas avisar mas permitir criar
+                  console.log(`⚠️ Aviso: Mesa ${tableNumberStr} já tem reserva no horário ${existingTime}, mas permitindo criação (admin)`);
+                } else {
+                  // Para clientes, bloquear
+                  return res.status(400).json({
+                    success: false,
+                    error: `Mesa já está reservada para este horário (${existingTime})`
+                  });
+                }
               }
             }
           }
