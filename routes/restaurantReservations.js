@@ -255,24 +255,71 @@ module.exports = (pool) => {
       } = req.body;
 
       // Validações básicas
-      if (!client_name || !reservation_date || !reservation_time || !area_id) {
+      if (!client_name || !client_name.trim()) {
         return res.status(400).json({
           success: false,
-          error: 'Campos obrigatórios: client_name, reservation_date, reservation_time, area_id'
+          error: 'Campo obrigatório: client_name'
+        });
+      }
+      
+      if (!reservation_date) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: reservation_date'
+        });
+      }
+      
+      if (!reservation_time) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: reservation_time'
+        });
+      }
+      
+      // Validação do area_id - deve ser um número válido
+      if (!area_id || area_id === '' || area_id === '0') {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: area_id (deve ser um número válido)'
+        });
+      }
+      
+      const areaIdNumber = Number(area_id);
+      if (isNaN(areaIdNumber) || areaIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `area_id inválido: ${area_id}. Deve ser um número maior que 0.`
         });
       }
 
       // Validação do establishment_id para evitar inserção nula
-      if (establishment_id === null || establishment_id === undefined) {
+      if (establishment_id === null || establishment_id === undefined || establishment_id === '' || establishment_id === '0') {
         return res.status(400).json({
           success: false,
           error: 'establishment_id é obrigatório para criar a reserva.'
         });
       }
+      
+      const establishmentIdNumber = Number(establishment_id);
+      if (isNaN(establishmentIdNumber) || establishmentIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `establishment_id inválido: ${establishment_id}. Deve ser um número maior que 0.`
+        });
+      }
+      
+      // Garantir que number_of_people seja um número válido
+      const numberOfPeople = Number(number_of_people);
+      if (isNaN(numberOfPeople) || numberOfPeople < 1) {
+        return res.status(400).json({
+          success: false,
+          error: `number_of_people inválido: ${number_of_people}. Deve ser um número maior ou igual a 1.`
+        });
+      }
 
       // Validação: se table_number foi informado, verificar conflito no dia inteiro
       // Suporta múltiplas mesas separadas por vírgula (ex: "1, 2" ou "1,2")
-      if (table_number && area_id && reservation_date) {
+      if (table_number && areaIdNumber && reservation_date) {
         const tableNumberStr = String(table_number).trim();
         const hasMultipleTables = tableNumberStr.includes(',');
         
@@ -286,7 +333,7 @@ module.exports = (pool) => {
             `SELECT id, table_number FROM restaurant_reservations
              WHERE reservation_date = $1 AND area_id = $2 
              AND status NOT IN ('CANCELADA')`,
-            [reservation_date, area_id]
+            [reservation_date, areaIdNumber]
           );
           
           // Verificar se alguma mesa que queremos reservar já está reservada
@@ -321,7 +368,7 @@ module.exports = (pool) => {
             `SELECT id, table_number FROM restaurant_reservations
              WHERE reservation_date = $1 AND area_id = $2 
              AND status NOT IN ('CANCELADA')`,
-            [reservation_date, area_id]
+            [reservation_date, areaIdNumber]
           );
           
           for (const existingReservation of allReservationsResult.rows) {
@@ -352,7 +399,7 @@ module.exports = (pool) => {
       // Validação: se table_number foi informado, conferir se a(s) mesa(s) existe(m) e pertence(m) à área
       // NOTA: Para reservas criadas por admin (origin = 'PESSOAL'), permitir mesas virtuais
       // (mesas que não existem na tabela restaurant_tables mas são válidas para Seu Justino/Highline)
-      if (table_number && area_id) {
+      if (table_number && areaIdNumber) {
         try {
           const tableNumberStr = String(table_number).trim();
           const hasMultipleTables = tableNumberStr.includes(',');
@@ -365,7 +412,7 @@ module.exports = (pool) => {
             for (const singleTableNumber of tableNumbers) {
               const tableRowResult = await pool.query(
                 `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
-                [area_id, singleTableNumber]
+                [areaIdNumber, singleTableNumber]
               );
               
               // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
@@ -378,14 +425,14 @@ module.exports = (pool) => {
               
               // Se é admin, apenas logar que está usando mesa virtual
               if (tableRowResult.rows.length === 0 && isAdminReservation) {
-                console.log(`ℹ️ Admin usando mesa virtual: ${singleTableNumber} na área ${area_id}`);
+                console.log(`ℹ️ Admin usando mesa virtual: ${singleTableNumber} na área ${areaIdNumber}`);
               }
             }
           } else {
             // Mesa única: validação original
             const tableRowResult = await pool.query(
               `SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE LIMIT 1`,
-              [area_id, tableNumberStr]
+              [areaIdNumber, tableNumberStr]
             );
             
             // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
@@ -395,7 +442,7 @@ module.exports = (pool) => {
             
             // Se é admin, apenas logar que está usando mesa virtual
             if (tableRowResult.rows.length === 0 && isAdminReservation) {
-              console.log(`ℹ️ Admin usando mesa virtual: ${tableNumberStr} na área ${area_id}`);
+              console.log(`ℹ️ Admin usando mesa virtual: ${tableNumberStr} na área ${areaIdNumber}`);
             }
           }
         } catch (e) {
@@ -413,7 +460,7 @@ module.exports = (pool) => {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
       `;
 
-      // Garantir que todos os parâmetros sejam válidos
+      // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
       const insertParams = [
         client_name || null,
         client_phone || null,
@@ -421,14 +468,14 @@ module.exports = (pool) => {
         data_nascimento_cliente || null,
         reservation_date || null,
         reservation_time || null,
-        number_of_people || null,
-        area_id || null,
+        numberOfPeople, // Usar variável convertida
+        areaIdNumber, // Usar variável convertida
         table_number || null,
         status || 'NOVA',
         origin || 'PESSOAL',
         notes || null,
         created_by || null,
-        establishment_id,
+        establishmentIdNumber, // Usar variável convertida
         evento_id || null
       ];
 
@@ -506,12 +553,12 @@ module.exports = (pool) => {
               actionDescription: `Criou reserva para ${client_name} - ${reservation_date} às ${reservation_time}`,
               resourceType: 'restaurant_reservation',
               resourceId: reservationId,
-              establishmentId: establishment_id,
+              establishmentId: establishmentIdNumber,
               establishmentName: newReservationResult.rows[0].establishment_name,
               status: 'success',
               additionalData: {
                 client_name,
-                number_of_people,
+                number_of_people: numberOfPeople,
                 area_name: newReservationResult.rows[0].area_name,
                 table_number
               }
@@ -531,8 +578,8 @@ module.exports = (pool) => {
       const reservationDateObj = new Date(reservation_date + 'T00:00:00');
       const dayOfWeek = reservationDateObj.getDay(); // Domingo = 0, Sexta = 5, Sábado = 6
       const isWeekend = dayOfWeek === 5 || dayOfWeek === 6; // Sexta ou Sábado
-      const isHighLine = establishment_id === 1;
-      const isLargeGroup = number_of_people >= 4;
+      const isHighLine = establishmentIdNumber === 1;
+      const isLargeGroup = numberOfPeople >= 4;
       const isBirthdayReservation = isWeekend && isHighLine;
       
       if (isLargeGroup || isBirthdayReservation) {
