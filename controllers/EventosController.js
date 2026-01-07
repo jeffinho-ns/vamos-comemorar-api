@@ -1536,6 +1536,33 @@ class EventosController {
           
           try {
             console.log('📝 Tentando buscar guest lists com filtro de evento_id...');
+            
+            // DEBUG: Verificar quantas reservas foram vinculadas ao evento
+            const debugReservations = await this.pool.query(`
+              SELECT 
+                COUNT(*) as total_reservations,
+                COUNT(CASE WHEN evento_id = $3 THEN 1 END) as vinculadas_ao_evento,
+                COUNT(CASE WHEN evento_id IS NULL THEN 1 END) as sem_evento,
+                COUNT(CASE WHEN evento_id IS NOT NULL AND evento_id != $3 THEN 1 END) as vinculadas_outro_evento
+              FROM restaurant_reservations
+              WHERE establishment_id = $1
+              AND reservation_date::DATE = $2::DATE
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log('🔍 DEBUG - Status das reservas:', debugReservations.rows[0]);
+            
+            // DEBUG: Verificar quantas reservas têm guest_lists
+            const debugGuestLists = await this.pool.query(`
+              SELECT 
+                COUNT(DISTINCT rr.id) as reservas_com_guest_list,
+                COUNT(DISTINCT gl.id) as total_guest_lists
+              FROM restaurant_reservations rr
+              LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+              AND rr.evento_id = $3
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log('🔍 DEBUG - Guest lists disponíveis:', debugGuestLists.rows[0]);
+            
             // Query para listas vinculadas a restaurant_reservations
             // Busca apenas reservas vinculadas ao evento (a vinculação automática já foi feita acima)
             console.log('🔍 Buscando guest lists de restaurant_reservations:', {
@@ -1577,6 +1604,32 @@ class EventosController {
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
+            
+            // DEBUG: Verificar quantas large_reservations foram vinculadas
+            const debugLargeReservations = await this.pool.query(`
+              SELECT 
+                COUNT(*) as total_reservations,
+                COUNT(CASE WHEN evento_id = $3 THEN 1 END) as vinculadas_ao_evento,
+                COUNT(CASE WHEN evento_id IS NULL THEN 1 END) as sem_evento,
+                COUNT(CASE WHEN evento_id IS NOT NULL AND evento_id != $3 THEN 1 END) as vinculadas_outro_evento
+              FROM large_reservations
+              WHERE establishment_id = $1
+              AND reservation_date::DATE = $2::DATE
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log('🔍 DEBUG - Status das large_reservations:', debugLargeReservations.rows[0]);
+            
+            // DEBUG: Verificar quantas large_reservations têm guest_lists
+            const debugLargeGuestLists = await this.pool.query(`
+              SELECT 
+                COUNT(DISTINCT lr.id) as reservas_com_guest_list,
+                COUNT(DISTINCT gl.id) as total_guest_lists
+              FROM large_reservations lr
+              LEFT JOIN guest_lists gl ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+              WHERE lr.establishment_id = $1
+              AND lr.reservation_date::DATE = $2::DATE
+              AND lr.evento_id = $3
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            console.log('🔍 DEBUG - Guest lists de large_reservations disponíveis:', debugLargeGuestLists.rows[0]);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
             // Busca apenas reservas vinculadas ao evento (a vinculação automática já foi feita acima)
