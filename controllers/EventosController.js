@@ -1322,6 +1322,8 @@ class EventosController {
       try {
         // Primeiro, buscar todas as listas relacionadas ao evento
         // Usar a mesma query que a página de listas usa (getListasEvento)
+        // Buscar listas de promoters vinculadas ao evento atual OU vinculadas a promoters que estão no evento atual
+        // Isso permite que eventos duplicados vejam as listas criadas antes da duplicação
         const listasResult = await this.pool.query(`
           SELECT DISTINCT
             l.lista_id,
@@ -1342,7 +1344,7 @@ class EventosController {
           FROM listas l2
           LEFT JOIN promoters p2 ON l2.promoter_responsavel_id = p2.promoter_id
           LEFT JOIN promoter_eventos pe ON pe.promoter_id = p2.promoter_id AND pe.evento_id = $1
-          WHERE l2.evento_id IS NULL AND pe.evento_id = $1
+          WHERE (l2.evento_id IS NULL OR l2.evento_id != $1) AND pe.evento_id = $1
         `, [eventoId]);
         
         const listaIds = listasResult.rows.map(l => l.lista_id);
@@ -1532,9 +1534,10 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
+              -- Buscar todas as reservas da mesma data/estabelecimento, independentemente do evento_id
+              -- Isso permite que eventos duplicados vejam as reservas criadas antes da duplicação
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
             const resultLarge = await this.pool.query(`
@@ -1566,9 +1569,10 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              AND (lr.evento_id = $3 OR lr.evento_id IS NULL)
+              -- Buscar todas as reservas grandes da mesma data/estabelecimento, independentemente do evento_id
+              -- Isso permite que eventos duplicados vejam as reservas criadas antes da duplicação
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
