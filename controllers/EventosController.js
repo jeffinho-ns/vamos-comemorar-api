@@ -1235,8 +1235,10 @@ class EventosController {
         establishment_name: eventoInfo.establishment_name
       });
       
-      // Vincular automaticamente reservas de restaurante não vinculadas a este evento
+      // Vincular automaticamente reservas de restaurante a este evento
       // quando têm o mesmo establishment_id e data_evento
+      // IMPORTANTE: Para eventos duplicados, vincula TODAS as reservas da data,
+      // mesmo que já estejam vinculadas a outro evento (substitui o vínculo)
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         try {
           console.log('🔗 Vinculando reservas automaticamente ao evento:', {
@@ -1245,45 +1247,55 @@ class EventosController {
             data_evento: eventoInfo.data_evento
           });
           
-          // Verificar quantas reservas existem antes da vinculação
+          // Verificar quantas reservas existem antes da vinculação (todas, não apenas sem evento_id)
           const checkBeforeRestaurant = await this.pool.query(`
-            SELECT COUNT(*) as total FROM restaurant_reservations 
-            WHERE establishment_id = $1 
-            AND reservation_date::DATE = $2::DATE
-            AND evento_id IS NULL
-          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-          console.log(`📊 Reservas de restaurante sem evento_id antes da vinculação: ${checkBeforeRestaurant.rows[0].total}`);
+            SELECT 
+              COUNT(*) FILTER (WHERE evento_id IS NULL) as sem_evento,
+              COUNT(*) FILTER (WHERE evento_id IS NOT NULL AND evento_id != $1) as com_outro_evento,
+              COUNT(*) as total
+            FROM restaurant_reservations 
+            WHERE establishment_id = $2 
+            AND reservation_date::DATE = $3::DATE
+          `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
+          const statsRestaurant = checkBeforeRestaurant.rows[0];
+          console.log(`📊 Reservas de restaurante: ${statsRestaurant.total} total, ${statsRestaurant.sem_evento} sem evento, ${statsRestaurant.com_outro_evento} com outro evento`);
           
-          // Vincular restaurant_reservations
+          // Vincular TODAS as restaurant_reservations da data ao evento atual
+          // Isso garante que eventos duplicados vejam todas as reservas da data
           const updateResultRestaurant = await this.pool.query(`
             UPDATE restaurant_reservations 
             SET evento_id = $1 
             WHERE establishment_id = $2 
             AND reservation_date::DATE = $3::DATE
-            AND evento_id IS NULL
+            AND (evento_id IS NULL OR evento_id != $1)
           `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
           console.log(`✅ ${updateResultRestaurant.rowCount} reservas de restaurante vinculadas automaticamente`);
           
           // Verificar quantas reservas grandes existem antes da vinculação
           const checkBeforeLarge = await this.pool.query(`
-            SELECT COUNT(*) as total FROM large_reservations 
-            WHERE establishment_id = $1 
-            AND reservation_date::DATE = $2::DATE
-            AND evento_id IS NULL
-          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
-          console.log(`📊 Reservas grandes sem evento_id antes da vinculação: ${checkBeforeLarge.rows[0].total}`);
+            SELECT 
+              COUNT(*) FILTER (WHERE evento_id IS NULL) as sem_evento,
+              COUNT(*) FILTER (WHERE evento_id IS NOT NULL AND evento_id != $1) as com_outro_evento,
+              COUNT(*) as total
+            FROM large_reservations 
+            WHERE establishment_id = $2 
+            AND reservation_date::DATE = $3::DATE
+          `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
+          const statsLarge = checkBeforeLarge.rows[0];
+          console.log(`📊 Reservas grandes: ${statsLarge.total} total, ${statsLarge.sem_evento} sem evento, ${statsLarge.com_outro_evento} com outro evento`);
           
-          // Vincular large_reservations (listas criadas sem reserva de restaurante)
+          // Vincular TODAS as large_reservations da data ao evento atual
           const updateResultLarge = await this.pool.query(`
             UPDATE large_reservations 
             SET evento_id = $1 
             WHERE establishment_id = $2 
             AND reservation_date::DATE = $3::DATE
-            AND evento_id IS NULL
+            AND (evento_id IS NULL OR evento_id != $1)
           `, [eventoId, eventoInfo.establishment_id, eventoInfo.data_evento]);
           console.log(`✅ ${updateResultLarge.rowCount} reservas grandes vinculadas automaticamente`);
         } catch (err) {
           console.error('⚠️ Erro ao vincular reservas automaticamente:', err);
+          console.error('⚠️ Stack:', err.stack);
           // Continua mesmo se falhar (coluna pode não existir ainda)
         }
       }
