@@ -1204,7 +1204,6 @@ class EventosController {
       console.log('🔍 Buscando check-ins consolidados para evento:', eventoId);
       
       // 1. Buscar informações do evento
-      // Se id_place estiver NULL, tenta buscar baseado no casa_do_evento
       const eventoResult = await this.pool.query(`
         SELECT 
           e.id as evento_id,
@@ -1212,39 +1211,95 @@ class EventosController {
           TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario,
           e.tipo_evento,
+          e.id_place,
           e.casa_do_evento,
-          COALESCE(
-            e.id_place,
-            (SELECT p.id FROM places p WHERE REPLACE(LOWER(p.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
-            (SELECT b.id FROM bars b WHERE REPLACE(LOWER(b.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
-            CASE 
-              WHEN e.casa_do_evento LIKE '%High%Line%' OR e.casa_do_evento LIKE '%Highline%' THEN 7
-              ELSE NULL
-            END
-          ) as establishment_id,
-          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT), 
-            (SELECT p.name FROM places p WHERE REPLACE(LOWER(p.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1),
-            (SELECT b2.name FROM bars b2 WHERE REPLACE(LOWER(b2.name), ' ', '') = REPLACE(LOWER(e.casa_do_evento), ' ', '') LIMIT 1)
-          ) as establishment_name
+          COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name
         FROM eventos e
         LEFT JOIN places pl ON e.id_place = pl.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.id = $1
       `, [eventoId]);
       
-      // Se encontrou establishment_id mas o evento não tinha, atualizar no banco
-      if (eventoResult.rows.length > 0 && eventoResult.rows[0].establishment_id && !eventoResult.rows[0].id_place) {
+      if (eventoResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Evento não encontrado'
+        });
+      }
+      
+      let eventoInfo = eventoResult.rows[0];
+      let establishment_id = eventoInfo.id_place;
+      
+      // Se id_place estiver NULL, tentar buscar baseado no casa_do_evento
+      if (!establishment_id && eventoInfo.casa_do_evento) {
+        console.log(`🔍 Evento ${eventoId} não tem id_place. Buscando baseado em casa_do_evento: "${eventoInfo.casa_do_evento}"`);
+        
+        // Tentar buscar em places
         try {
-          await this.pool.query(`
-            UPDATE eventos 
-            SET id_place = $1 
-            WHERE id = $2 AND id_place IS NULL
-          `, [eventoResult.rows[0].establishment_id, eventoId]);
-          console.log(`✅ Atualizado id_place do evento ${eventoId} para ${eventoResult.rows[0].establishment_id}`);
-        } catch (updateErr) {
-          console.warn(`⚠️ Erro ao atualizar id_place do evento ${eventoId}:`, updateErr.message);
+          const placeResult = await this.pool.query(`
+            SELECT id FROM places 
+            WHERE REPLACE(LOWER(name), ' ', '') = REPLACE(LOWER($1), ' ', '')
+            LIMIT 1
+          `, [eventoInfo.casa_do_evento]);
+          
+          if (placeResult.rows.length > 0) {
+            establishment_id = placeResult.rows[0].id;
+            console.log(`✅ Encontrado id_place em places: ${establishment_id}`);
+          } else {
+            // Tentar buscar em bars
+            const barResult = await this.pool.query(`
+              SELECT id FROM bars 
+              WHERE REPLACE(LOWER(name), ' ', '') = REPLACE(LOWER($1), ' ', '')
+              LIMIT 1
+            `, [eventoInfo.casa_do_evento]);
+            
+            if (barResult.rows.length > 0) {
+              establishment_id = barResult.rows[0].id;
+              console.log(`✅ Encontrado id_place em bars: ${establishment_id}`);
+            } else {
+              // Fallback: verificar se é Highline
+              const casaLower = eventoInfo.casa_do_evento.toLowerCase();
+              if (casaLower.includes('high') && casaLower.includes('line')) {
+                establishment_id = 7;
+                console.log(`✅ Detectado Highline, usando id_place = 7`);
+              }
+            }
+          }
+          
+          // Se encontrou, atualizar no banco
+          if (establishment_id) {
+            try {
+              await this.pool.query(`
+                UPDATE eventos 
+                SET id_place = $1 
+                WHERE id = $2 AND id_place IS NULL
+              `, [establishment_id, eventoId]);
+              console.log(`✅ Atualizado id_place do evento ${eventoId} para ${establishment_id}`);
+              
+              // Buscar nome do estabelecimento
+              const nameResult = await this.pool.query(`
+                SELECT name FROM places WHERE id = $1
+                UNION ALL
+                SELECT name FROM bars WHERE id = $1
+                LIMIT 1
+              `, [establishment_id]);
+              
+              if (nameResult.rows.length > 0) {
+                eventoInfo.establishment_name = nameResult.rows[0].name;
+              }
+            } catch (updateErr) {
+              console.warn(`⚠️ Erro ao atualizar id_place do evento ${eventoId}:`, updateErr.message);
+            }
+          } else {
+            console.warn(`⚠️ Não foi possível encontrar id_place para casa_do_evento: "${eventoInfo.casa_do_evento}"`);
+          }
+        } catch (searchErr) {
+          console.error(`❌ Erro ao buscar id_place baseado em casa_do_evento:`, searchErr.message);
         }
       }
+      
+      // Atualizar eventoInfo com establishment_id
+      eventoInfo.establishment_id = establishment_id;
       
       if (eventoResult.rows.length === 0) {
         return res.status(404).json({
