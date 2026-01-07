@@ -1230,6 +1230,12 @@ class EventosController {
       let eventoInfo = eventoResult.rows[0];
       let establishment_id = eventoInfo.id_place;
       
+      console.log(`🔍 DEBUG - Evento ${eventoId} encontrado:`, {
+        id_place: eventoInfo.id_place,
+        casa_do_evento: eventoInfo.casa_do_evento,
+        nome: eventoInfo.nome
+      });
+      
       // Se id_place estiver NULL, tentar buscar baseado no casa_do_evento
       if (!establishment_id && eventoInfo.casa_do_evento) {
         console.log(`🔍 Evento ${eventoId} não tem id_place. Buscando baseado em casa_do_evento: "${eventoInfo.casa_do_evento}"`);
