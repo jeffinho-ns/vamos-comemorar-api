@@ -383,6 +383,15 @@ module.exports = (pool) => {
       console.log('📋 [GET /birthday-reservations] Query SQL:', query);
       console.log('📋 [GET /birthday-reservations] Parâmetros:', params);
       
+      // Debug: Verificar todas as reservas antes do filtro
+      const allReservationsResult = await pool.query(`
+        SELECT br.id, br.id_casa_evento, br.aniversariante_nome, br.created_at
+        FROM birthday_reservations br
+        ORDER BY br.created_at DESC
+        LIMIT 10
+      `);
+      console.log('🔍 [GET /birthday-reservations] Últimas 10 reservas no banco:', allReservationsResult.rows);
+      
       const result = await pool.query(query, params);
       
       console.log(`✅ [GET /birthday-reservations] ${result.rows.length} reservas encontradas`);
@@ -390,8 +399,12 @@ module.exports = (pool) => {
         console.log('📋 [GET /birthday-reservations] Primeira reserva:', {
           id: result.rows[0].id,
           id_casa_evento: result.rows[0].id_casa_evento,
+          id_casa_evento_tipo: typeof result.rows[0].id_casa_evento,
           aniversariante_nome: result.rows[0].aniversariante_nome
         });
+      } else if (establishment_id) {
+        console.log('⚠️ [GET /birthday-reservations] Nenhuma reserva encontrada para establishment_id:', establishment_id);
+        console.log('⚠️ [GET /birthday-reservations] Verifique se há reservas com id_casa_evento =', establishment_id);
       }
 
       res.json(result.rows);
