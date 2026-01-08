@@ -181,21 +181,32 @@ module.exports = (pool) => {
       console.log('✅ Reserva de aniversário criada com ID:', birthdayReservationId);
       
       // Verificar se a reserva foi realmente salva com os dados corretos
-      const verifyResult = await client.query('SELECT id, id_casa_evento, aniversariante_nome FROM birthday_reservations WHERE id = $1', [birthdayReservationId]);
+      const verifyResult = await client.query('SELECT id, id_casa_evento, aniversariante_nome, pg_typeof(id_casa_evento) as tipo_coluna FROM birthday_reservations WHERE id = $1', [birthdayReservationId]);
       if (verifyResult.rows.length > 0) {
+        const row = verifyResult.rows[0];
         console.log('📋 Dados salvos na reserva de aniversário (verificado no banco):', {
-          id: verifyResult.rows[0].id,
-          id_casa_evento: verifyResult.rows[0].id_casa_evento,
-          id_casa_evento_tipo: typeof verifyResult.rows[0].id_casa_evento,
-          id_casa_evento_valor_bruto: verifyResult.rows[0].id_casa_evento,
-          aniversariante_nome: verifyResult.rows[0].aniversariante_nome,
+          id: row.id,
+          id_casa_evento: row.id_casa_evento,
+          id_casa_evento_tipo_coluna: row.tipo_coluna,
+          id_casa_evento_valor_bruto: row.id_casa_evento,
+          aniversariante_nome: row.aniversariante_nome,
           esperado_id_casa_evento: placeIdNumber,
-          esperado_tipo: typeof placeIdNumber
+          esperado_tipo: typeof placeIdNumber,
+          valores_iguais: String(row.id_casa_evento) === String(placeIdNumber),
+          valores_iguais_com_cast: Number(row.id_casa_evento) === Number(placeIdNumber)
         });
         
-        // Testar se a reserva pode ser encontrada com a query de busca
-        const testQueryResult = await client.query('SELECT id FROM birthday_reservations WHERE CAST(id_casa_evento AS INTEGER) = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
-        console.log('🔍 Teste de busca: Reserva encontrada com CAST?', testQueryResult.rows.length > 0);
+        // Testar se a reserva pode ser encontrada com a query de busca (sem CAST)
+        const testQueryResult1 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
+        console.log('🔍 Teste de busca (sem CAST): Reserva encontrada?', testQueryResult1.rows.length > 0);
+        
+        // Testar se a reserva pode ser encontrada com a query de busca (com CAST)
+        const testQueryResult2 = await client.query('SELECT id FROM birthday_reservations WHERE CAST(id_casa_evento AS INTEGER) = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
+        console.log('🔍 Teste de busca (com CAST): Reserva encontrada?', testQueryResult2.rows.length > 0);
+        
+        // Testar com string
+        const testQueryResult3 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento::text = $1 AND id = $2', [String(placeIdNumber), birthdayReservationId]);
+        console.log('🔍 Teste de busca (como string): Reserva encontrada?', testQueryResult3.rows.length > 0);
       }
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
