@@ -570,7 +570,7 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         await client.query('BEGIN');
         
         const allowedFields = [
-            'id_camarote', 'id_reserva', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
+            'id_camarote', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
             'data_nascimento', 'data_reserva', 'data_expiracao', 'maximo_pessoas', 'entradas_unisex_free', 
             'entradas_masculino_free', 'entradas_feminino_free', 'valor_camarote', 
             'valor_consumacao', 'valor_pago', 'valor_sinal', 'prazo_sinal_dias', 
