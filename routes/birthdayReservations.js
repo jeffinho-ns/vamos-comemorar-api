@@ -224,16 +224,14 @@ module.exports = (pool) => {
             origin: 'SITE',
             notes: `🎂 Reserva de Aniversário - ${decoracao_tipo || 'Decoração'}. ID Reserva Aniversário: ${birthdayReservationId}`,
             establishment_id: placeId,
-            send_email: false,
-            send_whatsapp: false,
           };
 
           const restaurantInsert = `
             INSERT INTO restaurant_reservations (
               client_name, client_phone, client_email, reservation_date, reservation_time,
               number_of_people, area_id, status, origin, notes, establishment_id,
-              send_email, send_whatsapp, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+              created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
             RETURNING id
           `;
 
@@ -249,8 +247,6 @@ module.exports = (pool) => {
             restaurantReservationData.origin,
             restaurantReservationData.notes,
             restaurantReservationData.establishment_id,
-            restaurantReservationData.send_email,
-            restaurantReservationData.send_whatsapp,
           ];
 
           const restaurantResult = await client.query(restaurantInsert, restaurantParams);
