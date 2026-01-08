@@ -420,7 +420,7 @@ router.post('/camarote', auth, async (req, res) => {
         }
 
         // 1. Criar registro na tabela 'reservas' primeiro (necessário para id_reserva NOT NULL)
-        // Usar 'LISTA' como tipo_reserva (valor válido do enum) já que 'CAMAROTE' não existe
+        // Usar 'NORMAL' como tipo_reserva (valor válido do enum: 'ANIVERSARIO', 'PROMOTER', 'NORMAL')
         console.log('📝 Criando registro na tabela reservas...');
         const sqlReserva = `
             INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite)
@@ -429,7 +429,7 @@ router.post('/camarote', auth, async (req, res) => {
         `;
         const reservaParams = [
             userId,
-            'LISTA', // Usar 'LISTA' como tipo válido do enum (CAMAROTE não existe no enum)
+            'NORMAL', // Usar 'NORMAL' como tipo válido do enum (valores válidos: 'ANIVERSARIO', 'PROMOTER', 'NORMAL')
             nome_cliente,
             dataReservaFinal,
             null, // evento_id
@@ -502,8 +502,8 @@ router.post('/camarote', auth, async (req, res) => {
         await client.query('COMMIT');
         console.log('✅ Transação commitada com sucesso');
         
-        // Buscar a reserva criada para retornar dados completos
-        const reservaCriada = await pool.query(
+        // Buscar a reserva criada para retornar dados completos (após commit)
+        const reservaCriada = await client.query(
             `SELECT rc.*, c.nome_camarote, c.capacidade_maxima 
              FROM reservas_camarote rc 
              LEFT JOIN camarotes c ON rc.id_camarote = c.id 
