@@ -580,55 +580,77 @@ module.exports = (pool) => {
         const cleanEstablishmentId = establishment_id && establishment_id !== 0 ? establishment_id : null;
         
         let result;
-        if (hasUserIdColumn) {
-          // Se a coluna existe, sempre incluir (mesmo que seja NULL)
-          result = await client.query(
-            `INSERT INTO promoters (
-              nome, apelido, email, telefone, whatsapp, codigo_identificador, 
-              tipo_categoria, comissao_percentual, link_convite, observacoes,
-              establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
-            [
-              nome, 
-              cleanApelido, 
-              email, 
-              cleanTelefone, 
-              cleanWhatsapp, 
-              finalCodigoIdentificador,
-              tipo_categoria || 'Standard', 
-              comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
-              linkConviteGerado, 
-              cleanObservacoes,
-              cleanEstablishmentId, 
-              cleanFotoUrl, 
-              cleanInstagram, 
-              userId
-            ]
-          );
-        } else {
-          // Se a coluna não existe, não incluir na query
-          result = await client.query(
-            `INSERT INTO promoters (
-              nome, apelido, email, telefone, whatsapp, codigo_identificador, 
-              tipo_categoria, comissao_percentual, link_convite, observacoes,
-              establishment_id, foto_url, instagram, data_cadastro, status, ativo
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
-            [
-              nome, 
-              cleanApelido, 
-              email, 
-              cleanTelefone, 
-              cleanWhatsapp, 
-              finalCodigoIdentificador,
-              tipo_categoria || 'Standard', 
-              comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
-              linkConviteGerado, 
-              cleanObservacoes,
-              cleanEstablishmentId, 
-              cleanFotoUrl, 
-              cleanInstagram
-            ]
-          );
+        try {
+          if (hasUserIdColumn) {
+            // Se a coluna existe, sempre incluir (mesmo que seja NULL)
+            result = await client.query(
+              `INSERT INTO promoters (
+                nome, apelido, email, telefone, whatsapp, codigo_identificador, 
+                tipo_categoria, comissao_percentual, link_convite, observacoes,
+                establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
+              [
+                nome, 
+                cleanApelido, 
+                email, 
+                cleanTelefone, 
+                cleanWhatsapp, 
+                finalCodigoIdentificador,
+                tipo_categoria || 'Standard', 
+                comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
+                linkConviteGerado, 
+                cleanObservacoes,
+                cleanEstablishmentId, 
+                cleanFotoUrl, 
+                cleanInstagram, 
+                userId
+              ]
+            );
+          } else {
+            // Se a coluna não existe, não incluir na query
+            result = await client.query(
+              `INSERT INTO promoters (
+                nome, apelido, email, telefone, whatsapp, codigo_identificador, 
+                tipo_categoria, comissao_percentual, link_convite, observacoes,
+                establishment_id, foto_url, instagram, data_cadastro, status, ativo
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
+              [
+                nome, 
+                cleanApelido, 
+                email, 
+                cleanTelefone, 
+                cleanWhatsapp, 
+                finalCodigoIdentificador,
+                tipo_categoria || 'Standard', 
+                comissao_percentual !== undefined && comissao_percentual !== null ? comissao_percentual : 0, 
+                linkConviteGerado, 
+                cleanObservacoes,
+                cleanEstablishmentId, 
+                cleanFotoUrl, 
+                cleanInstagram
+              ]
+            );
+          }
+        } catch (insertError) {
+          console.error('❌ Erro ao inserir promoter:', insertError);
+          console.error('❌ Detalhes do erro de INSERT:', {
+            message: insertError.message,
+            code: insertError.code,
+            constraint: insertError.constraint,
+            column: insertError.column,
+            detail: insertError.detail
+          });
+          await client.query('ROLLBACK').catch(rollbackError => {
+            console.error('❌ Erro ao fazer rollback:', rollbackError);
+          });
+          return res.status(500).json({
+            success: false,
+            error: 'Erro ao criar promoter',
+            details: insertError.message,
+            code: insertError.code,
+            constraint: insertError.constraint,
+            column: insertError.column
+          });
         }
         
         const promoterId = result.rows[0].promoter_id;
