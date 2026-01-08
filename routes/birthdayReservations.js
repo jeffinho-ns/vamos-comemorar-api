@@ -131,12 +131,15 @@ module.exports = (pool) => {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
       `;
 
+      // Garantir que placeId seja um número inteiro
+      const placeIdNumber = typeof placeId === 'string' ? parseInt(placeId) : (placeId || 1);
+      
       const insertParams = [
         user_id || 1,
         aniversariante_nome || '',
         data_aniversario || new Date().toISOString().split('T')[0],
         quantidade_convidados || 0,
-        placeId || 1,
+        placeIdNumber, // Usar o número convertido
         decoracao_tipo || '',
         painel_personalizado || 0,
         painel_estoque_imagem_url || null,
@@ -184,10 +187,15 @@ module.exports = (pool) => {
           id: verifyResult.rows[0].id,
           id_casa_evento: verifyResult.rows[0].id_casa_evento,
           id_casa_evento_tipo: typeof verifyResult.rows[0].id_casa_evento,
+          id_casa_evento_valor_bruto: verifyResult.rows[0].id_casa_evento,
           aniversariante_nome: verifyResult.rows[0].aniversariante_nome,
-          esperado_id_casa_evento: placeId,
-          esperado_tipo: typeof placeId
+          esperado_id_casa_evento: placeIdNumber,
+          esperado_tipo: typeof placeIdNumber
         });
+        
+        // Testar se a reserva pode ser encontrada com a query de busca
+        const testQueryResult = await client.query('SELECT id FROM birthday_reservations WHERE CAST(id_casa_evento AS INTEGER) = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
+        console.log('🔍 Teste de busca: Reserva encontrada com CAST?', testQueryResult.rows.length > 0);
       }
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
@@ -379,7 +387,8 @@ module.exports = (pool) => {
           converted: establishmentIdNumber,
           type: typeof establishmentIdNumber
         });
-        query += ` WHERE br.id_casa_evento = $1`;
+        // Usar CAST para garantir que a comparação funcione independente do tipo no banco
+        query += ` WHERE CAST(br.id_casa_evento AS INTEGER) = $1`;
         params.push(establishmentIdNumber);
       } else {
         console.log('🔍 [GET /birthday-reservations] Buscando todas as reservas (sem filtro de estabelecimento)');
@@ -392,12 +401,25 @@ module.exports = (pool) => {
       
       // Debug: Verificar todas as reservas antes do filtro
       const allReservationsResult = await pool.query(`
-        SELECT br.id, br.id_casa_evento, br.aniversariante_nome, br.created_at
+        SELECT br.id, br.id_casa_evento, br.aniversariante_nome, br.created_at,
+               pg_typeof(br.id_casa_evento) as id_casa_evento_tipo
         FROM birthday_reservations br
         ORDER BY br.created_at DESC
         LIMIT 10
       `);
       console.log('🔍 [GET /birthday-reservations] Últimas 10 reservas no banco:', allReservationsResult.rows);
+      
+      // Verificar especificamente se há reservas com id_casa_evento = 7
+      if (establishment_id) {
+        const establishmentIdNumber = typeof establishment_id === 'string' ? parseInt(establishment_id) : establishment_id;
+        const testQuery = await pool.query(`
+          SELECT id, id_casa_evento, aniversariante_nome 
+          FROM birthday_reservations 
+          WHERE id_casa_evento = $1 OR CAST(id_casa_evento AS INTEGER) = $1
+          LIMIT 5
+        `, [establishmentIdNumber]);
+        console.log(`🔍 [GET /birthday-reservations] Teste direto: Reservas com id_casa_evento = ${establishmentIdNumber}:`, testQuery.rows);
+      }
       
       const result = await pool.query(query, params);
       
