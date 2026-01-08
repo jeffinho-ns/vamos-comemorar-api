@@ -176,12 +176,19 @@ module.exports = (pool) => {
       const result = await client.query(sqlInsert, insertParams);
       const birthdayReservationId = result.rows[0].id;
       console.log('✅ Reserva de aniversário criada com ID:', birthdayReservationId);
-      console.log('📋 Dados salvos na reserva de aniversário:', {
-        id: birthdayReservationId,
-        id_casa_evento: placeId,
-        aniversariante_nome: aniversariante_nome,
-        data_aniversario: data_aniversario
-      });
+      
+      // Verificar se a reserva foi realmente salva com os dados corretos
+      const verifyResult = await client.query('SELECT id, id_casa_evento, aniversariante_nome FROM birthday_reservations WHERE id = $1', [birthdayReservationId]);
+      if (verifyResult.rows.length > 0) {
+        console.log('📋 Dados salvos na reserva de aniversário (verificado no banco):', {
+          id: verifyResult.rows[0].id,
+          id_casa_evento: verifyResult.rows[0].id_casa_evento,
+          id_casa_evento_tipo: typeof verifyResult.rows[0].id_casa_evento,
+          aniversariante_nome: verifyResult.rows[0].aniversariante_nome,
+          esperado_id_casa_evento: placeId,
+          esperado_tipo: typeof placeId
+        });
+      }
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
       let restaurantReservationId = null;
