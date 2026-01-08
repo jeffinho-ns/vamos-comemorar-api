@@ -335,6 +335,8 @@ module.exports = (pool) => {
             console.log('✅ Lista de convidados criada automaticamente com ID:', guestListId);
 
             // Criar convidado inicial (aniversariante)
+            // Nota: geo_checkin_status pode ser NULL ou um dos valores válidos do enum
+            // Valores válidos: 'CONFIRMADO_LOCAL', 'INVALIDO' ou NULL
             const convidadoInsert = `
               INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status)
               VALUES ($1, $2, $3, $4, $5)
@@ -345,7 +347,7 @@ module.exports = (pool) => {
               aniversariante_nome || 'Aniversariante',
               qrCodeData,
               'PENDENTE',
-              'NAO_APLICAVEL'
+              null // Usar NULL em vez de 'NAO_APLICAVEL' que não é um valor válido do enum
             ]);
             console.log('✅ Convidado inicial (aniversariante) criado na lista');
 
