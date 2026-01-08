@@ -176,6 +176,12 @@ module.exports = (pool) => {
       const result = await client.query(sqlInsert, insertParams);
       const birthdayReservationId = result.rows[0].id;
       console.log('✅ Reserva de aniversário criada com ID:', birthdayReservationId);
+      console.log('📋 Dados salvos na reserva de aniversário:', {
+        id: birthdayReservationId,
+        id_casa_evento: placeId,
+        aniversariante_nome: aniversariante_nome,
+        data_aniversario: data_aniversario
+      });
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
       let restaurantReservationId = null;
