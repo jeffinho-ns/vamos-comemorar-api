@@ -432,13 +432,46 @@ module.exports = (pool) => {
       // Verificar especificamente se há reservas com id_casa_evento = 7
       if (establishment_id) {
         const establishmentIdNumber = typeof establishment_id === 'string' ? parseInt(establishment_id) : establishment_id;
-        const testQuery = await pool.query(`
+        
+        // Teste 1: Busca direta sem CAST
+        const testQuery1 = await pool.query(`
           SELECT id, id_casa_evento, aniversariante_nome 
           FROM birthday_reservations 
-          WHERE id_casa_evento = $1 OR CAST(id_casa_evento AS INTEGER) = $1
+          WHERE id_casa_evento = $1
           LIMIT 5
         `, [establishmentIdNumber]);
-        console.log(`🔍 [GET /birthday-reservations] Teste direto: Reservas com id_casa_evento = ${establishmentIdNumber}:`, testQuery.rows);
+        console.log(`🔍 [GET /birthday-reservations] Teste 1 (sem CAST, número): Reservas com id_casa_evento = ${establishmentIdNumber}:`, testQuery1.rows.length);
+        
+        // Teste 2: Busca com CAST
+        const testQuery2 = await pool.query(`
+          SELECT id, id_casa_evento, aniversariante_nome 
+          FROM birthday_reservations 
+          WHERE CAST(id_casa_evento AS INTEGER) = $1
+          LIMIT 5
+        `, [establishmentIdNumber]);
+        console.log(`🔍 [GET /birthday-reservations] Teste 2 (com CAST): Reservas com id_casa_evento = ${establishmentIdNumber}:`, testQuery2.rows.length);
+        
+        // Teste 3: Busca como string
+        const testQuery3 = await pool.query(`
+          SELECT id, id_casa_evento, aniversariante_nome 
+          FROM birthday_reservations 
+          WHERE id_casa_evento::text = $1
+          LIMIT 5
+        `, [String(establishmentIdNumber)]);
+        console.log(`🔍 [GET /birthday-reservations] Teste 3 (como string): Reservas com id_casa_evento = ${establishmentIdNumber}:`, testQuery3.rows.length);
+        
+        // Teste 4: Busca com LIKE (para ver se há algum problema de formatação)
+        const testQuery4 = await pool.query(`
+          SELECT id, id_casa_evento, aniversariante_nome 
+          FROM birthday_reservations 
+          WHERE id_casa_evento::text LIKE $1
+          LIMIT 5
+        `, [`%${establishmentIdNumber}%`]);
+        console.log(`🔍 [GET /birthday-reservations] Teste 4 (LIKE): Reservas com id_casa_evento contendo ${establishmentIdNumber}:`, testQuery4.rows.length);
+        
+        if (testQuery4.rows.length > 0) {
+          console.log('⚠️ [GET /birthday-reservations] ATENÇÃO: Encontradas reservas com LIKE:', testQuery4.rows);
+        }
       }
       
       const result = await pool.query(query, params);
