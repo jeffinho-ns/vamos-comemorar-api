@@ -401,18 +401,6 @@ router.post('/camarote', auth, async (req, res) => {
             });
         }
 
-        // Criar o registro na tabela 'reservas_camarote'
-        console.log('📝 Inserindo na tabela reservas_camarote...');
-        // Removido id_reserva e id_evento pois não são necessários ou não existem na tabela PostgreSQL de produção
-        const sqlCamarote = `
-            INSERT INTO reservas_camarote (
-                id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
-                maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-                valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
-                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id
-        `;
-        
         // Preparar data_reserva e data_expiracao
         const dataReservaFinal = data_reserva 
             ? (data_reserva.includes('T') ? data_reserva.split('T')[0] : data_reserva)
@@ -430,8 +418,41 @@ router.post('/camarote', auth, async (req, res) => {
         if (horaReservaFinal && horaReservaFinal.length === 5) {
             horaReservaFinal = horaReservaFinal + ':00';
         }
+
+        // 1. Criar registro na tabela 'reservas' primeiro (necessário para id_reserva NOT NULL)
+        console.log('📝 Criando registro na tabela reservas...');
+        const sqlReserva = `
+            INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id
+        `;
+        const reservaParams = [
+            userId,
+            'CAMAROTE',
+            nome_cliente,
+            dataReservaFinal,
+            null, // evento_id
+            maximo_pessoas || 0,
+            null // codigo_convite
+        ];
+        
+        const reservaResult = await client.query(sqlReserva, reservaParams);
+        const reservaId = reservaResult.rows[0].id;
+        console.log('✅ Reserva criada com ID:', reservaId);
+
+        // 2. Criar o registro na tabela 'reservas_camarote' com id_reserva
+        console.log('📝 Inserindo na tabela reservas_camarote...');
+        const sqlCamarote = `
+            INSERT INTO reservas_camarote (
+                id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+                maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+                valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
+                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id
+        `;
         
         const camaroteParams = [
+            reservaId, // id_reserva (obrigatório)
             id_camarote, 
             nome_cliente, 
             telefone || null, 
