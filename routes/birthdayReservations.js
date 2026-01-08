@@ -58,6 +58,13 @@ module.exports = (pool) => {
     try {
       await client.query('BEGIN');
 
+      // Validar que id_casa_evento foi fornecido e é válido
+      if (!id_casa_evento || id_casa_evento === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ message: 'Estabelecimento é obrigatório. Por favor, selecione um estabelecimento.' });
+      }
+
       let placeId = id_casa_evento;
       if (typeof id_casa_evento === 'string' && isNaN(parseInt(id_casa_evento))) {
          // PostgreSQL usa ILIKE para busca case-insensitive
@@ -66,8 +73,17 @@ module.exports = (pool) => {
            placeId = placeResult.rows[0].id;
          } else {
            await client.query('ROLLBACK');
+           client.release();
            return res.status(404).json({ message: 'Bar selecionado não encontrado.' });
          }
+      }
+
+      // Validar que o estabelecimento existe no banco
+      const placeCheck = await client.query('SELECT id, name FROM places WHERE id = $1', [placeId]);
+      if (placeCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(404).json({ message: `Estabelecimento com ID ${placeId} não encontrado.` });
       }
 
       const sqlInsert = `
@@ -171,12 +187,15 @@ module.exports = (pool) => {
 
   /**
    * @route   GET /api/birthday-reservations
-   * @desc    Lista todas as reservas de aniversário
+   * @desc    Lista todas as reservas de aniversário ou filtra por estabelecimento
    * @access  Private
+   * @query   establishment_id (opcional) - ID do estabelecimento para filtrar
    */
   router.get('/', async (req, res) => {
     try {
-      const result = await pool.query(`
+      const { establishment_id } = req.query;
+      
+      let query = `
         SELECT 
           br.*,
           p.name as place_name,
@@ -184,8 +203,19 @@ module.exports = (pool) => {
         FROM birthday_reservations br
         LEFT JOIN places p ON br.id_casa_evento = p.id
         LEFT JOIN users u ON br.user_id = u.id
-        ORDER BY br.created_at DESC
-      `);
+      `;
+      
+      const params = [];
+      
+      // Se establishment_id foi fornecido, filtrar por ele
+      if (establishment_id) {
+        query += ` WHERE br.id_casa_evento = $1`;
+        params.push(establishment_id);
+      }
+      
+      query += ` ORDER BY br.created_at DESC`;
+      
+      const result = await pool.query(query, params);
 
       res.json(result.rows);
 
