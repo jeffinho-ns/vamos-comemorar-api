@@ -100,6 +100,169 @@ module.exports = (pool) => {
   );
 
   /**
+   * @route   GET /api/v1/promoters/statistics
+   * @desc    Retorna estatísticas gerais de promoters
+   * @access  Private (Admin, Gerente)
+   */
+  router.get(
+    '/statistics',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    async (req, res) => {
+      try {
+        const { establishment_id } = req.query;
+        
+        // Total de promoters
+        let totalPromotersQuery = 'SELECT COUNT(*) as total FROM promoters WHERE 1=1';
+        const totalPromotersParams = [];
+        
+        if (establishment_id) {
+          totalPromotersQuery += ' AND establishment_id = $1';
+          totalPromotersParams.push(establishment_id);
+        }
+        
+        const totalPromotersResult = await pool.query(totalPromotersQuery, totalPromotersParams);
+        const totalPromoters = parseInt(totalPromotersResult.rows[0].total) || 0;
+        
+        // Total de promoters ativos
+        let activePromotersQuery = `SELECT COUNT(*) as total FROM promoters WHERE status = 'Ativo' AND ativo = TRUE`;
+        const activePromotersParams = [];
+        
+        if (establishment_id) {
+          activePromotersQuery += ' AND establishment_id = $1';
+          activePromotersParams.push(establishment_id);
+        }
+        
+        const activePromotersResult = await pool.query(activePromotersQuery, activePromotersParams);
+        const activePromoters = parseInt(activePromotersResult.rows[0].total) || 0;
+        
+        // Total de convidados reais (de listas_convidados vinculadas a promoters)
+        let totalConvidadosQuery = `
+          SELECT COUNT(DISTINCT lc.lista_convidado_id) as total
+          FROM listas_convidados lc
+          INNER JOIN listas l ON lc.lista_id = l.lista_id
+          INNER JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+          WHERE 1=1
+        `;
+        const totalConvidadosParams = [];
+        let paramIndex = 1;
+        
+        if (establishment_id) {
+          totalConvidadosQuery += ` AND EXISTS (
+            SELECT 1 FROM eventos e 
+            WHERE e.id = l.evento_id 
+            AND e.id_place = $${paramIndex++}
+          )`;
+          totalConvidadosParams.push(establishment_id);
+        }
+        
+        const totalConvidadosResult = await pool.query(totalConvidadosQuery, totalConvidadosParams);
+        const totalConvidados = parseInt(totalConvidadosResult.rows[0].total) || 0;
+        
+        // Receita total real - buscar de múltiplas fontes
+        // 1. Receita de entrada_valor dos check-ins de convidados de promoters (listas_convidados)
+        let receitaConvidadosQuery = `
+          SELECT COALESCE(SUM(COALESCE(lc.entrada_valor, 0)), 0) as receita_total
+          FROM listas_convidados lc
+          INNER JOIN listas l ON lc.lista_id = l.lista_id
+          INNER JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+          INNER JOIN eventos e ON l.evento_id = e.id
+          WHERE lc.status_checkin = 'Check-in'
+          AND lc.entrada_valor IS NOT NULL
+          AND lc.entrada_valor > 0
+        `;
+        const receitaConvidadosParams = [];
+        let receitaConvidadosParamIndex = 1;
+        
+        if (establishment_id) {
+          receitaConvidadosQuery += ` AND e.id_place = $${receitaConvidadosParamIndex++}`;
+          receitaConvidadosParams.push(establishment_id);
+        }
+        
+        const receitaConvidadosResult = await pool.query(receitaConvidadosQuery, receitaConvidadosParams);
+        let receitaTotal = parseFloat(receitaConvidadosResult.rows[0].receita_total) || 0;
+        
+        // 2. Receita de reservas vinculadas a promoters (via listas)
+        let receitaReservasQuery = `
+          SELECT COALESCE(SUM(
+            CASE 
+              WHEN r.valor_total IS NOT NULL AND r.valor_total > 0 THEN r.valor_total
+              WHEN r.consumacao_total IS NOT NULL AND r.consumacao_total > 0 THEN r.consumacao_total
+              ELSE 0
+            END
+          ), 0) as receita_total
+          FROM reservas r
+          INNER JOIN eventos e ON r.evento_id = e.id
+          WHERE EXISTS (
+            SELECT 1 FROM listas l
+            INNER JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+            WHERE l.evento_id = e.id
+          )
+        `;
+        const receitaReservasParams = [];
+        let receitaReservasParamIndex = 1;
+        
+        if (establishment_id) {
+          receitaReservasQuery += ` AND e.id_place = $${receitaReservasParamIndex++}`;
+          receitaReservasParams.push(establishment_id);
+        }
+        
+        try {
+          const receitaReservasResult = await pool.query(receitaReservasQuery, receitaReservasParams);
+          const receitaReservas = parseFloat(receitaReservasResult.rows[0].receita_total) || 0;
+          receitaTotal += receitaReservas;
+        } catch (e) {
+          console.log('⚠️ Erro ao buscar receita de reservas:', e.message);
+        }
+        
+        // 3. Receita de promoter_performance se existir
+        let receitaPerformanceQuery = `
+          SELECT COALESCE(SUM(pp.receita_gerada), 0) as receita_total
+          FROM promoter_performance pp
+          INNER JOIN promoters p ON pp.promoter_id = p.promoter_id
+          WHERE pp.receita_gerada IS NOT NULL
+          AND pp.receita_gerada > 0
+        `;
+        const receitaPerformanceParams = [];
+        let receitaPerformanceParamIndex = 1;
+        
+        if (establishment_id) {
+          receitaPerformanceQuery += ` AND p.establishment_id = $${receitaPerformanceParamIndex++}`;
+          receitaPerformanceParams.push(establishment_id);
+        }
+        
+        try {
+          const receitaPerformanceResult = await pool.query(receitaPerformanceQuery, receitaPerformanceParams);
+          const receitaPerformance = parseFloat(receitaPerformanceResult.rows[0].receita_total) || 0;
+          // Somar receita de performance (pode ter dados adicionais)
+          receitaTotal += receitaPerformance;
+        } catch (e) {
+          // Tabela pode não existir, continuar
+          console.log('⚠️ Tabela promoter_performance não encontrada');
+        }
+        
+        res.json({
+          success: true,
+          statistics: {
+            total_promoters: totalPromoters,
+            active_promoters: activePromoters,
+            total_convidados: totalConvidados,
+            receita_total: receitaTotal
+          }
+        });
+        
+      } catch (error) {
+        console.error('❌ Erro ao buscar estatísticas de promoters:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Erro ao buscar estatísticas de promoters',
+          details: error.message
+        });
+      }
+    }
+  );
+
+  /**
    * @route   GET /api/v1/promoters/:id/detalhes
    * @desc    Retorna detalhes completos de um promoter específico
    * @access  Private (Admin, Gerente)
