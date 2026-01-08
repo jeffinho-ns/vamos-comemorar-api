@@ -365,11 +365,15 @@ module.exports = (pool) => {
       // Se establishment_id foi fornecido, filtrar por ele
       if (establishment_id) {
         const establishmentIdNumber = typeof establishment_id === 'string' ? parseInt(establishment_id) : establishment_id;
-        console.log('🔍 Filtrando reservas por establishment_id:', establishmentIdNumber);
+        console.log('🔍 [GET /birthday-reservations] Filtrando reservas por establishment_id:', {
+          original: establishment_id,
+          converted: establishmentIdNumber,
+          type: typeof establishmentIdNumber
+        });
         query += ` WHERE br.id_casa_evento = $1`;
         params.push(establishmentIdNumber);
       } else {
-        console.log('🔍 Buscando todas as reservas (sem filtro de estabelecimento)');
+        console.log('🔍 [GET /birthday-reservations] Buscando todas as reservas (sem filtro de estabelecimento)');
       }
       
       query += ` ORDER BY br.created_at DESC`;
