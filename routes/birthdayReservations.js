@@ -306,53 +306,58 @@ module.exports = (pool) => {
           restaurantReservationId = restaurantResult.rows[0].id;
           console.log('✅ Reserva de restaurante criada automaticamente com ID:', restaurantReservationId);
 
-          // Criar lista de convidados automaticamente
+          // Criar lista de convidados automaticamente vinculada à reserva de restaurante
           try {
             console.log('📝 Criando lista de convidados automaticamente...');
+            
+            // Gerar token único para a lista
+            const { customAlphabet } = await import('nanoid');
+            const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 24);
+            const shareableLinkToken = nanoid();
+            
+            // Data de expiração: fim do dia da reserva
+            const expiresAt = `${reservationDate} 23:59:59`;
+            
+            // Inserir na tabela guest_lists (correta) vinculada à reserva de restaurante
             const guestListInsert = `
-              INSERT INTO reservas (
-                user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+              INSERT INTO guest_lists (
+                reservation_id, reservation_type, event_type, shareable_link_token, expires_at
+              ) VALUES ($1, $2, $3, $4, $5)
               RETURNING id
             `;
             
-            const { customAlphabet } = await import('nanoid');
-            const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
-            const codigoConvite = nanoid();
-            
             const guestListParams = [
-              user_id || 1,
-              'ANIVERSARIO',
-              aniversariante_nome || 'Aniversariante',
-              reservationDate,
-              null, // evento_id
-              quantidade_convidados || 0,
-              codigoConvite
+              restaurantReservationId, // ID da reserva de restaurante criada
+              'restaurant', // Tipo de reserva
+              'aniversario', // Tipo de evento
+              shareableLinkToken,
+              expiresAt
             ];
 
             const guestListResult = await client.query(guestListInsert, guestListParams);
             const guestListId = guestListResult.rows[0].id;
             console.log('✅ Lista de convidados criada automaticamente com ID:', guestListId);
+            console.log('   Vinculada à reserva de restaurante ID:', restaurantReservationId);
+            console.log('   Token:', shareableLinkToken);
 
-            // Criar convidado inicial (aniversariante)
-            // Nota: geo_checkin_status pode ser NULL ou um dos valores válidos do enum
-            // Valores válidos: 'CONFIRMADO_LOCAL', 'INVALIDO' ou NULL
-            const convidadoInsert = `
-              INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status)
-              VALUES ($1, $2, $3, $4, $5)
+            // Criar convidado inicial (aniversariante) na tabela guests
+            const guestInsert = `
+              INSERT INTO guests (guest_list_id, name, whatsapp)
+              VALUES ($1, $2, $3)
+              RETURNING id
             `;
-            const qrCodeData = `reserva:${guestListId}:convidado:${(aniversariante_nome || '').replace(/\s/g, '')}:${Date.now()}`;
-            await client.query(convidadoInsert, [
+            
+            const guestResult = await client.query(guestInsert, [
               guestListId,
               aniversariante_nome || 'Aniversariante',
-              qrCodeData,
-              'PENDENTE',
-              null // Usar NULL em vez de 'NAO_APLICAVEL' que não é um valor válido do enum
+              whatsapp || null
             ]);
-            console.log('✅ Convidado inicial (aniversariante) criado na lista');
+            
+            console.log('✅ Convidado inicial (aniversariante) criado na lista com ID:', guestResult.rows[0].id);
 
           } catch (guestListError) {
             console.warn('⚠️ Erro ao criar lista de convidados (não crítico):', guestListError);
+            console.warn('   Stack:', guestListError.stack);
             // Não falha a transação se a lista não for criada
           }
 
