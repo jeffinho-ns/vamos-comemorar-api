@@ -403,14 +403,14 @@ router.post('/camarote', auth, async (req, res) => {
 
         // Criar o registro na tabela 'reservas_camarote'
         console.log('📝 Inserindo na tabela reservas_camarote...');
-        // Removido id_evento pois não existe na tabela PostgreSQL de produção
+        // Removido id_reserva e id_evento pois não são necessários ou não existem na tabela PostgreSQL de produção
         const sqlCamarote = `
             INSERT INTO reservas_camarote (
-                id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+                id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                 valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
                 solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id
         `;
         
         // Preparar data_reserva e data_expiracao
@@ -432,7 +432,6 @@ router.post('/camarote', auth, async (req, res) => {
         }
         
         const camaroteParams = [
-            null, // id_reserva (pode ser null, não é obrigatório)
             id_camarote, 
             nome_cliente, 
             telefone || null, 
