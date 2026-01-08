@@ -551,7 +551,18 @@ module.exports = (pool) => {
             }
           } catch (userError) {
             console.error('⚠️ Erro ao criar/atualizar usuário para promoter:', userError.message);
-            // Continuar sem user_id se houver erro na criação do usuário
+            // Se o erro abortou a transação, fazer rollback e retornar erro
+            if (userError.code === '25P02') {
+              await client.query('ROLLBACK').catch(rollbackError => {
+                console.error('❌ Erro ao fazer rollback:', rollbackError);
+              });
+              return res.status(500).json({
+                success: false,
+                error: 'Erro ao criar usuário para o promoter',
+                details: userError.message
+              });
+            }
+            // Continuar sem user_id se houver erro na criação do usuário (não crítico)
             userId = null;
           }
         } else {
@@ -666,6 +677,17 @@ module.exports = (pool) => {
             constraint: condicoesError.constraint,
             column: condicoesError.column
           });
+          // Se o erro abortou a transação, fazer rollback e retornar erro
+          if (condicoesError.code === '25P02') {
+            await client.query('ROLLBACK').catch(rollbackError => {
+              console.error('❌ Erro ao fazer rollback:', rollbackError);
+            });
+            return res.status(500).json({
+              success: false,
+              error: 'Erro ao criar condições do promoter',
+              details: condicoesError.message
+            });
+          }
           // Continuar mesmo se houver erro nas condições (não é crítico)
           console.warn('⚠️ Continuando sem condições, promoter será criado sem elas');
         }
