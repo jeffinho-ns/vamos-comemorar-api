@@ -134,6 +134,15 @@ module.exports = (pool) => {
       // Garantir que placeId seja um número inteiro
       const placeIdNumber = typeof placeId === 'string' ? parseInt(placeId) : (placeId || 1);
       
+      console.log('🔍 [POST /birthday-reservations] Valores de placeId:', {
+        id_casa_evento_recebido: id_casa_evento,
+        id_casa_evento_tipo: typeof id_casa_evento,
+        placeId_original: placeId,
+        placeId_tipo: typeof placeId,
+        placeIdNumber_final: placeIdNumber,
+        placeIdNumber_tipo: typeof placeIdNumber
+      });
+      
       const insertParams = [
         user_id || 1,
         aniversariante_nome || '',
