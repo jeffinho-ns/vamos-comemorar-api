@@ -156,8 +156,14 @@ module.exports = (pool) => {
           totalConvidadosParams.push(establishment_id);
         }
         
-        const totalConvidadosResult = await pool.query(totalConvidadosQuery, totalConvidadosParams);
-        const totalConvidados = parseInt(totalConvidadosResult.rows[0].total) || 0;
+        let totalConvidados = 0;
+        try {
+          const totalConvidadosResult = await pool.query(totalConvidadosQuery, totalConvidadosParams);
+          totalConvidados = parseInt(totalConvidadosResult.rows[0].total) || 0;
+        } catch (e) {
+          console.log('⚠️ Erro ao buscar total de convidados (não crítico):', e.message);
+          // Continuar com totalConvidados = 0
+        }
         
         // Receita total real - buscar de múltiplas fontes
         // 1. Receita de entrada_valor dos check-ins de convidados de promoters (listas_convidados)
