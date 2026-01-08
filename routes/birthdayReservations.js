@@ -69,17 +69,33 @@ module.exports = (pool) => {
         return res.status(400).json({ message: 'Estabelecimento é obrigatório. Por favor, selecione um estabelecimento.' });
       }
 
-      let placeId = id_casa_evento;
-      if (typeof id_casa_evento === 'string' && isNaN(parseInt(id_casa_evento))) {
-         // PostgreSQL usa ILIKE para busca case-insensitive
-         const placeResult = await client.query('SELECT id FROM places WHERE name ILIKE $1', [id_casa_evento]);
-         if (placeResult.rows.length > 0) {
-           placeId = placeResult.rows[0].id;
-         } else {
-           await client.query('ROLLBACK');
-           client.release();
-           return res.status(404).json({ message: 'Bar selecionado não encontrado.' });
-         }
+      // Converter id_casa_evento para número desde o início
+      let placeId = null;
+      if (typeof id_casa_evento === 'string') {
+        // Se for string numérica, converter para número
+        if (!isNaN(parseInt(id_casa_evento))) {
+          placeId = parseInt(id_casa_evento);
+        } else {
+          // Se for string não numérica, buscar pelo nome
+          const placeResult = await client.query('SELECT id FROM places WHERE name ILIKE $1', [id_casa_evento]);
+          if (placeResult.rows.length > 0) {
+            placeId = placeResult.rows[0].id;
+          } else {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(404).json({ message: 'Bar selecionado não encontrado.' });
+          }
+        }
+      } else {
+        // Se já for número, usar diretamente
+        placeId = id_casa_evento;
+      }
+      
+      // Garantir que placeId seja um número inteiro válido
+      if (!placeId || isNaN(placeId) || placeId <= 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ message: `ID de estabelecimento inválido: ${id_casa_evento}` });
       }
 
       // Validar que o estabelecimento existe no banco
@@ -89,6 +105,13 @@ module.exports = (pool) => {
         client.release();
         return res.status(404).json({ message: `Estabelecimento com ID ${placeId} não encontrado.` });
       }
+
+      console.log('✅ [POST /birthday-reservations] Estabelecimento validado:', {
+        id_casa_evento_recebido: id_casa_evento,
+        placeId_final: placeId,
+        placeId_tipo: typeof placeId,
+        estabelecimento_nome: placeCheck.rows[0].name
+      });
 
       // Verificar se os campos area_id e reservation_time existem na tabela antes de inserir
       // Por enquanto, vamos tentar inserir sem esses campos se a tabela não os tiver
@@ -131,24 +154,13 @@ module.exports = (pool) => {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
       `;
 
-      // Garantir que placeId seja um número inteiro
-      const placeIdNumber = typeof placeId === 'string' ? parseInt(placeId) : (placeId || 1);
-      
-      console.log('🔍 [POST /birthday-reservations] Valores de placeId:', {
-        id_casa_evento_recebido: id_casa_evento,
-        id_casa_evento_tipo: typeof id_casa_evento,
-        placeId_original: placeId,
-        placeId_tipo: typeof placeId,
-        placeIdNumber_final: placeIdNumber,
-        placeIdNumber_tipo: typeof placeIdNumber
-      });
-      
+      // placeId já está convertido para número acima, usar diretamente
       const insertParams = [
         user_id || 1,
         aniversariante_nome || '',
         data_aniversario || new Date().toISOString().split('T')[0],
         quantidade_convidados || 0,
-        placeIdNumber, // Usar o número convertido
+        placeId, // Já é um número inteiro válido
         decoracao_tipo || '',
         painel_personalizado || 0,
         painel_estoque_imagem_url || null,
@@ -199,22 +211,22 @@ module.exports = (pool) => {
           id_casa_evento_tipo_coluna: row.tipo_coluna,
           id_casa_evento_valor_bruto: row.id_casa_evento,
           aniversariante_nome: row.aniversariante_nome,
-          esperado_id_casa_evento: placeIdNumber,
-          esperado_tipo: typeof placeIdNumber,
-          valores_iguais: String(row.id_casa_evento) === String(placeIdNumber),
-          valores_iguais_com_cast: Number(row.id_casa_evento) === Number(placeIdNumber)
+          esperado_id_casa_evento: placeId,
+          esperado_tipo: typeof placeId,
+          valores_iguais: String(row.id_casa_evento) === String(placeId),
+          valores_iguais_com_cast: Number(row.id_casa_evento) === Number(placeId)
         });
         
         // Testar se a reserva pode ser encontrada com a query de busca (sem CAST)
-        const testQueryResult1 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
+        const testQueryResult1 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento = $1 AND id = $2', [placeId, birthdayReservationId]);
         console.log('🔍 Teste de busca (sem CAST): Reserva encontrada?', testQueryResult1.rows.length > 0);
         
         // Testar se a reserva pode ser encontrada com a query de busca (com CAST)
-        const testQueryResult2 = await client.query('SELECT id FROM birthday_reservations WHERE CAST(id_casa_evento AS INTEGER) = $1 AND id = $2', [placeIdNumber, birthdayReservationId]);
+        const testQueryResult2 = await client.query('SELECT id FROM birthday_reservations WHERE CAST(id_casa_evento AS INTEGER) = $1 AND id = $2', [placeId, birthdayReservationId]);
         console.log('🔍 Teste de busca (com CAST): Reserva encontrada?', testQueryResult2.rows.length > 0);
         
         // Testar com string
-        const testQueryResult3 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento::text = $1 AND id = $2', [String(placeIdNumber), birthdayReservationId]);
+        const testQueryResult3 = await client.query('SELECT id FROM birthday_reservations WHERE id_casa_evento::text = $1 AND id = $2', [String(placeId), birthdayReservationId]);
         console.log('🔍 Teste de busca (como string): Reserva encontrada?', testQueryResult3.rows.length > 0);
       }
 
