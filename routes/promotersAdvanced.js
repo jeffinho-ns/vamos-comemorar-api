@@ -432,6 +432,9 @@ module.exports = (pool) => {
         
         // Validar dados obrigatórios
         if (!nome || !email) {
+          await client.query('ROLLBACK').catch(rollbackError => {
+            console.error('❌ Erro ao fazer rollback:', rollbackError);
+          });
           return res.status(400).json({
             success: false,
             error: 'Nome e email são obrigatórios'
@@ -445,6 +448,9 @@ module.exports = (pool) => {
         );
         
         if (existingEmailResult.rows.length > 0) {
+          await client.query('ROLLBACK').catch(rollbackError => {
+            console.error('❌ Erro ao fazer rollback:', rollbackError);
+          });
           return res.status(400).json({
             success: false,
             error: 'Email já está em uso por outro promoter'
@@ -698,6 +704,17 @@ module.exports = (pool) => {
             constraint: permissoesError.constraint,
             column: permissoesError.column
           });
+          // Se o erro abortou a transação, fazer rollback e retornar erro
+          if (permissoesError.code === '25P02') {
+            await client.query('ROLLBACK').catch(rollbackError => {
+              console.error('❌ Erro ao fazer rollback:', rollbackError);
+            });
+            return res.status(500).json({
+              success: false,
+              error: 'Erro ao criar permissões do promoter',
+              details: permissoesError.message
+            });
+          }
           // Continuar mesmo se houver erro nas permissões (não é crítico)
           console.warn('⚠️ Continuando sem permissões, promoter será criado sem elas');
         }
