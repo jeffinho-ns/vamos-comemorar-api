@@ -175,6 +175,15 @@ module.exports = (pool) => {
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
       let restaurantReservationId = null;
+      console.log('🔍 Verificando condições para criar reserva de restaurante:', {
+        area_id,
+        reservation_time,
+        data_aniversario,
+        hasAreaId: !!area_id,
+        hasReservationTime: !!reservation_time,
+        hasDataAniversario: !!data_aniversario
+      });
+      
       if (area_id && reservation_time && data_aniversario) {
         try {
           console.log('🎂 Criando reserva de restaurante automaticamente...');
@@ -182,6 +191,13 @@ module.exports = (pool) => {
           const reservationTime = reservation_time.includes(':') && reservation_time.split(':').length === 2 
             ? `${reservation_time}:00` 
             : reservation_time;
+          
+          console.log('📅 Dados da reserva de restaurante:', {
+            reservationDate,
+            reservationTime,
+            area_id,
+            placeId
+          });
           
           const restaurantReservationData = {
             client_name: aniversariante_nome || '',
@@ -191,7 +207,7 @@ module.exports = (pool) => {
             reservation_time: reservationTime,
             number_of_people: quantidade_convidados || 0,
             area_id: area_id,
-            status: 'NOVA',
+            status: 'NOVA', // Status padrão para novas reservas
             origin: 'SITE',
             notes: `🎂 Reserva de Aniversário - ${decoracao_tipo || 'Decoração'}. ID Reserva Aniversário: ${birthdayReservationId}`,
             establishment_id: placeId,
@@ -282,6 +298,7 @@ module.exports = (pool) => {
         }
       } else {
         console.log('⚠️ Área e/ou horário não fornecidos, pulando criação de reserva de restaurante');
+        console.log('⚠️ Valores recebidos:', { area_id, reservation_time, data_aniversario });
       }
 
       await client.query('COMMIT');
