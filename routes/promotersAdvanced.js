@@ -532,9 +532,11 @@ module.exports = (pool) => {
             );
             
             // Verificar se a coluna cpf existe ANTES de qualquer operação
+            // Tentar múltiplas formas de verificação
             let cpfColumnExists = false;
             try {
-              const cpfCheckResult = await client.query(`
+              // Tentativa 1: Verificar no schema public
+              let cpfCheckResult = await client.query(`
                 SELECT column_name, is_nullable
                 FROM information_schema.columns 
                 WHERE table_schema = 'public'
@@ -542,15 +544,44 @@ module.exports = (pool) => {
                 AND column_name = 'cpf'
                 LIMIT 1
               `);
-              cpfColumnExists = cpfCheckResult.rows.length > 0;
-              console.log('ℹ️ Verificação da coluna cpf:', cpfColumnExists ? 'existe' : 'não existe');
-              if (cpfColumnExists) {
+              
+              if (cpfCheckResult.rows.length === 0) {
+                // Tentativa 2: Verificar sem especificar schema (pode estar em outro schema)
+                cpfCheckResult = await client.query(`
+                  SELECT column_name, is_nullable
+                  FROM information_schema.columns 
+                  WHERE table_name = 'users' 
+                  AND column_name = 'cpf'
+                  LIMIT 1
+                `);
+              }
+              
+              if (cpfCheckResult.rows.length === 0) {
+                // Tentativa 3: Tentar fazer um SELECT direto para ver se a coluna existe
+                try {
+                  await client.query('SELECT cpf FROM users LIMIT 0');
+                  cpfColumnExists = true;
+                  console.log('ℹ️ Coluna cpf detectada via SELECT direto');
+                } catch (selectError) {
+                  if (selectError.message.includes('column') && selectError.message.includes('does not exist')) {
+                    cpfColumnExists = false;
+                    console.log('ℹ️ Coluna cpf não existe (confirmado via SELECT)');
+                  } else {
+                    // Se der outro erro, assumir que existe para segurança
+                    cpfColumnExists = true;
+                    console.log('⚠️ Erro ao verificar coluna cpf via SELECT, assumindo que existe:', selectError.message);
+                  }
+                }
+              } else {
+                cpfColumnExists = true;
+                console.log('ℹ️ Verificação da coluna cpf: existe');
                 console.log('ℹ️ Coluna cpf é nullable?', cpfCheckResult.rows[0].is_nullable);
               }
             } catch (e) {
               console.warn('⚠️ Não foi possível verificar se a coluna cpf existe:', e.message);
               // Se não conseguir verificar, assumir que existe para segurança
-              cpfColumnExists = true; // Assumir que existe para evitar erro
+              cpfColumnExists = true;
+              console.log('⚠️ Assumindo que coluna cpf existe para evitar erro');
             }
             
             if (existingUserResult.rows.length > 0) {
