@@ -534,42 +534,76 @@ module.exports = (pool) => {
             if (existingUserResult.rows.length > 0) {
               // Se o usuário já existe, atualizar para role promoter e senha padrão
               userId = existingUserResult.rows[0].id;
-              await client.query(
-                `UPDATE users SET 
-                  name = $1, 
-                  role = 'promoter', 
-                  password = $2, 
-                  telefone = $3
-                WHERE id = $4`,
-                [nome, hashedPassword, telefone || null, userId]
-              );
+              
+              // Verificar se a coluna cpf existe e é obrigatória
+              let updateQuery = `UPDATE users SET 
+                name = $1, 
+                role = 'promoter', 
+                password = $2, 
+                telefone = $3
+              WHERE id = $4`;
+              
+              await client.query(updateQuery, [nome, hashedPassword, telefone || null, userId]);
               console.log('✅ Usuário existente atualizado para promoter com ID:', userId);
             } else {
+              // Verificar se a coluna cpf existe e é obrigatória
+              let cpfColumnExists = false;
+              try {
+                const cpfCheckResult = await client.query(`
+                  SELECT column_name 
+                  FROM information_schema.columns 
+                  WHERE table_name = 'users' 
+                  AND column_name = 'cpf'
+                  LIMIT 1
+                `);
+                cpfColumnExists = cpfCheckResult.rows.length > 0;
+              } catch (e) {
+                // Se não conseguir verificar, assumir que não existe
+                cpfColumnExists = false;
+              }
+              
+              // Gerar CPF temporário se necessário (formato: 00000000000)
+              const tempCpf = cpfColumnExists ? '00000000000' : null;
+              
               // Criar novo usuário
-              const userResult = await client.query(
-                `INSERT INTO users (name, email, password, role, telefone)
+              let insertQuery;
+              let insertParams;
+              
+              if (cpfColumnExists) {
+                insertQuery = `INSERT INTO users (name, email, password, role, telefone, cpf)
+                 VALUES ($1, $2, $3, 'promoter', $4, $5)
+                 RETURNING id`;
+                insertParams = [nome, email, hashedPassword, telefone || null, tempCpf];
+              } else {
+                insertQuery = `INSERT INTO users (name, email, password, role, telefone)
                  VALUES ($1, $2, $3, 'promoter', $4)
-                 RETURNING id`,
-                [nome, email, hashedPassword, telefone || null]
-              );
+                 RETURNING id`;
+                insertParams = [nome, email, hashedPassword, telefone || null];
+              }
+              
+              const userResult = await client.query(insertQuery, insertParams);
               userId = userResult.rows[0].id;
               console.log('✅ Usuário criado automaticamente com ID:', userId);
             }
           } catch (userError) {
             console.error('⚠️ Erro ao criar/atualizar usuário para promoter:', userError.message);
-            // Se o erro abortou a transação, fazer rollback e retornar erro
-            if (userError.code === '25P02') {
-              await client.query('ROLLBACK').catch(rollbackError => {
-                console.error('❌ Erro ao fazer rollback:', rollbackError);
-              });
-              return res.status(500).json({
-                success: false,
-                error: 'Erro ao criar usuário para o promoter',
-                details: userError.message
-              });
-            }
-            // Continuar sem user_id se houver erro na criação do usuário (não crítico)
-            userId = null;
+            console.error('⚠️ Detalhes do erro:', {
+              code: userError.code,
+              constraint: userError.constraint,
+              column: userError.column
+            });
+            // Se houver qualquer erro, fazer rollback e retornar erro
+            await client.query('ROLLBACK').catch(rollbackError => {
+              console.error('❌ Erro ao fazer rollback:', rollbackError);
+            });
+            return res.status(500).json({
+              success: false,
+              error: 'Erro ao criar usuário para o promoter',
+              details: userError.message,
+              code: userError.code,
+              constraint: userError.constraint,
+              column: userError.column
+            });
           }
         } else {
           console.log('ℹ️ Coluna user_id não existe na tabela promoters, pulando criação de usuário');
