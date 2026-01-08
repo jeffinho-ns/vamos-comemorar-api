@@ -88,6 +88,8 @@ module.exports = (pool) => {
         return res.status(404).json({ message: `Estabelecimento com ID ${placeId} não encontrado.` });
       }
 
+      // Verificar se os campos area_id e reservation_time existem na tabela antes de inserir
+      // Por enquanto, vamos tentar inserir sem esses campos se a tabela não os tiver
       const sqlInsert = `
         INSERT INTO birthday_reservations (
           user_id,
@@ -175,16 +177,25 @@ module.exports = (pool) => {
 
       // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
       let restaurantReservationId = null;
+      
+      // Converter area_id para número se necessário
+      const areaIdNumber = area_id ? (typeof area_id === 'string' ? parseInt(area_id) : area_id) : null;
+      const hasValidAreaId = areaIdNumber && !isNaN(areaIdNumber) && areaIdNumber > 0;
+      const hasValidReservationTime = reservation_time && reservation_time.trim() !== '';
+      const hasValidDataAniversario = data_aniversario && data_aniversario.trim() !== '';
+      
       console.log('🔍 Verificando condições para criar reserva de restaurante:', {
-        area_id,
-        reservation_time,
-        data_aniversario,
-        hasAreaId: !!area_id,
-        hasReservationTime: !!reservation_time,
-        hasDataAniversario: !!data_aniversario
+        area_id: area_id,
+        areaIdNumber: areaIdNumber,
+        reservation_time: reservation_time,
+        data_aniversario: data_aniversario,
+        hasValidAreaId: hasValidAreaId,
+        hasValidReservationTime: hasValidReservationTime,
+        hasValidDataAniversario: hasValidDataAniversario,
+        allConditionsMet: hasValidAreaId && hasValidReservationTime && hasValidDataAniversario
       });
       
-      if (area_id && reservation_time && data_aniversario) {
+      if (hasValidAreaId && hasValidReservationTime && hasValidDataAniversario) {
         try {
           console.log('🎂 Criando reserva de restaurante automaticamente...');
           const reservationDate = data_aniversario.includes('T') ? data_aniversario.split('T')[0] : data_aniversario;
@@ -206,7 +217,7 @@ module.exports = (pool) => {
             reservation_date: reservationDate,
             reservation_time: reservationTime,
             number_of_people: quantidade_convidados || 0,
-            area_id: area_id,
+            area_id: areaIdNumber, // Usar o número convertido
             status: 'NOVA', // Status padrão para novas reservas
             origin: 'SITE',
             notes: `🎂 Reserva de Aniversário - ${decoracao_tipo || 'Decoração'}. ID Reserva Aniversário: ${birthdayReservationId}`,
@@ -298,7 +309,15 @@ module.exports = (pool) => {
         }
       } else {
         console.log('⚠️ Área e/ou horário não fornecidos, pulando criação de reserva de restaurante');
-        console.log('⚠️ Valores recebidos:', { area_id, reservation_time, data_aniversario });
+        console.log('⚠️ Valores recebidos:', { 
+          area_id: area_id, 
+          areaIdNumber: areaIdNumber,
+          reservation_time: reservation_time, 
+          data_aniversario: data_aniversario,
+          hasValidAreaId: hasValidAreaId,
+          hasValidReservationTime: hasValidReservationTime,
+          hasValidDataAniversario: hasValidDataAniversario
+        });
       }
 
       await client.query('COMMIT');
@@ -343,8 +362,12 @@ module.exports = (pool) => {
       
       // Se establishment_id foi fornecido, filtrar por ele
       if (establishment_id) {
+        const establishmentIdNumber = typeof establishment_id === 'string' ? parseInt(establishment_id) : establishment_id;
+        console.log('🔍 Filtrando reservas por establishment_id:', establishmentIdNumber);
         query += ` WHERE br.id_casa_evento = $1`;
-        params.push(establishment_id);
+        params.push(establishmentIdNumber);
+      } else {
+        console.log('🔍 Buscando todas as reservas (sem filtro de estabelecimento)');
       }
       
       query += ` ORDER BY br.created_at DESC`;
