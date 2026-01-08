@@ -47,3 +47,4 @@ WHERE
 --         OR LOWER(COALESCE(lr.client_name, rr.client_name)) LIKE '%lais carretero%'
 -- );
 
+

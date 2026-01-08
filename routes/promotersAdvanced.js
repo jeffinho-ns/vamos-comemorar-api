@@ -663,6 +663,127 @@ module.exports = (pool) => {
   );
 
   /**
+   * @route   DELETE /api/v1/promoters/:id
+   * @desc    Exclui um promoter
+   * @access  Private (Admin, Gerente)
+   */
+  router.delete(
+    '/:id',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    async (req, res) => {
+      const client = await pool.connect();
+      
+      try {
+        await client.query('BEGIN');
+        
+        const { id } = req.params;
+        
+        // Verificar se promoter existe
+        const promotersResult = await client.query(
+          'SELECT promoter_id, nome FROM promoters WHERE promoter_id = $1',
+          [id]
+        );
+        
+        if (promotersResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({
+            success: false,
+            error: 'Promoter não encontrado'
+          });
+        }
+        
+        const promoter = promotersResult.rows[0];
+        console.log(`🗑️ Excluindo promoter: ${promoter.nome} (ID: ${id})`);
+        
+        // Verificar se há relacionamentos que impedem a exclusão
+        // Verificar listas ativas
+        const listasResult = await client.query(
+          'SELECT COUNT(*) as total FROM listas WHERE promoter_responsavel_id = $1',
+          [id]
+        );
+        
+        if (parseInt(listasResult.rows[0].total) > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: 'Não é possível excluir promoter com listas associadas. Remova as listas primeiro.'
+          });
+        }
+        
+        // Excluir condições do promoter
+        await client.query(
+          'DELETE FROM promoter_condicoes WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir permissões do promoter
+        await client.query(
+          'DELETE FROM promoter_permissoes WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir relacionamentos promoter-eventos
+        await client.query(
+          'DELETE FROM promoter_eventos WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir convidados do promoter
+        await client.query(
+          'DELETE FROM promoter_convidados WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir performance do promoter
+        await client.query(
+          'DELETE FROM promoter_performance WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir alertas do promoter
+        await client.query(
+          'DELETE FROM promoter_alertas WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir convites do promoter
+        await client.query(
+          'DELETE FROM promoter_convites WHERE promoter_id = $1',
+          [id]
+        );
+        
+        // Excluir o promoter
+        await client.query(
+          'DELETE FROM promoters WHERE promoter_id = $1',
+          [id]
+        );
+        
+        await client.query('COMMIT');
+        console.log(`✅ Promoter ${promoter.nome} excluído com sucesso`);
+        
+        res.json({
+          success: true,
+          message: 'Promoter excluído com sucesso'
+        });
+        
+      } catch (error) {
+        await client.query('ROLLBACK').catch(rollbackError => {
+          console.error('❌ Erro ao fazer rollback:', rollbackError);
+        });
+        console.error('❌ Erro ao excluir promoter:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Erro ao excluir promoter',
+          details: error.message
+        });
+      } finally {
+        client.release();
+      }
+    }
+  );
+
+  /**
    * @route   PUT /api/v1/promoters/:id/condicoes
    * @desc    Atualiza condições de um promoter
    * @access  Private (Admin, Gerente)
@@ -1141,6 +1262,121 @@ module.exports = (pool) => {
           success: false,
           error: 'Erro ao marcar alerta como lido'
         });
+      }
+    }
+  );
+
+  /**
+   * @route   PUT /api/v1/promoters/:id/reset-password
+   * @desc    Reseta a senha de um promoter para o padrão
+   * @access  Private (Admin, Gerente)
+   */
+  router.put(
+    '/:id/reset-password',
+    authenticateToken,
+    authorizeRoles('admin', 'gerente'),
+    async (req, res) => {
+      const client = await pool.connect();
+      
+      try {
+        await client.query('BEGIN');
+        
+        const { id } = req.params;
+        const { password } = req.body; // Senha opcional, padrão: Promoter@2025
+        
+        // Verificar se promoter existe
+        const promotersResult = await client.query(
+          'SELECT promoter_id, nome, email FROM promoters WHERE promoter_id = $1',
+          [id]
+        );
+        
+        if (promotersResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({
+            success: false,
+            error: 'Promoter não encontrado'
+          });
+        }
+        
+        const promoter = promotersResult.rows[0];
+        const newPassword = password || 'Promoter@2025';
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        
+        // Verificar se existe usuário com este email
+        const userResult = await client.query(
+          'SELECT id FROM users WHERE email = $1',
+          [promoter.email]
+        );
+        
+        if (userResult.rows.length === 0) {
+          // Criar novo usuário
+          const tempCpf = `00000000${String(promoter.promoter_id).padStart(3, '0')}`;
+          const newUserResult = await client.query(
+            `INSERT INTO users (name, email, password, role, cpf)
+             VALUES ($1, $2, $3, 'promoter', $4)
+             RETURNING id`,
+            [promoter.nome, promoter.email, hashedPassword, tempCpf]
+          );
+          
+          const userId = newUserResult.rows[0].id;
+          
+          // Vincular user_id ao promoter se a coluna existir
+          try {
+            const columnCheck = await client.query(
+              `SELECT column_name 
+               FROM information_schema.columns 
+               WHERE table_name = 'promoters' 
+               AND column_name = 'user_id'
+               LIMIT 1`
+            );
+            
+            if (columnCheck.rows.length > 0) {
+              await client.query(
+                'UPDATE promoters SET user_id = $1 WHERE promoter_id = $2',
+                [userId, promoter.promoter_id]
+              );
+            }
+          } catch (e) {
+            // Coluna não existe, continuar
+          }
+          
+          await client.query('COMMIT');
+          
+          return res.json({
+            success: true,
+            message: 'Usuário criado e senha definida com sucesso',
+            user_id: userId
+          });
+        } else {
+          // Atualizar senha do usuário existente
+          const userId = userResult.rows[0].id;
+          
+          await client.query(
+            'UPDATE users SET password = $1, role = $2 WHERE id = $3',
+            [hashedPassword, 'promoter', userId]
+          );
+          
+          await client.query('COMMIT');
+          
+          return res.json({
+            success: true,
+            message: 'Senha resetada com sucesso',
+            user_id: userId
+          });
+        }
+        
+      } catch (error) {
+        await client.query('ROLLBACK').catch(rollbackError => {
+          console.error('❌ Erro ao fazer rollback:', rollbackError);
+        });
+        console.error('❌ Erro ao resetar senha do promoter:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Erro ao resetar senha do promoter',
+          details: error.message
+        });
+      } finally {
+        client.release();
       }
     }
   );
