@@ -11,6 +11,8 @@ module.exports = (pool) => {
    */
   router.post('/', async (req, res) => {
     console.log('📥 Dados recebidos na API:', JSON.stringify(req.body, null, 2));
+    console.log('📥 area_id recebido:', req.body.area_id, 'tipo:', typeof req.body.area_id);
+    console.log('📥 reservation_time recebido:', req.body.reservation_time, 'tipo:', typeof req.body.reservation_time);
     
     const {
       user_id,
