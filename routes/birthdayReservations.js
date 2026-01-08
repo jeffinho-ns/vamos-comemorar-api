@@ -378,7 +378,19 @@ module.exports = (pool) => {
       
       query += ` ORDER BY br.created_at DESC`;
       
+      console.log('📋 [GET /birthday-reservations] Query SQL:', query);
+      console.log('📋 [GET /birthday-reservations] Parâmetros:', params);
+      
       const result = await pool.query(query, params);
+      
+      console.log(`✅ [GET /birthday-reservations] ${result.rows.length} reservas encontradas`);
+      if (result.rows.length > 0) {
+        console.log('📋 [GET /birthday-reservations] Primeira reserva:', {
+          id: result.rows[0].id,
+          id_casa_evento: result.rows[0].id_casa_evento,
+          aniversariante_nome: result.rows[0].aniversariante_nome
+        });
+      }
 
       res.json(result.rows);
 
