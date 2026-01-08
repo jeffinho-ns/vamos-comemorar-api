@@ -365,86 +365,156 @@ router.post('/camarote', auth, async (req, res) => {
         id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
         maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
         valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias, solicitado_por, observacao,
-        status_reserva, tag, hora_reserva, data_reserva, lista_convidados // Adicionado data_reserva
+        status_reserva, tag, hora_reserva, data_reserva, data_expiracao, lista_convidados
     } = req.body;
     const userId = req.user.id;
 
     // Validação básica
     if (!id_camarote || !nome_cliente) {
         console.error('❌ Dados obrigatórios faltando:', { id_camarote, nome_cliente });
-        return res.status(400).json({ error: 'id_camarote e nome_cliente são obrigatórios' });
+        return res.status(400).json({ 
+            success: false,
+            error: 'id_camarote e nome_cliente são obrigatórios' 
+        });
     }
 
-    const client = await pool.connect();
+    // Validar se o camarote existe
+    let client;
     try {
+        client = await pool.connect();
         console.log('🔗 Conexão com banco estabelecida');
         await client.query('BEGIN');
         console.log('🔄 Transação iniciada');
 
-        // 1. Criar a reserva na tabela 'reservas' (opcional, pode ser adaptado)
-        console.log('📝 Inserindo na tabela reservas...');
-        const sqlReserva = `
-            INSERT INTO reservas (user_id, evento_id, tipo_reserva, nome_lista, data_reserva, quantidade_convidados, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
-        `;
-        const reservaParams = [userId, id_evento, 'CAMAROTE', nome_cliente, new Date(), maximo_pessoas, 'ATIVA'];
-        console.log('📋 Parâmetros reserva:', reservaParams);
+        // Verificar se o camarote existe
+        const camaroteCheck = await client.query(
+            'SELECT id, id_place FROM camarotes WHERE id = $1',
+            [id_camarote]
+        );
         
-        const reservaResult = await client.query(sqlReserva, reservaParams);
-        const reservaId = reservaResult.rows[0].id;
-        console.log('✅ Reserva criada com ID:', reservaId);
+        if (camaroteCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(404).json({
+                success: false,
+                error: 'Camarote não encontrado'
+            });
+        }
 
-        // 2. Criar o registro na tabela 'reservas_camarote'
+        // Criar o registro na tabela 'reservas_camarote'
         console.log('📝 Inserindo na tabela reservas_camarote...');
         const sqlCamarote = `
             INSERT INTO reservas_camarote (
-                id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
+                id_reserva, id_camarote, id_evento, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                 valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
-                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING id
+                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) RETURNING id
         `;
+        
+        // Preparar data_reserva e data_expiracao
+        const dataReservaFinal = data_reserva 
+            ? (data_reserva.includes('T') ? data_reserva.split('T')[0] : data_reserva)
+            : new Date().toISOString().split('T')[0];
+        
+        const dataExpiracaoFinal = data_expiracao 
+            ? (data_expiracao.includes('T') ? data_expiracao.split('T')[0] : data_expiracao)
+            : null;
+        
+        // Converter hora_reserva para formato TIME se necessário
+        let horaReservaFinal = hora_reserva || null;
+        if (horaReservaFinal && !horaReservaFinal.includes(':')) {
+            horaReservaFinal = null;
+        }
+        if (horaReservaFinal && horaReservaFinal.length === 5) {
+            horaReservaFinal = horaReservaFinal + ':00';
+        }
+        
         const camaroteParams = [
-            reservaId, id_camarote, nome_cliente, telefone || null, cpf_cnpj || null, email || null, data_nascimento || null,
-            maximo_pessoas, entradas_unisex_free || 0, entradas_masculino_free || 0, entradas_feminino_free || 0,
-            valor_camarote || 0, valor_consumacao || 0, valor_pago || 0, valor_sinal || 0, prazo_sinal_dias || 0,
-            solicitado_por || null, observacao || null, status_reserva || 'pre-reservado', tag || null, hora_reserva || null,
-            data_reserva || new Date().toISOString().split('T')[0] // Adicionado data_reserva
+            null, // id_reserva (pode ser null, não é obrigatório)
+            id_camarote, 
+            id_evento || null, 
+            nome_cliente, 
+            telefone || null, 
+            cpf_cnpj || null, 
+            email || null, 
+            data_nascimento || null,
+            maximo_pessoas || 0, 
+            entradas_unisex_free || 0, 
+            entradas_masculino_free || 0, 
+            entradas_feminino_free || 0,
+            valor_camarote || 0, 
+            valor_consumacao || 0, 
+            valor_pago || 0, 
+            valor_sinal || 0, 
+            prazo_sinal_dias || 0,
+            solicitado_por || null, 
+            observacao || null, 
+            status_reserva || 'pre-reservado', 
+            tag || null, 
+            horaReservaFinal,
+            dataReservaFinal,
+            dataExpiracaoFinal
         ];
+        
         console.log('📋 Parâmetros camarote:', camaroteParams);
         
         const camaroteResult = await client.query(sqlCamarote, camaroteParams);
         const reservaCamaroteId = camaroteResult.rows[0].id;
         console.log('✅ Reserva de camarote criada com ID:', reservaCamaroteId);
 
-        // 3. Adicionar convidados à lista
-        if (lista_convidados && lista_convidados.length > 0) {
+        // Adicionar convidados à lista
+        if (lista_convidados && Array.isArray(lista_convidados) && lista_convidados.length > 0) {
             console.log('📝 Adicionando convidados:', lista_convidados.length);
             for (const convidado of lista_convidados) {
-                await client.query(
-                    'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)',
-                    [reservaCamaroteId, convidado.nome, convidado.email]
-                );
+                if (convidado.nome && convidado.nome.trim()) {
+                    await client.query(
+                        'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)',
+                        [reservaCamaroteId, convidado.nome.trim(), convidado.email || null]
+                    );
+                }
             }
             console.log('✅ Convidados adicionados');
         }
 
         await client.query('COMMIT');
         console.log('✅ Transação commitada com sucesso');
-        res.status(201).json({ message: 'Reserva de camarote criada com sucesso!', reservaId: reservaCamaroteId });
+        
+        // Buscar a reserva criada para retornar dados completos
+        const reservaCriada = await pool.query(
+            `SELECT rc.*, c.nome_camarote, c.capacidade_maxima 
+             FROM reservas_camarote rc 
+             LEFT JOIN camarotes c ON rc.id_camarote = c.id 
+             WHERE rc.id = $1`,
+            [reservaCamaroteId]
+        );
+        
+        res.status(201).json({ 
+            success: true,
+            message: 'Reserva de camarote criada com sucesso!', 
+            data: reservaCriada.rows[0],
+            reservaId: reservaCamaroteId 
+        });
 
     } catch (error) {
         console.error('❌ Erro ao criar reserva de camarote:', error);
         console.error('📋 Stack trace:', error.stack);
+        console.error('📋 Mensagem de erro:', error.message);
         
         if (client) {
-            await client.query('ROLLBACK');
-            console.log('🔄 Transação revertida');
+            try {
+                await client.query('ROLLBACK');
+                console.log('🔄 Transação revertida');
+            } catch (rollbackError) {
+                console.error('❌ Erro ao fazer rollback:', rollbackError);
+            }
         }
         
         res.status(500).json({ 
+            success: false,
             error: 'Erro ao criar reserva de camarote.',
-            details: error.message 
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     } finally {
         if (client) {
@@ -498,28 +568,60 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     const client = await pool.connect();
 
     try {
+        await client.query('BEGIN');
+        
         const allowedFields = [
-            'id_camarote', 'id_reserva', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
+            'id_camarote', 'id_reserva', 'id_evento', 'nome_cliente', 'telefone', 'cpf_cnpj', 'email', 
             'data_nascimento', 'data_reserva', 'data_expiracao', 'maximo_pessoas', 'entradas_unisex_free', 
             'entradas_masculino_free', 'entradas_feminino_free', 'valor_camarote', 
             'valor_consumacao', 'valor_pago', 'valor_sinal', 'prazo_sinal_dias', 
             'solicitado_por', 'observacao', 'status_reserva', 'tag', 'hora_reserva'
         ];
-        const updateFields = Object.keys(updates).filter(key => allowedFields.includes(key));
+        
+        // Filtrar apenas campos permitidos e que não são null/undefined
+        const updateFields = Object.keys(updates)
+            .filter(key => allowedFields.includes(key) && updates[key] !== undefined);
 
         console.log('📝 Campos permitidos:', allowedFields);
         console.log('📝 Campos a serem atualizados:', updateFields);
 
         if (updateFields.length === 0) {
-            console.log('❌ Nenhum campo válido encontrado');
-            return res.status(400).json({ message: 'Nenhum campo válido para atualização fornecido.' });
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(400).json({ 
+                success: false,
+                error: 'Nenhum campo válido para atualização fornecido.' 
+            });
         }
 
-        const setClause = updateFields.map((field, index) => `${field} = $${index + 1}`).join(', ');
-        const values = updateFields.map(field => updates[field]);
+        // Preparar valores, tratando datas e horas
+        const values = [];
+        const setClauseParts = [];
+        
+        updateFields.forEach((field, index) => {
+            let value = updates[field];
+            
+            // Tratar datas
+            if (field === 'data_reserva' || field === 'data_expiracao' || field === 'data_nascimento') {
+                if (value && typeof value === 'string') {
+                    value = value.includes('T') ? value.split('T')[0] : value;
+                }
+            }
+            
+            // Tratar hora_reserva
+            if (field === 'hora_reserva' && value) {
+                if (typeof value === 'string' && value.length === 5) {
+                    value = value + ':00';
+                }
+            }
+            
+            setClauseParts.push(`${field} = $${index + 1}`);
+            values.push(value);
+        });
+        
         values.push(id_reserva_camarote);
-
-        const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = $${values.length}`;
+        const setClause = setClauseParts.join(', ');
+        const sql = `UPDATE reservas_camarote SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $${values.length} RETURNING *`;
 
         console.log('📝 SQL:', sql);
         console.log('📝 Valores:', values);
@@ -531,20 +633,55 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         });
 
         if (result.rowCount === 0) {
-            console.log('❌ Nenhuma linha foi afetada');
-            return res.status(404).json({ message: 'Reserva de camarote não encontrada.' });
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(404).json({ 
+                success: false,
+                error: 'Reserva de camarote não encontrada.' 
+            });
         }
+
+        await client.query('COMMIT');
+        
+        // Buscar dados completos da reserva atualizada
+        const reservaAtualizada = await pool.query(
+            `SELECT rc.*, c.nome_camarote, c.capacidade_maxima 
+             FROM reservas_camarote rc 
+             LEFT JOIN camarotes c ON rc.id_camarote = c.id 
+             WHERE rc.id = $1`,
+            [id_reserva_camarote]
+        );
 
         console.log('✅ Atualização realizada com sucesso!');
         res.status(200).json({ 
+            success: true,
             message: 'Reserva de camarote atualizada com sucesso!',
+            data: reservaAtualizada.rows[0],
             rowCount: result.rowCount
         });
     } catch (error) {
         console.error('❌ Erro ao atualizar reserva de camarote:', error);
-        res.status(500).json({ error: 'Erro ao atualizar reserva de camarote.' });
+        console.error('📋 Stack trace:', error.stack);
+        
+        if (client) {
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('❌ Erro ao fazer rollback:', rollbackError);
+            }
+        }
+        
+        res.status(500).json({ 
+            success: false,
+            error: 'Erro ao atualizar reserva de camarote.',
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     } finally {
-        if (client) client.release();
+        if (client) {
+            client.release();
+            console.log('🔗 Conexão liberada');
+        }
     }
 });
 
