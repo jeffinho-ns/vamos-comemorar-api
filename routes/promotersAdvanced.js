@@ -531,11 +531,32 @@ module.exports = (pool) => {
               [email]
             );
             
+            // Verificar se a coluna cpf existe ANTES de qualquer operação
+            let cpfColumnExists = false;
+            try {
+              const cpfCheckResult = await client.query(`
+                SELECT column_name, is_nullable
+                FROM information_schema.columns 
+                WHERE table_schema = 'public'
+                AND table_name = 'users' 
+                AND column_name = 'cpf'
+                LIMIT 1
+              `);
+              cpfColumnExists = cpfCheckResult.rows.length > 0;
+              console.log('ℹ️ Verificação da coluna cpf:', cpfColumnExists ? 'existe' : 'não existe');
+              if (cpfColumnExists) {
+                console.log('ℹ️ Coluna cpf é nullable?', cpfCheckResult.rows[0].is_nullable);
+              }
+            } catch (e) {
+              console.warn('⚠️ Não foi possível verificar se a coluna cpf existe:', e.message);
+              // Se não conseguir verificar, assumir que existe para segurança
+              cpfColumnExists = true; // Assumir que existe para evitar erro
+            }
+            
             if (existingUserResult.rows.length > 0) {
               // Se o usuário já existe, atualizar para role promoter e senha padrão
               userId = existingUserResult.rows[0].id;
               
-              // Verificar se a coluna cpf existe e é obrigatória
               let updateQuery = `UPDATE users SET 
                 name = $1, 
                 role = 'promoter', 
@@ -546,22 +567,6 @@ module.exports = (pool) => {
               await client.query(updateQuery, [nome, hashedPassword, telefone || null, userId]);
               console.log('✅ Usuário existente atualizado para promoter com ID:', userId);
             } else {
-              // Verificar se a coluna cpf existe e é obrigatória
-              let cpfColumnExists = false;
-              try {
-                const cpfCheckResult = await client.query(`
-                  SELECT column_name 
-                  FROM information_schema.columns 
-                  WHERE table_name = 'users' 
-                  AND column_name = 'cpf'
-                  LIMIT 1
-                `);
-                cpfColumnExists = cpfCheckResult.rows.length > 0;
-              } catch (e) {
-                // Se não conseguir verificar, assumir que não existe
-                cpfColumnExists = false;
-              }
-              
               // Gerar CPF temporário se necessário (formato: 00000000000)
               const tempCpf = cpfColumnExists ? '00000000000' : null;
               
@@ -574,11 +579,13 @@ module.exports = (pool) => {
                  VALUES ($1, $2, $3, 'promoter', $4, $5)
                  RETURNING id`;
                 insertParams = [nome, email, hashedPassword, telefone || null, tempCpf];
+                console.log('📝 Criando usuário COM campo cpf:', tempCpf);
               } else {
                 insertQuery = `INSERT INTO users (name, email, password, role, telefone)
                  VALUES ($1, $2, $3, 'promoter', $4)
                  RETURNING id`;
                 insertParams = [nome, email, hashedPassword, telefone || null];
+                console.log('📝 Criando usuário SEM campo cpf');
               }
               
               const userResult = await client.query(insertQuery, insertParams);
