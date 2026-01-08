@@ -17,7 +17,9 @@ module.exports = (pool) => {
       aniversariante_nome,
       data_aniversario,
       quantidade_convidados,
-      id_casa_evento, 
+      id_casa_evento,
+      area_id, // Novo campo: área preferida
+      reservation_time, // Novo campo: horário da reserva
       decoracao_tipo,
       painel_personalizado,
       painel_estoque_imagem_url,
@@ -168,12 +170,127 @@ module.exports = (pool) => {
       });
 
       const result = await client.query(sqlInsert, insertParams);
+      const birthdayReservationId = result.rows[0].id;
+      console.log('✅ Reserva de aniversário criada com ID:', birthdayReservationId);
+
+      // 🎂 NOVA FUNCIONALIDADE: Criar reserva de restaurante automaticamente
+      let restaurantReservationId = null;
+      if (area_id && reservation_time && data_aniversario) {
+        try {
+          console.log('🎂 Criando reserva de restaurante automaticamente...');
+          const reservationDate = data_aniversario.includes('T') ? data_aniversario.split('T')[0] : data_aniversario;
+          const reservationTime = reservation_time.includes(':') && reservation_time.split(':').length === 2 
+            ? `${reservation_time}:00` 
+            : reservation_time;
+          
+          const restaurantReservationData = {
+            client_name: aniversariante_nome || '',
+            client_phone: whatsapp || '',
+            client_email: email || null,
+            reservation_date: reservationDate,
+            reservation_time: reservationTime,
+            number_of_people: quantidade_convidados || 0,
+            area_id: area_id,
+            status: 'NOVA',
+            origin: 'SITE',
+            notes: `🎂 Reserva de Aniversário - ${decoracao_tipo || 'Decoração'}. ID Reserva Aniversário: ${birthdayReservationId}`,
+            establishment_id: placeId,
+            send_email: false,
+            send_whatsapp: false,
+          };
+
+          const restaurantInsert = `
+            INSERT INTO restaurant_reservations (
+              client_name, client_phone, client_email, reservation_date, reservation_time,
+              number_of_people, area_id, status, origin, notes, establishment_id,
+              send_email, send_whatsapp, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+            RETURNING id
+          `;
+
+          const restaurantParams = [
+            restaurantReservationData.client_name,
+            restaurantReservationData.client_phone,
+            restaurantReservationData.client_email,
+            restaurantReservationData.reservation_date,
+            restaurantReservationData.reservation_time,
+            restaurantReservationData.number_of_people,
+            restaurantReservationData.area_id,
+            restaurantReservationData.status,
+            restaurantReservationData.origin,
+            restaurantReservationData.notes,
+            restaurantReservationData.establishment_id,
+            restaurantReservationData.send_email,
+            restaurantReservationData.send_whatsapp,
+          ];
+
+          const restaurantResult = await client.query(restaurantInsert, restaurantParams);
+          restaurantReservationId = restaurantResult.rows[0].id;
+          console.log('✅ Reserva de restaurante criada automaticamente com ID:', restaurantReservationId);
+
+          // Criar lista de convidados automaticamente
+          try {
+            console.log('📝 Criando lista de convidados automaticamente...');
+            const guestListInsert = `
+              INSERT INTO reservas (
+                user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+              RETURNING id
+            `;
+            
+            const { customAlphabet } = await import('nanoid');
+            const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
+            const codigoConvite = nanoid();
+            
+            const guestListParams = [
+              user_id || 1,
+              'ANIVERSARIO',
+              aniversariante_nome || 'Aniversariante',
+              reservationDate,
+              null, // evento_id
+              quantidade_convidados || 0,
+              codigoConvite
+            ];
+
+            const guestListResult = await client.query(guestListInsert, guestListParams);
+            const guestListId = guestListResult.rows[0].id;
+            console.log('✅ Lista de convidados criada automaticamente com ID:', guestListId);
+
+            // Criar convidado inicial (aniversariante)
+            const convidadoInsert = `
+              INSERT INTO convidados (reserva_id, nome, qr_code, status, geo_checkin_status)
+              VALUES ($1, $2, $3, $4, $5)
+            `;
+            const qrCodeData = `reserva:${guestListId}:convidado:${(aniversariante_nome || '').replace(/\s/g, '')}:${Date.now()}`;
+            await client.query(convidadoInsert, [
+              guestListId,
+              aniversariante_nome || 'Aniversariante',
+              qrCodeData,
+              'PENDENTE',
+              'NAO_APLICAVEL'
+            ]);
+            console.log('✅ Convidado inicial (aniversariante) criado na lista');
+
+          } catch (guestListError) {
+            console.warn('⚠️ Erro ao criar lista de convidados (não crítico):', guestListError);
+            // Não falha a transação se a lista não for criada
+          }
+
+        } catch (restaurantError) {
+          console.error('❌ Erro ao criar reserva de restaurante (não crítico):', restaurantError);
+          // Não falha a transação se a reserva de restaurante não for criada
+        }
+      } else {
+        console.log('⚠️ Área e/ou horário não fornecidos, pulando criação de reserva de restaurante');
+      }
 
       await client.query('COMMIT');
+      console.log('✅ Transação commitada com sucesso');
 
       res.status(201).json({
         message: 'Reserva de aniversário criada com sucesso!',
-        id: result.rows[0].id,
+        id: birthdayReservationId,
+        restaurant_reservation_id: restaurantReservationId,
       });
 
     } catch (error) {
