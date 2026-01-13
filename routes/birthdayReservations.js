@@ -779,14 +779,44 @@ module.exports = (pool) => {
           id: result.rows[0].id,
           id_casa_evento: result.rows[0].id_casa_evento,
           id_casa_evento_tipo: typeof result.rows[0].id_casa_evento,
-          aniversariante_nome: result.rows[0].aniversariante_nome
+          aniversariante_nome: result.rows[0].aniversariante_nome,
+          data_aniversario: result.rows[0].data_aniversario,
+          decoracao_preco: result.rows[0].decoracao_preco,
+          tem_bebidas_completas: !!result.rows[0].bebidas_completas,
+          tem_comidas_completas: !!result.rows[0].comidas_completas
         });
       } else if (establishment_id) {
         console.log('⚠️ [GET /birthday-reservations] Nenhuma reserva encontrada para establishment_id:', establishment_id);
         console.log('⚠️ [GET /birthday-reservations] Verifique se há reservas com id_casa_evento =', establishment_id);
       }
 
-      res.json(result.rows);
+      // Processar os resultados para garantir que JSONB seja convertido corretamente
+      const processedRows = result.rows.map(row => {
+        // Converter JSONB para objeto JavaScript se necessário
+        if (row.bebidas_completas && typeof row.bebidas_completas === 'object') {
+          // JSONB já vem como objeto, não precisa fazer nada
+        } else if (row.bebidas_completas && typeof row.bebidas_completas === 'string') {
+          try {
+            row.bebidas_completas = JSON.parse(row.bebidas_completas);
+          } catch (e) {
+            console.warn('⚠️ Erro ao fazer parse de bebidas_completas:', e);
+          }
+        }
+        
+        if (row.comidas_completas && typeof row.comidas_completas === 'object') {
+          // JSONB já vem como objeto, não precisa fazer nada
+        } else if (row.comidas_completas && typeof row.comidas_completas === 'string') {
+          try {
+            row.comidas_completas = JSON.parse(row.comidas_completas);
+          } catch (e) {
+            console.warn('⚠️ Erro ao fazer parse de comidas_completas:', e);
+          }
+        }
+        
+        return row;
+      });
+
+      res.json(processedRows);
 
     } catch (error) {
       console.error('Erro ao buscar reservas de aniversário:', error);
