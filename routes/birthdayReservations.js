@@ -24,11 +24,16 @@ module.exports = (pool) => {
       area_id, // Novo campo: área preferida
       reservation_time, // Novo campo: horário da reserva
       decoracao_tipo,
+      decoracao_preco,
+      decoracao_imagem,
       painel_personalizado,
       painel_estoque_imagem_url,
       painel_tema,
       painel_frase,
-      // Novos campos para bebidas do bar
+      // Dados completos dos itens (novo)
+      bebidas_completas,
+      comidas_completas,
+      // Novos campos para bebidas do bar (manter compatibilidade)
       item_bar_bebida_1,
       item_bar_bebida_2,
       item_bar_bebida_3,
@@ -39,7 +44,7 @@ module.exports = (pool) => {
       item_bar_bebida_8,
       item_bar_bebida_9,
       item_bar_bebida_10,
-      // Novos campos para comidas do bar
+      // Novos campos para comidas do bar (manter compatibilidade)
       item_bar_comida_1,
       item_bar_comida_2,
       item_bar_comida_3,
@@ -404,40 +409,49 @@ module.exports = (pool) => {
         }
 
         // Buscar dados dos itens do cardápio (bebidas e comidas)
-        // Nota: O frontend envia apenas quantidades, não os IDs dos itens
-        // Por isso, vamos buscar todos os itens do cardápio do estabelecimento
-        // e tentar fazer um match, ou simplesmente indicar que itens foram selecionados
-        const bebidas = [];
-        const comidas = [];
+        // Usar dados completos se disponíveis, senão buscar do banco
+        let bebidas = [];
+        let comidas = [];
         
-        // Buscar bebidas (item_bar_bebida_1 a item_bar_bebida_10)
-        // Como o frontend envia apenas quantidades, vamos contar quantos itens foram selecionados
-        let bebidasCount = 0;
-        for (let i = 1; i <= 10; i++) {
-          const quantity = req.body[`item_bar_bebida_${i}`];
-          if (quantity && quantity > 0) {
-            bebidasCount += quantity;
-            // Como não temos o nome do item, vamos apenas indicar que foi selecionado
-            bebidas.push({
-              name: `Bebida ${i}`,
-              price: 0,
-              quantity: quantity
-            });
+        if (bebidas_completas && Array.isArray(bebidas_completas) && bebidas_completas.length > 0) {
+          // Usar dados completos enviados pelo frontend
+          bebidas = bebidas_completas.map(b => ({
+            name: b.name || 'Bebida',
+            price: parseFloat(b.price) || 0,
+            quantity: parseInt(b.quantity) || 0
+          }));
+        } else {
+          // Fallback: buscar do banco baseado nas quantidades
+          for (let i = 1; i <= 10; i++) {
+            const quantity = req.body[`item_bar_bebida_${i}`];
+            if (quantity && quantity > 0) {
+              bebidas.push({
+                name: `Bebida ${i}`,
+                price: 0,
+                quantity: quantity
+              });
+            }
           }
         }
 
-        // Buscar comidas (item_bar_comida_1 a item_bar_comida_10)
-        let comidasCount = 0;
-        for (let i = 1; i <= 10; i++) {
-          const quantity = req.body[`item_bar_comida_${i}`];
-          if (quantity && quantity > 0) {
-            comidasCount += quantity;
-            // Como não temos o nome do item, vamos apenas indicar que foi selecionado
-            comidas.push({
-              name: `Porção ${i}`,
-              price: 0,
-              quantity: quantity
-            });
+        if (comidas_completas && Array.isArray(comidas_completas) && comidas_completas.length > 0) {
+          // Usar dados completos enviados pelo frontend
+          comidas = comidas_completas.map(c => ({
+            name: c.name || 'Porção',
+            price: parseFloat(c.price) || 0,
+            quantity: parseInt(c.quantity) || 0
+          }));
+        } else {
+          // Fallback: buscar do banco baseado nas quantidades
+          for (let i = 1; i <= 10; i++) {
+            const quantity = req.body[`item_bar_comida_${i}`];
+            if (quantity && quantity > 0) {
+              comidas.push({
+                name: `Porção ${i}`,
+                price: 0,
+                quantity: quantity
+              });
+            }
           }
         }
 
@@ -449,10 +463,7 @@ module.exports = (pool) => {
           painel_tipo = 'estoque';
         }
 
-        // Calcular valor total da reserva
-        let valor_total = 0;
-        
-        // Preço da decoração (baseado no nome)
+        // Preços das decorações (mapeamento)
         const decorationPrices = {
           'Decoração Pequena 1': 200.00,
           'Decoração Pequena 2': 220.00,
@@ -462,17 +473,23 @@ module.exports = (pool) => {
           'Decoração Grande 6': 320.00
         };
         
-        if (decoracao_tipo && decorationPrices[decoracao_tipo]) {
+        // Calcular valor total da reserva
+        let valor_total = 0;
+        
+        // Preço da decoração (usar preço enviado ou buscar do mapeamento)
+        if (decoracao_preco) {
+          valor_total += parseFloat(decoracao_preco);
+        } else if (decoracao_tipo && decorationPrices[decoracao_tipo]) {
           valor_total += decorationPrices[decoracao_tipo];
         }
         
         // Somar preços das bebidas e comidas
         bebidas.forEach(b => {
-          valor_total += (b.price || 0) * (b.quantity || 0);
+          valor_total += (parseFloat(b.price) || 0) * (parseInt(b.quantity) || 0);
         });
         
         comidas.forEach(c => {
-          valor_total += (c.price || 0) * (c.quantity || 0);
+          valor_total += (parseFloat(c.price) || 0) * (parseInt(c.quantity) || 0);
         });
 
         // Preparar dados para email do cliente
@@ -485,7 +502,8 @@ module.exports = (pool) => {
           area_name,
           reservation_time,
           decoracao_tipo,
-          decoracao_preco: decoracao_tipo && decorationPrices[decoracao_tipo] ? decorationPrices[decoracao_tipo] : 0,
+          decoracao_preco: decoracao_preco || (decoracao_tipo && decorationPrices[decoracao_tipo] ? decorationPrices[decoracao_tipo] : 0),
+          decoracao_imagem: decoracao_imagem || null,
           painel_tipo,
           painel_tema,
           painel_frase,

@@ -459,6 +459,7 @@ class NotificationService {
       reservation_time,
       decoracao_tipo,
       decoracao_preco,
+      decoracao_imagem,
       painel_tipo,
       painel_tema,
       painel_frase,
@@ -478,18 +479,32 @@ class NotificationService {
 
     // Monta lista de bebidas selecionadas
     let bebidasHtml = '';
+    let bebidasTotal = 0;
     if (bebidas && bebidas.length > 0) {
-      bebidasHtml = bebidas.map(b => `<li>${b.name} - ${b.quantity}x - R$ ${(b.price * b.quantity).toFixed(2)}</li>`).join('');
+      bebidasHtml = bebidas.map(b => {
+        const itemTotal = (parseFloat(b.price) || 0) * (parseInt(b.quantity) || 0);
+        bebidasTotal += itemTotal;
+        return `<li style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+          <strong>${b.name}</strong> - ${b.quantity}x - R$ ${itemTotal.toFixed(2)}
+        </li>`;
+      }).join('');
     } else {
-      bebidasHtml = '<li>Nenhuma bebida selecionada</li>';
+      bebidasHtml = '<li style="padding: 8px 0; color: #999;">Nenhuma bebida selecionada</li>';
     }
 
     // Monta lista de comidas selecionadas
     let comidasHtml = '';
+    let comidasTotal = 0;
     if (comidas && comidas.length > 0) {
-      comidasHtml = comidas.map(c => `<li>${c.name} - ${c.quantity}x - R$ ${(c.price * c.quantity).toFixed(2)}</li>`).join('');
+      comidasHtml = comidas.map(c => {
+        const itemTotal = (parseFloat(c.price) || 0) * (parseInt(c.quantity) || 0);
+        comidasTotal += itemTotal;
+        return `<li style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+          <strong>${c.name}</strong> - ${c.quantity}x - R$ ${itemTotal.toFixed(2)}
+        </li>`;
+      }).join('');
     } else {
-      comidasHtml = '<li>Nenhuma porção selecionada</li>';
+      comidasHtml = '<li style="padding: 8px 0; color: #999;">Nenhuma porção selecionada</li>';
     }
 
     // Monta lista de presentes
@@ -509,9 +524,14 @@ class NotificationService {
         ${painel_frase ? `<p><strong>Frase:</strong> ${painel_frase}</p>` : ''}
       `;
     } else if (painel_tipo === 'estoque' && painel_estoque_imagem_url) {
+      const painelImageUrl = painel_estoque_imagem_url.startsWith('http') 
+        ? painel_estoque_imagem_url 
+        : `https://agilizaiapp.com.br${painel_estoque_imagem_url}`;
       painelInfo = `
         <p><strong>Tipo:</strong> Painel do Estoque</p>
-        <img src="${painel_estoque_imagem_url}" alt="Painel selecionado" style="max-width: 200px; margin-top: 10px;">
+        <div style="margin-top: 15px;">
+          <img src="${painelImageUrl}" alt="Painel selecionado" style="max-width: 300px; width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        </div>
       `;
     } else {
       painelInfo = '<p>Nenhum painel selecionado</p>';
@@ -557,7 +577,13 @@ class NotificationService {
           <!-- Decoração -->
           <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
             <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🎨 Decoração</h3>
-            <p style="font-size: 16px; color: #333;">${decoracao_tipo || 'Não selecionada'}</p>
+            <p style="font-size: 16px; color: #333; font-weight: bold; margin-bottom: 10px;">${decoracao_tipo || 'Não selecionada'}</p>
+            ${decoracao_imagem ? `
+              <div style="margin-top: 15px;">
+                <img src="${decoracao_imagem.startsWith('http') ? decoracao_imagem : `https://agilizaiapp.com.br${decoracao_imagem}`}" alt="${decoracao_tipo}" style="max-width: 300px; width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+              </div>
+            ` : ''}
+            ${decoracao_preco ? `<p style="font-size: 16px; color: #FF6B35; font-weight: bold; margin-top: 10px;">Valor: R$ ${parseFloat(decoracao_preco).toFixed(2)}</p>` : ''}
           </div>
 
           <!-- Painel -->
@@ -567,20 +593,26 @@ class NotificationService {
           </div>
 
           <!-- Bebidas -->
+          ${bebidas && bebidas.length > 0 ? `
           <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
             <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🍹 Bebidas</h3>
             <ul style="list-style: none; padding: 0; margin: 0;">
               ${bebidasHtml}
             </ul>
+            ${bebidasTotal > 0 ? `<p style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #FF6B35; font-weight: bold; color: #FF6B35; text-align: right;">Subtotal: R$ ${bebidasTotal.toFixed(2)}</p>` : ''}
           </div>
+          ` : ''}
 
           <!-- Comidas -->
+          ${comidas && comidas.length > 0 ? `
           <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
             <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🍽️ Porções</h3>
             <ul style="list-style: none; padding: 0; margin: 0;">
               ${comidasHtml}
             </ul>
+            ${comidasTotal > 0 ? `<p style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #FF6B35; font-weight: bold; color: #FF6B35; text-align: right;">Subtotal: R$ ${comidasTotal.toFixed(2)}</p>` : ''}
           </div>
+          ` : ''}
 
           <!-- Lista de Presentes -->
           <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
@@ -667,6 +699,8 @@ class NotificationService {
       area_name,
       reservation_time,
       decoracao_tipo,
+      decoracao_preco,
+      decoracao_imagem,
       painel_tipo,
       painel_tema,
       painel_frase,
@@ -684,18 +718,32 @@ class NotificationService {
 
     // Monta lista de bebidas selecionadas
     let bebidasHtml = '';
+    let bebidasTotal = 0;
     if (bebidas && bebidas.length > 0) {
-      bebidasHtml = bebidas.map(b => `<li>${b.name} - ${b.quantity}x - R$ ${(b.price * b.quantity).toFixed(2)}</li>`).join('');
+      bebidasHtml = bebidas.map(b => {
+        const itemTotal = (parseFloat(b.price) || 0) * (parseInt(b.quantity) || 0);
+        bebidasTotal += itemTotal;
+        return `<li style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+          <strong>${b.name}</strong> - ${b.quantity}x - R$ ${itemTotal.toFixed(2)}
+        </li>`;
+      }).join('');
     } else {
-      bebidasHtml = '<li>Nenhuma bebida selecionada</li>';
+      bebidasHtml = '<li style="padding: 8px 0; color: #999;">Nenhuma bebida selecionada</li>';
     }
 
     // Monta lista de comidas selecionadas
     let comidasHtml = '';
+    let comidasTotal = 0;
     if (comidas && comidas.length > 0) {
-      comidasHtml = comidas.map(c => `<li>${c.name} - ${c.quantity}x - R$ ${(c.price * c.quantity).toFixed(2)}</li>`).join('');
+      comidasHtml = comidas.map(c => {
+        const itemTotal = (parseFloat(c.price) || 0) * (parseInt(c.quantity) || 0);
+        comidasTotal += itemTotal;
+        return `<li style="padding: 8px 0; border-bottom: 1px solid #e0e0e0;">
+          <strong>${c.name}</strong> - ${c.quantity}x - R$ ${itemTotal.toFixed(2)}
+        </li>`;
+      }).join('');
     } else {
-      comidasHtml = '<li>Nenhuma porção selecionada</li>';
+      comidasHtml = '<li style="padding: 8px 0; color: #999;">Nenhuma porção selecionada</li>';
     }
 
     // Monta lista de presentes
@@ -706,6 +754,13 @@ class NotificationService {
       presentesHtml = '<li>Nenhum presente selecionado</li>';
     }
 
+    // Calcular valor total
+    let valorTotal = 0;
+    if (decoracao_preco) {
+      valorTotal += parseFloat(decoracao_preco);
+    }
+    valorTotal += bebidasTotal + comidasTotal;
+
     // Informações do painel
     let painelInfo = '';
     if (painel_tipo === 'personalizado') {
@@ -715,9 +770,14 @@ class NotificationService {
         ${painel_frase ? `<p><strong>Frase:</strong> ${painel_frase}</p>` : ''}
       `;
     } else if (painel_tipo === 'estoque' && painel_estoque_imagem_url) {
+      const painelImageUrl = painel_estoque_imagem_url.startsWith('http') 
+        ? painel_estoque_imagem_url 
+        : `https://agilizaiapp.com.br${painel_estoque_imagem_url}`;
       painelInfo = `
         <p><strong>Tipo:</strong> Painel do Estoque</p>
-        <img src="${painel_estoque_imagem_url}" alt="Painel selecionado" style="max-width: 200px; margin-top: 10px;">
+        <div style="margin-top: 15px;">
+          <img src="${painelImageUrl}" alt="Painel selecionado" style="max-width: 300px; width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        </div>
       `;
     } else {
       painelInfo = '<p>Nenhum painel selecionado</p>';
@@ -784,7 +844,13 @@ class NotificationService {
 
               <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
                 <h3 style="color: #856404; margin-top: 0;">🎨 Decoração:</h3>
-                <p style="margin: 0; color: #856404;">${decoracao_tipo || 'Não selecionada'}</p>
+                <p style="margin: 5px 0; color: #856404; font-weight: bold;">${decoracao_tipo || 'Não selecionada'}</p>
+                ${decoracao_preco ? `<p style="margin: 5px 0; color: #856404; font-weight: bold;">Valor: R$ ${parseFloat(decoracao_preco).toFixed(2)}</p>` : ''}
+                ${decoracao_imagem ? `
+                  <div style="margin-top: 15px;">
+                    <img src="${decoracao_imagem.startsWith('http') ? decoracao_imagem : `https://agilizaiapp.com.br${decoracao_imagem}`}" alt="${decoracao_tipo}" style="max-width: 300px; width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                  </div>
+                ` : ''}
               </div>
 
               <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
@@ -792,25 +858,41 @@ class NotificationService {
                 ${painelInfo}
               </div>
 
+              ${bebidas && bebidas.length > 0 ? `
               <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
                 <h3 style="color: #333; margin-top: 0;">🍹 Bebidas Selecionadas:</h3>
                 <ul style="list-style: none; padding: 0; margin: 0;">
                   ${bebidasHtml}
                 </ul>
+                ${bebidasTotal > 0 ? `<p style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #FF6B35; font-weight: bold; color: #FF6B35; text-align: right;">Subtotal: R$ ${bebidasTotal.toFixed(2)}</p>` : ''}
               </div>
+              ` : ''}
 
+              ${comidas && comidas.length > 0 ? `
               <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
                 <h3 style="color: #333; margin-top: 0;">🍽️ Porções Selecionadas:</h3>
                 <ul style="list-style: none; padding: 0; margin: 0;">
                   ${comidasHtml}
                 </ul>
+                ${comidasTotal > 0 ? `<p style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #FF6B35; font-weight: bold; color: #FF6B35; text-align: right;">Subtotal: R$ ${comidasTotal.toFixed(2)}</p>` : ''}
               </div>
+              ` : ''}
 
               <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
                 <h3 style="color: #333; margin-top: 0;">🎁 Lista de Presentes:</h3>
                 <ul style="list-style: none; padding: 0; margin: 0;">
                   ${presentesHtml}
                 </ul>
+              </div>
+
+              <!-- Valor Total -->
+              <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 30px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                <h2 style="font-size: 22px; color: #fff; margin: 0 0 20px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center;">💰 Valor Total da Reserva</h2>
+                <div style="background-color: rgba(255,255,255,0.95); border-radius: 8px; padding: 25px; text-align: center;">
+                  <p style="font-size: 48px; font-weight: bold; color: #FF6B35; margin: 0;">
+                    R$ ${valorTotal.toFixed(2)}
+                  </p>
+                </div>
               </div>
               
               <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
