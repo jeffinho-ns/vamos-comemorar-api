@@ -444,6 +444,408 @@ class NotificationService {
   }
 
   /**
+   * Envia email de confirmação para o cliente (reserva de aniversário)
+   */
+  async sendBirthdayReservationConfirmationEmail(reservation) {
+    if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
+    
+    const { 
+      aniversariante_nome, 
+      email, 
+      data_aniversario, 
+      quantidade_convidados, 
+      establishment_name,
+      area_name,
+      reservation_time,
+      decoracao_tipo,
+      decoracao_preco,
+      painel_tipo,
+      painel_tema,
+      painel_frase,
+      painel_estoque_imagem_url,
+      bebidas,
+      comidas,
+      lista_presentes,
+      valor_total
+    } = reservation;
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(data_aniversario);
+    const formattedTime = this.formatTime(reservation_time);
+    
+    // Obtém a URL da imagem do header baseado no estabelecimento
+    const headerImageUrl = this.getEmailHeaderImage(establishment_name);
+
+    // Monta lista de bebidas selecionadas
+    let bebidasHtml = '';
+    if (bebidas && bebidas.length > 0) {
+      bebidasHtml = bebidas.map(b => `<li>${b.name} - ${b.quantity}x - R$ ${(b.price * b.quantity).toFixed(2)}</li>`).join('');
+    } else {
+      bebidasHtml = '<li>Nenhuma bebida selecionada</li>';
+    }
+
+    // Monta lista de comidas selecionadas
+    let comidasHtml = '';
+    if (comidas && comidas.length > 0) {
+      comidasHtml = comidas.map(c => `<li>${c.name} - ${c.quantity}x - R$ ${(c.price * c.quantity).toFixed(2)}</li>`).join('');
+    } else {
+      comidasHtml = '<li>Nenhuma porção selecionada</li>';
+    }
+
+    // Monta lista de presentes
+    let presentesHtml = '';
+    if (lista_presentes && lista_presentes.length > 0) {
+      presentesHtml = lista_presentes.map((p, idx) => `<li>${idx + 1}. ${p}</li>`).join('');
+    } else {
+      presentesHtml = '<li>Nenhum presente selecionado</li>';
+    }
+
+    // Informações do painel
+    let painelInfo = '';
+    if (painel_tipo === 'personalizado') {
+      painelInfo = `
+        <p><strong>Tipo:</strong> Painel Personalizado</p>
+        ${painel_tema ? `<p><strong>Tema:</strong> ${painel_tema}</p>` : ''}
+        ${painel_frase ? `<p><strong>Frase:</strong> ${painel_frase}</p>` : ''}
+      `;
+    } else if (painel_tipo === 'estoque' && painel_estoque_imagem_url) {
+      painelInfo = `
+        <p><strong>Tipo:</strong> Painel do Estoque</p>
+        <img src="${painel_estoque_imagem_url}" alt="Painel selecionado" style="max-width: 200px; margin-top: 10px;">
+      `;
+    } else {
+      painelInfo = '<p>Nenhum painel selecionado</p>';
+    }
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: `"${establishment_name}" <reservas@grupoideiaum.com.br>`,
+        to: [email],
+        subject: `🎂 Confirmação de Reserva de Aniversário - ${establishment_name}`,
+        html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #333; text-align: center;">
+          <img src="${headerImageUrl}" alt="${establishment_name}" style="width: 100%; max-width: 600px; height: auto;">
+          <div style="padding: 20px;">
+            <h1 style="font-size: 24px; font-weight: bold; color: #000; font-family: 'Courier New', Courier, monospace;">🎂 Parabéns, ${aniversariante_nome}! 🎂</h1>
+            <p style="font-size: 16px; line-height: 1.5;">Sua reserva de aniversário no <strong>${establishment_name}</strong> foi confirmada!</p>
+            <p style="font-size: 16px; line-height: 1.5;">Estamos ansiosos para celebrar este momento especial com você!</p>
+          </div>
+
+          <!-- Detalhes da Reserva -->
+          <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 30px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h2 style="font-size: 22px; color: #fff; margin: 0 0 20px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">📋 Detalhes da Sua Reserva</h2>
+            <div style="background-color: rgba(255,255,255,0.95); border-radius: 8px; padding: 25px; text-align: left;">
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📅 Data do Aniversário</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedDate}</div>
+              </div>
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">🕐 Horário</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${formattedTime}</div>
+              </div>
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">👥 Número de Convidados</div>
+                <div style="font-size: 24px; font-weight: bold; color: #000;">${quantidade_convidados} ${quantidade_convidados === 1 ? 'convidado' : 'convidados'}</div>
+              </div>
+              <div style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
+                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área</div>
+                <div style="font-size: 20px; font-weight: bold; color: #000;">${area_name || 'A definir'}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Decoração -->
+          <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🎨 Decoração</h3>
+            <p style="font-size: 16px; color: #333;">${decoracao_tipo || 'Não selecionada'}</p>
+          </div>
+
+          <!-- Painel -->
+          <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🖼️ Painel</h3>
+            ${painelInfo}
+          </div>
+
+          <!-- Bebidas -->
+          <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🍹 Bebidas</h3>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              ${bebidasHtml}
+            </ul>
+          </div>
+
+          <!-- Comidas -->
+          <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🍽️ Porções</h3>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              ${comidasHtml}
+            </ul>
+          </div>
+
+          <!-- Lista de Presentes -->
+          <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <h3 style="font-size: 18px; font-weight: bold; color: #FF6B35; margin-bottom: 15px;">🎁 Lista de Presentes</h3>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              ${presentesHtml}
+            </ul>
+          </div>
+
+          <!-- Valor Total -->
+          <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 30px; margin: 20px 0; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h2 style="font-size: 22px; color: #fff; margin: 0 0 20px 0; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; text-align: center;">💰 Valor Total</h2>
+            <div style="background-color: rgba(255,255,255,0.95); border-radius: 8px; padding: 25px; text-align: center;">
+              <p style="font-size: 48px; font-weight: bold; color: #FF6B35; margin: 0;">
+                R$ ${valor_total ? parseFloat(valor_total).toFixed(2) : '0.00'}
+              </p>
+            </div>
+          </div>
+
+          <!-- Lembrete Importante -->
+          <div style="background-color: #fff3cd; border: 2px solid #ffc107; padding: 20px; margin: 20px 0; border-radius: 8px; text-align: left;">
+            <div style="display: flex; align-items: flex-start; gap: 15px;">
+              <div style="font-size: 24px; color: #ffc107; flex-shrink: 0;">⚠️</div>
+              <div>
+                <h4 style="font-size: 18px; font-weight: bold; color: #856404; margin: 0 0 10px 0;">Lembrete Importante</h4>
+                <p style="font-size: 16px; line-height: 1.6; color: #856404; margin: 0;">
+                  <strong>Este valor será adicionado à sua comanda no ato do check-in pela recepcionista.</strong> Certifique-se de que todas as informações estão corretas antes de confirmar.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div style="background-color: #333; color: #fff; padding: 20px 30px; margin: 20px 0; text-align: left; border-radius: 8px;">
+            <h2 style="font-size: 20px; margin-top: 0; text-align: center; font-weight: bold;">ℹ️ Informações Importantes</h2>
+            <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Chegue com <strong>10 minutos de antecedência</strong> para garantir sua mesa.</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Em caso de atraso superior a <strong>15 minutos</strong>, sua reserva poderá ser cancelada.</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ Para alterações ou cancelamentos, entre em contato conosco.</p>
+            <p style="font-size: 14px; line-height: 1.6; margin: 10px 0;">✓ <strong>O valor total será adicionado à sua comanda no ato do check-in.</strong></p>
+          </div>
+
+          <div style="padding: 30px 20px;">
+            <p style="font-size: 16px; color: #666;">Estamos aguardando você! 🎉</p>
+            <a href="https://agilizaiapp.com.br" style="background-color: #000; color: #fff; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; margin-top: 20px; border-radius: 5px;">
+              Visitar o Site
+            </a>
+          </div>
+
+          <div style="padding: 20px; background-color: #f8f9fa; margin-top: 30px; border-top: 3px solid #FF6B35;">
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">© ${new Date().getFullYear()} ${establishment_name}</p>
+            <p style="font-size: 12px; color: #666; margin: 5px 0;">Grupo Ideia Um</p>
+          </div>
+        </div>
+        `
+      });
+
+      if (error) {
+        console.error('❌ Erro ao enviar email pelo Resend:', error);
+        return { success: false, error: error.message };
+      }
+
+      console.log('✅ Email de confirmação de aniversário enviado via Resend! ID:', data.id);
+      return { success: true, messageId: data.id };
+
+    } catch (error) {
+      console.error('❌ Erro CRÍTICO na função sendBirthdayReservationConfirmationEmail:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envia email de notificação para o admin (reserva de aniversário)
+   */
+  async sendAdminBirthdayReservationNotification(reservation) {
+    if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
+
+    const { 
+      aniversariante_nome, 
+      email, 
+      whatsapp,
+      documento,
+      data_aniversario, 
+      quantidade_convidados, 
+      establishment_name,
+      area_name,
+      reservation_time,
+      decoracao_tipo,
+      painel_tipo,
+      painel_tema,
+      painel_frase,
+      painel_estoque_imagem_url,
+      bebidas,
+      comidas,
+      lista_presentes
+    } = reservation;
+    
+    const adminEmail = 'jeffersonlima@ideiaum.com.br';
+    
+    // Formata data e horário
+    const formattedDate = this.formatDateBR(data_aniversario);
+    const formattedTime = this.formatTime(reservation_time);
+
+    // Monta lista de bebidas selecionadas
+    let bebidasHtml = '';
+    if (bebidas && bebidas.length > 0) {
+      bebidasHtml = bebidas.map(b => `<li>${b.name} - ${b.quantity}x - R$ ${(b.price * b.quantity).toFixed(2)}</li>`).join('');
+    } else {
+      bebidasHtml = '<li>Nenhuma bebida selecionada</li>';
+    }
+
+    // Monta lista de comidas selecionadas
+    let comidasHtml = '';
+    if (comidas && comidas.length > 0) {
+      comidasHtml = comidas.map(c => `<li>${c.name} - ${c.quantity}x - R$ ${(c.price * c.quantity).toFixed(2)}</li>`).join('');
+    } else {
+      comidasHtml = '<li>Nenhuma porção selecionada</li>';
+    }
+
+    // Monta lista de presentes
+    let presentesHtml = '';
+    if (lista_presentes && lista_presentes.length > 0) {
+      presentesHtml = lista_presentes.map((p, idx) => `<li>${idx + 1}. ${p}</li>`).join('');
+    } else {
+      presentesHtml = '<li>Nenhum presente selecionado</li>';
+    }
+
+    // Informações do painel
+    let painelInfo = '';
+    if (painel_tipo === 'personalizado') {
+      painelInfo = `
+        <p><strong>Tipo:</strong> Painel Personalizado</p>
+        ${painel_tema ? `<p><strong>Tema:</strong> ${painel_tema}</p>` : ''}
+        ${painel_frase ? `<p><strong>Frase:</strong> ${painel_frase}</p>` : ''}
+      `;
+    } else if (painel_tipo === 'estoque' && painel_estoque_imagem_url) {
+      painelInfo = `
+        <p><strong>Tipo:</strong> Painel do Estoque</p>
+        <img src="${painel_estoque_imagem_url}" alt="Painel selecionado" style="max-width: 200px; margin-top: 10px;">
+      `;
+    } else {
+      painelInfo = '<p>Nenhum painel selecionado</p>';
+    }
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: `"Sistema de Reservas" <reservas@grupoideiaum.com.br>`,
+        to: [adminEmail],
+        subject: `🎂 Nova Reserva de Aniversário - ${establishment_name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
+            <div style="background-color: #fff; border-radius: 8px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <h2 style="color: #FF6B35; margin-top: 0;">🎂 Nova Reserva de Aniversário Recebida!</h2>
+              <p style="font-size: 16px; color: #666;">Uma nova reserva de aniversário foi criada no sistema.</p>
+              
+              <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="color: #333; margin-top: 0;">📋 Dados do Cliente:</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Aniversariante:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${aniversariante_nome}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Email:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;"><a href="mailto:${email}">${email || 'Não informado'}</a></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>WhatsApp:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${whatsapp || 'Não informado'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>Documento:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${documento || 'Não informado'}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="color: #333; margin-top: 0;">📅 Detalhes da Reserva:</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>🏢 Estabelecimento:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${establishment_name}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>📅 Data:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${formattedDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>🕐 Horário:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${formattedTime}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>👥 Convidados:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right; font-size: 18px; color: #FF6B35; font-weight: bold;">${quantidade_convidados}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0;"><strong>📍 Área:</strong></td>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #e0e0e0; text-align: right;">${area_name || 'A definir'}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <h3 style="color: #856404; margin-top: 0;">🎨 Decoração:</h3>
+                <p style="margin: 0; color: #856404;">${decoracao_tipo || 'Não selecionada'}</p>
+              </div>
+
+              <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
+                <h3 style="color: #333; margin-top: 0;">🖼️ Painel:</h3>
+                ${painelInfo}
+              </div>
+
+              <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
+                <h3 style="color: #333; margin-top: 0;">🍹 Bebidas Selecionadas:</h3>
+                <ul style="list-style: none; padding: 0; margin: 0;">
+                  ${bebidasHtml}
+                </ul>
+              </div>
+
+              <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
+                <h3 style="color: #333; margin-top: 0;">🍽️ Porções Selecionadas:</h3>
+                <ul style="list-style: none; padding: 0; margin: 0;">
+                  ${comidasHtml}
+                </ul>
+              </div>
+
+              <div style="background-color: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px;">
+                <h3 style="color: #333; margin-top: 0;">🎁 Lista de Presentes:</h3>
+                <ul style="list-style: none; padding: 0; margin: 0;">
+                  ${presentesHtml}
+                </ul>
+              </div>
+              
+              <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                <p style="margin: 0; color: #856404;"><strong>⚠️ Ação Necessária:</strong> Confirme ou ajuste esta reserva no painel administrativo.</p>
+              </div>
+              
+              <div style="text-align: center; margin-top: 30px;">
+                <a href="https://agilizaiapp.com.br/admin" style="background-color: #FF6B35; color: #fff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  Ver no Sistema
+                </a>
+              </div>
+            </div>
+            
+            <div style="text-align: center; padding: 20px; color: #999; font-size: 12px;">
+              <p>Sistema de Reservas - Grupo Ideia Um</p>
+            </div>
+          </div>
+        `
+      });
+
+      if (error) {
+        console.error('❌ Erro ao enviar e-mail de admin pelo Resend:', error);
+        return { success: false, error: error.message };
+      }
+
+      console.log('✅ Email de notificação de aniversário para admin enviado via Resend! ID:', data.id);
+      return { success: true, messageId: data.id };
+
+    } catch (error) {
+      console.error('❌ Erro CRÍTICO na função sendAdminBirthdayReservationNotification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Envia WhatsApp de confirmação para reservas grandes (11+ pessoas)
    */
   async sendLargeReservationConfirmationWhatsApp(reservation) {

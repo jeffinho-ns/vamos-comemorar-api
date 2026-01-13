@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const NotificationService = require('../services/notificationService');
 
 module.exports = (pool) => {
   /**
@@ -380,6 +381,152 @@ module.exports = (pool) => {
 
       await client.query('COMMIT');
       console.log('✅ Transação commitada com sucesso');
+
+      // 📧 Enviar emails de confirmação (após commit bem-sucedido)
+      try {
+        const notificationService = new NotificationService();
+        
+        // Buscar dados do estabelecimento
+        const establishmentResult = await pool.query('SELECT name FROM places WHERE id = $1', [placeId]);
+        const establishment_name = establishmentResult.rows[0]?.name || 'Estabelecimento';
+        
+        // Buscar nome da área se area_id foi fornecido
+        let area_name = 'A definir';
+        if (areaIdNumber) {
+          try {
+            const areaResult = await pool.query('SELECT name FROM restaurant_areas WHERE id = $1', [areaIdNumber]);
+            if (areaResult.rows.length > 0) {
+              area_name = areaResult.rows[0].name;
+            }
+          } catch (areaError) {
+            console.warn('⚠️ Erro ao buscar nome da área:', areaError);
+          }
+        }
+
+        // Buscar dados dos itens do cardápio (bebidas e comidas)
+        // Nota: O frontend envia apenas quantidades, não os IDs dos itens
+        // Por isso, vamos buscar todos os itens do cardápio do estabelecimento
+        // e tentar fazer um match, ou simplesmente indicar que itens foram selecionados
+        const bebidas = [];
+        const comidas = [];
+        
+        // Buscar bebidas (item_bar_bebida_1 a item_bar_bebida_10)
+        // Como o frontend envia apenas quantidades, vamos contar quantos itens foram selecionados
+        let bebidasCount = 0;
+        for (let i = 1; i <= 10; i++) {
+          const quantity = req.body[`item_bar_bebida_${i}`];
+          if (quantity && quantity > 0) {
+            bebidasCount += quantity;
+            // Como não temos o nome do item, vamos apenas indicar que foi selecionado
+            bebidas.push({
+              name: `Bebida ${i}`,
+              price: 0,
+              quantity: quantity
+            });
+          }
+        }
+
+        // Buscar comidas (item_bar_comida_1 a item_bar_comida_10)
+        let comidasCount = 0;
+        for (let i = 1; i <= 10; i++) {
+          const quantity = req.body[`item_bar_comida_${i}`];
+          if (quantity && quantity > 0) {
+            comidasCount += quantity;
+            // Como não temos o nome do item, vamos apenas indicar que foi selecionado
+            comidas.push({
+              name: `Porção ${i}`,
+              price: 0,
+              quantity: quantity
+            });
+          }
+        }
+
+        // Determinar tipo de painel
+        let painel_tipo = null;
+        if (painel_personalizado) {
+          painel_tipo = 'personalizado';
+        } else if (painel_estoque_imagem_url) {
+          painel_tipo = 'estoque';
+        }
+
+        // Calcular valor total da reserva
+        let valor_total = 0;
+        
+        // Preço da decoração (baseado no nome)
+        const decorationPrices = {
+          'Decoração Pequena 1': 200.00,
+          'Decoração Pequena 2': 220.00,
+          'Decoração Media 3': 250.00,
+          'Decoração Media 4': 270.00,
+          'Decoração Grande 5': 300.00,
+          'Decoração Grande 6': 320.00
+        };
+        
+        if (decoracao_tipo && decorationPrices[decoracao_tipo]) {
+          valor_total += decorationPrices[decoracao_tipo];
+        }
+        
+        // Somar preços das bebidas e comidas
+        bebidas.forEach(b => {
+          valor_total += (b.price || 0) * (b.quantity || 0);
+        });
+        
+        comidas.forEach(c => {
+          valor_total += (c.price || 0) * (c.quantity || 0);
+        });
+
+        // Preparar dados para email do cliente
+        const clientEmailData = {
+          aniversariante_nome,
+          email,
+          data_aniversario,
+          quantidade_convidados,
+          establishment_name,
+          area_name,
+          reservation_time,
+          decoracao_tipo,
+          decoracao_preco: decoracao_tipo && decorationPrices[decoracao_tipo] ? decorationPrices[decoracao_tipo] : 0,
+          painel_tipo,
+          painel_tema,
+          painel_frase,
+          painel_estoque_imagem_url,
+          bebidas,
+          comidas,
+          lista_presentes: lista_presentes || [],
+          valor_total: valor_total.toFixed(2)
+        };
+
+        // Preparar dados para email do admin
+        const adminEmailData = {
+          ...clientEmailData,
+          whatsapp,
+          documento
+        };
+
+        // Enviar email para o cliente
+        if (email) {
+          const clientEmailResult = await notificationService.sendBirthdayReservationConfirmationEmail(clientEmailData);
+          if (clientEmailResult.success) {
+            console.log('✅ Email de confirmação enviado para o cliente');
+          } else {
+            console.error('❌ Erro ao enviar email para o cliente:', clientEmailResult.error);
+          }
+        } else {
+          console.warn('⚠️ Email do cliente não fornecido, pulando envio');
+        }
+
+        // Enviar email para o admin
+        const adminEmailResult = await notificationService.sendAdminBirthdayReservationNotification(adminEmailData);
+        if (adminEmailResult.success) {
+          console.log('✅ Email de notificação enviado para o admin');
+        } else {
+          console.error('❌ Erro ao enviar email para o admin:', adminEmailResult.error);
+        }
+
+      } catch (emailError) {
+        // Não falha a criação da reserva se o email falhar
+        console.error('❌ Erro ao enviar emails (não crítico):', emailError);
+      }
 
       res.status(201).json({
         message: 'Reserva de aniversário criada com sucesso!',
