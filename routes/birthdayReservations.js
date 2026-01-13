@@ -119,9 +119,20 @@ module.exports = (pool) => {
         estabelecimento_nome: placeCheck.rows[0].name
       });
 
-      // Verificar se os campos area_id e reservation_time existem na tabela antes de inserir
-      // Por enquanto, vamos tentar inserir sem esses campos se a tabela não os tiver
-      const sqlInsert = `
+      // Preparar dados para salvar (incluindo decoracao_preco, bebidas_completas, comidas_completas)
+      const decoracaoPrecoValue = decoracao_preco ? parseFloat(decoracao_preco) : null;
+      const bebidasCompletasJson = bebidas_completas && Array.isArray(bebidas_completas) ? JSON.stringify(bebidas_completas) : null;
+      const comidasCompletasJson = comidas_completas && Array.isArray(comidas_completas) ? JSON.stringify(comidas_completas) : null;
+      
+      // Formatar data_aniversario para garantir que seja apenas a data (sem hora/timezone)
+      let dataAniversarioFormatted = data_aniversario;
+      if (data_aniversario && data_aniversario.includes('T')) {
+        dataAniversarioFormatted = data_aniversario.split('T')[0];
+      }
+
+      // Verificar se os campos existem na tabela antes de inserir
+      // Tentar inserir com os novos campos primeiro, se falhar, inserir sem eles
+      let sqlInsert = `
         INSERT INTO birthday_reservations (
           user_id,
           aniversariante_nome,
@@ -129,6 +140,8 @@ module.exports = (pool) => {
           quantidade_convidados,
           id_casa_evento,
           decoracao_tipo,
+          decoracao_preco,
+          decoracao_imagem,
           painel_personalizado,
           painel_estoque_imagem_url,
           painel_tema,
@@ -153,21 +166,25 @@ module.exports = (pool) => {
           item_bar_comida_8,
           item_bar_comida_9,
           item_bar_comida_10,
+          bebidas_completas,
+          comidas_completas,
           lista_presentes,
           documento,
           whatsapp,
           email
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39) RETURNING id
       `;
 
       // placeId já está convertido para número acima, usar diretamente
       const insertParams = [
         user_id || 1,
         aniversariante_nome || '',
-        data_aniversario || new Date().toISOString().split('T')[0],
+        dataAniversarioFormatted || new Date().toISOString().split('T')[0],
         quantidade_convidados || 0,
         placeId, // Já é um número inteiro válido
         decoracao_tipo || '',
+        decoracaoPrecoValue, // decoracao_preco
+        decoracao_imagem || null, // decoracao_imagem
         painel_personalizado || 0,
         painel_estoque_imagem_url || null,
         painel_tema || null,
@@ -192,6 +209,8 @@ module.exports = (pool) => {
         item_bar_comida_8 || 0,
         item_bar_comida_9 || 0,
         item_bar_comida_10 || 0,
+        bebidasCompletasJson, // bebidas_completas (JSON)
+        comidasCompletasJson, // comidas_completas (JSON)
         JSON.stringify(lista_presentes || []),
         documento || null,
         whatsapp || null,
@@ -203,7 +222,90 @@ module.exports = (pool) => {
         console.log(`${index + 1}: ${param} (${typeof param})`);
       });
 
-      const result = await client.query(sqlInsert, insertParams);
+      let result;
+      try {
+        // Tentar inserir com os novos campos
+        result = await client.query(sqlInsert, insertParams);
+      } catch (insertError) {
+        // Se falhar (campos não existem), tentar inserir sem os novos campos
+        console.warn('⚠️ Erro ao inserir com novos campos, tentando sem eles:', insertError.message);
+        const sqlInsertFallback = `
+          INSERT INTO birthday_reservations (
+            user_id,
+            aniversariante_nome,
+            data_aniversario,
+            quantidade_convidados,
+            id_casa_evento,
+            decoracao_tipo,
+            painel_personalizado,
+            painel_estoque_imagem_url,
+            painel_tema,
+            painel_frase,
+            item_bar_bebida_1,
+            item_bar_bebida_2,
+            item_bar_bebida_3,
+            item_bar_bebida_4,
+            item_bar_bebida_5,
+            item_bar_bebida_6,
+            item_bar_bebida_7,
+            item_bar_bebida_8,
+            item_bar_bebida_9,
+            item_bar_bebida_10,
+            item_bar_comida_1,
+            item_bar_comida_2,
+            item_bar_comida_3,
+            item_bar_comida_4,
+            item_bar_comida_5,
+            item_bar_comida_6,
+            item_bar_comida_7,
+            item_bar_comida_8,
+            item_bar_comida_9,
+            item_bar_comida_10,
+            lista_presentes,
+            documento,
+            whatsapp,
+            email
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
+        `;
+        const insertParamsFallback = [
+          user_id || 1,
+          aniversariante_nome || '',
+          dataAniversarioFormatted || new Date().toISOString().split('T')[0],
+          quantidade_convidados || 0,
+          placeId,
+          decoracao_tipo || '',
+          painel_personalizado || 0,
+          painel_estoque_imagem_url || null,
+          painel_tema || null,
+          painel_frase || null,
+          item_bar_bebida_1 || 0,
+          item_bar_bebida_2 || 0,
+          item_bar_bebida_3 || 0,
+          item_bar_bebida_4 || 0,
+          item_bar_bebida_5 || 0,
+          item_bar_bebida_6 || 0,
+          item_bar_bebida_7 || 0,
+          item_bar_bebida_8 || 0,
+          item_bar_bebida_9 || 0,
+          item_bar_bebida_10 || 0,
+          item_bar_comida_1 || 0,
+          item_bar_comida_2 || 0,
+          item_bar_comida_3 || 0,
+          item_bar_comida_4 || 0,
+          item_bar_comida_5 || 0,
+          item_bar_comida_6 || 0,
+          item_bar_comida_7 || 0,
+          item_bar_comida_8 || 0,
+          item_bar_comida_9 || 0,
+          item_bar_comida_10 || 0,
+          JSON.stringify(lista_presentes || []),
+          documento || null,
+          whatsapp || null,
+          email || null,
+        ];
+        result = await client.query(sqlInsertFallback, insertParamsFallback);
+      }
+      
       const birthdayReservationId = result.rows[0].id;
       console.log('✅ Reserva de aniversário criada com ID:', birthdayReservationId);
       
@@ -573,7 +675,18 @@ module.exports = (pool) => {
       
       let query = `
         SELECT 
-          br.*,
+          br.id, br.user_id, br.aniversariante_nome,
+          TO_CHAR(br.data_aniversario::date, 'YYYY-MM-DD') as data_aniversario,
+          br.quantidade_convidados, br.id_casa_evento, br.decoracao_tipo,
+          br.decoracao_preco, br.decoracao_imagem,
+          br.painel_personalizado, br.painel_estoque_imagem_url, br.painel_tema, br.painel_frase,
+          br.item_bar_bebida_1, br.item_bar_bebida_2, br.item_bar_bebida_3, br.item_bar_bebida_4, br.item_bar_bebida_5,
+          br.item_bar_bebida_6, br.item_bar_bebida_7, br.item_bar_bebida_8, br.item_bar_bebida_9, br.item_bar_bebida_10,
+          br.item_bar_comida_1, br.item_bar_comida_2, br.item_bar_comida_3, br.item_bar_comida_4, br.item_bar_comida_5,
+          br.item_bar_comida_6, br.item_bar_comida_7, br.item_bar_comida_8, br.item_bar_comida_9, br.item_bar_comida_10,
+          br.bebidas_completas, br.comidas_completas,
+          br.lista_presentes, br.documento, br.whatsapp, br.email, br.status,
+          br.created_at, br.updated_at,
           p.name as place_name,
           u.name as user_name
         FROM birthday_reservations br
@@ -693,7 +806,18 @@ module.exports = (pool) => {
     try {
       const rowsResult = await client.query(`
         SELECT 
-          br.*,
+          br.id, br.user_id, br.aniversariante_nome,
+          TO_CHAR(br.data_aniversario::date, 'YYYY-MM-DD') as data_aniversario,
+          br.quantidade_convidados, br.id_casa_evento, br.decoracao_tipo,
+          br.decoracao_preco, br.decoracao_imagem,
+          br.painel_personalizado, br.painel_estoque_imagem_url, br.painel_tema, br.painel_frase,
+          br.item_bar_bebida_1, br.item_bar_bebida_2, br.item_bar_bebida_3, br.item_bar_bebida_4, br.item_bar_bebida_5,
+          br.item_bar_bebida_6, br.item_bar_bebida_7, br.item_bar_bebida_8, br.item_bar_bebida_9, br.item_bar_bebida_10,
+          br.item_bar_comida_1, br.item_bar_comida_2, br.item_bar_comida_3, br.item_bar_comida_4, br.item_bar_comida_5,
+          br.item_bar_comida_6, br.item_bar_comida_7, br.item_bar_comida_8, br.item_bar_comida_9, br.item_bar_comida_10,
+          br.bebidas_completas, br.comidas_completas,
+          br.lista_presentes, br.documento, br.whatsapp, br.email, br.status,
+          br.created_at, br.updated_at,
           p.name as place_name,
           u.name as user_name
         FROM birthday_reservations br
