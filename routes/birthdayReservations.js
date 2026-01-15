@@ -172,7 +172,7 @@ module.exports = (pool) => {
           documento,
           whatsapp,
           email
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39) RETURNING id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38) RETURNING id
       `;
 
       // placeId já está convertido para número acima, usar diretamente
@@ -227,8 +227,10 @@ module.exports = (pool) => {
         // Tentar inserir com os novos campos
         result = await client.query(sqlInsert, insertParams);
       } catch (insertError) {
-        // Se falhar (campos não existem), tentar inserir sem os novos campos
+        // Se falhar (campos não existem), fazer ROLLBACK e reiniciar transação antes de tentar fallback
         console.warn('⚠️ Erro ao inserir com novos campos, tentando sem eles:', insertError.message);
+        await client.query('ROLLBACK');
+        await client.query('BEGIN');
         const sqlInsertFallback = `
           INSERT INTO birthday_reservations (
             user_id,
