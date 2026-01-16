@@ -1688,6 +1688,7 @@ class EventosController {
                 rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
+                rr.status,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
@@ -1700,7 +1701,7 @@ class EventosController {
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
               AND rr.evento_id = $3
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
             
@@ -1825,6 +1826,7 @@ class EventosController {
                 rr.table_number,
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
+                rr.status,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
@@ -1836,7 +1838,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para large_reservations (sem filtro de evento_id)
@@ -1929,6 +1931,9 @@ class EventosController {
                 ra.name as area_name,
                 rr.checked_in,
                 rr.checkin_time,
+                rr.status,
+                rr.notes,
+                rr.admin_notes,
                 0 as total_convidados,
                 0 as convidados_checkin,
                 NULL as guest_list_id
@@ -1969,6 +1974,9 @@ class EventosController {
                   ra.name as area_name,
                   rr.checked_in,
                   rr.checkin_time,
+                  rr.status,
+                  rr.notes,
+                  rr.admin_notes,
                   0 as total_convidados,
                   0 as convidados_checkin,
                   NULL as guest_list_id
@@ -2004,6 +2012,9 @@ class EventosController {
             area_name: gl.area_name,
             checked_in: gl.reservation_checked_in,
             checkin_time: gl.reservation_checkin_time,
+            status: gl.status || 'NOVA',
+            notes: gl.notes || null,
+            admin_notes: gl.admin_notes || null,
             total_convidados: gl.total_guests || 0,
             convidados_checkin: gl.guests_checked_in || 0,
             guest_list_id: gl.guest_list_id
