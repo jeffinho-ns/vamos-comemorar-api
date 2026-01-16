@@ -1913,7 +1913,85 @@ class EventosController {
             guests_checked_in: gl.guests_checked_in
           })));
           
+          // Buscar também reservas de restaurante SEM guest list (reservas simples)
+          let reservasSemGuestList = [];
+          try {
+            const reservasSemGuestListResult = await this.pool.query(`
+              SELECT 
+                rr.id,
+                'reserva_restaurante' as tipo,
+                rr.client_name as responsavel,
+                rr.origin as origem,
+                rr.reservation_date,
+                rr.reservation_time,
+                rr.number_of_people,
+                rr.table_number,
+                ra.name as area_name,
+                rr.checked_in,
+                rr.checkin_time,
+                0 as total_convidados,
+                0 as convidados_checkin,
+                NULL as guest_list_id
+              FROM restaurant_reservations rr
+              LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+              LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+              AND gl.id IS NULL
+              AND (rr.evento_id = $3 OR rr.evento_id IS NULL OR rr.evento_id = 0)
+              ORDER BY rr.reservation_time ASC
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            
+            reservasSemGuestList = reservasSemGuestListResult.rows;
+            console.log(`✅ Reservas de restaurante SEM guest list encontradas: ${reservasSemGuestList.length}`);
+            if (reservasSemGuestList.length > 0) {
+              console.log('📋 Primeiras reservas sem guest list:', reservasSemGuestList.slice(0, 3).map(r => ({
+                id: r.id,
+                responsavel: r.responsavel,
+                data: r.reservation_date,
+                hora: r.reservation_time
+              })));
+            }
+          } catch (err) {
+            console.error('❌ Erro ao buscar reservas sem guest list:', err);
+            // Se der erro (provavelmente porque evento_id não existe), tentar sem o filtro
+            try {
+              const reservasSemGuestListResult = await this.pool.query(`
+                SELECT 
+                  rr.id,
+                  'reserva_restaurante' as tipo,
+                  rr.client_name as responsavel,
+                  rr.origin as origem,
+                  rr.reservation_date,
+                  rr.reservation_time,
+                  rr.number_of_people,
+                  rr.table_number,
+                  ra.name as area_name,
+                  rr.checked_in,
+                  rr.checkin_time,
+                  0 as total_convidados,
+                  0 as convidados_checkin,
+                  NULL as guest_list_id
+                FROM restaurant_reservations rr
+                LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+                LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+                WHERE rr.establishment_id = $1
+                AND rr.reservation_date::DATE = $2::DATE
+                AND gl.id IS NULL
+                AND (rr.status NOT IN ('cancelled', 'CANCELADA') OR rr.status IS NULL)
+                ORDER BY rr.reservation_time ASC
+              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              
+              reservasSemGuestList = reservasSemGuestListResult.rows;
+              console.log(`✅ Reservas de restaurante SEM guest list encontradas (sem filtro evento_id): ${reservasSemGuestList.length}`);
+            } catch (err2) {
+              console.error('❌ Erro ao buscar reservas sem guest list (fallback):', err2);
+              reservasSemGuestList = [];
+            }
+          }
+          
           // Para compatibilidade: também retornar no formato antigo
+          // Primeiro adicionar as reservas COM guest list
           reservasRestaurante = guestListsResult.map(gl => ({
             id: gl.reservation_id,
             tipo: 'reserva_restaurante',
@@ -1930,6 +2008,9 @@ class EventosController {
             convidados_checkin: gl.guests_checked_in || 0,
             guest_list_id: gl.guest_list_id
           }));
+          
+          // Depois adicionar as reservas SEM guest list
+          reservasRestaurante = [...reservasRestaurante, ...reservasSemGuestList];
         } catch (err) {
           console.error('❌ Erro ao buscar guest_lists de reservas restaurante:', err);
           reservasRestaurante = [];
