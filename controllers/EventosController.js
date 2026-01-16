@@ -1954,8 +1954,27 @@ class EventosController {
                 id: r.id,
                 responsavel: r.responsavel,
                 data: r.reservation_date,
-                hora: r.reservation_time
+                hora: r.reservation_time,
+                client_name: r.responsavel, // Backend retorna client_name as responsavel
+                guest_list_id: r.guest_list_id
               })));
+              
+              // Debug específico para Luis Felipe Martins
+              const luisFelipe = reservasSemGuestList.find(r => 
+                (r.responsavel && r.responsavel.toLowerCase().includes('luis')) ||
+                (r.responsavel && r.responsavel.toLowerCase().includes('felipe')) ||
+                (r.responsavel && r.responsavel.toLowerCase().includes('martins'))
+              );
+              if (luisFelipe) {
+                console.log('🎯 [DEBUG] Reserva Luis Felipe Martins encontrada no backend:', {
+                  id: luisFelipe.id,
+                  responsavel: luisFelipe.responsavel,
+                  data: luisFelipe.reservation_date,
+                  guest_list_id: luisFelipe.guest_list_id,
+                  establishment_id: eventoInfo.establishment_id,
+                  data_evento: eventoInfo.data_evento
+                });
+              }
             }
           } catch (err) {
             console.error('❌ Erro ao buscar reservas sem guest list:', err);
