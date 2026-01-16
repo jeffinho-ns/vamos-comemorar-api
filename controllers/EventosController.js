@@ -2017,10 +2017,10 @@ class EventosController {
             admin_notes: gl.admin_notes || null,
             total_convidados: gl.total_guests || 0,
             convidados_checkin: gl.guests_checked_in || 0,
-            guest_list_id: gl.guest_list_id
+            guest_list_id: gl.guest_list_id // Incluir guest_list_id para identificar reservas com guest list
           }));
           
-          // Depois adicionar as reservas SEM guest list
+          // Depois adicionar as reservas SEM guest list (já vêm com guest_list_id: NULL)
           reservasRestaurante = [...reservasRestaurante, ...reservasSemGuestList];
         } catch (err) {
           console.error('❌ Erro ao buscar guest_lists de reservas restaurante:', err);
