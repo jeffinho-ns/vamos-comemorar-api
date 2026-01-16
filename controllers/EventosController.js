@@ -1786,7 +1786,7 @@ class EventosController {
                   );
                   if (notesResult.rows.length > 0) {
                     gl.notes = notesResult.rows[0].notes || null;
-                    gl.admin_notes = notesResult.rows[0].admin_notes || null;
+                    gl.admin_notes = null; // Campo não existe na tabela
                   }
                 } catch (err) {
                   console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
@@ -1888,7 +1888,7 @@ class EventosController {
                   );
                   if (notesResult.rows.length > 0) {
                     gl.notes = notesResult.rows[0].notes || null;
-                    gl.admin_notes = notesResult.rows[0].admin_notes || null;
+                    gl.admin_notes = null; // Campo não existe na tabela
                   }
                 } catch (err) {
                   console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
@@ -1933,7 +1933,7 @@ class EventosController {
                 rr.checkin_time,
                 rr.status,
                 rr.notes,
-                rr.admin_notes,
+                NULL as admin_notes,
                 0 as total_convidados,
                 0 as convidados_checkin,
                 NULL as guest_list_id
@@ -1995,7 +1995,7 @@ class EventosController {
                   rr.checkin_time,
                   rr.status,
                   rr.notes,
-                  rr.admin_notes,
+                  NULL as admin_notes,
                   0 as total_convidados,
                   0 as convidados_checkin,
                   NULL as guest_list_id
