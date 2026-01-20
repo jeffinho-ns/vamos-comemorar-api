@@ -140,6 +140,93 @@ module.exports = (pool) => {
     }
   });
 
+  // C. LIBERAÇÃO MANUAL DE MESA (EXCLUSIVO HIGHLINE DECK)
+  // Esta rota cancela reservas confirmadas de uma mesa específica em uma data para liberação manual
+  router.patch('/:tableNumber/force-available', async (req, res) => {
+    try {
+      await ensureTablesSchema();
+      const { tableNumber } = req.params;
+      const { date, area_id } = req.query;
+
+      if (!date || !area_id) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Parâmetros obrigatórios: date (YYYY-MM-DD) e area_id' 
+        });
+      }
+
+      // Buscar todas as reservas confirmadas da mesa na data especificada
+      // Mesas podem ser múltiplas (separadas por vírgula), então precisamos verificar
+      const reservedQuery = `
+        SELECT id, table_number, client_name, reservation_time, status 
+        FROM restaurant_reservations
+        WHERE reservation_date = $1 
+          AND area_id = $2 
+          AND status = 'CONFIRMADA'
+          AND (
+            table_number = $3 
+            OR table_number LIKE $4 
+            OR table_number LIKE $5 
+            OR table_number LIKE $6
+          )
+      `;
+      
+      const tableNumStr = String(tableNumber);
+      const params = [
+        date,
+        area_id,
+        tableNumStr,
+        `${tableNumStr},%`,  // Mesa no início
+        `%,${tableNumStr}`,  // Mesa no final
+        `%,${tableNumStr},%` // Mesa no meio
+      ];
+
+      const reservedResult = await pool.query(reservedQuery, params);
+      const reservations = reservedResult.rows;
+
+      if (reservations.length === 0) {
+        return res.json({ 
+          success: true, 
+          message: 'Nenhuma reserva confirmada encontrada para esta mesa nesta data',
+          cancelled_count: 0
+        });
+      }
+
+      // Cancelar todas as reservas encontradas
+      const reservationIds = reservations.map(r => r.id);
+      
+      if (reservationIds.length > 0) {
+        // Construir query com placeholders para cada ID
+        const placeholders = reservationIds.map((_, index) => `$${index + 1}`).join(',');
+        const cancelQuery = `
+          UPDATE restaurant_reservations
+          SET status = 'CANCELADA',
+              updated_at = CURRENT_TIMESTAMP,
+              notes = COALESCE(notes || E'\\n', '') || E'\\n[LIBERAÇÃO MANUAL] Mesa liberada manualmente pelo admin em ' || CURRENT_TIMESTAMP::text
+          WHERE id IN (${placeholders})
+        `;
+
+        await pool.query(cancelQuery, reservationIds);
+      }
+
+      console.log(`✅ [LIBERAÇÃO MANUAL] ${reservationIds.length} reserva(s) cancelada(s) para mesa ${tableNumber} na data ${date}`);
+
+      res.json({ 
+        success: true, 
+        message: `Mesa ${tableNumber} liberada com sucesso`,
+        cancelled_count: reservationIds.length,
+        cancelled_reservations: reservations.map(r => ({
+          id: r.id,
+          client_name: r.client_name,
+          reservation_time: r.reservation_time
+        }))
+      });
+    } catch (error) {
+      console.error('❌ Erro ao liberar mesa manualmente:', error);
+      res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    }
+  });
+
   return router;
 };
 
