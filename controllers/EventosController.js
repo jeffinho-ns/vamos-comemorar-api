@@ -2067,6 +2067,8 @@ class EventosController {
               NULL as data_nascimento,
               g.checked_in as status_checkin,
               g.checkin_time as data_checkin,
+              g.entrada_tipo,
+              g.entrada_valor,
               rr.client_name as responsavel,
               rr.origin as origem,
               rr.id as reserva_id
