@@ -71,9 +71,9 @@ AND COLUMN_NAME IN ('entrada_tipo', 'entrada_valor');
 -- COMENTÁRIOS SOBRE AS REGRAS DE NEGÓCIO
 -- =====================================================
 -- Regras de entrada baseadas no horário:
--- - Até 22:00: VIP (grátis) - automático
--- - 22:00 até 00:30: R$ 40 SECO ou R$ 120 CONSUMA - escolha do admin
+-- - Até 22:20: VIP (grátis) - automático (tolerância de 20min para fila)
+-- - 22:20 até 00:30: R$ 40 SECO ou R$ 120 CONSUMA - escolha do admin
 -- - Após 00:30: R$ 50 SECO ou R$ 150 CONSUMA - escolha do admin
--- - Entre 22:00 e 03:00: Admin pode forçar VIP manualmente
+-- - Entre 22:20 e 03:00: Admin pode forçar VIP manualmente
 -- =====================================================
 
