@@ -251,7 +251,8 @@ module.exports = (pool) => {
         establishment_id,
         evento_id,
         send_email = true,
-        send_whatsapp = true
+        send_whatsapp = true,
+        blocks_entire_area = false
       } = req.body;
 
       // Validações básicas
@@ -315,6 +316,30 @@ module.exports = (pool) => {
           success: false,
           error: `number_of_people inválido: ${number_of_people}. Deve ser um número maior ou igual a 1.`
         });
+      }
+
+      // Verificar se há uma reserva bloqueando toda a área para esta data
+      // IMPORTANTE: Se uma reserva bloqueia toda a área, ela bloqueia para TODOS os estabelecimentos
+      if (areaIdNumber && reservation_date) {
+        // Verificar se há qualquer reserva bloqueando a área para esta data (independente do establishment_id)
+        // Pois se uma reserva bloqueia toda a área, ela bloqueia para todos
+        const areaBlockedResult = await pool.query(
+          `SELECT id, client_name, establishment_id 
+           FROM restaurant_reservations
+           WHERE reservation_date = $1 
+             AND area_id = $2 
+             AND blocks_entire_area = TRUE
+             AND status NOT IN ('CANCELADA', 'cancelled')`,
+          [reservation_date, areaIdNumber]
+        );
+        
+        if (areaBlockedResult.rows.length > 0) {
+          const blockingReservation = areaBlockedResult.rows[0];
+          return res.status(400).json({
+            success: false,
+            error: `A área está completamente bloqueada para esta data pela reserva #${blockingReservation.id} (${blockingReservation.client_name}). Não é possível criar novas reservas nesta área e data.`
+          });
+        }
       }
 
       // Validação: se table_number foi informado, verificar conflito considerando horário
@@ -487,8 +512,8 @@ module.exports = (pool) => {
         INSERT INTO restaurant_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
-          status, origin, notes, created_by, establishment_id, evento_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
+          status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id
       `;
 
       // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
@@ -507,7 +532,8 @@ module.exports = (pool) => {
         notes || null,
         created_by || null,
         establishmentIdNumber, // Usar variável convertida
-        evento_id || null
+        evento_id || null,
+        blocks_entire_area || false
       ];
 
       console.log('📝 Parâmetros de inserção:', insertParams);
@@ -713,9 +739,9 @@ module.exports = (pool) => {
         evento_id
       } = req.body;
 
-      // Verificar se a reserva existe
+      // Verificar se a reserva existe e buscar dados atuais
       const existingReservationResult = await pool.query(
-        'SELECT id FROM restaurant_reservations WHERE id = $1',
+        'SELECT id, area_id, reservation_date, establishment_id FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
@@ -724,6 +750,34 @@ module.exports = (pool) => {
           success: false,
           error: 'Reserva não encontrada'
         });
+      }
+
+      const existingReservation = existingReservationResult.rows[0];
+      
+      // Se a data ou área estão sendo alteradas, verificar se há bloqueio
+      const newAreaId = area_id !== undefined ? Number(area_id) : existingReservation.area_id;
+      const newDate = reservation_date !== undefined ? reservation_date : existingReservation.reservation_date;
+      
+      // Verificar se há uma reserva bloqueando toda a área para a nova data/área (exceto a própria reserva sendo editada)
+      if (newAreaId && newDate) {
+        const areaBlockedResult = await pool.query(
+          `SELECT id, client_name 
+           FROM restaurant_reservations
+           WHERE reservation_date = $1 
+             AND area_id = $2 
+             AND blocks_entire_area = TRUE
+             AND id != $3
+             AND status NOT IN ('CANCELADA', 'cancelled')`,
+          [newDate, newAreaId, id]
+        );
+        
+        if (areaBlockedResult.rows.length > 0) {
+          const blockingReservation = areaBlockedResult.rows[0];
+          return res.status(400).json({
+            success: false,
+            error: `A área está completamente bloqueada para esta data pela reserva #${blockingReservation.id} (${blockingReservation.client_name}). Não é possível atualizar a reserva para esta área e data.`
+          });
+        }
       }
 
       // Construir query dinamicamente baseado nos campos fornecidos
@@ -790,6 +844,10 @@ module.exports = (pool) => {
       if (evento_id !== undefined) {
         updateFields.push(`evento_id = $${paramIndex++}`);
         params.push(evento_id);
+      }
+      if (req.body.blocks_entire_area !== undefined) {
+        updateFields.push(`blocks_entire_area = $${paramIndex++}`);
+        params.push(req.body.blocks_entire_area === true || req.body.blocks_entire_area === 1);
       }
 
       // Sempre atualizar o timestamp
