@@ -522,6 +522,103 @@ module.exports = (pool, checkAndAwardGifts = null) => {
   });
 
   /**
+   * @route   POST /api/admin/guests/:id/checkout
+   * @desc    Faz check-out de um convidado específico (registra a saída)
+   * @access  Private (Admin)
+   */
+  router.post('/guests/:id/checkout', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se o convidado existe
+      const guestResult = await pool.query(
+        'SELECT * FROM guests WHERE id = $1',
+        [id]
+      );
+
+      if (guestResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Convidado não encontrado'
+        });
+      }
+
+      const guest = guestResult.rows[0];
+
+      // Verificar se fez check-in antes de fazer check-out
+      if (!guest.checked_in) {
+        return res.status(400).json({
+          success: false,
+          error: 'Este convidado ainda não fez check-in'
+        });
+      }
+
+      // Verificar se já fez check-out (se a coluna existir)
+      let hasCheckedOut = false;
+      if (guest.checked_out !== undefined && guest.checked_out !== null) {
+        hasCheckedOut = guest.checked_out === true || guest.checked_out === 1;
+      } else if (guest.checkout_time) {
+        // Se não tiver coluna checked_out mas tiver checkout_time, considerar como já fez check-out
+        hasCheckedOut = true;
+      }
+
+      if (hasCheckedOut) {
+        return res.status(400).json({
+          success: false,
+          error: 'Este convidado já fez check-out'
+        });
+      }
+
+      // Atualizar check-out do convidado
+      // Verificar se a coluna checked_out existe
+      let updateQuery;
+      let updateParams;
+      
+      try {
+        // Tentar atualizar com checked_out e checkout_time
+        updateQuery = 'UPDATE guests SET checked_out = TRUE, checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+        updateParams = [id];
+        await pool.query(updateQuery, updateParams);
+      } catch (updateError) {
+        // Se der erro (coluna não existe), tentar apenas com checkout_time
+        if (updateError.code === '42703' || updateError.message.includes('checked_out') || updateError.message.includes('column') && updateError.message.includes('does not exist')) {
+          console.warn('⚠️ Coluna checked_out não existe, atualizando apenas checkout_time...');
+          // Se não existir checked_out, podemos usar uma abordagem alternativa
+          // Por exemplo, definir checked_in como FALSE e usar checkout_time
+          updateQuery = 'UPDATE guests SET checked_in = FALSE, checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+          updateParams = [id];
+          await pool.query(updateQuery, updateParams);
+        } else {
+          throw updateError; // Re-throw se for outro erro
+        }
+      }
+
+      console.log(`✅ Check-out do convidado confirmado: ${guest.name} (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-out do convidado confirmado com sucesso',
+        guest: {
+          id: guest.id,
+          name: guest.name,
+          checked_in: false,
+          checked_out: true,
+          checkout_time: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-out do convidado:', error);
+      console.error('❌ Stack trace:', error.stack);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  /**
    * @route   DELETE /api/admin/guest-lists/by-owner/:ownerName
    * @desc    Exclui lista(s) de convidados pelo nome do dono
    * @access  Private (Administrador)
@@ -678,6 +775,8 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           reservation_date: guestListResult.rows[0].reservation_date,
           owner_checked_in: guestListResult.rows[0].owner_checked_in || false,
           owner_checkin_time: guestListResult.rows[0].owner_checkin_time,
+          owner_checked_out: guestListResult.rows[0].owner_checked_out || false,
+          owner_checkout_time: guestListResult.rows[0].owner_checkout_time,
           total_guests: parseInt(stats.total_guests),
           guests_checked_in: parseInt(stats.checked_in_count),
           attendance_percentage: parseInt(stats.total_guests) > 0 
@@ -755,6 +854,107 @@ module.exports = (pool, checkAndAwardGifts = null) => {
 
     } catch (error) {
       console.error('❌ Erro ao fazer check-in do dono:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  /**
+   * @route   POST /api/admin/guest-lists/:id/owner-checkout
+   * @desc    Faz check-out do dono da reserva (registra a saída)
+   * @access  Private (Admin)
+   */
+  router.post('/guest-lists/:id/owner-checkout', optionalAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verificar se a guest list existe
+      const guestListResult = await pool.query(
+        `SELECT gl.*, 
+         COALESCE(CAST(lr.client_name AS VARCHAR), CAST(rr.client_name AS VARCHAR)) as owner_name
+         FROM guest_lists gl
+         LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+         LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+         WHERE gl.id = $1`,
+        [id]
+      );
+
+      const guestList = guestListResult.rows[0];
+
+      if (!guestList) {
+        return res.status(404).json({
+          success: false,
+          error: 'Lista de convidados não encontrada'
+        });
+      }
+
+      // Verificar se fez check-in antes de fazer check-out
+      if (!guestList.owner_checked_in || guestList.owner_checked_in === 0 || guestList.owner_checked_in === false) {
+        return res.status(400).json({
+          success: false,
+          error: 'O dono da reserva ainda não fez check-in'
+        });
+      }
+
+      // Verificar se já fez check-out (se a coluna existir)
+      let hasCheckedOut = false;
+      if (guestList.owner_checked_out !== undefined && guestList.owner_checked_out !== null) {
+        hasCheckedOut = guestList.owner_checked_out === true || guestList.owner_checked_out === 1;
+      } else if (guestList.owner_checkout_time) {
+        // Se não tiver coluna owner_checked_out mas tiver owner_checkout_time, considerar como já fez check-out
+        hasCheckedOut = true;
+      }
+
+      if (hasCheckedOut) {
+        return res.status(400).json({
+          success: false,
+          error: 'O dono da reserva já fez check-out'
+        });
+      }
+
+      // Atualizar check-out do dono
+      // Verificar se a coluna owner_checked_out existe
+      let updateQuery;
+      let updateParams;
+      
+      try {
+        // Tentar atualizar com owner_checked_out e owner_checkout_time
+        updateQuery = 'UPDATE guest_lists SET owner_checked_out = TRUE, owner_checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+        updateParams = [id];
+        await pool.query(updateQuery, updateParams);
+      } catch (updateError) {
+        // Se der erro (coluna não existe), tentar apenas com owner_checkout_time
+        if (updateError.code === '42703' || updateError.message.includes('owner_checked_out') || updateError.message.includes('column') && updateError.message.includes('does not exist')) {
+          console.warn('⚠️ Coluna owner_checked_out não existe, atualizando apenas owner_checkout_time...');
+          // Se não existir owner_checked_out, podemos usar uma abordagem alternativa
+          // Por exemplo, definir owner_checked_in como FALSE e usar owner_checkout_time
+          updateQuery = 'UPDATE guest_lists SET owner_checked_in = FALSE, owner_checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+          updateParams = [id];
+          await pool.query(updateQuery, updateParams);
+        } else {
+          throw updateError; // Re-throw se for outro erro
+        }
+      }
+
+      console.log(`✅ Check-out do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Check-out do dono confirmado com sucesso',
+        guestList: {
+          id: id,
+          owner_name: guestList.owner_name,
+          owner_checked_in: false,
+          owner_checked_out: true,
+          owner_checkout_time: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-out do dono:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
