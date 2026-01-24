@@ -13,7 +13,7 @@ module.exports = (pool) => {
     try {
       // Tabela waitlist já deve existir no PostgreSQL
 
-      const { status, limit, sort, order } = req.query;
+      const { status, limit, sort, order, establishment_id, date, preferred_time } = req.query;
       
       let query = `
         SELECT 
@@ -28,6 +28,26 @@ module.exports = (pool) => {
       if (status) {
         query += ` AND wl.status = $${paramIndex++}`;
         params.push(status);
+      }
+
+      if (establishment_id) {
+        const isSeuJustino = String(establishment_id) === '1';
+        if (isSeuJustino) {
+          query += ` AND (wl.establishment_id = $${paramIndex++} OR wl.establishment_id IS NULL)`;
+        } else {
+          query += ` AND wl.establishment_id = $${paramIndex++}`;
+        }
+        params.push(establishment_id);
+      }
+
+      if (date) {
+        query += ` AND (wl.preferred_date = $${paramIndex++} OR wl.preferred_date IS NULL)`;
+        params.push(date);
+      }
+
+      if (preferred_time) {
+        query += ` AND wl.preferred_time = $${paramIndex++}`;
+        params.push(preferred_time);
       }
       
       if (sort && order) {
@@ -105,6 +125,8 @@ module.exports = (pool) => {
   router.post('/', async (req, res) => {
     try {
       const {
+        establishment_id,
+        preferred_date,
         client_name,
         client_phone,
         client_email,
@@ -121,11 +143,26 @@ module.exports = (pool) => {
           error: 'Campo obrigatório: client_name'
         });
       }
+      if (!establishment_id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: establishment_id'
+        });
+      }
+
+      const preferredDate = preferred_date || new Date().toISOString().split('T')[0];
+      const preferredTime = preferred_time && String(preferred_time).trim() !== '' ? preferred_time : null;
       
       // Calcular posição na fila
-      const positionResult = await pool.query(
-        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
-      );
+      let positionQuery = "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2";
+      const positionParams = [establishment_id, preferredDate];
+      if (preferredTime) {
+        positionQuery += " AND preferred_time = $3";
+        positionParams.push(preferredTime);
+      } else {
+        positionQuery += " AND preferred_time IS NULL";
+      }
+      const positionResult = await pool.query(positionQuery, positionParams);
       const position = parseInt(positionResult.rows[0].count) + 1;
       
       // Estimar tempo de espera (simplificado: 15 minutos por pessoa na frente)
@@ -133,14 +170,16 @@ module.exports = (pool) => {
       
       const query = `
         INSERT INTO waitlist (
+          establishment_id, preferred_date,
           client_name, client_phone, client_email, number_of_people, 
           preferred_time, status, position, estimated_wait_time, notes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
       `;
       
       const params = [
+        establishment_id, preferredDate,
         client_name, client_phone, client_email, number_of_people,
-        preferred_time, status, position, estimatedWaitTime, notes
+        preferredTime, status, position, estimatedWaitTime, notes
       ];
       
       const result = await pool.query(query, params);
@@ -175,6 +214,8 @@ module.exports = (pool) => {
     try {
       const { id } = req.params;
       const {
+        establishment_id,
+        preferred_date,
         client_name,
         client_phone,
         client_email,
@@ -197,18 +238,56 @@ module.exports = (pool) => {
         });
       }
       
+      const updateFields = [];
+      const params = [];
+      let paramIndex = 1;
+
+      if (client_name !== undefined) {
+        updateFields.push(`client_name = $${paramIndex++}`);
+        params.push(client_name);
+      }
+      if (client_phone !== undefined) {
+        updateFields.push(`client_phone = $${paramIndex++}`);
+        params.push(client_phone);
+      }
+      if (client_email !== undefined) {
+        updateFields.push(`client_email = $${paramIndex++}`);
+        params.push(client_email);
+      }
+      if (number_of_people !== undefined) {
+        updateFields.push(`number_of_people = $${paramIndex++}`);
+        params.push(number_of_people);
+      }
+      if (preferred_time !== undefined) {
+        const preferredTime = preferred_time && String(preferred_time).trim() !== '' ? preferred_time : null;
+        updateFields.push(`preferred_time = $${paramIndex++}`);
+        params.push(preferredTime);
+      }
+      if (preferred_date !== undefined) {
+        updateFields.push(`preferred_date = $${paramIndex++}`);
+        params.push(preferred_date);
+      }
+      if (establishment_id !== undefined) {
+        updateFields.push(`establishment_id = $${paramIndex++}`);
+        params.push(establishment_id);
+      }
+      if (status !== undefined) {
+        updateFields.push(`status = $${paramIndex++}`);
+        params.push(status);
+      }
+      if (notes !== undefined) {
+        updateFields.push(`notes = $${paramIndex++}`);
+        params.push(notes);
+      }
+
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(id);
+
       const query = `
         UPDATE waitlist SET
-          client_name = $1, client_phone = $2, client_email = $3, 
-          number_of_people = $4, preferred_time = $5, status = $6, 
-          notes = $7, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $8
+          ${updateFields.join(', ')}
+        WHERE id = $${paramIndex}
       `;
-      
-      const params = [
-        client_name, client_phone, client_email, number_of_people,
-        preferred_time, status, notes, id
-      ];
       
       await pool.query(query, params);
       
@@ -322,9 +401,23 @@ module.exports = (pool) => {
    */
   router.get('/stats/count', async (req, res) => {
     try {
-      const waitingCountResult = await pool.query(
-        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
-      );
+      const { establishment_id, date, preferred_time } = req.query;
+      let countQuery = "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'";
+      const countParams = [];
+      let countIndex = 1;
+      if (establishment_id) {
+        countQuery += ` AND establishment_id = $${countIndex++}`;
+        countParams.push(establishment_id);
+      }
+      if (date) {
+        countQuery += ` AND preferred_date = $${countIndex++}`;
+        countParams.push(date);
+      }
+      if (preferred_time) {
+        countQuery += ` AND preferred_time = $${countIndex++}`;
+        countParams.push(preferred_time);
+      }
+      const waitingCountResult = await pool.query(countQuery, countParams);
       
       res.json({
         success: true,
@@ -345,18 +438,38 @@ module.exports = (pool) => {
   // Função auxiliar para recalcular posições
   async function recalculatePositions(pool) {
     try {
-      const waitingItemsResult = await pool.query(
-        "SELECT id FROM waitlist WHERE status = 'AGUARDANDO' ORDER BY created_at ASC"
-      );
-      
-      for (let i = 0; i < waitingItemsResult.rows.length; i++) {
-        const newPosition = i + 1;
-        const estimatedWaitTime = i * 15; // 15 minutos por pessoa na frente
-        
-        await pool.query(
-          'UPDATE waitlist SET position = $1, estimated_wait_time = $2 WHERE id = $3',
-          [newPosition, estimatedWaitTime, waitingItemsResult.rows[i].id]
-        );
+      const groupResult = await pool.query(`
+        SELECT establishment_id, preferred_date, preferred_time
+        FROM waitlist
+        WHERE status = 'AGUARDANDO'
+        GROUP BY establishment_id, preferred_date, preferred_time
+      `);
+
+      for (const group of groupResult.rows) {
+        const params = [group.establishment_id, group.preferred_date];
+        let query = `
+          SELECT id FROM waitlist
+          WHERE status = 'AGUARDANDO'
+            AND establishment_id = $1
+            AND preferred_date = $2
+        `;
+        if (group.preferred_time) {
+          query += ' AND preferred_time = $3';
+          params.push(group.preferred_time);
+        } else {
+          query += ' AND preferred_time IS NULL';
+        }
+        query += ' ORDER BY created_at ASC';
+
+        const waitingItemsResult = await pool.query(query, params);
+        for (let i = 0; i < waitingItemsResult.rows.length; i++) {
+          const newPosition = i + 1;
+          const estimatedWaitTime = i * 15; // 15 minutos por pessoa na frente
+          await pool.query(
+            'UPDATE waitlist SET position = $1, estimated_wait_time = $2 WHERE id = $3',
+            [newPosition, estimatedWaitTime, waitingItemsResult.rows[i].id]
+          );
+        }
       }
     } catch (error) {
       console.error('❌ Erro ao recalcular posições:', error);

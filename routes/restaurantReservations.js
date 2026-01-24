@@ -73,7 +73,7 @@ module.exports = (pool) => {
    */
   router.get('/capacity/check', async (req, res) => {
     try {
-      const { date, establishment_id, new_reservation_people } = req.query;
+      const { date, establishment_id, new_reservation_people, time } = req.query;
 
       if (!date || !establishment_id) {
         return res.status(400).json({
@@ -101,11 +101,22 @@ module.exports = (pool) => {
       const newPeople = parseInt(new_reservation_people) || 0;
       const totalWithNew = currentPeople + newPeople;
 
-      // Verificar se há pessoas na lista de espera
-      const waitlistCountResult = await pool.query(
-        "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO'"
-      );
-      const hasWaitlist = parseInt(waitlistCountResult.rows[0].count) > 0;
+      // Trava só para o mesmo dia + hora: só considera waitlist quando `time` é informado
+      // e apenas entradas com preferred_date + preferred_time exatos (mesmo estabelecimento)
+      let hasWaitlist = false;
+      if (time && String(time).trim()) {
+        const timeTrim = String(time).trim();
+        const timeHhMm = timeTrim.length >= 5 ? timeTrim.substring(0, 5) : timeTrim;
+        const timeHhMmSs = timeHhMm.length === 5 ? timeHhMm + ':00' : timeHhMm;
+        const waitlistCountResult = await pool.query(
+          `SELECT COUNT(*) as count FROM waitlist
+           WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2
+             AND preferred_time IS NOT NULL
+             AND (TRIM(preferred_time::text) = $3 OR TRIM(preferred_time::text) = $4 OR LEFT(TRIM(preferred_time::text), 5) = $5)`,
+          [establishment_id, date, timeHhMm, timeHhMmSs, timeHhMm]
+        );
+        hasWaitlist = parseInt(waitlistCountResult.rows[0].count) > 0;
+      }
 
       const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
 
