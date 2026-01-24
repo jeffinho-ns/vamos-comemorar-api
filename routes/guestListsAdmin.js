@@ -570,27 +570,42 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       // Atualizar check-out do convidado
-      // Verificar se a coluna checked_out existe
+      // Verificar se as colunas existem antes de atualizar
       let updateQuery;
       let updateParams;
       
       try {
-        // Tentar atualizar com checked_out e checkout_time
-        updateQuery = 'UPDATE guests SET checked_out = TRUE, checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
-        updateParams = [id];
-        await pool.query(updateQuery, updateParams);
-      } catch (updateError) {
-        // Se der erro (coluna não existe), tentar apenas com checkout_time
-        if (updateError.code === '42703' || updateError.message.includes('checked_out') || updateError.message.includes('column') && updateError.message.includes('does not exist')) {
-          console.warn('⚠️ Coluna checked_out não existe, atualizando apenas checkout_time...');
-          // Se não existir checked_out, podemos usar uma abordagem alternativa
-          // Por exemplo, definir checked_in como FALSE e usar checkout_time
+        // Verificar se as colunas existem
+        const columnCheck = await pool.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_schema = current_schema()
+          AND table_name = 'guests' 
+          AND column_name IN ('checked_out', 'checkout_time')
+        `);
+        
+        const hasCheckedOut = columnCheck.rows.some(col => col.column_name === 'checked_out');
+        const hasCheckoutTime = columnCheck.rows.some(col => col.column_name === 'checkout_time');
+        
+        if (hasCheckedOut && hasCheckoutTime) {
+          // Se ambas as colunas existem, usar ambas
+          updateQuery = 'UPDATE guests SET checked_out = TRUE, checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+          updateParams = [id];
+        } else if (hasCheckoutTime) {
+          // Se só checkout_time existe, usar apenas ela e marcar checked_in como FALSE
           updateQuery = 'UPDATE guests SET checked_in = FALSE, checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
           updateParams = [id];
-          await pool.query(updateQuery, updateParams);
         } else {
-          throw updateError; // Re-throw se for outro erro
+          // Se nenhuma coluna existe, apenas marcar checked_in como FALSE
+          console.warn('⚠️ Colunas de check-out não existem, apenas marcando checked_in como FALSE...');
+          updateQuery = 'UPDATE guests SET checked_in = FALSE WHERE id = $1';
+          updateParams = [id];
         }
+        
+        await pool.query(updateQuery, updateParams);
+      } catch (updateError) {
+        console.error('❌ Erro ao atualizar check-out:', updateError);
+        throw updateError;
       }
 
       console.log(`✅ Check-out do convidado confirmado: ${guest.name} (ID: ${id})`);
@@ -916,27 +931,42 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       // Atualizar check-out do dono
-      // Verificar se a coluna owner_checked_out existe
+      // Verificar se as colunas existem antes de atualizar
       let updateQuery;
       let updateParams;
       
       try {
-        // Tentar atualizar com owner_checked_out e owner_checkout_time
-        updateQuery = 'UPDATE guest_lists SET owner_checked_out = TRUE, owner_checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
-        updateParams = [id];
-        await pool.query(updateQuery, updateParams);
-      } catch (updateError) {
-        // Se der erro (coluna não existe), tentar apenas com owner_checkout_time
-        if (updateError.code === '42703' || updateError.message.includes('owner_checked_out') || updateError.message.includes('column') && updateError.message.includes('does not exist')) {
-          console.warn('⚠️ Coluna owner_checked_out não existe, atualizando apenas owner_checkout_time...');
-          // Se não existir owner_checked_out, podemos usar uma abordagem alternativa
-          // Por exemplo, definir owner_checked_in como FALSE e usar owner_checkout_time
+        // Verificar se as colunas existem
+        const columnCheck = await pool.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_schema = current_schema()
+          AND table_name = 'guest_lists' 
+          AND column_name IN ('owner_checked_out', 'owner_checkout_time')
+        `);
+        
+        const hasOwnerCheckedOut = columnCheck.rows.some(col => col.column_name === 'owner_checked_out');
+        const hasOwnerCheckoutTime = columnCheck.rows.some(col => col.column_name === 'owner_checkout_time');
+        
+        if (hasOwnerCheckedOut && hasOwnerCheckoutTime) {
+          // Se ambas as colunas existem, usar ambas
+          updateQuery = 'UPDATE guest_lists SET owner_checked_out = TRUE, owner_checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
+          updateParams = [id];
+        } else if (hasOwnerCheckoutTime) {
+          // Se só owner_checkout_time existe, usar apenas ela e marcar owner_checked_in como FALSE
           updateQuery = 'UPDATE guest_lists SET owner_checked_in = FALSE, owner_checkout_time = CURRENT_TIMESTAMP WHERE id = $1';
           updateParams = [id];
-          await pool.query(updateQuery, updateParams);
         } else {
-          throw updateError; // Re-throw se for outro erro
+          // Se nenhuma coluna existe, apenas marcar owner_checked_in como FALSE
+          console.warn('⚠️ Colunas de check-out do dono não existem, apenas marcando owner_checked_in como FALSE...');
+          updateQuery = 'UPDATE guest_lists SET owner_checked_in = FALSE WHERE id = $1';
+          updateParams = [id];
         }
+        
+        await pool.query(updateQuery, updateParams);
+      } catch (updateError) {
+        console.error('❌ Erro ao atualizar check-out do dono:', updateError);
+        throw updateError;
       }
 
       console.log(`✅ Check-out do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
