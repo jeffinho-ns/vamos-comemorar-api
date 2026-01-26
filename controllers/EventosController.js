@@ -1626,9 +1626,18 @@ class EventosController {
         establishment_id: eventoInfo.establishment_id,
         data_evento: eventoInfo.data_evento,
         tem_establishment_id: !!eventoInfo.establishment_id,
-        tem_data_evento: !!eventoInfo.data_evento
+        tem_data_evento: !!eventoInfo.data_evento,
+        tipo_establishment_id: typeof eventoInfo.establishment_id,
+        tipo_data_evento: typeof eventoInfo.data_evento
       });
+      
+      // Garantir que guestListsRestaurante está inicializado
+      if (guestListsRestaurante === undefined) {
+        guestListsRestaurante = [];
+      }
+      
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        console.log('✅ Condições satisfeitas! Buscando guest lists...');
         console.log('🔍 Buscando guest lists para evento:', {
           evento_id: eventoId,
           establishment_id: eventoInfo.establishment_id,
@@ -1709,11 +1718,46 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND (rr.evento_id = $3 OR rr.evento_id IS NULL OR rr.evento_id = 0)
-              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
+            
+            // DEBUG ESPECÍFICO: Verificar se há reservas no banco para este estabelecimento/data
+            if (resultRestaurant.rows.length === 0) {
+              const debugQuery = await this.pool.query(`
+                SELECT 
+                  COUNT(*) as total_reservations,
+                  COUNT(CASE WHEN gl.id IS NOT NULL THEN 1 END) as reservas_com_guest_list,
+                  COUNT(CASE WHEN gl.id IS NULL THEN 1 END) as reservas_sem_guest_list
+                FROM restaurant_reservations rr
+                LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+                WHERE rr.establishment_id = $1
+                AND rr.reservation_date::DATE = $2::DATE
+              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              
+              console.log('🔍 [DEBUG] Diagnóstico de reservas:', {
+                establishment_id: eventoInfo.establishment_id,
+                data_evento: eventoInfo.data_evento,
+                total_reservations: debugQuery.rows[0]?.total_reservations || 0,
+                reservas_com_guest_list: debugQuery.rows[0]?.reservas_com_guest_list || 0,
+                reservas_sem_guest_list: debugQuery.rows[0]?.reservas_sem_guest_list || 0
+              });
+              
+              // Se há reservas mas sem guest_lists, logar algumas para debug
+              if (debugQuery.rows[0]?.reservas_sem_guest_list > 0) {
+                const reservasSemGuestList = await this.pool.query(`
+                  SELECT rr.id, rr.client_name, rr.reservation_date, rr.reservation_time
+                  FROM restaurant_reservations rr
+                  LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+                  WHERE rr.establishment_id = $1
+                  AND rr.reservation_date::DATE = $2::DATE
+                  AND gl.id IS NULL
+                  LIMIT 5
+                `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+                
+                console.log('📋 [DEBUG] Exemplos de reservas sem guest_list:', reservasSemGuestList.rows);
+              }
+            }
             
             // DEBUG: Verificar quantas large_reservations foram vinculadas
             const debugLargeReservations = await this.pool.query(`
@@ -1779,11 +1823,31 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              AND (lr.evento_id = $3 OR lr.evento_id IS NULL OR lr.evento_id = 0)
-              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             console.log(`✅ Encontradas ${resultLarge.rows.length} guest lists de large_reservations`);
+            
+            // DEBUG ESPECÍFICO: Verificar se há large_reservations no banco
+            if (resultLarge.rows.length === 0) {
+              const debugLargeQuery = await this.pool.query(`
+                SELECT 
+                  COUNT(*) as total_reservations,
+                  COUNT(CASE WHEN gl.id IS NOT NULL THEN 1 END) as reservas_com_guest_list,
+                  COUNT(CASE WHEN gl.id IS NULL THEN 1 END) as reservas_sem_guest_list
+                FROM large_reservations lr
+                LEFT JOIN guest_lists gl ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+                WHERE lr.establishment_id = $1
+                AND lr.reservation_date::DATE = $2::DATE
+              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              
+              console.log('🔍 [DEBUG] Diagnóstico de large_reservations:', {
+                establishment_id: eventoInfo.establishment_id,
+                data_evento: eventoInfo.data_evento,
+                total_reservations: debugLargeQuery.rows[0]?.total_reservations || 0,
+                reservas_com_guest_list: debugLargeQuery.rows[0]?.reservas_com_guest_list || 0,
+                reservas_sem_guest_list: debugLargeQuery.rows[0]?.reservas_sem_guest_list || 0
+              });
+            }
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
@@ -1853,7 +1917,6 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
@@ -1889,7 +1952,6 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
@@ -1925,6 +1987,25 @@ class EventosController {
           
           guestListsRestaurante = guestListsResult;
           console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
+          
+          // DEBUG ESPECÍFICO: Se não encontrou nada, verificar o que há no banco
+          if (guestListsRestaurante.length === 0) {
+            console.log('⚠️ [DEBUG] Nenhuma guest list encontrada. Verificando dados no banco...');
+            const totalCheck = await this.pool.query(`
+              SELECT 
+                (SELECT COUNT(*) FROM restaurant_reservations WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE) as total_restaurant,
+                (SELECT COUNT(*) FROM large_reservations WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE) as total_large,
+                (SELECT COUNT(*) FROM guest_lists gl 
+                 INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+                 WHERE rr.establishment_id = $1 AND rr.reservation_date::DATE = $2::DATE) as guest_lists_restaurant,
+                (SELECT COUNT(*) FROM guest_lists gl 
+                 INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+                 WHERE lr.establishment_id = $1 AND lr.reservation_date::DATE = $2::DATE) as guest_lists_large
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            
+            console.log('📊 [DEBUG] Resumo completo do banco:', totalCheck.rows[0]);
+          }
+          
           if (guestListsRestaurante.length > 0) {
             console.log('📋 Detalhes das guest lists encontradas:', guestListsRestaurante.slice(0, 5).map(gl => ({
               guest_list_id: gl.guest_list_id,
@@ -2123,7 +2204,6 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             guestListsRestaurante = fallbackResult.rows;
@@ -2207,11 +2287,25 @@ class EventosController {
         guestListsRestaurante = [];
       }
       
+      // Se não foi buscado (porque não tem establishment_id ou data_evento), garantir que seja array vazio
+      if (guestListsRestaurante === undefined) {
+        guestListsRestaurante = [];
+      }
+      
       console.log('📊 [FINAL] Resumo antes de retornar:', {
+        evento_id: eventoId,
         guestListsRestaurante: guestListsRestaurante.length,
         reservasRestaurante: reservasRestaurante.length,
         establishment_id: eventoInfo.establishment_id,
-        data_evento: eventoInfo.data_evento
+        data_evento: eventoInfo.data_evento,
+        hasEstablishmentId: !!eventoInfo.establishment_id,
+        hasDataEvento: !!eventoInfo.data_evento,
+        establishment_name: eventoInfo.establishment_name,
+        sampleGuestList: guestListsRestaurante[0] ? {
+          guest_list_id: guestListsRestaurante[0].guest_list_id,
+          owner_name: guestListsRestaurante[0].owner_name,
+          reservation_id: guestListsRestaurante[0].reservation_id
+        } : null
       });
       
       // 9. Calcular estatísticas gerais
@@ -2276,6 +2370,18 @@ class EventosController {
         atracoes: atracoes.length
       });
 
+      // Garantir que guestListsRestaurante está definido e é um array
+      if (!Array.isArray(guestListsRestaurante)) {
+        console.warn('⚠️ [WARNING] guestListsRestaurante não é um array! Tipo:', typeof guestListsRestaurante);
+        guestListsRestaurante = [];
+      }
+      
+      console.log('🔍 [DEBUG ANTES DE RETORNAR] Verificando dados finais:', {
+        guestListsRestaurante_length: guestListsRestaurante.length,
+        guestListsRestaurante_isArray: Array.isArray(guestListsRestaurante),
+        convidadosReservasRestaurante_length: convidadosReservasRestaurante.length
+      });
+      
       res.json({
         success: true,
         evento: eventoInfo,
@@ -2284,7 +2390,7 @@ class EventosController {
           convidadosReservas: convidadosReservas,
           reservasRestaurante: reservasRestaurante,
           convidadosReservasRestaurante: convidadosReservasRestaurante,
-          guestListsRestaurante: guestListsRestaurante,
+          guestListsRestaurante: guestListsRestaurante || [],
           promoters: promoters,
           convidadosPromoters: listasPromoters,
           camarotes: camarotes,
