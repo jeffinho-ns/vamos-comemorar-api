@@ -1963,6 +1963,10 @@ class EventosController {
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
             console.log(`📊 Resultados encontrados (fallback): ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
             
+            // ATRIBUIR IMEDIATAMENTE após combinar resultados para garantir que seja sempre definido
+            guestListsRestaurante = guestListsResult;
+            console.log(`✅ [ATRIBUIÇÃO IMEDIATA FALLBACK] Guest lists atribuídas: ${guestListsRestaurante.length}`);
+            
             // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
             for (const gl of guestListsResult) {
               if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
