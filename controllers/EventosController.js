@@ -1889,6 +1889,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
+              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
