@@ -1694,8 +1694,8 @@ class EventosController {
                 gl.expires_at,
                 gl.owner_checked_in,
                 gl.owner_checkin_time,
-                gl.owner_checked_out,
-                gl.owner_checkout_time,
+                NULL::INTEGER as owner_checked_out,
+                NULL::TIMESTAMP as owner_checkout_time,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
                 rr.client_name as owner_name,
                 rr.id as reservation_id,
@@ -1718,7 +1718,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
             
@@ -1801,8 +1801,8 @@ class EventosController {
                 gl.expires_at,
                 gl.owner_checked_in,
                 gl.owner_checkin_time,
-                gl.owner_checked_out,
-                gl.owner_checkout_time,
+                NULL::INTEGER as owner_checked_out,
+                NULL::TIMESTAMP as owner_checkout_time,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
                 lr.client_name as owner_name,
                 lr.id as reservation_id,
@@ -1823,7 +1823,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             console.log(`✅ Encontradas ${resultLarge.rows.length} guest lists de large_reservations`);
             
@@ -1897,8 +1897,8 @@ class EventosController {
                 gl.expires_at,
                 gl.owner_checked_in,
                 gl.owner_checkin_time,
-                gl.owner_checked_out,
-                gl.owner_checkout_time,
+                NULL::INTEGER as owner_checked_out,
+                NULL::TIMESTAMP as owner_checkout_time,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
                 rr.client_name as owner_name,
                 rr.id as reservation_id,
@@ -1921,7 +1921,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para large_reservations (sem filtro de evento_id)
@@ -1934,8 +1934,8 @@ class EventosController {
                 gl.expires_at,
                 gl.owner_checked_in,
                 gl.owner_checkin_time,
-                gl.owner_checked_out,
-                gl.owner_checkout_time,
+                NULL::INTEGER as owner_checked_out,
+                NULL::TIMESTAMP as owner_checkout_time,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
                 lr.client_name as owner_name,
                 lr.id as reservation_id,
@@ -1956,7 +1956,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Combinar resultados
@@ -2191,8 +2191,8 @@ class EventosController {
                 gl.expires_at,
                 gl.owner_checked_in,
                 gl.owner_checkin_time,
-                gl.owner_checked_out,
-                gl.owner_checkout_time,
+                NULL::INTEGER as owner_checked_out,
+                NULL::TIMESTAMP as owner_checkout_time,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
                 rr.client_name as owner_name,
                 rr.id as reservation_id,
@@ -2215,7 +2215,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             guestListsRestaurante = fallbackResult.rows;
             console.log(`✅ Fallback: ${guestListsRestaurante.length} guest lists encontradas`);
