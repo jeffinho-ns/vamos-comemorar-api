@@ -1621,6 +1621,13 @@ class EventosController {
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
       let reservasRestaurante = [];
       let guestListsRestaurante = [];
+      console.log('🔍 [DEBUG] Verificando condições para buscar guest lists:', {
+        evento_id: eventoId,
+        establishment_id: eventoInfo.establishment_id,
+        data_evento: eventoInfo.data_evento,
+        tem_establishment_id: !!eventoInfo.establishment_id,
+        tem_data_evento: !!eventoInfo.data_evento
+      });
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
         console.log('🔍 Buscando guest lists para evento:', {
           evento_id: eventoId,
@@ -1914,14 +1921,37 @@ class EventosController {
           
           guestListsRestaurante = guestListsResult;
           console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
-          console.log('📋 Detalhes das guest lists encontradas:', guestListsRestaurante.map(gl => ({
-            guest_list_id: gl.guest_list_id,
-            owner_name: gl.owner_name,
-            reservation_id: gl.reservation_id,
-            reservation_date: gl.reservation_date,
-            total_guests: gl.total_guests,
-            guests_checked_in: gl.guests_checked_in
-          })));
+          if (guestListsRestaurante.length > 0) {
+            console.log('📋 Detalhes das guest lists encontradas:', guestListsRestaurante.slice(0, 5).map(gl => ({
+              guest_list_id: gl.guest_list_id,
+              owner_name: gl.owner_name,
+              reservation_id: gl.reservation_id,
+              reservation_date: gl.reservation_date,
+              total_guests: gl.total_guests,
+              guests_checked_in: gl.guests_checked_in,
+              establishment_id: eventoInfo.establishment_id,
+              data_evento: eventoInfo.data_evento
+            })));
+          } else {
+            console.log('⚠️ Nenhuma guest list encontrada. Verificando possíveis causas...');
+            // Verificar se há reservas no banco para este estabelecimento e data
+            const checkReservations = await this.pool.query(`
+              SELECT COUNT(*) as total
+              FROM restaurant_reservations
+              WHERE establishment_id = $1
+              AND reservation_date::DATE = $2::DATE
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            console.log('📊 Total de reservas no banco:', checkReservations.rows[0]?.total || 0);
+            
+            const checkGuestLists = await this.pool.query(`
+              SELECT COUNT(*) as total
+              FROM guest_lists gl
+              INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            console.log('📊 Total de guest lists no banco:', checkGuestLists.rows[0]?.total || 0);
+          }
           
           // Buscar também reservas de restaurante SEM guest list (reservas simples)
           let reservasSemGuestList = [];
@@ -2051,8 +2081,53 @@ class EventosController {
           reservasRestaurante = [...reservasRestaurante, ...reservasSemGuestList];
         } catch (err) {
           console.error('❌ Erro ao buscar guest_lists de reservas restaurante:', err);
-          reservasRestaurante = [];
-          guestListsRestaurante = [];
+          console.error('   Mensagem:', err.message);
+          console.error('   Stack:', err.stack);
+          // Em caso de erro, tentar buscar sem filtro de evento_id como fallback
+          try {
+            console.log('🔄 Tentando fallback: buscar todas as reservas do estabelecimento...');
+            const fallbackResult = await this.pool.query(`
+              SELECT 
+                gl.id as guest_list_id,
+                gl.reservation_type,
+                gl.event_type,
+                gl.shareable_link_token,
+                gl.expires_at,
+                gl.owner_checked_in,
+                gl.owner_checkin_time,
+                gl.owner_checked_out,
+                gl.owner_checkout_time,
+                CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid,
+                rr.client_name as owner_name,
+                rr.id as reservation_id,
+                rr.reservation_date,
+                rr.reservation_time,
+                rr.number_of_people,
+                rr.origin,
+                rr.table_number,
+                rr.checked_in as reservation_checked_in,
+                rr.checkin_time as reservation_checkin_time,
+                rr.status,
+                COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
+                ra.name as area_name,
+                COUNT(DISTINCT g.id) as total_guests,
+                SUM(CASE WHEN g.checked_in = TRUE THEN 1 ELSE 0 END) as guests_checked_in
+              FROM guest_lists gl
+              INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+              LEFT JOIN users u ON rr.created_by = u.id
+              LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+              LEFT JOIN guests g ON gl.id = g.guest_list_id
+              WHERE rr.establishment_id = $1
+              AND rr.reservation_date::DATE = $2::DATE
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            guestListsRestaurante = fallbackResult.rows;
+            console.log(`✅ Fallback: ${guestListsRestaurante.length} guest lists encontradas`);
+          } catch (fallbackErr) {
+            console.error('❌ Erro no fallback também:', fallbackErr);
+            guestListsRestaurante = [];
+            reservasRestaurante = [];
+          }
         }
       }
 
@@ -2115,7 +2190,24 @@ class EventosController {
         }
       } else {
         console.log('⚠️ Evento não possui establishment_id ou data_evento, pulando busca de convidados de reservas restaurante');
+        console.log('⚠️ [DEBUG] Valores:', {
+          establishment_id: eventoInfo.establishment_id,
+          data_evento: eventoInfo.data_evento,
+          evento_id: eventoId
+        });
       }
+      
+      // Garantir que guestListsRestaurante sempre existe, mesmo que vazio
+      if (!guestListsRestaurante) {
+        guestListsRestaurante = [];
+      }
+      
+      console.log('📊 [FINAL] Resumo antes de retornar:', {
+        guestListsRestaurante: guestListsRestaurante.length,
+        reservasRestaurante: reservasRestaurante.length,
+        establishment_id: eventoInfo.establishment_id,
+        data_evento: eventoInfo.data_evento
+      });
       
       // 9. Calcular estatísticas gerais
       const reservasMesa = reservasMesaResult.rows;
