@@ -1157,7 +1157,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
       
       if (date) {
-        query += ` AND DATE(checkout_time) = $${paramIndex++}`;
+        query += ` AND checkout_time::DATE = $${paramIndex++}::DATE`;
         params.push(date);
       }
       
