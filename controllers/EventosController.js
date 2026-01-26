@@ -1853,6 +1853,10 @@ class EventosController {
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
             console.log(`📊 Resultados encontrados: ${resultRestaurant.rows.length} de restaurant_reservations, ${resultLarge.rows.length} de large_reservations`);
             
+            // ATRIBUIR IMEDIATAMENTE após combinar resultados para garantir que seja sempre definido
+            guestListsRestaurante = guestListsResult;
+            console.log(`✅ [ATRIBUIÇÃO IMEDIATA] Guest lists atribuídas: ${guestListsRestaurante.length}`);
+            
             // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
             for (const gl of guestListsResult) {
               if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
@@ -1985,7 +1989,10 @@ class EventosController {
             });
           }
           
-          guestListsRestaurante = guestListsResult;
+          // Garantir que guestListsRestaurante seja sempre atribuído (pode já ter sido atribuído acima)
+          if (!guestListsRestaurante || guestListsRestaurante.length === 0) {
+            guestListsRestaurante = guestListsResult;
+          }
           console.log(`✅ Guest lists de reservas restaurante encontradas: ${guestListsRestaurante.length}`);
           
           // DEBUG ESPECÍFICO: Se não encontrou nada, verificar o que há no banco
