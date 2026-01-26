@@ -608,6 +608,66 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         throw updateError;
       }
 
+      // Inserir na tabela checkouts para manter histórico permanente
+      try {
+        const checkoutTime = new Date().toISOString();
+        const establishmentId = guest.establishment_id || guest.reservation_establishment_id;
+        
+        // Verificar se a tabela checkouts existe antes de inserir
+        const tableExists = await pool.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = current_schema() 
+            AND table_name = 'checkouts'
+          )
+        `);
+        
+        if (tableExists.rows[0]?.exists) {
+          await pool.query(`
+            INSERT INTO checkouts (
+              checkout_type,
+              entity_type,
+              entity_id,
+              name,
+              checkin_time,
+              checkout_time,
+              status,
+              guest_list_id,
+              reservation_id,
+              table_number,
+              area_name,
+              establishment_id,
+              evento_id,
+              entrada_tipo,
+              entrada_valor,
+              created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP)
+          `, [
+            'guest',
+            'guest',
+            id,
+            guest.name || '',
+            guest.checkin_time || null,
+            checkoutTime,
+            'concluido',
+            guest.guest_list_id || null,
+            guest.reservation_id || null,
+            guest.table_number || null,
+            guest.area_name || null,
+            establishmentId || null,
+            guest.evento_id || null,
+            guest.entrada_tipo || null,
+            guest.entrada_valor || null
+          ]);
+          console.log(`✅ Check-out registrado na tabela checkouts: ${guest.name}`);
+        } else {
+          console.warn('⚠️ Tabela checkouts não existe ainda. Execute a migração create_checkouts_table.sql');
+        }
+      } catch (checkoutError) {
+        // Não bloquear o check-out se houver erro ao inserir na tabela checkouts
+        console.error('❌ Erro ao registrar check-out na tabela checkouts:', checkoutError);
+      }
+
       console.log(`✅ Check-out do convidado confirmado: ${guest.name} (ID: ${id})`);
 
       res.json({
@@ -969,6 +1029,62 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         throw updateError;
       }
 
+      // Inserir na tabela checkouts para manter histórico permanente
+      try {
+        const checkoutTime = new Date().toISOString();
+        const establishmentId = guestList.establishment_id || guestList.gl_establishment_id;
+        
+        // Verificar se a tabela checkouts existe antes de inserir
+        const tableExists = await pool.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = current_schema() 
+            AND table_name = 'checkouts'
+          )
+        `);
+        
+        if (tableExists.rows[0]?.exists) {
+          await pool.query(`
+            INSERT INTO checkouts (
+              checkout_type,
+              entity_type,
+              entity_id,
+              name,
+              checkin_time,
+              checkout_time,
+              status,
+              guest_list_id,
+              reservation_id,
+              table_number,
+              area_name,
+              establishment_id,
+              evento_id,
+              created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
+          `, [
+            'owner',
+            'guest_list',
+            id,
+            guestList.owner_name || '',
+            guestList.owner_checkin_time || null,
+            checkoutTime,
+            'concluido',
+            id,
+            guestList.reservation_id || null,
+            guestList.table_number || null,
+            guestList.area_name || null,
+            establishmentId || null,
+            guestList.evento_id || null
+          ]);
+          console.log(`✅ Check-out registrado na tabela checkouts: ${guestList.owner_name}`);
+        } else {
+          console.warn('⚠️ Tabela checkouts não existe ainda. Execute a migração create_checkouts_table.sql');
+        }
+      } catch (checkoutError) {
+        // Não bloquear o check-out se houver erro ao inserir na tabela checkouts
+        console.error('❌ Erro ao registrar check-out na tabela checkouts:', checkoutError);
+      }
+
       console.log(`✅ Check-out do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
 
       res.json({
@@ -985,6 +1101,78 @@ module.exports = (pool, checkAndAwardGifts = null) => {
 
     } catch (error) {
       console.error('❌ Erro ao fazer check-out do dono:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/admin/checkouts
+   * @desc    Busca histórico de check-outs concluídos
+   * @access  Private (Admin)
+   * @query   evento_id, guest_list_id, establishment_id, date
+   */
+  router.get('/checkouts', optionalAuth, async (req, res) => {
+    try {
+      const { evento_id, guest_list_id, establishment_id, date } = req.query;
+      
+      // Verificar se a tabela checkouts existe
+      const tableExists = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = current_schema() 
+          AND table_name = 'checkouts'
+        )
+      `);
+      
+      if (!tableExists.rows[0]?.exists) {
+        return res.json({
+          success: true,
+          checkouts: [],
+          message: 'Tabela checkouts não existe ainda. Execute a migração create_checkouts_table.sql'
+        });
+      }
+      
+      // Construir query com filtros
+      let query = 'SELECT * FROM checkouts WHERE status = $1';
+      const params = ['concluido'];
+      let paramIndex = 2;
+      
+      if (evento_id) {
+        query += ` AND evento_id = $${paramIndex++}`;
+        params.push(Number(evento_id));
+      }
+      
+      if (guest_list_id) {
+        query += ` AND guest_list_id = $${paramIndex++}`;
+        params.push(Number(guest_list_id));
+      }
+      
+      if (establishment_id) {
+        query += ` AND establishment_id = $${paramIndex++}`;
+        params.push(Number(establishment_id));
+      }
+      
+      if (date) {
+        query += ` AND DATE(checkout_time) = $${paramIndex++}`;
+        params.push(date);
+      }
+      
+      query += ' ORDER BY checkout_time DESC';
+      
+      const result = await pool.query(query, params);
+      
+      res.json({
+        success: true,
+        checkouts: result.rows,
+        count: result.rows.length
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao buscar check-outs:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
