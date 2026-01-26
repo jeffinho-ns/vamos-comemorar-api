@@ -187,35 +187,39 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
 
-      // Verificar se as colunas entrada_tipo e entrada_valor existem
+      // Verificar se as colunas entrada_tipo, entrada_valor, checked_out e checkout_time existem
       try {
         const columnsResult = await pool.query(`
           SELECT column_name 
           FROM information_schema.columns 
           WHERE table_schema = current_schema()
           AND table_name = 'guests' 
-          AND column_name IN ('entrada_tipo', 'entrada_valor')
+          AND column_name IN ('entrada_tipo', 'entrada_valor', 'checked_out', 'checkout_time')
         `);
         
         const hasEntradaTipo = columnsResult.rows.some(col => col.column_name === 'entrada_tipo');
         const hasEntradaValor = columnsResult.rows.some(col => col.column_name === 'entrada_valor');
+        const hasCheckedOut = columnsResult.rows.some(col => col.column_name === 'checked_out');
+        const hasCheckoutTime = columnsResult.rows.some(col => col.column_name === 'checkout_time');
         
-        let query;
-        if (hasEntradaTipo && hasEntradaValor) {
-          // Se as colunas existem, incluí-las na query
-          query = 'SELECT id, name, whatsapp, checked_in, checkin_time, entrada_tipo, entrada_valor FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
-        } else {
-          // Se não existem, usar query sem esses campos
-          query = 'SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
-        }
+        // Construir query dinamicamente baseado nas colunas disponíveis
+        const selectFields = ['id', 'name', 'whatsapp', 'checked_in', 'checkin_time'];
+        if (hasCheckedOut) selectFields.push('checked_out');
+        if (hasCheckoutTime) selectFields.push('checkout_time');
+        if (hasEntradaTipo) selectFields.push('entrada_tipo');
+        if (hasEntradaValor) selectFields.push('entrada_valor');
+        
+        const query = `SELECT ${selectFields.join(', ')} FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`;
         
         const rowsResult = await pool.query(query, [list_id]);
         
         // Adicionar campos null se não existirem na tabela
         const guests = rowsResult.rows.map(guest => ({
           ...guest,
-          entrada_tipo: guest.entrada_tipo || null,
-          entrada_valor: guest.entrada_valor || null
+          checked_out: hasCheckedOut ? (guest.checked_out || false) : false,
+          checkout_time: hasCheckoutTime ? (guest.checkout_time || null) : null,
+          entrada_tipo: hasEntradaTipo ? (guest.entrada_tipo || null) : null,
+          entrada_valor: hasEntradaValor ? (guest.entrada_valor || null) : null
         }));
         
         res.json({ success: true, guests: guests });
@@ -226,6 +230,8 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           const rowsResult = await pool.query('SELECT id, name, whatsapp, checked_in, checkin_time FROM guests WHERE guest_list_id = $1 ORDER BY id ASC', [list_id]);
           const guests = rowsResult.rows.map(guest => ({
             ...guest,
+            checked_out: false,
+            checkout_time: null,
             entrada_tipo: null,
             entrada_valor: null
           }));
