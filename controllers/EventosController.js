@@ -1709,7 +1709,8 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              AND (rr.evento_id = $3 OR rr.evento_id IS NULL)
+              AND (rr.evento_id = $3 OR rr.evento_id IS NULL OR rr.evento_id = 0)
+              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
@@ -1778,7 +1779,8 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
               AND lr.reservation_date::DATE = $2::DATE
-              AND (lr.evento_id = $3 OR lr.evento_id IS NULL)
+              AND (lr.evento_id = $3 OR lr.evento_id IS NULL OR lr.evento_id = 0)
+              AND gl.id IS NOT NULL
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, gl.owner_checked_out, gl.owner_checkout_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log(`✅ Encontradas ${resultLarge.rows.length} guest lists de large_reservations`);
