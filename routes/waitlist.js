@@ -127,6 +127,8 @@ module.exports = (pool) => {
       const {
         establishment_id,
         preferred_date,
+        preferred_area_id,
+        preferred_table_number,
         client_name,
         client_phone,
         client_email,
@@ -171,14 +173,14 @@ module.exports = (pool) => {
       
       const query = `
         INSERT INTO waitlist (
-          establishment_id, preferred_date,
+          establishment_id, preferred_date, preferred_area_id, preferred_table_number,
           client_name, client_phone, client_email, number_of_people, 
           preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
       `;
       
       const params = [
-        establishment_id, preferredDate,
+        establishment_id, preferredDate, preferred_area_id || null, preferred_table_number || null,
         client_name, client_phone, client_email, number_of_people,
         preferredTime, status, position, estimatedWaitTime, notes, has_bistro_table || false
       ];
@@ -217,6 +219,8 @@ module.exports = (pool) => {
       const {
         establishment_id,
         preferred_date,
+        preferred_area_id,
+        preferred_table_number,
         client_name,
         client_phone,
         client_email,
@@ -268,6 +272,14 @@ module.exports = (pool) => {
       if (preferred_date !== undefined) {
         updateFields.push(`preferred_date = $${paramIndex++}`);
         params.push(preferred_date);
+      }
+      if (preferred_area_id !== undefined) {
+        updateFields.push(`preferred_area_id = $${paramIndex++}`);
+        params.push(preferred_area_id || null);
+      }
+      if (preferred_table_number !== undefined) {
+        updateFields.push(`preferred_table_number = $${paramIndex++}`);
+        params.push(preferred_table_number || null);
       }
       if (establishment_id !== undefined) {
         updateFields.push(`establishment_id = $${paramIndex++}`);
