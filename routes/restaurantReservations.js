@@ -22,7 +22,9 @@ module.exports = (pool) => {
       
       let query = `
         SELECT
-          rr.*, ra.name as area_name, u.name as created_by_name,
+          rr.*,
+          COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
+          u.name as created_by_name,
           COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
@@ -201,7 +203,7 @@ module.exports = (pool) => {
       const query = `
         SELECT
           rr.*,
-          ra.name as area_name,
+          COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
           u.name as created_by_name,
           COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
@@ -263,7 +265,8 @@ module.exports = (pool) => {
         evento_id,
         send_email = true,
         send_whatsapp = true,
-        blocks_entire_area = false
+        blocks_entire_area = false,
+        area_display_name
       } = req.body;
 
       // Validações básicas
@@ -523,8 +526,9 @@ module.exports = (pool) => {
         INSERT INTO restaurant_reservations (
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
-          status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id
+          status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area,
+          area_display_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id
       `;
 
       // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
@@ -544,7 +548,8 @@ module.exports = (pool) => {
         created_by || null,
         establishmentIdNumber, // Usar variável convertida
         evento_id || null,
-        blocks_entire_area || false
+        blocks_entire_area || false,
+        (typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null
       ];
 
       console.log('📝 Parâmetros de inserção:', insertParams);
@@ -552,11 +557,11 @@ module.exports = (pool) => {
       const result = await pool.query(insertQuery, insertParams);
       const reservationId = result.rows[0].id;
 
-      // Buscar a reserva criada com dados completos
+      // Buscar a reserva criada com dados completos (area_name = área exibida ao cliente)
       const newReservationResult = await pool.query(`
         SELECT
           rr.*,
-          ra.name as area_name,
+          COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
           u.name as created_by_name,
           COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
@@ -746,7 +751,8 @@ module.exports = (pool) => {
         check_in_time,
         check_out_time,
         evento_id,
-        event_type
+        event_type,
+        area_display_name
       } = req.body;
 
       // Verificar se a reserva existe e buscar dados atuais
@@ -859,6 +865,10 @@ module.exports = (pool) => {
         updateFields.push(`blocks_entire_area = $${paramIndex++}`);
         params.push(req.body.blocks_entire_area === true || req.body.blocks_entire_area === 1);
       }
+      if (area_display_name !== undefined) {
+        updateFields.push(`area_display_name = $${paramIndex++}`);
+        params.push((typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null);
+      }
 
       // Sempre atualizar o timestamp
       updateFields.push('updated_at = CURRENT_TIMESTAMP');
@@ -891,11 +901,11 @@ module.exports = (pool) => {
         await checkWaitlistAndNotify(pool);
       }
 
-      // Buscar a reserva atualizada
+      // Buscar a reserva atualizada (area_name = área exibida ao cliente)
       const updatedReservationResult = await pool.query(`
         SELECT
           rr.*,
-          ra.name as area_name,
+          COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
           u.name as created_by_name,
           COALESCE(p.name, b.name) as establishment_name
         FROM restaurant_reservations rr
