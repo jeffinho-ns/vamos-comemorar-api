@@ -666,17 +666,15 @@ module.exports = (pool) => {
           const expiresAt = expirationDate.toISOString().slice(0, 19).replace('T', ' ');
 
           let eventType = req.body.event_type || null;
+          if (typeof eventType === 'string') eventType = eventType.trim() || null;
           
-          // Determinar tipo de evento baseado nos critérios
-          if (isBirthdayReservation) {
-            // Aniversário no HighLine (sexta/sábado)
+          // Prioridade: valor enviado > regras automáticas > 'outros' (nunca default 'despedida')
+          if (isBirthdayReservation && !eventType) {
             eventType = 'aniversario';
-          } else if (dayOfWeek === 5) {
-            // Sexta-feira para reservas grandes
+          } else if (dayOfWeek === 5 && !eventType) {
             eventType = 'lista_sexta';
-          } else if (isLargeGroup) {
-            // Reserva grande em outros dias
-            eventType = eventType || 'despedida';
+          } else if (isLargeGroup && !eventType) {
+            eventType = 'outros';
           }
 
           // Criar a guest list vinculada à reserva
@@ -747,7 +745,8 @@ module.exports = (pool) => {
         notes,
         check_in_time,
         check_out_time,
-        evento_id
+        evento_id,
+        event_type
       } = req.body;
 
       // Verificar se a reserva existe e buscar dados atuais
@@ -872,6 +871,20 @@ module.exports = (pool) => {
       `;
 
       await pool.query(query, params);
+
+      // Atualizar event_type na guest_list quando existir (Reserva Grande)
+      if (event_type !== undefined) {
+        const et = event_type == null || String(event_type).trim() === '' ? null : String(event_type).trim();
+        const glUpdate = await pool.query(
+          `UPDATE guest_lists SET event_type = $1
+           WHERE reservation_id = $2 AND reservation_type IN ('restaurant', 'large')`,
+          [et, id]
+        );
+        console.log('📝 event_type recebido:', event_type, '→ persistido:', et, '| linhas atualizadas:', glUpdate.rowCount || 0);
+        if ((glUpdate.rowCount || 0) > 0) {
+          console.log('✅ event_type da lista de convidados atualizado para reserva', id);
+        }
+      }
 
       // Se o status foi alterado para 'completed', verificar lista de espera
       if (status === 'completed') {
