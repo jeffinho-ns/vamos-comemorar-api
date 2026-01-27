@@ -266,7 +266,8 @@ module.exports = (pool) => {
         send_email = true,
         send_whatsapp = true,
         blocks_entire_area = false,
-        area_display_name
+        area_display_name,
+        has_bistro_table = false
       } = req.body;
 
       // Validações básicas
@@ -332,6 +333,59 @@ module.exports = (pool) => {
         });
       }
 
+      // Validação de horários de funcionamento para Seu Justino (ID 1) e Pracinha do Seu Justino (ID 8)
+      // Apenas para não-admins (origin !== 'PESSOAL' indica reserva de cliente)
+      const isSeuJustino = establishmentIdNumber === 1;
+      const isPracinha = establishmentIdNumber === 8;
+      const isAdminReservationForTimeValidation = origin === 'PESSOAL';
+      
+      if ((isSeuJustino || isPracinha) && !isAdminReservationForTimeValidation && reservation_time && reservation_date) {
+        const reservationDate = new Date(reservation_date + 'T00:00:00');
+        const weekday = reservationDate.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+        const [hours, minutes] = reservation_time.split(':').map(Number);
+        const reservationMinutes = hours * 60 + (isNaN(minutes) ? 0 : minutes);
+        
+        let isValidTime = false;
+        
+        // Terça a Quinta (2, 3, 4): 18:00 às 01:00 (próximo dia)
+        if (weekday >= 2 && weekday <= 4) {
+          const startMin = 18 * 60; // 18:00
+          const endMin = 1 * 60; // 01:00
+          // Horário válido se estiver após 18:00 OU antes de 01:00 (cruza meia-noite)
+          isValidTime = reservationMinutes >= startMin || reservationMinutes <= endMin;
+        }
+        // Sexta e Sábado (5, 6): 18:00 às 03:30 (próximo dia)
+        else if (weekday === 5 || weekday === 6) {
+          const startMin = 18 * 60; // 18:00
+          const endMin = 3 * 60 + 30; // 03:30
+          // Horário válido se estiver após 18:00 OU antes de 03:30 (cruza meia-noite)
+          isValidTime = reservationMinutes >= startMin || reservationMinutes <= endMin;
+        }
+        // Domingo (0): 12:00 às 21:00
+        else if (weekday === 0) {
+          const startMin = 12 * 60; // 12:00
+          const endMin = 21 * 60; // 21:00
+          isValidTime = reservationMinutes >= startMin && reservationMinutes <= endMin;
+        }
+        
+        if (!isValidTime) {
+          let errorMessage = 'Horário fora do funcionamento. ';
+          if (weekday >= 2 && weekday <= 4) {
+            errorMessage += 'Terça a Quinta: 18:00–01:00';
+          } else if (weekday === 5 || weekday === 6) {
+            errorMessage += 'Sexta e Sábado: 18:00–03:30';
+          } else if (weekday === 0) {
+            errorMessage += 'Domingo: 12:00–21:00';
+          } else {
+            errorMessage += 'Reservas fechadas para este dia.';
+          }
+          return res.status(400).json({
+            success: false,
+            error: errorMessage
+          });
+        }
+      }
+
       // Verificar se há uma reserva bloqueando toda a área para esta data
       // IMPORTANTE: Se uma reserva bloqueia toda a área, ela bloqueia para TODOS os estabelecimentos
       if (areaIdNumber && reservation_date) {
@@ -359,7 +413,7 @@ module.exports = (pool) => {
       // Validação: se table_number foi informado, verificar conflito considerando horário
       // Para reservas de admin (origin = 'PESSOAL'), permitir criar mesmo com conflito (apenas avisar)
       // Suporta múltiplas mesas separadas por vírgula (ex: "1, 2" ou "1,2")
-      const isAdminReservation = origin === 'PESSOAL';
+      const isAdminReservationForConflict = origin === 'PESSOAL';
       
       if (table_number && areaIdNumber && reservation_date) {
         const tableNumberStr = String(table_number).trim();
@@ -409,7 +463,7 @@ module.exports = (pool) => {
               // Se a mesa coincide, verificar sobreposição de horário
               if (tableMatches) {
                 if (hasTimeOverlap(reservation_time, existingTime)) {
-                  if (isAdminReservation) {
+                  if (isAdminReservationForConflict) {
                     // Para admin, apenas avisar mas permitir criar
                     console.log(`⚠️ Aviso: Mesa ${singleTableNumber} já tem reserva no horário ${existingTime}, mas permitindo criação (admin)`);
                   } else {
@@ -450,7 +504,7 @@ module.exports = (pool) => {
             // Se a mesa coincide, verificar sobreposição de horário
             if (tableMatches) {
               if (hasTimeOverlap(reservation_time, existingTime)) {
-                if (isAdminReservation) {
+                if (isAdminReservationForConflict) {
                   // Para admin, apenas avisar mas permitir criar
                   console.log(`⚠️ Aviso: Mesa ${tableNumberStr} já tem reserva no horário ${existingTime}, mas permitindo criação (admin)`);
                 } else {
@@ -527,8 +581,8 @@ module.exports = (pool) => {
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
           status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area,
-          area_display_name
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id
+          area_display_name, has_bistro_table
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
       `;
 
       // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
@@ -549,7 +603,8 @@ module.exports = (pool) => {
         establishmentIdNumber, // Usar variável convertida
         evento_id || null,
         blocks_entire_area || false,
-        (typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null
+        (typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null,
+        has_bistro_table || false
       ];
 
       console.log('📝 Parâmetros de inserção:', insertParams);
@@ -752,7 +807,8 @@ module.exports = (pool) => {
         check_out_time,
         evento_id,
         event_type,
-        area_display_name
+        area_display_name,
+        has_bistro_table
       } = req.body;
 
       // Verificar se a reserva existe e buscar dados atuais
@@ -868,6 +924,10 @@ module.exports = (pool) => {
       if (area_display_name !== undefined) {
         updateFields.push(`area_display_name = $${paramIndex++}`);
         params.push((typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null);
+      }
+      if (has_bistro_table !== undefined) {
+        updateFields.push(`has_bistro_table = $${paramIndex++}`);
+        params.push(has_bistro_table || false);
       }
 
       // Sempre atualizar o timestamp

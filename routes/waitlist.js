@@ -133,7 +133,8 @@ module.exports = (pool) => {
         number_of_people,
         preferred_time,
         status = 'AGUARDANDO',
-        notes
+        notes,
+        has_bistro_table = false
       } = req.body;
       
       // Validações básicas
@@ -172,14 +173,14 @@ module.exports = (pool) => {
         INSERT INTO waitlist (
           establishment_id, preferred_date,
           client_name, client_phone, client_email, number_of_people, 
-          preferred_time, status, position, estimated_wait_time, notes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+          preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
       `;
       
       const params = [
         establishment_id, preferredDate,
         client_name, client_phone, client_email, number_of_people,
-        preferredTime, status, position, estimatedWaitTime, notes
+        preferredTime, status, position, estimatedWaitTime, notes, has_bistro_table || false
       ];
       
       const result = await pool.query(query, params);
@@ -222,7 +223,8 @@ module.exports = (pool) => {
         number_of_people,
         preferred_time,
         status,
-        notes
+        notes,
+        has_bistro_table
       } = req.body;
       
       // Verificar se o item existe
@@ -278,6 +280,10 @@ module.exports = (pool) => {
       if (notes !== undefined) {
         updateFields.push(`notes = $${paramIndex++}`);
         params.push(notes);
+      }
+      if (has_bistro_table !== undefined) {
+        updateFields.push(`has_bistro_table = $${paramIndex++}`);
+        params.push(has_bistro_table || false);
       }
 
       updateFields.push('updated_at = CURRENT_TIMESTAMP');
