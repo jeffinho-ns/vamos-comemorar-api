@@ -929,12 +929,41 @@ module.exports = (pool) => {
         });
       }
 
+      // Validar e normalizar event_type
+      // O ENUM no banco aceita apenas: 'aniversario', 'despedida', 'lista_sexta'
+      // Se for 'outros' ou qualquer valor inválido, usar null
+      let validEventType = null;
+      if (event_type) {
+        const normalizedType = String(event_type).trim().toLowerCase();
+        if (['aniversario', 'despedida', 'lista_sexta'].includes(normalizedType)) {
+          validEventType = normalizedType;
+        }
+        // Se for 'outros' ou qualquer outro valor inválido, mantém como null
+      }
+
+      // Validar que a reserva tem uma data válida
+      if (!reservationData.reservation_date) {
+        return res.status(400).json({
+          success: false,
+          error: 'A reserva não possui uma data válida'
+        });
+      }
+
       // Criar a lista de convidados
       const crypto = require('crypto');
       const token = crypto.randomBytes(24).toString('hex');
       
       // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
       const reservationDateObj = new Date(reservationData.reservation_date + 'T00:00:00');
+      
+      // Validar se a data é válida
+      if (isNaN(reservationDateObj.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Data da reserva inválida'
+        });
+      }
+      
       reservationDateObj.setDate(reservationDateObj.getDate() + 1); // +1 dia
       reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
       const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
@@ -942,7 +971,7 @@ module.exports = (pool) => {
       const glResult = await pool.query(
         `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
          VALUES ($1, 'large', $2, $3, $4) RETURNING id`,
-        [id, event_type || null, token, expiresAt]
+        [id, validEventType, token, expiresAt]
       );
       const guestListId = glResult.rows[0].id;
 
@@ -979,11 +1008,17 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao adicionar lista de convidados à reserva grande:', error);
-      console.error('❌ Stack:', error.stack);
+      console.error('❌ Stack trace:', error.stack);
+      console.error('❌ Detalhes:', {
+        reservationId: req.params.id,
+        eventType: req.body.event_type,
+        errorMessage: error.message,
+        errorCode: error.code
+      });
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor',
-        details: error.message
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   });
