@@ -67,8 +67,11 @@ module.exports = (db) => {
                 if (guestResult.rows.length > 0) {
                     const g = guestResult.rows[0];
                     if (g.checked_in === true || g.checked_in === 1) {
+                        const hora = g.checkin_time ? new Date(g.checkin_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
                         return res.status(409).json({
-                            message: 'QR já utilizado. Check-in já realizado para este convidado.'
+                            message: 'QR já utilizado. Check-in já realizado para este convidado.',
+                            checkin_time: g.checkin_time,
+                            checkin_time_formatted: hora
                         });
                     }
                     const listResult = await db.query(
