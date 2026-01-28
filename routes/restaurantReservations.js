@@ -640,6 +640,60 @@ module.exports = (pool) => {
       const result = await pool.query(insertQuery, insertParams);
       const reservationId = result.rows[0].id;
 
+      // REGRA DE ESPERA ANTECIPADA: Se for espera antecipada, criar também entrada na waitlist
+      if (finalEsperaAntecipada) {
+        try {
+          console.log('📋 Criando entrada na waitlist para reserva de espera antecipada:', reservationId);
+          
+          // Calcular posição na fila
+          let positionQuery = "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2";
+          const positionParams = [establishmentIdNumber, reservation_date];
+          if (reservation_time) {
+            positionQuery += " AND preferred_time = $3";
+            positionParams.push(reservation_time.substring(0, 5)); // HH:MM
+          } else {
+            positionQuery += " AND preferred_time IS NULL";
+          }
+          const positionResult = await pool.query(positionQuery, positionParams);
+          const position = parseInt(positionResult.rows[0].count) + 1;
+          
+          // Estimar tempo de espera (simplificado: 15 minutos por pessoa na frente)
+          const estimatedWaitTime = (position - 1) * 15;
+          
+          // Criar entrada na waitlist
+          const waitlistQuery = `
+            INSERT INTO waitlist (
+              establishment_id, preferred_date, preferred_area_id, preferred_table_number,
+              client_name, client_phone, client_email, number_of_people, 
+              preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
+          `;
+          
+          const waitlistParams = [
+            establishmentIdNumber,
+            reservation_date,
+            areaIdNumber,
+            null, // preferred_table_number (será atribuído quando alocar mesa)
+            client_name,
+            client_phone || null,
+            client_email || null,
+            numberOfPeople,
+            reservation_time ? reservation_time.substring(0, 5) : null, // HH:MM
+            'AGUARDANDO',
+            position,
+            estimatedWaitTime,
+            `Reserva de Espera Antecipada (ID: ${reservationId}) - ${finalNotes}`,
+            has_bistro_table || false
+          ];
+          
+          const waitlistResult = await pool.query(waitlistQuery, waitlistParams);
+          console.log('✅ Entrada criada na waitlist:', waitlistResult.rows[0].id);
+        } catch (waitlistError) {
+          // Não falhar a criação da reserva se houver erro na waitlist
+          console.error('⚠️ Erro ao criar entrada na waitlist (reserva criada mesmo assim):', waitlistError);
+        }
+      }
+
       // Buscar a reserva criada com dados completos (area_name = área exibida ao cliente)
       const newReservationResult = await pool.query(`
         SELECT
