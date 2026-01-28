@@ -12,20 +12,41 @@ module.exports = (pool) => {
   router.get('/', async (req, res) => {
     try {
       console.log('🔍 Iniciando busca de áreas...');
+      const establishmentIdRaw = req.query.establishment_id;
+      const establishmentId = establishmentIdRaw != null && String(establishmentIdRaw).trim() !== ''
+        ? Number(establishmentIdRaw)
+        : null;
       
       // Tabela restaurant_areas já deve existir no PostgreSQL
       console.log('🔍 Executando consulta de áreas...');
+      // IMPORTANTE:
+      // Hoje a tabela `restaurant_areas` NÃO é vinculada por establishment_id (há áreas globais).
+      // Para evitar que estabelecimentos (ex. Pracinha) vejam áreas do Reserva Rooftop,
+      // filtramos por convenção de nome quando `establishment_id` é informado.
+      //
+      // - Reserva Rooftop (id 9): somente áreas "Reserva Rooftop - ..."
+      // - Demais estabelecimentos: excluir áreas "Reserva Rooftop - ..."
+      const whereParts = [`ra.is_active = TRUE`];
+      const params = [];
+      if (establishmentId != null && !Number.isNaN(establishmentId)) {
+        if (establishmentId === 9) {
+          whereParts.push(`ra.name ILIKE 'Reserva Rooftop - %'`);
+        } else {
+          whereParts.push(`ra.name NOT ILIKE 'Reserva Rooftop - %'`);
+        }
+      }
+
       const query = `
         SELECT 
           ra.*,
           0 as active_reservations,
           0 as active_walk_ins
         FROM restaurant_areas ra
-        WHERE ra.is_active = TRUE
+        WHERE ${whereParts.join(' AND ')}
         ORDER BY ra.name ASC
       `;
       
-      const areasResult = await pool.query(query);
+      const areasResult = await pool.query(query, params);
       const areas = areasResult.rows;
       console.log('📊 Áreas encontradas:', areas.length);
       
