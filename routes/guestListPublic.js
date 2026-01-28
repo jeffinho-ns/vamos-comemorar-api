@@ -118,6 +118,22 @@ module.exports = (pool) => {
         }
       }
 
+      // Backfill qr_code_token para qualquer convidado que ainda não tenha (dono e demais)
+      if (hasQrCodeToken) {
+        try {
+          const withoutToken = guestsResult.rows.filter(g => !g.qr_code_token || String(g.qr_code_token).trim() === '');
+          for (const g of withoutToken) {
+            const newToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            await pool.query('UPDATE guests SET qr_code_token = $1 WHERE id = $2', [newToken, g.id]);
+          }
+          if (withoutToken.length > 0) {
+            guestsResult = await pool.query(guestsQuery, [list.id]);
+          }
+        } catch (err) {
+          console.warn('⚠️ Backfill qr_code_token para convidados:', err.message);
+        }
+      }
+
       // Mapear convidados com status de check-in e QR (se existir coluna)
       const guestsWithStatus = guestsResult.rows.map(g => ({
         id: g.id,
