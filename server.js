@@ -297,6 +297,16 @@ app.get('/test-firebase-storage', async (req, res) => {
 });
 
 
+// Socket.IO: permitir que clientes (ex.: páginas de check-in) entrem nas salas por guest_list_id para receber convidado_checkin em tempo real
+io.on('connection', (socket) => {
+  socket.on('join_guest_list', (guestListId) => {
+    if (guestListId != null && guestListId !== '') {
+      const room = 'guest_list_' + guestListId;
+      socket.join(room);
+    }
+  });
+});
+
 // Iniciar o servidor
 server.listen(PORT, config.server.host, () => {
     console.log(`🚀 Server is running on port ${PORT}`);

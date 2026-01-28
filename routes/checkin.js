@@ -90,7 +90,8 @@ module.exports = (db) => {
                         io.to(`guest_list_${g.guest_list_id}`).emit('convidado_checkin', {
                             convidadoId: g.id,
                             nome: g.name,
-                            status: 'CHECK-IN'
+                            status: 'CHECK-IN',
+                            guest_list_id: g.guest_list_id
                         });
                     }
                     return res.status(200).json({
