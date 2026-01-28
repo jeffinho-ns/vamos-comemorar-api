@@ -58,6 +58,8 @@ module.exports = (pool) => {
       // Buscar convidados com informações de check-in
       // Verificar quais colunas existem na tabela guests
       let guestsQuery;
+      let hasQrCodeToken = false;
+      let hasIsOwner = false;
       try {
         // Tentar buscar com checked_in e checkin_time (podem não existir em versões antigas)
         const columnsResult = await pool.query(`
@@ -71,8 +73,8 @@ module.exports = (pool) => {
         const hasCheckedIn = columnsResult.rows.some(col => col.column_name === 'checked_in');
         const hasCheckinTime = columnsResult.rows.some(col => col.column_name === 'checkin_time');
         const hasEmail = columnsResult.rows.some(col => col.column_name === 'email');
-        const hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
-        const hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
+        hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
+        hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
         
         // Construir query dinamicamente baseado nas colunas disponíveis
         const selectFields = ['id', 'name'];
@@ -89,7 +91,32 @@ module.exports = (pool) => {
         guestsQuery = 'SELECT id, name FROM guests WHERE guest_list_id = $1 ORDER BY id ASC';
       }
       
-      const guestsResult = await pool.query(guestsQuery, [list.id]);
+      let guestsResult = await pool.query(guestsQuery, [list.id]);
+
+      // Backfill dono com QR: (1) lista sem dono -> inserir; (2) dono existe mas sem qr_code_token -> atualizar
+      if (ownerName && hasQrCodeToken && hasIsOwner) {
+        try {
+          const hasOwnerGuest = guestsResult.rows.some(g => g.is_owner === true || g.is_owner === 1);
+          const ownerWithoutToken = guestsResult.rows.find(g => (g.is_owner === true || g.is_owner === 1) && !g.qr_code_token);
+          if (!hasOwnerGuest) {
+            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            await pool.query(
+              `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
+              [list.id, (ownerName || '').trim() || 'Dono da reserva', ownerQrToken]
+            );
+            guestsResult = await pool.query(guestsQuery, [list.id]);
+          } else if (ownerWithoutToken) {
+            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            await pool.query(
+              `UPDATE guests SET qr_code_token = $1 WHERE id = $2`,
+              [ownerQrToken, ownerWithoutToken.id]
+            );
+            guestsResult = await pool.query(guestsQuery, [list.id]);
+          }
+        } catch (err) {
+          console.warn('⚠️ Backfill dono na lista pública:', err.message);
+        }
+      }
 
       // Mapear convidados com status de check-in e QR (se existir coluna)
       const guestsWithStatus = guestsResult.rows.map(g => ({

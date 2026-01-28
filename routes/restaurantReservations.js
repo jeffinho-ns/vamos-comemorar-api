@@ -738,11 +738,31 @@ module.exports = (pool) => {
           }
 
           // Criar a guest list vinculada à reserva
-          await pool.query(
+          const glResult = await pool.query(
             `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-             VALUES ($1, 'restaurant', $2, $3, $4)`,
+             VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
             [reservationId, eventType, token, expiresAt]
           );
+          const guestListId = glResult.rows[0].id;
+
+          // Dono da reserva como convidado com QR Code próprio (mesmo fluxo do add-guest-list)
+          try {
+            const hasQr = await pool.query(
+              `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'qr_code_token'`
+            );
+            const hasOwner = await pool.query(
+              `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
+            );
+            if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
+              const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+              await pool.query(
+                `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
+                [guestListId, client_name || 'Dono da reserva', ownerQrToken]
+              );
+            }
+          } catch (err) {
+            console.warn('⚠️ Convidado owner não criado na criação da lista (qr_code_token/is_owner):', err.message);
+          }
 
           const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
           guestListLink = `${baseUrl}/lista/${token}`;
