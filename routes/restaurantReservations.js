@@ -1357,21 +1357,38 @@ module.exports = (pool) => {
    * @access  Private (Admin)
    */
   router.post('/:id/checkin', async (req, res) => {
-    try {
-      const { id } = req.params;
+    const reservationId = parseInt(String(req.params.id).trim(), 10);
+    if (isNaN(reservationId) || reservationId < 1) {
+      return res.status(400).json({ success: false, error: 'ID da reserva inválido' });
+    }
 
-      // Garantir colunas de check-in (migração em produção)
-      try {
-        await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checked_in SMALLINT DEFAULT 0');
-        await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checkin_time TIMESTAMP');
-      } catch (migErr) {
-        console.warn('⚠️ Migração check-in reserva (ignorando):', migErr.message);
+    try {
+      // Detectar colunas existentes (checkin_time vs check_in_time; checked_in)
+      const colResult = await pool.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'restaurant_reservations'
+        AND column_name IN ('checked_in', 'checkin_time', 'check_in_time')
+      `);
+      const cols = colResult.rows.map(r => r.column_name);
+      const hasCheckedIn = cols.includes('checked_in');
+      const hasCheckinTime = cols.includes('checkin_time');
+      const hasCheckInTime = cols.includes('check_in_time');
+      const timeCol = hasCheckinTime ? 'checkin_time' : (hasCheckInTime ? 'check_in_time' : null);
+
+      if (!hasCheckedIn || !timeCol) {
+        try {
+          if (!hasCheckedIn) await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checked_in SMALLINT DEFAULT 0');
+          if (!hasCheckinTime && !hasCheckInTime) await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checkin_time TIMESTAMP');
+        } catch (migErr) {
+          console.warn('⚠️ Migração check-in reserva:', migErr.message);
+        }
       }
 
-      // Verificar se a reserva existe
+      const timeColumn = hasCheckinTime ? 'checkin_time' : (hasCheckInTime ? 'check_in_time' : 'checkin_time');
+
       const reservationResult = await pool.query(
         'SELECT * FROM restaurant_reservations WHERE id = $1',
-        [id]
+        [reservationId]
       );
       const reservation = reservationResult.rows[0];
 
@@ -1382,23 +1399,22 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se já fez check-in (checked_in pode ser 0/1 ou true/false)
       const alreadyCheckedIn = reservation.checked_in === 1 || reservation.checked_in === true || reservation.checked_in === '1';
       if (alreadyCheckedIn) {
+        const ct = reservation.checkin_time || reservation.check_in_time;
         return res.status(400).json({
           success: false,
           error: 'Check-in já foi realizado para esta reserva',
-          checkin_time: reservation.checkin_time
+          checkin_time: ct
         });
       }
 
-      // Atualizar check-in da reserva
       await pool.query(
-        'UPDATE restaurant_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP WHERE id = $1',
-        [id]
+        `UPDATE restaurant_reservations SET checked_in = 1, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
+        [reservationId]
       );
 
-      console.log(`✅ Check-in da reserva confirmado: ${reservation.client_name} (ID: ${id})`);
+      console.log(`✅ Check-in da reserva confirmado: ${reservation.client_name} (ID: ${reservationId})`);
 
       res.json({
         success: true,
@@ -1413,11 +1429,12 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao fazer check-in da reserva:', error.message || error);
-      if (error.code) console.error('   PostgreSQL code:', error.code, error.detail || '');
+      if (error.code) console.error('   PostgreSQL code:', error.code, 'detail:', error.detail || '');
+      const msg = (error.message || String(error)).slice(0, 200);
       res.status(500).json({
         success: false,
         error: 'Erro ao fazer check-in da reserva',
-        details: process.env.NODE_ENV !== 'production' ? (error.message || String(error)) : undefined
+        details: msg
       });
     }
   });
