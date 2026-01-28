@@ -1440,6 +1440,142 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   POST /api/restaurant-reservations/:id/checkout
+   * @desc    Faz check-out da reserva (mesmo fluxo das listas: check-in + check-out com horários)
+   * @access  Private (Admin)
+   */
+  router.post('/:id/checkout', async (req, res) => {
+    const reservationId = parseInt(String(req.params.id).trim(), 10);
+    if (isNaN(reservationId) || reservationId < 1) {
+      return res.status(400).json({ success: false, error: 'ID da reserva inválido' });
+    }
+    const eventoIdFromBody = req.body && (req.body.evento_id != null) ? parseInt(String(req.body.evento_id), 10) : null;
+    const effectiveEventoId = (!isNaN(eventoIdFromBody) && eventoIdFromBody > 0) ? eventoIdFromBody : null;
+
+    try {
+      const colResult = await pool.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'restaurant_reservations'
+        AND column_name IN ('checked_out', 'checkout_time', 'check_out_time')
+      `);
+      let cols = colResult.rows.map(r => r.column_name);
+      const hasCheckedOut = cols.includes('checked_out');
+      const hasCheckoutTime = cols.includes('checkout_time');
+      const hasCheckOutTime = cols.includes('check_out_time');
+      const timeCol = hasCheckoutTime ? 'checkout_time' : (hasCheckOutTime ? 'check_out_time' : null);
+
+      if (!hasCheckedOut || !timeCol) {
+        try {
+          if (!hasCheckedOut) await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checked_out BOOLEAN DEFAULT FALSE');
+          if (!hasCheckoutTime && !hasCheckOutTime) await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checkout_time TIMESTAMP');
+          const reCol = await pool.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'restaurant_reservations'
+            AND column_name IN ('checked_out', 'checkout_time', 'check_out_time')
+          `);
+          cols = reCol.rows.map(r => r.column_name);
+        } catch (migErr) {
+          console.warn('⚠️ Migração check-out reserva:', migErr.message);
+        }
+      }
+
+      const timeColumn = cols.includes('checkout_time') ? 'checkout_time' : (cols.includes('check_out_time') ? 'check_out_time' : 'checkout_time');
+
+      const reservationResult = await pool.query(
+        'SELECT * FROM restaurant_reservations WHERE id = $1',
+        [reservationId]
+      );
+      const reservation = reservationResult.rows[0];
+
+      if (!reservation) {
+        return res.status(404).json({ success: false, error: 'Reserva não encontrada' });
+      }
+
+      const isCheckedIn = reservation.checked_in === 1 || reservation.checked_in === true || reservation.checked_in === '1';
+      if (!isCheckedIn) {
+        return res.status(400).json({
+          success: false,
+          error: 'É necessário fazer check-in antes do check-out'
+        });
+      }
+
+      const alreadyCheckedOut = reservation.checked_out === 1 || reservation.checked_out === true || reservation.checked_out === '1' || !!reservation.checkout_time;
+      if (alreadyCheckedOut) {
+        return res.status(400).json({
+          success: false,
+          error: 'Check-out já foi realizado para esta reserva',
+          checkout_time: reservation.checkout_time || reservation.check_out_time
+        });
+      }
+
+      await pool.query(
+        `UPDATE restaurant_reservations SET checked_out = TRUE, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
+        [reservationId]
+      );
+
+      const checkoutTime = new Date().toISOString();
+      const checkinTime = reservation.checkin_time || reservation.check_in_time;
+
+      try {
+        const tableExists = await pool.query(`
+          SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'checkouts')
+        `);
+        if (tableExists.rows[0]?.exists) {
+          let areaName = reservation.area_name;
+          if (areaName == null && reservation.area_id) {
+            const ar = await pool.query('SELECT name FROM restaurant_areas WHERE id = $1', [reservation.area_id]);
+            areaName = ar.rows[0]?.name || null;
+          }
+          const eventoId = effectiveEventoId ?? reservation.evento_id ?? null;
+          await pool.query(`
+            INSERT INTO checkouts (
+              checkout_type, entity_type, entity_id, name,
+              checkin_time, checkout_time, status,
+              reservation_id, table_number, area_name, establishment_id, evento_id, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
+          `, [
+            'reservation', 'restaurant_reservation', reservationId,
+            reservation.client_name || '',
+            checkinTime || null, checkoutTime, 'concluido',
+            reservationId,
+            reservation.table_number || null,
+            areaName || null,
+            reservation.establishment_id || null,
+            eventoId
+          ]);
+          console.log(`✅ Check-out reserva registrado em checkouts: ${reservation.client_name}`);
+        }
+      } catch (checkoutErr) {
+        console.warn('⚠️ Check-out reserva: falha ao inserir em checkouts:', checkoutErr.message);
+      }
+
+      console.log(`✅ Check-out da reserva confirmado: ${reservation.client_name} (ID: ${reservationId})`);
+
+      res.json({
+        success: true,
+        message: 'Check-out da reserva confirmado com sucesso',
+        reservation: {
+          id: reservation.id,
+          client_name: reservation.client_name,
+          checked_in: true,
+          checked_out: true,
+          checkin_time: checkinTime,
+          checkout_time: checkoutTime
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao fazer check-out da reserva:', error.message || error);
+      if (error.code) console.error('   PostgreSQL code:', error.code, 'detail:', error.detail || '');
+      const msg = (error.message || String(error)).slice(0, 200);
+      res.status(500).json({
+        success: false,
+        error: 'Erro ao fazer check-out da reserva',
+        details: msg
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/:id/guest-list
    * @desc    Busca a lista de convidados de uma reserva
    * @access  Private
