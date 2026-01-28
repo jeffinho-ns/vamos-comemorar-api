@@ -1199,13 +1199,31 @@ module.exports = (pool) => {
       const { id } = req.params;
       const { event_type } = req.body;
 
+      // Validar e converter o ID
+      const reservationId = parseInt(String(id).trim(), 10);
+      if (isNaN(reservationId) || reservationId <= 0) {
+        console.log('❌ [POST /add-guest-list] ID inválido:', id);
+        return res.status(400).json({
+          success: false,
+          error: 'ID da reserva inválido'
+        });
+      }
+
+      console.log('📥 [POST /add-guest-list] Recebendo requisição:', {
+        reservationId: reservationId,
+        reservationId_type: typeof reservationId,
+        event_type: event_type,
+        event_type_type: typeof event_type
+      });
+
       // Verificar se a reserva existe
       const reservationResult = await pool.query(
         'SELECT * FROM restaurant_reservations WHERE id = $1',
-        [id]
+        [reservationId]
       );
 
       if (!reservationResult.rows || reservationResult.rows.length === 0) {
+        console.log('❌ [POST /add-guest-list] Reserva não encontrada:', reservationId);
         return res.status(404).json({
           success: false,
           error: 'Reserva não encontrada'
@@ -1215,13 +1233,21 @@ module.exports = (pool) => {
       const reservation = reservationResult.rows[0];
       const reservationData = reservation;
 
+      console.log('✅ [POST /add-guest-list] Reserva encontrada:', {
+        id: reservation.id,
+        client_name: reservation.client_name,
+        reservation_date: reservation.reservation_date,
+        reservation_date_type: typeof reservation.reservation_date
+      });
+
       // Verificar se já existe uma guest list para esta reserva
       const existingGuestListResult = await pool.query(
         `SELECT id FROM guest_lists WHERE reservation_id = $1 AND reservation_type = 'restaurant'`,
-        [id]
+        [reservationId]
       );
 
       if (existingGuestListResult.rows.length > 0) {
+        console.log('⚠️ [POST /add-guest-list] Reserva já possui lista de convidados:', reservationId);
         return res.status(400).json({
           success: false,
           error: 'Esta reserva já possui uma lista de convidados'
@@ -1242,6 +1268,10 @@ module.exports = (pool) => {
 
       // Validar que a reserva tem uma data válida
       if (!reservationData.reservation_date) {
+        console.log('❌ [POST /add-guest-list] Reserva sem data:', {
+          reservationId: reservationId,
+          reservation_date: reservationData.reservation_date
+        });
         return res.status(400).json({
           success: false,
           error: 'A reserva não possui uma data válida'
@@ -1253,10 +1283,23 @@ module.exports = (pool) => {
       const token = crypto.randomBytes(24).toString('hex');
       
       // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
-      const reservationDateObj = new Date(reservationData.reservation_date + 'T00:00:00');
+      const reservationDateStr = String(reservationData.reservation_date).trim();
+      const reservationDateObj = new Date(reservationDateStr + 'T00:00:00');
+      
+      console.log('📅 [POST /add-guest-list] Processando data:', {
+        reservation_date_raw: reservationData.reservation_date,
+        reservation_date_str: reservationDateStr,
+        reservation_date_obj: reservationDateObj.toISOString(),
+        is_valid: !isNaN(reservationDateObj.getTime())
+      });
       
       // Validar se a data é válida
       if (isNaN(reservationDateObj.getTime())) {
+        console.log('❌ [POST /add-guest-list] Data inválida:', {
+          reservationId: reservationId,
+          reservation_date: reservationData.reservation_date,
+          parsed_date: reservationDateObj
+        });
         return res.status(400).json({
           success: false,
           error: 'Data da reserva inválida'
@@ -1267,12 +1310,21 @@ module.exports = (pool) => {
       reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
       const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
 
+      console.log('💾 [POST /add-guest-list] Inserindo guest list:', {
+        reservation_id: reservationId,
+        reservation_type: 'restaurant',
+        event_type: validEventType,
+        expires_at: expiresAt
+      });
+
       const glResult = await pool.query(
         `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
          VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
-        [id, validEventType, token, expiresAt]
+        [reservationId, validEventType, token, expiresAt]
       );
       const guestListId = glResult.rows[0].id;
+      
+      console.log('✅ [POST /add-guest-list] Guest list criada com sucesso:', guestListId);
 
       // Dono da reserva como convidado com QR Code próprio (se colunas existirem)
       try {
@@ -1296,7 +1348,7 @@ module.exports = (pool) => {
       const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
       const guestListLink = `${baseUrl}/lista/${token}`;
 
-      console.log('✅ Lista de convidados adicionada à reserva:', id);
+      console.log('✅ Lista de convidados adicionada à reserva:', reservationId);
 
       res.status(201).json({
         success: true,
@@ -1312,7 +1364,9 @@ module.exports = (pool) => {
         reservationId: req.params.id,
         eventType: req.body.event_type,
         errorMessage: error.message,
-        errorCode: error.code
+        errorCode: error.code,
+        errorDetail: error.detail,
+        errorConstraint: error.constraint
       });
       res.status(500).json({
         success: false,
