@@ -1410,7 +1410,7 @@ module.exports = (pool) => {
       }
 
       await pool.query(
-        `UPDATE restaurant_reservations SET checked_in = 1, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE restaurant_reservations SET checked_in = TRUE, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
         [reservationId]
       );
 

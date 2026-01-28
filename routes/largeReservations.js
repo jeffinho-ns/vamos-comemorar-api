@@ -1023,7 +1023,7 @@ module.exports = (pool) => {
 
       // Atualizar check-in da reserva e status
       await pool.query(
-        'UPDATE large_reservations SET checked_in = 1, checkin_time = CURRENT_TIMESTAMP, status = $1 WHERE id = $2',
+        'UPDATE large_reservations SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP, status = $1 WHERE id = $2',
         ['CHECKED_IN', id]
       );
 
