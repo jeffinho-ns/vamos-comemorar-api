@@ -73,13 +73,11 @@ module.exports = (pool) => {
         hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
         hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
 
-        // Se colunas de QR/dono não existem em produção, aplicar migração na hora (ADD COLUMN IF NOT EXISTS)
+        // Se colunas de QR/dono não existem em produção, aplicar migração na hora (só ADD COLUMN; índices no script)
         if (!hasQrCodeToken || !hasIsOwner) {
           try {
             await pool.query('ALTER TABLE guests ADD COLUMN IF NOT EXISTS qr_code_token VARCHAR(64)');
             await pool.query('ALTER TABLE guests ADD COLUMN IF NOT EXISTS is_owner BOOLEAN DEFAULT FALSE');
-            await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_qr_code_token ON guests(qr_code_token) WHERE qr_code_token IS NOT NULL');
-            await pool.query('CREATE INDEX IF NOT EXISTS idx_guests_is_owner ON guests(is_owner)');
             columnsResult = await pool.query(`
               SELECT column_name FROM information_schema.columns
               WHERE table_schema = current_schema() AND table_name = 'guests'
@@ -114,24 +112,29 @@ module.exports = (pool) => {
       let guestsResult = await pool.query(guestsQuery, [list.id]);
 
       // Backfill dono com QR: (1) lista sem dono -> inserir; (2) dono existe mas sem qr_code_token -> atualizar
+      // Aplicamos tokens em memória e não re-queryamos, para evitar read-after-write (réplica, etc.)
       if (ownerName && hasQrCodeToken && hasIsOwner) {
         try {
           const hasOwnerGuest = guestsResult.rows.some(g => g.is_owner === true || g.is_owner === 1);
           const ownerWithoutToken = guestsResult.rows.find(g => (g.is_owner === true || g.is_owner === 1) && !g.qr_code_token);
           if (!hasOwnerGuest) {
             const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
-            await pool.query(
-              `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
+            const ins = await pool.query(
+              `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)
+               RETURNING id, name, qr_code_token, is_owner`,
               [list.id, (ownerName || '').trim() || 'Dono da reserva', ownerQrToken]
             );
-            guestsResult = await pool.query(guestsQuery, [list.id]);
+            const row = ins.rows[0];
+            if (row) {
+              row.checked_in = false;
+              row.checkin_time = null;
+              row.email = null;
+              guestsResult.rows.unshift(row);
+            }
           } else if (ownerWithoutToken) {
             const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
-            await pool.query(
-              `UPDATE guests SET qr_code_token = $1 WHERE id = $2`,
-              [ownerQrToken, ownerWithoutToken.id]
-            );
-            guestsResult = await pool.query(guestsQuery, [list.id]);
+            await pool.query('UPDATE guests SET qr_code_token = $1 WHERE id = $2', [ownerQrToken, ownerWithoutToken.id]);
+            ownerWithoutToken.qr_code_token = ownerQrToken;
           }
         } catch (err) {
           console.warn('⚠️ Backfill dono na lista pública:', err.message);
@@ -139,15 +142,14 @@ module.exports = (pool) => {
       }
 
       // Backfill qr_code_token para qualquer convidado que ainda não tenha (dono e demais)
+      // Aplicamos em memória para evitar read-after-write
       if (hasQrCodeToken) {
         try {
           const withoutToken = guestsResult.rows.filter(g => !g.qr_code_token || String(g.qr_code_token).trim() === '');
           for (const g of withoutToken) {
             const newToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
             await pool.query('UPDATE guests SET qr_code_token = $1 WHERE id = $2', [newToken, g.id]);
-          }
-          if (withoutToken.length > 0) {
-            guestsResult = await pool.query(guestsQuery, [list.id]);
+            g.qr_code_token = newToken;
           }
         } catch (err) {
           console.warn('⚠️ Backfill qr_code_token para convidados:', err.message);
