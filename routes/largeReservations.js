@@ -955,7 +955,7 @@ module.exports = (pool) => {
           `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
         );
         if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
-          const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+          const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
           await pool.query(
             `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
             [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken]

@@ -118,7 +118,7 @@ module.exports = (pool) => {
           const hasOwnerGuest = guestsResult.rows.some(g => g.is_owner === true || g.is_owner === 1);
           const ownerWithoutToken = guestsResult.rows.find(g => (g.is_owner === true || g.is_owner === 1) && !g.qr_code_token);
           if (!hasOwnerGuest) {
-            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
             const ins = await pool.query(
               `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)
                RETURNING id, name, qr_code_token, is_owner`,
@@ -132,7 +132,7 @@ module.exports = (pool) => {
               guestsResult.rows.unshift(row);
             }
           } else if (ownerWithoutToken) {
-            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
             await pool.query('UPDATE guests SET qr_code_token = $1 WHERE id = $2', [ownerQrToken, ownerWithoutToken.id]);
             ownerWithoutToken.qr_code_token = ownerQrToken;
           }
@@ -147,7 +147,7 @@ module.exports = (pool) => {
         try {
           const withoutToken = guestsResult.rows.filter(g => !g.qr_code_token || String(g.qr_code_token).trim() === '');
           for (const g of withoutToken) {
-            const newToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+            const newToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
             await pool.query('UPDATE guests SET qr_code_token = $1 WHERE id = $2', [newToken, g.id]);
             g.qr_code_token = newToken;
           }
@@ -245,7 +245,7 @@ module.exports = (pool) => {
           WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'qr_code_token'
         `);
         if (columnsResult.rows.length > 0) {
-          qrCodeToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+          qrCodeToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
           await pool.query(
             'UPDATE guests SET qr_code_token = $1 WHERE id = $2',
             [qrCodeToken, guestId]

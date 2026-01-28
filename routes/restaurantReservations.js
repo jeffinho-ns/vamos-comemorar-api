@@ -754,7 +754,7 @@ module.exports = (pool) => {
               `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
             );
             if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
-              const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+              const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
               await pool.query(
                 `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
                 [guestListId, client_name || 'Dono da reserva', ownerQrToken]
@@ -1247,7 +1247,7 @@ module.exports = (pool) => {
           `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
         );
         if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
-          const ownerQrToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+          const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
           await pool.query(
             `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
             [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken]
@@ -1360,6 +1360,14 @@ module.exports = (pool) => {
     try {
       const { id } = req.params;
 
+      // Garantir colunas de check-in (migração em produção)
+      try {
+        await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checked_in SMALLINT DEFAULT 0');
+        await pool.query('ALTER TABLE restaurant_reservations ADD COLUMN IF NOT EXISTS checkin_time TIMESTAMP');
+      } catch (migErr) {
+        console.warn('⚠️ Migração check-in reserva (ignorando):', migErr.message);
+      }
+
       // Verificar se a reserva existe
       const reservationResult = await pool.query(
         'SELECT * FROM restaurant_reservations WHERE id = $1',
@@ -1374,8 +1382,9 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se já fez check-in
-      if (reservation.checked_in) {
+      // Verificar se já fez check-in (checked_in pode ser 0/1 ou true/false)
+      const alreadyCheckedIn = reservation.checked_in === 1 || reservation.checked_in === true || reservation.checked_in === '1';
+      if (alreadyCheckedIn) {
         return res.status(400).json({
           success: false,
           error: 'Check-in já foi realizado para esta reserva',
@@ -1403,10 +1412,12 @@ module.exports = (pool) => {
       });
 
     } catch (error) {
-      console.error('❌ Erro ao fazer check-in da reserva:', error);
+      console.error('❌ Erro ao fazer check-in da reserva:', error.message || error);
+      if (error.code) console.error('   PostgreSQL code:', error.code, error.detail || '');
       res.status(500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: 'Erro ao fazer check-in da reserva',
+        details: process.env.NODE_ENV !== 'production' ? (error.message || String(error)) : undefined
       });
     }
   });
