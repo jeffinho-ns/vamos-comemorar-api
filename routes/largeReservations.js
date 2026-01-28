@@ -954,7 +954,24 @@ module.exports = (pool) => {
       const token = crypto.randomBytes(24).toString('hex');
       
       // Garantir que a data de expiração seja no futuro (adicionar 1 dia após a data da reserva)
-      const reservationDateObj = new Date(reservationData.reservation_date + 'T00:00:00');
+      // Tratar diferentes formatos de data que podem vir do PostgreSQL
+      let reservationDateObj;
+      
+      if (reservationData.reservation_date instanceof Date) {
+        // Se já é um objeto Date, usar diretamente
+        reservationDateObj = new Date(reservationData.reservation_date);
+      } else {
+        // Se é string, tratar diferentes formatos
+        const reservationDateStr = String(reservationData.reservation_date).trim();
+        
+        // Se já contém 'T' (formato ISO), usar diretamente
+        if (reservationDateStr.includes('T')) {
+          reservationDateObj = new Date(reservationDateStr);
+        } else {
+          // Se é formato YYYY-MM-DD, adicionar hora
+          reservationDateObj = new Date(reservationDateStr + 'T00:00:00');
+        }
+      }
       
       // Validar se a data é válida
       if (isNaN(reservationDateObj.getTime())) {
