@@ -62,20 +62,40 @@ module.exports = (pool) => {
       let hasIsOwner = false;
       try {
         // Tentar buscar com checked_in e checkin_time (podem não existir em versões antigas)
-        const columnsResult = await pool.query(`
+        let columnsResult = await pool.query(`
           SELECT column_name 
           FROM information_schema.columns 
           WHERE table_schema = current_schema()
           AND table_name = 'guests' 
           AND column_name IN ('checked_in', 'checkin_time', 'email', 'qr_code_token', 'is_owner')
         `);
-        
+
+        hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
+        hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
+
+        // Se colunas de QR/dono não existem em produção, aplicar migração na hora (ADD COLUMN IF NOT EXISTS)
+        if (!hasQrCodeToken || !hasIsOwner) {
+          try {
+            await pool.query('ALTER TABLE guests ADD COLUMN IF NOT EXISTS qr_code_token VARCHAR(64)');
+            await pool.query('ALTER TABLE guests ADD COLUMN IF NOT EXISTS is_owner BOOLEAN DEFAULT FALSE');
+            await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_qr_code_token ON guests(qr_code_token) WHERE qr_code_token IS NOT NULL');
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_guests_is_owner ON guests(is_owner)');
+            columnsResult = await pool.query(`
+              SELECT column_name FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = 'guests'
+              AND column_name IN ('checked_in', 'checkin_time', 'email', 'qr_code_token', 'is_owner')
+            `);
+            hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
+            hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
+          } catch (migErr) {
+            console.warn('⚠️ Migração automática guests (qr_code_token/is_owner):', migErr.message);
+          }
+        }
+
         const hasCheckedIn = columnsResult.rows.some(col => col.column_name === 'checked_in');
         const hasCheckinTime = columnsResult.rows.some(col => col.column_name === 'checkin_time');
         const hasEmail = columnsResult.rows.some(col => col.column_name === 'email');
-        hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
-        hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
-        
+
         // Construir query dinamicamente baseado nas colunas disponíveis
         const selectFields = ['id', 'name'];
         if (hasCheckedIn) selectFields.push('checked_in');
@@ -83,7 +103,7 @@ module.exports = (pool) => {
         if (hasEmail) selectFields.push('email');
         if (hasQrCodeToken) selectFields.push('qr_code_token');
         if (hasIsOwner) selectFields.push('is_owner');
-        
+
         guestsQuery = `SELECT ${selectFields.join(', ')} FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`;
       } catch (error) {
         // Fallback: usar query básica se houver erro ao verificar colunas
