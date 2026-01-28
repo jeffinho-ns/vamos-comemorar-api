@@ -267,7 +267,8 @@ module.exports = (pool) => {
         send_whatsapp = true,
         blocks_entire_area = false,
         area_display_name,
-        has_bistro_table = false
+        has_bistro_table = false,
+        espera_antecipada = false
       } = req.body;
 
       // Validações básicas
@@ -333,13 +334,39 @@ module.exports = (pool) => {
         });
       }
 
-      // Validação de horários de funcionamento para Seu Justino (ID 1) e Pracinha do Seu Justino (ID 8)
-      // Apenas para não-admins (origin !== 'PESSOAL' indica reserva de cliente)
+      // REGRA DE SÁBADO: Verificar se é sábado entre 15h-21h para Seu Justino ou Pracinha
+      // Se não veio do frontend com a flag, verificar aqui também (para reservas criadas por admin)
+      let finalEsperaAntecipada = espera_antecipada;
+      let finalNotes = notes || '';
+      let finalTableNumber = table_number;
+      
       const isSeuJustino = establishmentIdNumber === 1;
       const isPracinha = establishmentIdNumber === 8;
+      
+      if ((isSeuJustino || isPracinha) && reservation_date && reservation_time) {
+        const reservationDate = new Date(reservation_date + 'T00:00:00');
+        const weekday = reservationDate.getDay(); // 0=Dom, 6=Sáb
+        const [hours, minutes] = reservation_time.split(':').map(Number);
+        const reservationHour = hours + (isNaN(minutes) ? 0 : minutes / 60);
+        
+        // Sábado (6) entre 15h e 21h
+        if (weekday === 6 && reservationHour >= 15 && reservationHour < 21) {
+          finalEsperaAntecipada = true;
+          // Adicionar nota se não existir
+          if (!finalNotes.includes('ESPERA ANTECIPADA')) {
+            finalNotes = (finalNotes ? finalNotes + ' | ' : '') + 'ESPERA ANTECIPADA (Bistrô)';
+          }
+          // Não atribuir mesa para espera antecipada (não desconta da contagem)
+          finalTableNumber = null;
+        }
+      }
+
+      // Validação de horários de funcionamento para Seu Justino (ID 1) e Pracinha do Seu Justino (ID 8)
+      // Apenas para não-admins (origin !== 'PESSOAL' indica reserva de cliente)
+      // NOTA: Não aplicar validação de horário se for espera antecipada (já foi tratada acima)
       const isAdminReservationForTimeValidation = origin === 'PESSOAL';
       
-      if ((isSeuJustino || isPracinha) && !isAdminReservationForTimeValidation && reservation_time && reservation_date) {
+      if ((isSeuJustino || isPracinha) && !isAdminReservationForTimeValidation && !finalEsperaAntecipada && reservation_time && reservation_date) {
         const reservationDate = new Date(reservation_date + 'T00:00:00');
         const weekday = reservationDate.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
         const [hours, minutes] = reservation_time.split(':').map(Number);
@@ -586,6 +613,7 @@ module.exports = (pool) => {
       `;
 
       // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
+      // Usar finalTableNumber e finalNotes para espera antecipada
       const insertParams = [
         client_name || null,
         client_phone || null,
@@ -595,10 +623,10 @@ module.exports = (pool) => {
         reservation_time || null,
         numberOfPeople, // Usar variável convertida
         areaIdNumber, // Usar variável convertida
-        table_number || null,
+        finalTableNumber || null, // null para espera antecipada (não desconta mesa)
         status || 'NOVA',
         origin || 'PESSOAL',
-        notes || null,
+        finalNotes || null, // Nota com "ESPERA ANTECIPADA" se aplicável
         created_by || null,
         establishmentIdNumber, // Usar variável convertida
         evento_id || null,
