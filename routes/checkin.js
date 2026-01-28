@@ -54,8 +54,51 @@ module.exports = (db) => {
 
         try {
             let convidado;
-            
-            // 1. Encontra o convidado por QR Code ou ID
+
+            // 0. NOVO: Fluxo de guest (lista de convidados) por qr_code_token (QR contém "vc_guest_xxx")
+            if (qrCodeData && typeof qrCodeData === 'string' && qrCodeData.startsWith('vc_guest_')) {
+                const guestResult = await db.query(
+                    `SELECT g.id, g.name, g.checked_in, g.checkin_time, g.guest_list_id, gl.reservation_id, gl.reservation_type
+                     FROM guests g
+                     JOIN guest_lists gl ON gl.id = g.guest_list_id
+                     WHERE g.qr_code_token = $1`,
+                    [qrCodeData]
+                );
+                if (guestResult.rows.length > 0) {
+                    const g = guestResult.rows[0];
+                    if (g.checked_in === true || g.checked_in === 1) {
+                        return res.status(409).json({
+                            message: 'QR já utilizado. Check-in já realizado para este convidado.'
+                        });
+                    }
+                    const listResult = await db.query(
+                        'SELECT expires_at, CASE WHEN expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid FROM guest_lists WHERE id = $1',
+                        [g.guest_list_id]
+                    );
+                    if (listResult.rows.length === 0 || !listResult.rows[0].is_valid) {
+                        return res.status(410).json({ message: 'Link da lista expirado. QR inválido.' });
+                    }
+                    await db.query(
+                        'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP WHERE id = $1',
+                        [g.id]
+                    );
+                    const io = req.app.get('socketio');
+                    if (io) {
+                        io.to(`guest_list_${g.guest_list_id}`).emit('convidado_checkin', {
+                            convidadoId: g.id,
+                            nome: g.name,
+                            status: 'CHECK-IN'
+                        });
+                    }
+                    return res.status(200).json({
+                        message: 'Check-in realizado com sucesso!',
+                        convidado: g.name
+                    });
+                }
+                return res.status(404).json({ message: 'QR Code inválido ou não encontrado.' });
+            }
+
+            // 1. Encontra o convidado por QR Code ou ID (fluxo existente: convidados)
             if (qrCodeData) {
                 const sqlBusca = 'SELECT * FROM convidados WHERE qr_code = $1';
                 const result = await db.query(sqlBusca, [qrCodeData]);

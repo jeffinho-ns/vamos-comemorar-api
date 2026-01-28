@@ -1,6 +1,7 @@
 // routes/guestListPublic.js
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 
 module.exports = (pool) => {
@@ -64,18 +65,22 @@ module.exports = (pool) => {
           FROM information_schema.columns 
           WHERE table_schema = current_schema()
           AND table_name = 'guests' 
-          AND column_name IN ('checked_in', 'checkin_time', 'email')
+          AND column_name IN ('checked_in', 'checkin_time', 'email', 'qr_code_token', 'is_owner')
         `);
         
         const hasCheckedIn = columnsResult.rows.some(col => col.column_name === 'checked_in');
         const hasCheckinTime = columnsResult.rows.some(col => col.column_name === 'checkin_time');
         const hasEmail = columnsResult.rows.some(col => col.column_name === 'email');
+        const hasQrCodeToken = columnsResult.rows.some(col => col.column_name === 'qr_code_token');
+        const hasIsOwner = columnsResult.rows.some(col => col.column_name === 'is_owner');
         
         // Construir query dinamicamente baseado nas colunas disponíveis
         const selectFields = ['id', 'name'];
         if (hasCheckedIn) selectFields.push('checked_in');
         if (hasCheckinTime) selectFields.push('checkin_time');
         if (hasEmail) selectFields.push('email');
+        if (hasQrCodeToken) selectFields.push('qr_code_token');
+        if (hasIsOwner) selectFields.push('is_owner');
         
         guestsQuery = `SELECT ${selectFields.join(', ')} FROM guests WHERE guest_list_id = $1 ORDER BY id ASC`;
       } catch (error) {
@@ -86,14 +91,16 @@ module.exports = (pool) => {
       
       const guestsResult = await pool.query(guestsQuery, [list.id]);
 
-      // Mapear convidados com status de check-in
+      // Mapear convidados com status de check-in e QR (se existir coluna)
       const guestsWithStatus = guestsResult.rows.map(g => ({
         id: g.id,
         name: g.name,
         status: (g.checked_in === true || g.checked_in === 1) ? 'CHECK-IN' : 'Confirmado',
         checked_in: g.checked_in === true || g.checked_in === 1 || false,
         checkin_time: g.checkin_time || null,
-        email: g.email || null
+        email: g.email || null,
+        qr_code_token: g.qr_code_token || null,
+        is_owner: g.is_owner === true || g.is_owner === 1 || false
       }));
 
       res.json({
@@ -163,11 +170,30 @@ module.exports = (pool) => {
         'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3) RETURNING id',
         [list.id, name.trim(), whatsapp || null]
       );
+      const guestId = result.rows[0].id;
+
+      // Gerar e persistir qr_code_token (único por convidado, para check-in via QR)
+      let qrCodeToken = null;
+      try {
+        const columnsResult = await pool.query(`
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'qr_code_token'
+        `);
+        if (columnsResult.rows.length > 0) {
+          qrCodeToken = 'vc_guest_' + crypto.randomBytes(32).toString('hex');
+          await pool.query(
+            'UPDATE guests SET qr_code_token = $1 WHERE id = $2',
+            [qrCodeToken, guestId]
+          );
+        }
+      } catch (err) {
+        console.warn('⚠️ qr_code_token não persistido (coluna pode não existir):', err.message);
+      }
 
       res.status(201).json({ 
         success: true, 
         message: 'Você foi adicionado à lista com sucesso!',
-        guest: { id: result.rows[0].id, name: name.trim(), whatsapp: whatsapp || null }
+        guest: { id: guestId, name: name.trim(), whatsapp: whatsapp || null, qr_code_token: qrCodeToken }
       });
 
     } catch (error) {
