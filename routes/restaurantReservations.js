@@ -387,18 +387,18 @@ module.exports = (pool) => {
       }
 
       // Verificar se há uma reserva bloqueando toda a área para esta data
-      // IMPORTANTE: Se uma reserva bloqueia toda a área, ela bloqueia para TODOS os estabelecimentos
-      if (areaIdNumber && reservation_date) {
-        // Verificar se há qualquer reserva bloqueando a área para esta data (independente do establishment_id)
-        // Pois se uma reserva bloqueia toda a área, ela bloqueia para todos
+      // IMPORTANTE: O bloqueio é apenas para a área específica no mesmo estabelecimento
+      if (areaIdNumber && reservation_date && establishmentIdNumber) {
+        // Verificar se há uma reserva bloqueando a área específica para esta data no mesmo estabelecimento
         const areaBlockedResult = await pool.query(
-          `SELECT id, client_name, establishment_id 
+          `SELECT id, client_name, establishment_id, area_id
            FROM restaurant_reservations
            WHERE reservation_date = $1 
              AND area_id = $2 
+             AND establishment_id = $3
              AND blocks_entire_area = TRUE
              AND status NOT IN ('CANCELADA', 'cancelled')`,
-          [reservation_date, areaIdNumber]
+          [reservation_date, areaIdNumber, establishmentIdNumber]
         );
         
         if (areaBlockedResult.rows.length > 0) {
@@ -856,18 +856,20 @@ module.exports = (pool) => {
       // Se a data ou área estão sendo alteradas, verificar se há bloqueio
       const newAreaId = area_id !== undefined ? Number(area_id) : existingReservation.area_id;
       const newDate = reservation_date !== undefined ? reservation_date : existingReservation.reservation_date;
+      const establishmentId = existingReservation.establishment_id;
       
-      // Verificar se há uma reserva bloqueando toda a área para a nova data/área (exceto a própria reserva sendo editada)
-      if (newAreaId && newDate) {
+      // Verificar se há uma reserva bloqueando toda a área para a nova data/área no mesmo estabelecimento (exceto a própria reserva sendo editada)
+      if (newAreaId && newDate && establishmentId) {
         const areaBlockedResult = await pool.query(
-          `SELECT id, client_name 
+          `SELECT id, client_name, establishment_id, area_id
            FROM restaurant_reservations
            WHERE reservation_date = $1 
              AND area_id = $2 
+             AND establishment_id = $3
              AND blocks_entire_area = TRUE
-             AND id != $3
+             AND id != $4
              AND status NOT IN ('CANCELADA', 'cancelled')`,
-          [newDate, newAreaId, id]
+          [newDate, newAreaId, establishmentId, id]
         );
         
         if (areaBlockedResult.rows.length > 0) {
