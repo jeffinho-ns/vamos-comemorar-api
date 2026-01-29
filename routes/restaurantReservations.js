@@ -334,7 +334,10 @@ module.exports = (pool) => {
         });
       }
 
-      // REGRA DE SÁBADO: Verificar se é sábado entre 15h-21h para Seu Justino ou Pracinha
+      // REGRA NOVA 2º GIRO (BISTRÔ) — APENAS Seu Justino (ID 1) e Pracinha (ID 8)
+      // - Terça a Sexta: 1º giro 18:00–21:00 | 2º giro a partir de 21:00 (inclui madrugada)
+      // - Sábado: 1º giro 12:00–15:00 | 2º giro a partir de 15:00 (inclui madrugada)
+      // - Domingo: 1º giro 12:00–15:00 | 2º giro a partir de 15:00
       // Se não veio do frontend com a flag, verificar aqui também (para reservas criadas por admin)
       let finalEsperaAntecipada = espera_antecipada;
       let finalNotes = notes || '';
@@ -345,19 +348,30 @@ module.exports = (pool) => {
       
       if ((isSeuJustino || isPracinha) && reservation_date && reservation_time) {
         const reservationDate = new Date(reservation_date + 'T00:00:00');
-        const weekday = reservationDate.getDay(); // 0=Dom, 6=Sáb
+        const weekday = reservationDate.getDay(); // 0=Dom, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
         const [hours, minutes] = reservation_time.split(':').map(Number);
-        const reservationHour = hours + (isNaN(minutes) ? 0 : minutes / 60);
-        
-        // Sábado (6) entre 15h e 21h
-        if (weekday === 6 && reservationHour >= 15 && reservationHour < 21) {
-          finalEsperaAntecipada = true;
-          // Adicionar nota se não existir
-          if (!finalNotes.includes('ESPERA ANTECIPADA')) {
-            finalNotes = (finalNotes ? finalNotes + ' | ' : '') + 'ESPERA ANTECIPADA (Bistrô)';
+        if (!Number.isNaN(hours)) {
+          let reservationMinutes = hours * 60 + (isNaN(minutes) ? 0 : minutes);
+          // madrugada (ex.: 01:00) é continuação do "após 21h/15h" do mesmo dia de operação
+          if (reservationMinutes < 6 * 60) reservationMinutes += 24 * 60;
+
+          const isSecondGiroBistro =
+            // Terça (2) a Sexta (5): após 21:00
+            (weekday >= 2 && weekday <= 5 && reservationMinutes >= 21 * 60) ||
+            // Sábado (6): após 15:00
+            (weekday === 6 && reservationMinutes >= 15 * 60) ||
+            // Domingo (0): após 15:00
+            (weekday === 0 && reservationMinutes >= 15 * 60);
+
+          if (isSecondGiroBistro) {
+            finalEsperaAntecipada = true;
+            // Adicionar nota se não existir
+            if (!finalNotes.includes('ESPERA ANTECIPADA')) {
+              finalNotes = (finalNotes ? finalNotes + ' | ' : '') + 'ESPERA ANTECIPADA (Bistrô)';
+            }
+            // Não atribuir mesa para espera antecipada (não desconta da contagem)
+            finalTableNumber = null;
           }
-          // Não atribuir mesa para espera antecipada (não desconta da contagem)
-          finalTableNumber = null;
         }
       }
 
