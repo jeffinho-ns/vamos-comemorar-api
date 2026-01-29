@@ -52,7 +52,9 @@ module.exports = (pool) => {
       const tables = tablesResult.rows;
 
       // Busca reservas do dia para as mesas da área
-      // IMPORTANTE: Para Justino/Pracinha, o frontend calcula por overlap de horário
+      // IMPORTANTE: Justino/Pracinha são RESTAURANTES (reservas por algumas horas, não dia todo)
+      // Highline é BALADA (reservas bloqueiam o dia todo)
+      // Para Justino/Pracinha, o frontend calcula por overlap de horário (2h)
       // Este endpoint só marca como reservada se houver reserva ATIVA (não cancelada/finalizada)
       let reservedQuery = `SELECT table_number FROM restaurant_reservations
          WHERE reservation_date = $1 AND area_id = $2`;
@@ -73,11 +75,11 @@ module.exports = (pool) => {
       const reservedSet = new Set(reservedRows.map(r => String(r.table_number)));
       const data = tables.map(t => ({
         ...t,
-        // Para Justino/Pracinha, o frontend recalcula por overlap, então sempre retornar false aqui
-        // Para outros estabelecimentos, usar a lógica de bloqueio do dia todo
+        // Justino/Pracinha são RESTAURANTES: frontend calcula por overlap de horário (2h)
+        // Highline é BALADA: bloqueio do dia todo quando há reserva confirmada
         is_reserved: (establishment_id && (establishment_id === 1 || establishment_id === 8))
-          ? false  // Justino/Pracinha: frontend calcula por overlap
-          : reservedSet.has(String(t.table_number))  // Outros: bloqueio do dia todo
+          ? false  // Justino/Pracinha (restaurantes): frontend calcula por overlap de horário
+          : reservedSet.has(String(t.table_number))  // Highline/outros (baladas): bloqueio do dia todo
       }));
 
       res.json({ success: true, date, area_id: Number(areaId), tables: data });
