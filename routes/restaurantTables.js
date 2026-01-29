@@ -51,7 +51,9 @@ module.exports = (pool) => {
       );
       const tables = tablesResult.rows;
 
-      // Busca reservas do dia para as mesas da área (bloqueia o dia todo)
+      // Busca reservas do dia para as mesas da área
+      // IMPORTANTE: Para Justino/Pracinha, o frontend calcula por overlap de horário
+      // Este endpoint só marca como reservada se houver reserva ATIVA (não cancelada/finalizada)
       let reservedQuery = `SELECT table_number FROM restaurant_reservations
          WHERE reservation_date = $1 AND area_id = $2`;
       let reservedParams = [date, areaId];
@@ -59,14 +61,23 @@ module.exports = (pool) => {
         reservedQuery += ' AND (establishment_id = $3 OR establishment_id IS NULL)';
         reservedParams.push(establishment_id);
       }
-      reservedQuery += " AND status NOT IN ('CANCELADA')";
+      // Filtrar apenas status que realmente bloqueiam a mesa
+      reservedQuery += ` AND status NOT IN (
+        'CANCELADA', 'CANCELED', 'CANCELLED',
+        'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
+        'NO_SHOW', 'NO-SHOW'
+      )`;
       const reservedRowsResult = await pool.query(reservedQuery, reservedParams);
       const reservedRows = reservedRowsResult.rows;
 
       const reservedSet = new Set(reservedRows.map(r => String(r.table_number)));
       const data = tables.map(t => ({
         ...t,
-        is_reserved: reservedSet.has(String(t.table_number))
+        // Para Justino/Pracinha, o frontend recalcula por overlap, então sempre retornar false aqui
+        // Para outros estabelecimentos, usar a lógica de bloqueio do dia todo
+        is_reserved: (establishment_id && (establishment_id === 1 || establishment_id === 8))
+          ? false  // Justino/Pracinha: frontend calcula por overlap
+          : reservedSet.has(String(t.table_number))  // Outros: bloqueio do dia todo
       }));
 
       res.json({ success: true, date, area_id: Number(areaId), tables: data });
