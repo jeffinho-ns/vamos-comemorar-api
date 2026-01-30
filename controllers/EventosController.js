@@ -1,5 +1,7 @@
 // controllers/EventosController.js
 
+const { isNameInVIPList } = require('../config/promoter-vip-lists');
+
 /**
  * Controller para gerenciamento de Eventos e Listas
  * VERSÃO 2: Integrado com tabela 'eventos' existente
@@ -826,13 +828,43 @@ class EventosController {
   async updateCheckin(req, res) {
     try {
       const { listaConvidadoId } = req.params;
-      const { status_checkin, entrada_tipo, entrada_valor } = req.body;
+      let { status_checkin, entrada_tipo, entrada_valor } = req.body;
       
       if (!['Pendente', 'Check-in', 'No-Show'].includes(status_checkin)) {
         return res.status(400).json({
           success: false,
           error: 'Status de check-in inválido'
         });
+      }
+      
+      // Buscar informações do convidado e promoter ANTES de atualizar
+      const convidadoInfoResult = await this.pool.query(`
+        SELECT 
+          lc.nome_convidado,
+          p.email as promoter_email
+        FROM listas_convidados lc
+        INNER JOIN listas l ON lc.lista_id = l.lista_id
+        LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+        WHERE lc.lista_convidado_id = $1
+      `, [listaConvidadoId]);
+      
+      if (convidadoInfoResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Convidado não encontrado'
+        });
+      }
+      
+      const convidadoInfo = convidadoInfoResult.rows[0];
+      
+      // Verificar se o nome está na lista VIP e aplicar automaticamente
+      if (status_checkin === 'Check-in' && convidadoInfo.promoter_email && convidadoInfo.nome_convidado) {
+        if (isNameInVIPList(convidadoInfo.promoter_email, convidadoInfo.nome_convidado)) {
+          // Nome está na lista VIP - aplicar VIP automaticamente
+          entrada_tipo = 'VIP';
+          entrada_valor = 0;
+          console.log(`⭐ VIP automático aplicado para ${convidadoInfo.nome_convidado} (promoter: ${convidadoInfo.promoter_email})`);
+        }
       }
       
       const dataCheckin = status_checkin === 'Check-in' ? new Date() : null;
@@ -870,6 +902,7 @@ class EventosController {
           l.tipo as lista_tipo,
           p.nome as promoter_nome,
           p.promoter_id,
+          p.email as promoter_email,
           STRING_AGG(b.nome, ', ') as beneficios
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
@@ -877,7 +910,7 @@ class EventosController {
         LEFT JOIN lista_convidado_beneficio lcb ON lc.lista_convidado_id = lcb.lista_convidado_id
         LEFT JOIN beneficios b ON lcb.beneficio_id = b.beneficio_id
         WHERE lc.lista_convidado_id = $1
-        GROUP BY lc.lista_convidado_id, l.nome, l.tipo, p.nome, p.promoter_id
+        GROUP BY lc.lista_convidado_id, l.nome, l.tipo, p.nome, p.promoter_id, p.email
       `, [listaConvidadoId]);
       
       const convidado = convidadoResult.rows[0];
