@@ -1521,28 +1521,59 @@ class EventosController {
           });
           
           // Buscar todos os convidados dessas listas (mesma lógica que getListasEvento)
-          listasPromotersResult = await this.pool.query(`
-            SELECT DISTINCT
-              lc.lista_convidado_id as id,
-              'convidado_promoter' as tipo,
-              lc.nome_convidado as nome,
-              lc.telefone_convidado as telefone,
-              lc.status_checkin,
-              lc.data_checkin,
-              lc.is_vip,
-              lc.observacoes,
-              lc.entrada_tipo,
-              lc.entrada_valor,
-              l.nome as origem,
-              l.tipo as tipo_lista,
-              COALESCE(p.nome, 'N/A') as responsavel,
-              COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
-            FROM listas_convidados lc
-            INNER JOIN listas l ON lc.lista_id = l.lista_id
-            LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
-            WHERE lc.lista_id = ANY($1)
-            ORDER BY lc.nome_convidado ASC
-          `, [listaIds]);
+          // Tentar com entrada_tipo/entrada_valor; se colunas não existirem (ex: migração não rodou), usar NULL
+          try {
+            listasPromotersResult = await this.pool.query(`
+              SELECT DISTINCT
+                lc.lista_convidado_id as id,
+                'convidado_promoter' as tipo,
+                lc.nome_convidado as nome,
+                lc.telefone_convidado as telefone,
+                lc.status_checkin,
+                lc.data_checkin,
+                lc.is_vip,
+                lc.observacoes,
+                lc.entrada_tipo,
+                lc.entrada_valor,
+                l.nome as origem,
+                l.tipo as tipo_lista,
+                COALESCE(p.nome, 'N/A') as responsavel,
+                COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
+              FROM listas_convidados lc
+              INNER JOIN listas l ON lc.lista_id = l.lista_id
+              LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+              WHERE lc.lista_id = ANY($1)
+              ORDER BY lc.nome_convidado ASC
+            `, [listaIds]);
+          } catch (colsError) {
+            const missingColumn = colsError.code === '42703' || (colsError.message && (colsError.message.includes('entrada_tipo') || colsError.message.includes('entrada_valor')));
+            if (missingColumn) {
+              listasPromotersResult = await this.pool.query(`
+                SELECT DISTINCT
+                  lc.lista_convidado_id as id,
+                  'convidado_promoter' as tipo,
+                  lc.nome_convidado as nome,
+                  lc.telefone_convidado as telefone,
+                  lc.status_checkin,
+                  lc.data_checkin,
+                  lc.is_vip,
+                  lc.observacoes,
+                  NULL::TEXT as entrada_tipo,
+                  NULL::NUMERIC as entrada_valor,
+                  l.nome as origem,
+                  l.tipo as tipo_lista,
+                  COALESCE(p.nome, 'N/A') as responsavel,
+                  COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
+                FROM listas_convidados lc
+                INNER JOIN listas l ON lc.lista_id = l.lista_id
+                LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+                WHERE lc.lista_id = ANY($1)
+                ORDER BY lc.nome_convidado ASC
+              `, [listaIds]);
+            } else {
+              throw colsError;
+            }
+          }
           
           console.log(`📋 Convidados de promoters encontrados: ${listasPromotersResult.rows.length}`);
           if (listasPromotersResult.rows.length > 0) {
