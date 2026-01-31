@@ -1,7 +1,5 @@
 // controllers/EventosController.js
 
-const { isNameInVIPList } = require('../config/promoter-vip-lists');
-
 /**
  * Controller para gerenciamento de Eventos e Listas
  * VERSÃO 2: Integrado com tabela 'eventos' existente
@@ -858,15 +856,14 @@ class EventosController {
       const convidadoInfo = convidadoInfoResult.rows[0];
       
       // Verificar se deve aplicar VIP automaticamente
-      // APENAS para a promoter rafacolelho@highlinebar.com.br e se o nome estiver na lista VIP
-      if (status_checkin === 'Check-in' && convidadoInfo.promoter_email && convidadoInfo.nome_convidado) {
+      // Todos os convidados da promoter rafacolelho@highlinebar.com.br têm entrada VIP a noite toda
+      if (status_checkin === 'Check-in' && convidadoInfo.promoter_email) {
         const isRafacolelho = convidadoInfo.promoter_email.toLowerCase() === 'rafacolelho@highlinebar.com.br';
         
-        if (isRafacolelho && isNameInVIPList(convidadoInfo.promoter_email, convidadoInfo.nome_convidado)) {
-          // Nome está na lista VIP da promoter rafacolelho@highlinebar.com.br - aplicar VIP automaticamente
+        if (isRafacolelho) {
           entrada_tipo = 'VIP';
           entrada_valor = 0;
-          console.log(`⭐ VIP automático aplicado para ${convidadoInfo.nome_convidado} (promoter: ${convidadoInfo.promoter_email}) - Nome na lista VIP`);
+          console.log(`⭐ VIP automático aplicado para ${convidadoInfo.nome_convidado || 'convidado'} (promoter: ${convidadoInfo.promoter_email}) - Entrada VIP a noite toda`);
         }
       }
       
