@@ -1771,6 +1771,7 @@ class EventosController {
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
                 rr.status,
+                rr.notes,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
@@ -1782,7 +1783,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, rr.notes, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
             
@@ -1921,23 +1922,7 @@ class EventosController {
             guestListsRestaurante = guestListsResult;
             console.log(`✅ [ATRIBUIÇÃO IMEDIATA] Guest lists atribuídas: ${guestListsRestaurante.length}`);
             
-            // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
-            for (const gl of guestListsResult) {
-              if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
-                try {
-                  const notesResult = await this.pool.query(
-                    'SELECT notes, admin_notes FROM restaurant_reservations WHERE id = $1 LIMIT 1',
-                    [gl.reservation_id]
-                  );
-                  if (notesResult.rows.length > 0) {
-                    gl.notes = notesResult.rows[0].notes || null;
-                    gl.admin_notes = null; // Campo não existe na tabela
-                  }
-                } catch (err) {
-                  console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
-                }
-              }
-            }
+            // Notes já estão incluídos diretamente na query principal acima (rr.notes)
             
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
@@ -1974,6 +1959,7 @@ class EventosController {
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
                 rr.status,
+                rr.notes,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
@@ -1985,7 +1971,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, rr.notes, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             
             // Query para large_reservations (sem filtro de evento_id)
@@ -2031,23 +2017,7 @@ class EventosController {
             guestListsRestaurante = guestListsResult;
             console.log(`✅ [ATRIBUIÇÃO IMEDIATA FALLBACK] Guest lists atribuídas: ${guestListsRestaurante.length}`);
             
-            // Buscar notes e admin_notes separadamente para cada guest_list (apenas para restaurant_reservations)
-            for (const gl of guestListsResult) {
-              if (gl.reservation_type === 'restaurant' && gl.reservation_id) {
-                try {
-                  const notesResult = await this.pool.query(
-                    'SELECT notes, admin_notes FROM restaurant_reservations WHERE id = $1 LIMIT 1',
-                    [gl.reservation_id]
-                  );
-                  if (notesResult.rows.length > 0) {
-                    gl.notes = notesResult.rows[0].notes || null;
-                    gl.admin_notes = null; // Campo não existe na tabela
-                  }
-                } catch (err) {
-                  console.warn(`⚠️ Erro ao buscar notes para reservation_id ${gl.reservation_id}:`, err.message);
-                }
-              }
-            }
+            // Notes já estão incluídos diretamente na query principal acima (rr.notes)
             
             // Ordenar por horário
             guestListsResult.sort((a, b) => {
@@ -2272,6 +2242,7 @@ class EventosController {
                 rr.checked_in as reservation_checked_in,
                 rr.checkin_time as reservation_checkin_time,
                 rr.status,
+                rr.notes,
                 COALESCE(CAST(u.name AS TEXT), 'Sistema') as created_by_name,
                 ra.name as area_name,
                 COUNT(DISTINCT g.id) as total_guests,
@@ -2283,7 +2254,7 @@ class EventosController {
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
               AND rr.reservation_date::DATE = $2::DATE
-              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, u.name, ra.name
+              GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, rr.notes, u.name, ra.name
             `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
             guestListsRestaurante = fallbackResult.rows;
             console.log(`✅ Fallback: ${guestListsRestaurante.length} guest lists encontradas`);
