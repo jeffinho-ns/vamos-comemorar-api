@@ -139,6 +139,7 @@ class EventosController {
       const proximoEventoUnico = proximoEventoUnicoResult.rows;
 
       // Query para TODOS os eventos únicos futuros (para listar todos)
+      // IMPORTANTE: Sem LIMIT para retornar TODOS os eventos únicos futuros
       const todosEventosParams = [];
       let todosEventosParamIndex = 1;
       const todosEventosQuery = `
@@ -159,11 +160,17 @@ class EventosController {
         AND (e.data_do_evento >= CURRENT_DATE OR e.data_do_evento IS NULL)
         ${establishment_id ? `AND e.id_place = $${todosEventosParamIndex++}` : ''}
         ORDER BY e.data_do_evento ASC NULLS LAST
-        LIMIT 10
+        -- SEM LIMIT - retorna TODOS os eventos únicos futuros
       `;
       if (establishment_id) todosEventosParams.push(establishment_id);
+      
+      console.log('🔍 [getDashboard] Query para todos eventos únicos:', todosEventosQuery);
+      console.log('🔍 [getDashboard] Parâmetros:', todosEventosParams);
+      
       const todosEventosUnicosResult = await this.pool.query(todosEventosQuery, todosEventosParams);
       const todosEventosUnicos = todosEventosUnicosResult.rows;
+      
+      console.log(`✅ [getDashboard] Total de eventos únicos encontrados: ${todosEventosUnicos.length}`);
 
       // Query para eventos semanais ativos (TODOS os eventos semanais)
       const eventosSemanaisParams = [];
