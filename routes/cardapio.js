@@ -1253,11 +1253,15 @@ module.exports = (pool) => {
                     imageUrl = null;
                 }
                 
+                // Verificar se o preço é -1 (Sob Consulta)
+                const isPriceOnRequest = item.price === -1 || item.price === '-1';
+                
                 return { 
                     ...item,
                     imageUrl, 
                     toppings, 
-                    seals
+                    seals,
+                    isPriceOnRequest: isPriceOnRequest
                 };
             });
             
@@ -1347,11 +1351,15 @@ module.exports = (pool) => {
                 imageUrl = null;
             }
             
+            // Verificar se o preço é -1 (Sob Consulta)
+            const isPriceOnRequest = item.price === -1 || item.price === '-1';
+            
             const normalizedItem = {
                 ...item,
                 imageUrl,
                 toppings: toppingsResult.rows,
-                seals
+                seals,
+                isPriceOnRequest: isPriceOnRequest
             };
             
             res.json(normalizedItem);
