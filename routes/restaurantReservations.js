@@ -36,9 +36,14 @@ module.exports = (pool) => {
       const params = [];
       let paramIndex = 1;
       
-      // Por padrão, excluir reservas canceladas, a menos que include_cancelled=true
+      // Por padrão, excluir reservas canceladas e finalizadas, a menos que include_cancelled=true
+      // Status inativos que não bloqueiam mesas: cancelled, completed, finalized, no_show
       if (include_cancelled !== 'true') {
-        query += ` AND rr.status NOT IN ('cancelled', 'CANCELADA')`;
+        query += ` AND rr.status NOT IN (
+          'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
+          'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
+          'no_show', 'NO_SHOW', 'NO-SHOW'
+        )`;
       }
       
       if (date) { query += ` AND rr.reservation_date = $${paramIndex++}`; params.push(date); }
