@@ -769,7 +769,7 @@ module.exports = (pool) => {
         SELECT pe.evento_id, TO_CHAR(pe.data_evento, 'YYYY-MM-DD') as data_evento, e.nome_do_evento, e.tipo_evento
         FROM meu_backup_db.promoter_eventos pe
         INNER JOIN meu_backup_db.eventos e ON e.id = pe.evento_id
-        WHERE pe.promoter_id = $1 AND COALESCE(LOWER(TRIM(pe.status::TEXT)), 'ativo') = 'ativo'
+        WHERE pe.promoter_id = $1 AND (pe.status IS NULL OR pe.status::TEXT ILIKE '%ativo%')
         ORDER BY pe.data_evento ASC NULLS LAST
       `, [promoterId]);
 
@@ -789,7 +789,13 @@ module.exports = (pool) => {
           AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
           AND lc.status_checkin = 'Check-in'
           AND lc.data_checkin IS NOT NULL
-          AND ($3::DATE IS NULL OR lc.data_checkin::DATE = $3::DATE)
+          AND (
+            $3::DATE IS NULL
+            OR (
+              (lc.data_checkin::timestamptz AT TIME ZONE 'America/Sao_Paulo')::DATE = $3::DATE
+              OR lc.data_checkin::DATE = $3::DATE
+            )
+          )
         `, [promoterId, eventoId, dataEventoStr]);
         const totalCheckins = parseInt(checkinsRes.rows[0]?.total_checkins || 0);
         const chave = `${eventoId}|${dataEventoStr || ''}`;

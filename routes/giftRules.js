@@ -518,7 +518,11 @@ module.exports = (pool) => {
         AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
         AND lc.status_checkin = 'Check-in'
         AND lc.data_checkin IS NOT NULL
-        AND ($3::DATE IS NULL OR lc.data_checkin::DATE = $3::DATE)
+        AND (
+          $3::DATE IS NULL
+          OR (lc.data_checkin::timestamptz AT TIME ZONE 'America/Sao_Paulo')::DATE = $3::DATE
+          OR lc.data_checkin::DATE = $3::DATE
+        )
       `, [promoterId, eventoId, dataEvento]);
       
       const checkinsCount = parseInt(checkinsResult.rows[0]?.total_checkins || 0);
