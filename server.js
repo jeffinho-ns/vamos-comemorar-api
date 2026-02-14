@@ -301,10 +301,22 @@ app.get('/test-firebase-storage', async (req, res) => {
 
 
 // Socket.IO: permitir que clientes (ex.: páginas de check-in) entrem nas salas por guest_list_id para receber convidado_checkin em tempo real
+// e sala rooftop_flow para a página Fluxo Rooftop receber atualizações em tempo real quando um check-in é feito
+const { getRoomName } = require('./utils/rooftopFlowSocket');
+
 io.on('connection', (socket) => {
   socket.on('join_guest_list', (guestListId) => {
     if (guestListId != null && guestListId !== '') {
       const room = 'guest_list_' + guestListId;
+      socket.join(room);
+    }
+  });
+
+  socket.on('join_rooftop_flow', (payload) => {
+    const establishmentId = payload?.establishment_id;
+    const flowDate = payload?.flow_date;
+    if (establishmentId != null && flowDate && typeof flowDate === 'string') {
+      const room = getRoomName(establishmentId, flowDate.trim());
       socket.join(room);
     }
   });

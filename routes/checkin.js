@@ -1,6 +1,7 @@
 // Em /routes/checkin.js
 
 const express = require('express');
+const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 // Função auxiliar para verificar e notificar sobre brindes
 async function verificarBrindes(reservaId, db, io) {
@@ -93,6 +94,8 @@ module.exports = (db) => {
                             status: 'CHECK-IN',
                             guest_list_id: g.guest_list_id
                         });
+                        const room = await getRooftopFlowRoomFromGuestList(db, g.guest_list_id);
+                        if (room) emitRooftopQueueRefresh(io, room.establishment_id, room.flow_date);
                     }
                     return res.status(200).json({
                         message: 'Check-in realizado com sucesso!',

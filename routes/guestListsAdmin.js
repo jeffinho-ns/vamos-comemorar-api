@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 module.exports = (pool, checkAndAwardGifts = null) => {
   // Middleware de autenticação opcional - permite acesso com ou sem token
@@ -478,6 +479,12 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       const tipoTexto = entrada_tipo === 'VIP' ? 'VIP (grátis)' : entrada_tipo === 'SECO' ? `SECO (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : entrada_tipo === 'CONSUMA' ? `CONSUMA (R$ ${entrada_valor?.toFixed(2) || '0,00'})` : 'Check-in';
       console.log(`✅ Check-in do convidado confirmado: ${guest.name} (ID: ${id}) - ${tipoTexto}`);
 
+      const io = req.app && req.app.get('socketio');
+      if (io && guest.guest_list_id) {
+        const room = await getRooftopFlowRoomFromGuestList(pool, guest.guest_list_id);
+        if (room) emitRooftopQueueRefresh(io, room.establishment_id, room.flow_date);
+      }
+
       // Verificar e liberar brindes após o check-in
       let giftsAwarded = [];
       if (checkAndAwardGifts && guest.guest_list_id) {
@@ -921,6 +928,12 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       );
 
       console.log(`✅ Check-in do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
+
+      const io = req.app && req.app.get('socketio');
+      if (io) {
+        const room = await getRooftopFlowRoomFromGuestList(pool, id);
+        if (room) emitRooftopQueueRefresh(io, room.establishment_id, room.flow_date);
+      }
 
       res.json({
         success: true,

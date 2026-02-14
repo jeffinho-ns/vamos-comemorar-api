@@ -5,6 +5,7 @@ const router = express.Router();
 const NotificationService = require('../services/notificationService');
 const authenticateToken = require('../middleware/auth');
 const { logAction } = require('../middleware/actionLogger');
+const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 module.exports = (pool) => {
   /**
@@ -1556,6 +1557,12 @@ module.exports = (pool) => {
 
       console.log(`✅ Check-in do dono confirmado: ${owner_name} (Guest List #${guestListId})`);
 
+      const io = req.app.get('socketio');
+      if (io) {
+        const room = await getRooftopFlowRoomFromGuestList(pool, guestListId);
+        if (room) emitRooftopQueueRefresh(io, room.establishment_id, room.flow_date);
+      }
+
       res.json({
         success: true,
         message: 'Check-in do dono da lista confirmado com sucesso'
@@ -1634,6 +1641,14 @@ module.exports = (pool) => {
       );
 
       console.log(`✅ Check-in da reserva confirmado: ${reservation.client_name} (ID: ${reservationId})`);
+
+      const io = req.app.get('socketio');
+      if (io && reservation.establishment_id != null && reservation.reservation_date) {
+        const flowDate = String(reservation.reservation_date).split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(flowDate)) {
+          emitRooftopQueueRefresh(io, Number(reservation.establishment_id), flowDate);
+        }
+      }
 
       res.json({
         success: true,
