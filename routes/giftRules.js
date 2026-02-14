@@ -497,12 +497,14 @@ module.exports = (pool) => {
       `, [promoterId, eventoId]);
 
       // 2. Contar check-ins do promoter neste evento
+      // Inclui listas com evento_id direto E listas com evento_id NULL vinculadas ao evento via promoter_eventos
       const checkinsResult = await pool.query(`
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
         FROM listas_convidados lc
         INNER JOIN listas l ON lc.lista_id = l.lista_id
+        LEFT JOIN promoter_eventos pe ON pe.promoter_id = l.promoter_responsavel_id AND pe.evento_id = $2
         WHERE l.promoter_responsavel_id = $1
-        AND l.evento_id = $2
+        AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
         AND lc.status_checkin = 'Check-in'
       `, [promoterId, eventoId]);
       

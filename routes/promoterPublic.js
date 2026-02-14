@@ -733,6 +733,68 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   GET /api/promoter/:codigo/checkins
+   * @desc    Retorna contagem de check-ins reais do promoter por evento (apenas convidados da lista do promoter)
+   * @access  Public
+   */
+  router.get('/:codigo/checkins', async (req, res) => {
+    try {
+      const { codigo } = req.params;
+      let promotersResult;
+      try {
+        promotersResult = await pool.query(
+          `SELECT promoter_id FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
+           LIMIT 1`,
+          [codigo]
+        );
+      } catch (queryError) {
+        promotersResult = await pool.query(
+          `SELECT promoter_id FROM meu_backup_db.promoters 
+           WHERE codigo_identificador = $1 AND ativo = TRUE
+           LIMIT 1`,
+          [codigo]
+        );
+        if (promotersResult.rows.length > 0 && promotersResult.rows[0].status !== 'Ativo') {
+          promotersResult.rows = [];
+        }
+      }
+      if (promotersResult.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Promoter não encontrado' });
+      }
+      const promoterId = promotersResult.rows[0].promoter_id;
+
+      // Buscar eventos ativos do promoter (promoter_eventos)
+      const eventosResult = await pool.query(`
+        SELECT pe.evento_id, e.nome_do_evento, e.data_do_evento as data_evento
+        FROM meu_backup_db.promoter_eventos pe
+        LEFT JOIN meu_backup_db.eventos e ON e.id = pe.evento_id
+        WHERE pe.promoter_id = $1
+        ORDER BY e.data_do_evento ASC NULLS LAST
+      `, [promoterId]);
+
+      const checkinsPorEvento = {};
+      for (const ev of eventosResult.rows || []) {
+        const eventoId = ev.evento_id;
+        const checkinsRes = await pool.query(`
+          SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
+          FROM meu_backup_db.listas_convidados lc
+          INNER JOIN meu_backup_db.listas l ON lc.lista_id = l.lista_id
+          LEFT JOIN meu_backup_db.promoter_eventos pe ON pe.promoter_id = l.promoter_responsavel_id AND pe.evento_id = $2
+          WHERE l.promoter_responsavel_id = $1
+          AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
+          AND lc.status_checkin = 'Check-in'
+        `, [promoterId, eventoId]);
+        checkinsPorEvento[eventoId] = parseInt(checkinsRes.rows[0]?.total_checkins || 0);
+      }
+      res.json({ success: true, checkins_por_evento: checkinsPorEvento });
+    } catch (error) {
+      console.error('Erro ao buscar check-ins do promoter:', error);
+      res.status(500).json({ success: false, error: 'Erro ao buscar check-ins' });
+    }
+  });
+
+  /**
    * @route   GET /api/promoter/:codigo/convidados
    * @desc    Retorna lista de convidados do promoter (pública)
    * @access  Public
