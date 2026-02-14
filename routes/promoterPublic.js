@@ -776,6 +776,8 @@ module.exports = (pool) => {
       const checkinsPorEvento = {};
       for (const ev of eventosResult.rows || []) {
         const eventoId = ev.evento_id;
+        const dataEvento = ev.data_evento;
+        // Só conta check-ins do dia específico do evento: data_checkin deve ser na data do evento
         const checkinsRes = await pool.query(`
           SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
           FROM meu_backup_db.listas_convidados lc
@@ -784,7 +786,9 @@ module.exports = (pool) => {
           WHERE l.promoter_responsavel_id = $1
           AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
           AND lc.status_checkin = 'Check-in'
-        `, [promoterId, eventoId]);
+          AND lc.data_checkin IS NOT NULL
+          AND ($3::DATE IS NULL OR lc.data_checkin::DATE = $3::DATE)
+        `, [promoterId, eventoId, dataEvento]);
         checkinsPorEvento[eventoId] = parseInt(checkinsRes.rows[0]?.total_checkins || 0);
       }
       res.json({ success: true, checkins_por_evento: checkinsPorEvento });

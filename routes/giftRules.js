@@ -105,20 +105,25 @@ const createCheckAndAwardGifts = (pool) => {
 const createCheckAndAwardPromoterGifts = (pool) => {
   return async (promoterId, eventoId) => {
     try {
-      // 1. Buscar informações do promoter e evento
+      // 1. Buscar informações do promoter e evento (check-ins apenas do dia específico do evento)
       const promoterResult = await pool.query(`
         SELECT 
           p.promoter_id,
           pe.evento_id,
           e.id_place as establishment_id,
-          COUNT(DISTINCT lc.lista_convidado_id) FILTER (WHERE lc.status_checkin = 'Check-in') as checkins_count
+          e.data_do_evento,
+          COUNT(DISTINCT lc.lista_convidado_id) FILTER (
+            WHERE lc.status_checkin = 'Check-in' 
+            AND lc.data_checkin IS NOT NULL 
+            AND (e.data_do_evento IS NULL OR lc.data_checkin::DATE = e.data_do_evento::DATE)
+          ) as checkins_count
         FROM promoters p
         INNER JOIN promoter_eventos pe ON p.promoter_id = pe.promoter_id
         INNER JOIN eventos e ON pe.evento_id = e.id
         LEFT JOIN listas l ON l.promoter_responsavel_id = p.promoter_id AND l.evento_id = pe.evento_id
         LEFT JOIN listas_convidados lc ON l.lista_id = lc.lista_id
         WHERE p.promoter_id = $1 AND pe.evento_id = $2
-        GROUP BY p.promoter_id, pe.evento_id, e.id_place
+        GROUP BY p.promoter_id, pe.evento_id, e.id_place, e.data_do_evento
       `, [promoterId, eventoId]);
 
       if (promoterResult.rows.length === 0) {
@@ -496,8 +501,14 @@ module.exports = (pool) => {
         ORDER BY pg.liberado_em DESC
       `, [promoterId, eventoId]);
 
-      // 2. Contar check-ins do promoter neste evento
-      // Inclui listas com evento_id direto E listas com evento_id NULL vinculadas ao evento via promoter_eventos
+      // 2. Buscar data do evento
+      const eventoDataResult = await pool.query(
+        `SELECT data_do_evento FROM eventos WHERE id = $1`,
+        [eventoId]
+      );
+      const dataEvento = eventoDataResult.rows[0]?.data_do_evento || null;
+
+      // 3. Contar check-ins do promoter neste evento - apenas do dia específico do evento
       const checkinsResult = await pool.query(`
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
         FROM listas_convidados lc
@@ -506,7 +517,9 @@ module.exports = (pool) => {
         WHERE l.promoter_responsavel_id = $1
         AND (l.evento_id = $2 OR (l.evento_id IS NULL AND pe.evento_id = $2))
         AND lc.status_checkin = 'Check-in'
-      `, [promoterId, eventoId]);
+        AND lc.data_checkin IS NOT NULL
+        AND ($3::DATE IS NULL OR lc.data_checkin::DATE = $3::DATE)
+      `, [promoterId, eventoId, dataEvento]);
       
       const checkinsCount = parseInt(checkinsResult.rows[0]?.total_checkins || 0);
       
