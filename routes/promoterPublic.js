@@ -769,7 +769,7 @@ module.exports = (pool) => {
         SELECT pe.evento_id, TO_CHAR(pe.data_evento, 'YYYY-MM-DD') as data_evento, e.nome_do_evento, e.tipo_evento
         FROM meu_backup_db.promoter_eventos pe
         INNER JOIN meu_backup_db.eventos e ON e.id = pe.evento_id
-        WHERE pe.promoter_id = $1 AND LOWER(pe.status::TEXT) = 'ativo'
+        WHERE pe.promoter_id = $1 AND COALESCE(LOWER(TRIM(pe.status::TEXT)), 'ativo') = 'ativo'
         ORDER BY pe.data_evento ASC NULLS LAST
       `, [promoterId]);
 
