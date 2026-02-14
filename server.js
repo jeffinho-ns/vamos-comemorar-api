@@ -99,6 +99,7 @@ const operationalDetailsRoutes = require('./routes/operationalDetails');
 const checkinsSelfValidateRoutes = require('./routes/checkinsSelfValidate');
 const executiveEventsRoutes = require('./routes/executiveEvents');
 const establishmentPermissionsRoutes = require('./routes/establishmentPermissions');
+const rooftopConductionRoutes = require('./routes/rooftopConduction');
 
 
 // Usando as Rotas
@@ -158,6 +159,8 @@ app.use('/api/operational-details', operationalDetailsRoutes(pool));
 app.use('/api/executive-events', executiveEventsRoutes(pool));
 // Rotas de Permissões por Estabelecimento
 app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
+// Condução Fluxo Rooftop (GET/POST /api/rooftop/conduction)
+app.use('/api/rooftop', rooftopConductionRoutes(pool));
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
