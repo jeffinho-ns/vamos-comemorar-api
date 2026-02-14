@@ -764,20 +764,22 @@ module.exports = (pool) => {
       }
       const promoterId = promotersResult.rows[0].promoter_id;
 
-      // Buscar eventos ativos do promoter (promoter_eventos)
+      // Buscar eventos reais do promoter (promoter_eventos) - apenas eventos atrelados
       const eventosResult = await pool.query(`
-        SELECT pe.evento_id, e.nome_do_evento, e.data_do_evento as data_evento
+        SELECT pe.evento_id, TO_CHAR(pe.data_evento, 'YYYY-MM-DD') as data_evento, e.nome_do_evento, e.tipo_evento
         FROM meu_backup_db.promoter_eventos pe
-        LEFT JOIN meu_backup_db.eventos e ON e.id = pe.evento_id
-        WHERE pe.promoter_id = $1
-        ORDER BY e.data_do_evento ASC NULLS LAST
+        INNER JOIN meu_backup_db.eventos e ON e.id = pe.evento_id
+        WHERE pe.promoter_id = $1 AND LOWER(pe.status::TEXT) = 'ativo'
+        ORDER BY pe.data_evento ASC NULLS LAST
       `, [promoterId]);
 
       const checkinsPorEvento = {};
+      const eventosComCheckins = [];
       for (const ev of eventosResult.rows || []) {
         const eventoId = ev.evento_id;
         const dataEvento = ev.data_evento;
-        // Só conta check-ins do dia específico do evento: data_checkin deve ser na data do evento
+        const dataEventoStr = dataEvento ? (typeof dataEvento === 'string' ? dataEvento : new Date(dataEvento).toISOString().split('T')[0]) : null;
+        // Usar pe.data_evento para filtrar check-ins do dia específico
         const checkinsRes = await pool.query(`
           SELECT COUNT(DISTINCT lc.lista_convidado_id) as total_checkins
           FROM meu_backup_db.listas_convidados lc
@@ -788,10 +790,18 @@ module.exports = (pool) => {
           AND lc.status_checkin = 'Check-in'
           AND lc.data_checkin IS NOT NULL
           AND ($3::DATE IS NULL OR lc.data_checkin::DATE = $3::DATE)
-        `, [promoterId, eventoId, dataEvento]);
-        checkinsPorEvento[eventoId] = parseInt(checkinsRes.rows[0]?.total_checkins || 0);
+        `, [promoterId, eventoId, dataEventoStr]);
+        const totalCheckins = parseInt(checkinsRes.rows[0]?.total_checkins || 0);
+        const chave = `${eventoId}|${dataEventoStr || ''}`;
+        checkinsPorEvento[chave] = totalCheckins;
+        eventosComCheckins.push({
+          evento_id: eventoId,
+          data_evento: dataEventoStr,
+          nome_do_evento: ev.nome_do_evento,
+          checkins: totalCheckins
+        });
       }
-      res.json({ success: true, checkins_por_evento: checkinsPorEvento });
+      res.json({ success: true, checkins_por_evento: checkinsPorEvento, eventos: eventosComCheckins });
     } catch (error) {
       console.error('Erro ao buscar check-ins do promoter:', error);
       res.status(500).json({ success: false, error: 'Erro ao buscar check-ins' });
