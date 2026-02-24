@@ -9,6 +9,28 @@ const authenticateToken = require('../middleware/auth');
 const router = express.Router();
 const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
 
+// Mapeamento: frontend/envio usa minúsculas; o enum users_role no PostgreSQL usa PascalCase
+const ROLE_TO_ENUM = {
+    admin: 'Admin',
+    gerente: 'Gerente',
+    atendente: 'Atendente',
+    usuario: 'Usuario',
+    cliente: 'Cliente',
+    promoter: 'Promoter',
+};
+const ENUM_TO_ROLE = {};
+Object.keys(ROLE_TO_ENUM).forEach((k) => { ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k; });
+
+function roleToEnum(role) {
+    if (!role) return 'Cliente';
+    const r = String(role).toLowerCase();
+    return ROLE_TO_ENUM[r] || 'Cliente';
+}
+function roleFromEnum(enumValue) {
+    if (!enumValue) return 'cliente';
+    return ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
+}
+
 // Função auxiliar para adicionar a URL completa das imagens ao objeto do usuário
 const addFullImageUrlsToUser = (user) => {
     if (!user) return user;
@@ -57,17 +79,18 @@ module.exports = (pool, upload) => {
 
         // CPF é NOT NULL no banco; se não for informado, usa placeholder único (11 dígitos)
         const cpfValue = (cpf && String(cpf).trim()) ? String(cpf).trim() : ('9' + String(Date.now()).padStart(10, '0').slice(-10));
+        const roleEnum = roleToEnum(role);
 
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
             const result = await pool.query(
                 `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, role]
+                [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, roleEnum]
             );
             const row = result.rows[0];
             const userId = row.id;
             const token = jwt.sign(
-                { id: userId, email: email.trim().toLowerCase(), role: row.role },
+                { id: userId, email: email.trim().toLowerCase(), role: roleFromEnum(row.role) },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '7d' }
             );
@@ -80,7 +103,7 @@ module.exports = (pool, upload) => {
                 cpf: cpf && String(cpf).trim() ? String(cpf).trim() : null,
                 profileImageUrl: profileImageUrl || null,
                 telefone: telefone || null,
-                role: row.role
+                role: roleFromEnum(row.role)
             });
         } catch (error) {
             console.error('Erro ao cadastrar usuário:', error);
@@ -185,13 +208,17 @@ module.exports = (pool, upload) => {
             const roleFilter = type || role;
             if (roleFilter && String(roleFilter).trim()) {
                 query += ` AND role = $${paramIndex++}`;
-                params.push(String(roleFilter).trim().toLowerCase());
+                params.push(roleToEnum(String(roleFilter).trim()));
             }
 
             query += ` ORDER BY name ASC`;
             const result = await pool.query(query, params);
 
-            const usersWithUrls = result.rows.map(addFullImageUrlsToUser);
+            const usersWithUrls = result.rows.map((u) => {
+                const withUrl = addFullImageUrlsToUser(u);
+                if (withUrl && withUrl.role) withUrl.role = roleFromEnum(withUrl.role);
+                return withUrl;
+            });
             res.json(usersWithUrls);
         } catch (err) {
             console.error('Erro ao listar usuários:', err);
@@ -213,7 +240,7 @@ module.exports = (pool, upload) => {
 
             // Usamos a função auxiliar para adicionar a URL da imagem
             const userWithUrl = addFullImageUrlsToUser(user);
-            
+            if (userWithUrl.role) userWithUrl.role = roleFromEnum(userWithUrl.role);
             // Remove a senha antes de enviar a resposta
             delete userWithUrl.password; 
 
@@ -267,16 +294,17 @@ module.exports = (pool, upload) => {
                 return res.status(401).json({ error: 'Credenciais inválidas' });
             }
 
-            // Geração do token com role incluído
+            const roleNormalized = roleFromEnum(user.role);
+            // Geração do token com role incluído (minúsculo para consistência)
             const token = jwt.sign(
-                { id: user.id, email: user.email, role: user.role },
+                { id: user.id, email: user.email, role: roleNormalized },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '7d' }
             );
 
             // Se o usuário for promoter, buscar o código identificador
             let promoterCodigo = null;
-            if (user.role === 'promoter') {
+            if (roleNormalized === 'promoter') {
                 try {
                     const promoterResult = await pool.query(
                         'SELECT codigo_identificador FROM promoters WHERE email = $1 AND ativo = TRUE AND status = $2',
@@ -295,7 +323,7 @@ module.exports = (pool, upload) => {
             const responseData = {
                 token,
                 userId: user.id,
-                role: user.role,
+                role: roleNormalized,
                 nome: user.name
             };
 
@@ -366,7 +394,7 @@ module.exports = (pool, upload) => {
             }
             if (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter'].includes(String(bodyRole).toLowerCase())) {
                 updates.push(`role = $${paramIndex++}`);
-                params.push(String(bodyRole).toLowerCase());
+                params.push(roleToEnum(bodyRole));
             }
 
             if (updates.length === 0) {
