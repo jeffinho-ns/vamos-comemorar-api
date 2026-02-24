@@ -136,6 +136,7 @@ module.exports = (pool) => {
         const waitlistCountResult = await pool.query(
           `SELECT COUNT(*) as count FROM waitlist
            WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2
+             AND COALESCE(has_bistro_table, FALSE) = FALSE
              AND preferred_time IS NOT NULL
              AND (TRIM(preferred_time::text) = $3 OR TRIM(preferred_time::text) = $4 OR LEFT(TRIM(preferred_time::text), 5) = $5)`,
           [establishment_id, date, timeHhMm, timeHhMmSs, timeHhMm]
