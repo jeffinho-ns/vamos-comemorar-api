@@ -55,11 +55,14 @@ module.exports = (pool, upload) => {
             return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
         }
 
+        // CPF é NOT NULL no banco; se não for informado, usa placeholder único (11 dígitos)
+        const cpfValue = (cpf && String(cpf).trim()) ? String(cpf).trim() : ('9' + String(Date.now()).padStart(10, '0').slice(-10));
+
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
             const result = await pool.query(
                 `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                [name.trim(), email.trim().toLowerCase(), cpf || null, hashedPassword, profileImageUrl || null, telefone || null, role]
+                [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, role]
             );
             const row = result.rows[0];
             const userId = row.id;
@@ -74,7 +77,7 @@ module.exports = (pool, upload) => {
                 id: userId,
                 name: name.trim(),
                 email: email.trim().toLowerCase(),
-                cpf: cpf || null,
+                cpf: cpf && String(cpf).trim() ? String(cpf).trim() : null,
                 profileImageUrl: profileImageUrl || null,
                 telefone: telefone || null,
                 role: row.role
