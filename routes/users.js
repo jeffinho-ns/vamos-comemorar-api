@@ -10,6 +10,7 @@ const router = express.Router();
 const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
 
 // Mapeamento: frontend/envio usa minúsculas; o enum users_role no PostgreSQL usa PascalCase
+// Nota: "recepcao" (Recepcionista) é salvo como Atendente no banco se o enum não tiver 'Recepção'
 const ROLE_TO_ENUM = {
     admin: 'Admin',
     gerente: 'Gerente',
@@ -17,11 +18,12 @@ const ROLE_TO_ENUM = {
     usuario: 'Usuario',
     cliente: 'Cliente',
     promoter: 'Promoter',
-    recepcao: 'Recepção',
-    recepção: 'Recepção',
+    recepcao: 'Atendente',
+    recepção: 'Atendente',
 };
 const ENUM_TO_ROLE = {};
 Object.keys(ROLE_TO_ENUM).forEach((k) => { ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k; });
+ENUM_TO_ROLE['Atendente'] = 'atendente';
 if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE['Recepção'] = 'recepcao';
 
 function roleToEnum(role) {
