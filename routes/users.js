@@ -313,7 +313,11 @@ module.exports = (pool, upload) => {
 
     // Atualizar dados de um usuário específico (PUT) - Geralmente para admin
     router.put('/:id', authenticateToken, async (req, res) => {
-        const userId = req.params.id; 
+        const userIdParam = req.params.id;
+        const userId = parseInt(userIdParam, 10);
+        if (isNaN(userId) || userId <= 0) {
+            return res.status(400).json({ error: 'ID do usuário inválido' });
+        }
         const { 
             name, email, telefone, sexo, data_nascimento, cpf, 
             endereco, numero, bairro, cidade, estado, complemento, 
@@ -324,7 +328,7 @@ module.exports = (pool, upload) => {
 
         try {
             // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários
-            if (req.user.role !== 'admin' && req.user.id.toString() !== userId) { 
+            if (req.user.role !== 'admin' && req.user.id.toString() !== userIdParam) { 
                 return res.status(403).json({ message: 'Acesso negado. Você só pode atualizar seu próprio perfil.' });
             }
 
@@ -334,7 +338,7 @@ module.exports = (pool, upload) => {
 
             if (name) { updates.push(`name = $${paramIndex++}`); params.push(String(name).trim()); }
             if (email) { updates.push(`email = $${paramIndex++}`); params.push(String(email).trim().toLowerCase()); }
-            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(telefone); }
+            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(String(telefone).trim()); }
             if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
             if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
             if (cpf) { updates.push(`cpf = $${paramIndex++}`); params.push(cpf); }
