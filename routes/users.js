@@ -34,27 +34,25 @@ const addFullImageUrlsToUser = (user) => {
 
 module.exports = (pool, upload) => { 
 
-    // Cadastro de usuário
+    // Cadastro de usuário (admin pode enviar role: usuario, admin, gerente, atendente; cliente é padrão)
     router.post('/', async (req, res) => {
-        const { name, email, cpf, password, profileImageUrl, telefone } = req.body;
-    
+        const { name, email, cpf, password, profileImageUrl, telefone, role: bodyRole } = req.body;
+        const role = (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente'].includes(String(bodyRole).toLowerCase()))
+            ? String(bodyRole).toLowerCase()
+            : 'cliente';
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
-    
             const result = await pool.query(
-                'INSERT INTO users (name, email, cpf, password, foto_perfil, telefone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-                [name, email, cpf, hashedPassword, profileImageUrl, telefone]
+                `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
+                [name, email, cpf || null, hashedPassword, profileImageUrl || null, telefone || null, role]
             );
-    
-            const userId = result.rows[0].id;
-            console.log('JWT_SECRET:', process.env.JWT_SECRET);
-            // Gera o token JWT
+            const row = result.rows[0];
+            const userId = row.id;
             const token = jwt.sign(
-                { id: userId, email, role: 'cliente' }, // Adicionado role padrão
+                { id: userId, email, role: row.role },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '7d' }
             );
-    
             res.status(201).json({
                 token,
                 userId,
@@ -62,7 +60,8 @@ module.exports = (pool, upload) => {
                 email,
                 cpf,
                 profileImageUrl,
-                telefone
+                telefone,
+                role: row.role
             });
         } catch (error) {
             console.error('Erro ao cadastrar usuário:', error);
@@ -138,14 +137,33 @@ module.exports = (pool, upload) => {
     });
 
 
-    // Listar usuários
+    // Listar usuários (com filtros opcionais: search, type/role)
     router.get('/', async (req, res) => {
         try {
-            const result = await pool.query('SELECT id, name, email, foto_perfil, role FROM users');
-            
-            // Mapeia os resultados para adicionar a URL completa da imagem
+            const { search, type, role } = req.query;
+            let query = `
+                SELECT id, name, email, foto_perfil, role, telefone
+                FROM users
+                WHERE 1=1
+            `;
+            const params = [];
+            let paramIndex = 1;
+
+            if (search && String(search).trim()) {
+                const term = `%${String(search).trim()}%`;
+                query += ` AND (name ILIKE $${paramIndex++} OR email ILIKE $${paramIndex++})`;
+                params.push(term, term);
+            }
+            const roleFilter = type || role;
+            if (roleFilter && String(roleFilter).trim()) {
+                query += ` AND role = $${paramIndex++}`;
+                params.push(String(roleFilter).trim().toLowerCase());
+            }
+
+            query += ` ORDER BY name ASC`;
+            const result = await pool.query(query, params);
+
             const usersWithUrls = result.rows.map(addFullImageUrlsToUser);
-            
             res.json(usersWithUrls);
         } catch (err) {
             console.error('Erro ao listar usuários:', err);
@@ -271,7 +289,7 @@ module.exports = (pool, upload) => {
         const { 
             name, email, telefone, sexo, data_nascimento, cpf, 
             endereco, numero, bairro, cidade, estado, complemento, 
-            password, foto_perfil
+            password, foto_perfil, role: bodyRole
         } = req.body;
 
         console.log("PUT /:id - Dados recebidos:", req.body);
@@ -310,6 +328,10 @@ module.exports = (pool, upload) => {
                 const hashedPassword = await bcrypt.hash(password, 10);
                 updates.push(`password = $${paramIndex++}`);
                 params.push(hashedPassword);
+            }
+            if (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter'].includes(String(bodyRole).toLowerCase())) {
+                updates.push(`role = $${paramIndex++}`);
+                params.push(String(bodyRole).toLowerCase());
             }
 
             if (updates.length === 0) {
