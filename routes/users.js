@@ -17,9 +17,12 @@ const ROLE_TO_ENUM = {
     usuario: 'Usuario',
     cliente: 'Cliente',
     promoter: 'Promoter',
+    recepcao: 'Recepção',
+    recepção: 'Recepção',
 };
 const ENUM_TO_ROLE = {};
 Object.keys(ROLE_TO_ENUM).forEach((k) => { ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k; });
+if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE['Recepção'] = 'recepcao';
 
 function roleToEnum(role) {
     if (!role) return 'Cliente';
@@ -56,12 +59,11 @@ const addFullImageUrlsToUser = (user) => {
 
 module.exports = (pool, upload) => { 
 
-    // Cadastro de usuário (admin pode enviar role: usuario, admin, gerente, atendente; cliente é padrão)
+    // Cadastro de usuário (admin pode enviar role: usuario, admin, gerente, atendente, recepcao; cliente é padrão)
     router.post('/', async (req, res) => {
         const { name, email, cpf, password, profileImageUrl, telefone, role: bodyRole } = req.body;
-        const role = (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente'].includes(String(bodyRole).toLowerCase()))
-            ? String(bodyRole).toLowerCase()
-            : 'cliente';
+        const r = bodyRole ? String(bodyRole).toLowerCase().replace('ç', 'c') : '';
+        const role = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'recepcao'].includes(r) ? r : 'cliente';
 
         // Validação de campos obrigatórios
         if (!name || typeof name !== 'string' || !name.trim()) {
@@ -392,9 +394,12 @@ module.exports = (pool, upload) => {
                 updates.push(`password = $${paramIndex++}`);
                 params.push(hashedPassword);
             }
-            if (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter'].includes(String(bodyRole).toLowerCase())) {
-                updates.push(`role = $${paramIndex++}`);
-                params.push(roleToEnum(bodyRole));
+                        if (bodyRole) {
+                const r = String(bodyRole).toLowerCase().replace('ç', 'c');
+                if (['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter', 'recepcao'].includes(r)) {
+                    updates.push(`role = $${paramIndex++}`);
+                    params.push(roleToEnum(r));
+                }
             }
 
             if (updates.length === 0) {
