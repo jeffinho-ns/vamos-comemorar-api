@@ -40,32 +40,57 @@ module.exports = (pool, upload) => {
         const role = (bodyRole && ['admin', 'gerente', 'atendente', 'usuario', 'cliente'].includes(String(bodyRole).toLowerCase()))
             ? String(bodyRole).toLowerCase()
             : 'cliente';
+
+        // Validação de campos obrigatórios
+        if (!name || typeof name !== 'string' || !name.trim()) {
+            return res.status(400).json({ error: 'Nome é obrigatório' });
+        }
+        if (!email || typeof email !== 'string' || !email.trim()) {
+            return res.status(400).json({ error: 'E-mail é obrigatório' });
+        }
+        if (!password || typeof password !== 'string') {
+            return res.status(400).json({ error: 'Senha é obrigatória' });
+        }
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+        }
+
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
             const result = await pool.query(
                 `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                [name, email, cpf || null, hashedPassword, profileImageUrl || null, telefone || null, role]
+                [name.trim(), email.trim().toLowerCase(), cpf || null, hashedPassword, profileImageUrl || null, telefone || null, role]
             );
             const row = result.rows[0];
             const userId = row.id;
             const token = jwt.sign(
-                { id: userId, email, role: row.role },
+                { id: userId, email: email.trim().toLowerCase(), role: row.role },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '7d' }
             );
             res.status(201).json({
                 token,
                 userId,
-                name,
-                email,
-                cpf,
-                profileImageUrl,
-                telefone,
+                id: userId,
+                name: name.trim(),
+                email: email.trim().toLowerCase(),
+                cpf: cpf || null,
+                profileImageUrl: profileImageUrl || null,
+                telefone: telefone || null,
                 role: row.role
             });
         } catch (error) {
             console.error('Erro ao cadastrar usuário:', error);
-            res.status(500).json({ error: 'Erro ao cadastrar usuário' });
+            // Violação de unique (ex.: e-mail já cadastrado)
+            if (error.code === '23505') {
+                const isEmail = error.constraint && (error.constraint.includes('email') || error.detail && error.detail.includes('email'));
+                return res.status(409).json({
+                    error: isEmail ? 'E-mail já cadastrado. Use outro e-mail.' : 'Dados duplicados. Verifique os campos.'
+                });
+            }
+            // Outros erros de constraint ou banco
+            const message = error.message || 'Erro ao cadastrar usuário';
+            res.status(500).json({ error: message });
         }
     });
 
