@@ -85,12 +85,42 @@ module.exports = (pool, upload) => {
         const cpfValue = (cpf && String(cpf).trim()) ? String(cpf).trim() : ('9' + String(Date.now()).padStart(10, '0').slice(-10));
         const roleEnum = roleToEnum(role);
 
+        let result;
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
-            const result = await pool.query(
+            result = await pool.query(
                 `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
                 [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, roleEnum]
             );
+        } catch (error) {
+            // Se o enum rejeitar (ex.: banco com enum em minúsculas), tenta com role em minúsculas
+            const isEnumError = error.message && String(error.message).includes('invalid input value for enum') && String(error.message).includes('role');
+            if (isEnumError && role !== roleEnum) {
+                try {
+                    const hashedPassword = await bcrypt.hash(password, 10);
+                    result = await pool.query(
+                        `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
+                        [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, role]
+                    );
+                } catch (retryErr) {
+                    console.error('Erro ao cadastrar usuário (retry):', retryErr);
+                    const msg = retryErr.message || 'Erro ao cadastrar usuário';
+                    return res.status(500).json({ error: msg });
+                }
+            } else {
+                console.error('Erro ao cadastrar usuário:', error);
+                if (error.code === '23505') {
+                    const isEmail = error.constraint && (error.constraint.includes('email') || error.detail && error.detail.includes('email'));
+                    return res.status(409).json({
+                        error: isEmail ? 'E-mail já cadastrado. Use outro e-mail.' : 'Dados duplicados. Verifique os campos.'
+                    });
+                }
+                const message = error.message || 'Erro ao cadastrar usuário';
+                return res.status(500).json({ error: message });
+            }
+        }
+
+        try {
             const row = result.rows[0];
             const userId = row.id;
             const token = jwt.sign(
@@ -110,17 +140,8 @@ module.exports = (pool, upload) => {
                 role: roleFromEnum(row.role)
             });
         } catch (error) {
-            console.error('Erro ao cadastrar usuário:', error);
-            // Violação de unique (ex.: e-mail já cadastrado)
-            if (error.code === '23505') {
-                const isEmail = error.constraint && (error.constraint.includes('email') || error.detail && error.detail.includes('email'));
-                return res.status(409).json({
-                    error: isEmail ? 'E-mail já cadastrado. Use outro e-mail.' : 'Dados duplicados. Verifique os campos.'
-                });
-            }
-            // Outros erros de constraint ou banco
-            const message = error.message || 'Erro ao cadastrar usuário';
-            res.status(500).json({ error: message });
+            console.error('Erro ao responder criação:', error);
+            return res.status(500).json({ error: error.message || 'Erro ao criar usuário' });
         }
     });
 
