@@ -90,23 +90,40 @@ module.exports = (pool) => {
         });
       }
 
-      // Calcular capacidade total do estabelecimento
-      const areasResult = await pool.query(
-        'SELECT SUM(capacity_dinner) as total_capacity FROM restaurant_areas'
-      );
-      const totalCapacity = parseInt(areasResult.rows[0].total_capacity) || 0;
+      // Filtrar áreas pelo estabelecimento (mesma lógica de GET /api/restaurant-areas:
+      // id 9 = Reserva Rooftop; demais = excluir áreas "Reserva Rooftop - ...")
+      const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+      const areaWhere =
+        establishmentIdNum === 9
+          ? "ra.name ILIKE 'Reserva Rooftop - %'"
+          : "ra.name NOT ILIKE 'Reserva Rooftop - %'";
 
-      // Contar pessoas das reservas ativas para a data
+      const areasResult = await pool.query(
+        `SELECT
+           COALESCE(SUM(ra.capacity_dinner), 0)::int as total_dinner,
+           COALESCE(SUM(ra.capacity_lunch), 0)::int as total_lunch
+         FROM restaurant_areas ra
+         WHERE ra.is_active = TRUE AND ${areaWhere}`
+      );
+      let totalCapacity = Math.max(0, parseInt(areasResult.rows[0]?.total_dinner, 10) || 0);
+      if (totalCapacity === 0) {
+        totalCapacity = Math.max(0, parseInt(areasResult.rows[0]?.total_lunch, 10) || 0);
+      }
+      if (totalCapacity === 0) {
+        totalCapacity = 99999;
+      }
+
+      // Contar pessoas das reservas ativas para a data (valores numéricos seguros)
       const activeReservationsResult = await pool.query(`
-        SELECT SUM(number_of_people) as total_people
+        SELECT COALESCE(SUM(number_of_people), 0)::int as total_people
         FROM restaurant_reservations
         WHERE reservation_date = $1
         AND establishment_id = $2
-        AND status IN ('confirmed', 'checked-in')
+        AND status IN ('confirmed', 'checked-in', 'seated')
       `, [date, establishment_id]);
 
-      const currentPeople = parseInt(activeReservationsResult.rows[0].total_people) || 0;
-      const newPeople = parseInt(new_reservation_people) || 0;
+      const currentPeople = Math.max(0, parseInt(activeReservationsResult.rows[0]?.total_people, 10) || 0);
+      const newPeople = Math.max(0, parseInt(new_reservation_people, 10) || 0);
       const totalWithNew = currentPeople + newPeople;
 
       // Trava só para o mesmo dia + hora: só considera waitlist quando `time` é informado
@@ -128,6 +145,8 @@ module.exports = (pool) => {
 
       const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
 
+      const availableCapacity = Math.max(0, totalCapacity - currentPeople);
+
       res.json({
         success: true,
         capacity: {
@@ -135,7 +154,7 @@ module.exports = (pool) => {
           currentPeople,
           newPeople,
           totalWithNew,
-          availableCapacity: totalCapacity - currentPeople,
+          availableCapacity,
           hasWaitlist,
           canMakeReservation,
           occupancyPercentage: totalCapacity > 0 ? Math.round((currentPeople / totalCapacity) * 100) : 0
