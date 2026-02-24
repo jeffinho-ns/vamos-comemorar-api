@@ -313,23 +313,26 @@ module.exports = (pool, upload) => {
 
     // Atualizar dados de um usuário específico (PUT) - Geralmente para admin
     router.put('/:id', authenticateToken, async (req, res) => {
-        const userIdParam = req.params.id;
-        const userId = parseInt(userIdParam, 10);
-        if (isNaN(userId) || userId <= 0) {
-            return res.status(400).json({ error: 'ID do usuário inválido' });
-        }
-        const { 
-            name, email, telefone, sexo, data_nascimento, cpf, 
-            endereco, numero, bairro, cidade, estado, complemento, 
-            password, foto_perfil, role: bodyRole
-        } = req.body;
-
-        console.log("PUT /:id - Dados recebidos:", req.body);
-
         try {
+            if (!req.user || !req.user.id) {
+                return res.status(401).json({ error: 'Token inválido ou sessão expirada.' });
+            }
+            const userIdParam = req.params.id;
+            const userId = parseInt(userIdParam, 10);
+            if (isNaN(userId) || userId <= 0) {
+                return res.status(400).json({ error: 'ID do usuário inválido' });
+            }
+            const { 
+                name, email, telefone, sexo, data_nascimento, cpf, 
+                endereco, numero, bairro, cidade, estado, complemento, 
+                password, foto_perfil, role: bodyRole
+            } = req.body;
+
+            console.log("PUT /:id - Dados recebidos:", req.body);
+
             // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários
             if (req.user.role !== 'admin' && req.user.id.toString() !== userIdParam) { 
-                return res.status(403).json({ message: 'Acesso negado. Você só pode atualizar seu próprio perfil.' });
+                return res.status(403).json({ error: 'Acesso negado. Você só pode atualizar seu próprio perfil.' });
             }
 
             const updates = [];
@@ -367,7 +370,7 @@ module.exports = (pool, upload) => {
             }
 
             if (updates.length === 0) {
-                return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
+                return res.status(400).json({ error: 'Nenhum dado a ser atualizado.' });
             }
 
             const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
@@ -378,10 +381,10 @@ module.exports = (pool, upload) => {
             const result = await pool.query(query, params);
 
             if (result.rowCount === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
+                return res.status(404).json({ error: 'Usuário não encontrado.' });
             }
 
-            res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
+            return res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
         } catch (error) {
             console.error('ERRO CRÍTICO ao atualizar dados do usuário (PUT /:id):', error);
             // Tratamento de violação de unique (ex.: e-mail ou CPF já cadastrados)
@@ -404,8 +407,8 @@ module.exports = (pool, upload) => {
                 });
             }
 
-            const message = error.message || 'Erro interno do servidor ao atualizar usuário.';
-            res.status(500).json({ error: message });
+            const message = (error && error.message) ? error.message : 'Erro interno do servidor ao atualizar usuário.';
+            return res.status(500).json({ error: message });
         }
     });
 
