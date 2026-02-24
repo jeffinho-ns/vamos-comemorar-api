@@ -332,8 +332,8 @@ module.exports = (pool, upload) => {
             const params = [];
             let paramIndex = 1;
 
-            if (name) { updates.push(`name = $${paramIndex++}`); params.push(name); }
-            if (email) { updates.push(`email = $${paramIndex++}`); params.push(email); }
+            if (name) { updates.push(`name = $${paramIndex++}`); params.push(String(name).trim()); }
+            if (email) { updates.push(`email = $${paramIndex++}`); params.push(String(email).trim().toLowerCase()); }
             if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(telefone); }
             if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
             if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
@@ -380,7 +380,28 @@ module.exports = (pool, upload) => {
             res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
         } catch (error) {
             console.error('ERRO CRÍTICO ao atualizar dados do usuário (PUT /:id):', error);
-            res.status(500).json({ error: 'Erro interno do servidor ao atualizar usuário.' });
+            // Tratamento de violação de unique (ex.: e-mail ou CPF já cadastrados)
+            if (error.code === '23505') {
+                const constraint = error.constraint || '';
+                const detail = error.detail || '';
+                const isEmail =
+                    constraint.includes('email') ||
+                    detail.includes('email');
+                const isCpf =
+                    constraint.includes('cpf') ||
+                    detail.includes('cpf');
+
+                return res.status(409).json({
+                    error: isEmail
+                        ? 'E-mail já cadastrado. Use outro e-mail.'
+                        : isCpf
+                        ? 'CPF já cadastrado. Verifique os dados.'
+                        : 'Dados duplicados. Verifique e-mail/CPF.'
+                });
+            }
+
+            const message = error.message || 'Erro interno do servidor ao atualizar usuário.';
+            res.status(500).json({ error: message });
         }
     });
 
