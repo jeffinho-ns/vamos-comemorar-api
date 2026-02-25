@@ -805,24 +805,54 @@ module.exports = (pool) => {
         }
     });
 
-    // Listar subcategorias de uma categoria específica
+    // Listar subcategorias de uma categoria específica (com ordem para Edição Rápida e modais)
     router.get('/subcategories/category/:categoryId', async (req, res) => {
         const { categoryId } = req.params;
         try {
+            let hasSubcategoryOrder = false;
+            try {
+                const col = await pool.query(
+                    "SELECT 1 FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'subcategory_order'"
+                );
+                hasSubcategoryOrder = col.rows.length > 0;
+            } catch (e) { /* ignorar */ }
+
+            if (hasSubcategoryOrder) {
+                const result = await pool.query(`
+                    SELECT DISTINCT 
+                        mi.subcategory as name,
+                        mi.categoryid as "categoryId",
+                        mi.barid as "barId",
+                        COUNT(mi.id) as "itemsCount",
+                        MIN(mi.id) as id,
+                        MIN(COALESCE(mi.subcategory_order, mi."order")) as "order"
+                    FROM menu_items mi
+                    WHERE mi.categoryid = $1 
+                      AND mi.subcategory IS NOT NULL 
+                      AND mi.subcategory != ''
+                      AND TRIM(mi.subcategory) != ''
+                    GROUP BY mi.subcategory, mi.categoryid, mi.barid
+                    ORDER BY MIN(COALESCE(mi.subcategory_order, mi."order")), mi.subcategory
+                `, [categoryId]);
+                return res.json(result.rows);
+            }
+
+            // Sem coluna subcategory_order: retornar ordenado por "order" e nome
             const result = await pool.query(`
                 SELECT DISTINCT 
-                    mi.subCategory as name,
-                    mi.categoryId,
-                    mi.barId,
-                    COUNT(mi.id) as itemsCount,
-                    MIN(mi.id) as id
+                    mi.subcategory as name,
+                    mi.categoryid as "categoryId",
+                    mi.barid as "barId",
+                    COUNT(mi.id) as "itemsCount",
+                    MIN(mi.id) as id,
+                    MIN(mi."order") as "order"
                 FROM menu_items mi
-                WHERE mi.categoryId = $1 
-                  AND mi.subCategory IS NOT NULL 
-                  AND mi.subCategory != ''
-                  AND mi.subCategory != ' '
-                GROUP BY mi.subCategory, mi.categoryId, mi.barId
-                ORDER BY mi.subCategory
+                WHERE mi.categoryid = $1 
+                  AND mi.subcategory IS NOT NULL 
+                  AND mi.subcategory != ''
+                  AND TRIM(mi.subcategory) != ''
+                GROUP BY mi.subcategory, mi.categoryid, mi.barid
+                ORDER BY MIN(mi."order"), mi.subcategory
             `, [categoryId]);
             res.json(result.rows);
         } catch (error) {
@@ -1039,7 +1069,7 @@ module.exports = (pool) => {
         }
     });
 
-    // Reordenar subcategorias de uma categoria
+    // Reordenar subcategorias de uma categoria (atualiza apenas subcategory_order; não mexe em "order" dos itens)
     router.put('/subcategories/reorder/:categoryId', async (req, res) => {
         const { categoryId } = req.params;
         const { subcategoryNames } = req.body; // Array de nomes na nova ordem
@@ -1055,25 +1085,46 @@ module.exports = (pool) => {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
 
-            // Atualizar ordem das subcategorias
-            for (let i = 0; i < subcategoryNames.length; i++) {
-                await pool.query(
-                    'UPDATE menu_items SET "order" = $1 WHERE subCategory = $2 AND categoryId = $3',
-                    [i, subcategoryNames[i], categoryId]
+            // Verificar se a coluna subcategory_order existe (compatível antes da migration)
+            let useSubcategoryOrder = false;
+            try {
+                const colResult = await pool.query(
+                    "SELECT 1 FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'subcategory_order'"
                 );
+                useSubcategoryOrder = colResult.rows.length > 0;
+            } catch (e) { /* ignorar */ }
+
+            for (let i = 0; i < subcategoryNames.length; i++) {
+                if (useSubcategoryOrder) {
+                    // Atualizar apenas subcategory_order; "order" do item não é alterado
+                    await pool.query(
+                        'UPDATE menu_items SET subcategory_order = $1 WHERE subcategory = $2 AND categoryid = $3',
+                        [i, subcategoryNames[i], categoryId]
+                    );
+                } else {
+                    // Fallback antes da migration: usar "order" como antes
+                    await pool.query(
+                        'UPDATE menu_items SET "order" = $1 WHERE subcategory = $2 AND categoryid = $3',
+                        [i, subcategoryNames[i], categoryId]
+                    );
+                }
             }
 
             // Buscar subcategorias atualizadas
+            const orderExpr = useSubcategoryOrder
+                ? 'COALESCE(subcategory_order, "order")'
+                : '"order"';
             const updatedResult = await pool.query(`
                 SELECT DISTINCT 
-                    subCategory as name,
-                    categoryId,
-                    barId,
-                    COUNT(*) as itemsCount
+                    subcategory as name,
+                    categoryid as "categoryId",
+                    barid as "barId",
+                    COUNT(*) as "itemsCount",
+                    MIN(${orderExpr}) as "order"
                 FROM menu_items 
-                WHERE categoryId = $1 AND subCategory IS NOT NULL AND subCategory != ''
-                GROUP BY subCategory, categoryId, barId, "order"
-                ORDER BY "order", name
+                WHERE categoryid = $1 AND subcategory IS NOT NULL AND TRIM(subcategory) != ''
+                GROUP BY subcategory, categoryid, barid
+                ORDER BY MIN(${orderExpr}), name
             `, [categoryId]);
 
             res.json({
@@ -1152,13 +1203,15 @@ module.exports = (pool) => {
             let hasSealsField = false;
             let hasVisibleField = false;
             
+            let hasSubcategoryOrderField = false;
             try {
                 const columnsResult = await pool.query(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible')"
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible', 'subcategory_order')"
                 );
                 const columns = columnsResult.rows.map(row => row.column_name);
                 hasSealsField = columns.includes('seals');
                 hasVisibleField = columns.includes('visible');
+                hasSubcategoryOrderField = columns.includes('subcategory_order');
             } catch (e) {
                 console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
@@ -1212,7 +1265,7 @@ module.exports = (pool) => {
                 WHERE mi.deleted_at IS NULL
                 ${barId ? 'AND mi.barid = $1' : ''}
                 GROUP BY ${groupByFields.join(', ')}
-                ORDER BY mi.barid, mi.categoryid, mi."order"
+                ORDER BY mi.barid, mi.categoryid, ${hasSubcategoryOrderField ? 'COALESCE(mi.subcategory_order, mi."order"), ' : ''}mi."order"
             `;
             
             const result = await pool.query(query, barId ? [barId] : []);
