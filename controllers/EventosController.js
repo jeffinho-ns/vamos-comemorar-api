@@ -1503,8 +1503,8 @@ class EventosController {
             l.evento_id,
             l.promoter_responsavel_id,
             p.nome as promoter_nome
-          FROM listas l
-          LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+          FROM meu_backup_db.listas l
+          LEFT JOIN meu_backup_db.promoters p ON l.promoter_responsavel_id = p.promoter_id
           WHERE l.evento_id = $1
           UNION
           SELECT DISTINCT
@@ -1513,9 +1513,9 @@ class EventosController {
             l2.evento_id,
             l2.promoter_responsavel_id,
             p2.nome as promoter_nome
-          FROM listas l2
-          LEFT JOIN promoters p2 ON l2.promoter_responsavel_id = p2.promoter_id
-          LEFT JOIN promoter_eventos pe ON pe.promoter_id = p2.promoter_id AND pe.evento_id = $1
+          FROM meu_backup_db.listas l2
+          LEFT JOIN meu_backup_db.promoters p2 ON l2.promoter_responsavel_id = p2.promoter_id
+          LEFT JOIN meu_backup_db.promoter_eventos pe ON pe.promoter_id = p2.promoter_id AND pe.evento_id = $1
           WHERE l2.evento_id IS NULL AND pe.evento_id = $1
         `, [eventoId]);
         
