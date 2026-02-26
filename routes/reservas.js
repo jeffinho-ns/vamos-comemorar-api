@@ -430,9 +430,9 @@ router.post('/camarote', auth, async (req, res) => {
         await client.query('BEGIN');
         console.log('🔄 Transação iniciada');
 
-        // Verificar se o camarote existe
+        // Verificar se o camarote existe e obter nome_camarote + id_place (para criar reserva no calendário)
         const camaroteCheck = await client.query(
-            'SELECT id, id_place FROM camarotes WHERE id = $1',
+            'SELECT id, id_place, nome_camarote FROM camarotes WHERE id = $1',
             [id_camarote]
         );
         
@@ -444,6 +444,8 @@ router.post('/camarote', auth, async (req, res) => {
                 error: 'Camarote não encontrado'
             });
         }
+        const idPlace = camaroteCheck.rows[0].id_place;
+        const nomeCamarote = camaroteCheck.rows[0].nome_camarote || ('Camarote-' + id_camarote);
 
         // Preparar data_reserva e data_expiracao
         const dataReservaFinal = data_reserva 
@@ -541,6 +543,108 @@ router.post('/camarote', auth, async (req, res) => {
                 }
             }
             console.log('✅ Convidados adicionados');
+        }
+
+        // ----- Sincronizar com Calendário de Restaurante: criar reserva em restaurant_reservations + guest_list -----
+        let restaurantReservationId = null;
+        try {
+            // Respeitar regras de lotação (mesma lógica do calendário: giros/ capacidade por área)
+            const areaWhere = idPlace === 9 ? "ra.name ILIKE 'Reserva Rooftop - %'" : "ra.name NOT ILIKE 'Reserva Rooftop - %'";
+            const capacityResult = await client.query(`
+                SELECT (COALESCE(SUM(ra.capacity_dinner), 0) + COALESCE(SUM(ra.capacity_lunch), 0))::int as total_cap
+                FROM restaurant_areas ra
+                WHERE ra.is_active = TRUE AND (${areaWhere})
+            `);
+            const totalCap = Math.max(0, parseInt(capacityResult.rows[0]?.total_cap, 10) || 99999);
+            const currentResult = await client.query(`
+                SELECT COALESCE(SUM(number_of_people), 0)::int as total_people
+                FROM restaurant_reservations
+                WHERE reservation_date = $1 AND establishment_id = $2
+                AND status NOT IN ('cancelled', 'CANCELADA', 'completed', 'no_show')
+            `, [dataReservaFinal, idPlace]);
+            const currentPeople = Math.max(0, parseInt(currentResult.rows[0]?.total_people, 10) || 0);
+            const maximoPessoas = Math.max(0, parseInt(maximo_pessoas, 10) || 0);
+            if (totalCap > 0 && currentPeople + maximoPessoas > totalCap) {
+                await client.query('ROLLBACK');
+                client.release();
+                return res.status(400).json({
+                    success: false,
+                    error: 'Lotação do estabelecimento para esta data não permite mais esta quantidade de pessoas. Ajuste a data ou o número de pessoas.'
+                });
+            }
+
+            const insertRR = `
+                INSERT INTO restaurant_reservations (
+                    client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
+                    reservation_time, number_of_people, area_id, table_number,
+                    status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area,
+                    area_display_name, has_bistro_table
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
+            `;
+            const notesRR = (observacao && observacao.trim()) ? observacao.trim() : 'Reserva Camarote';
+            const rrParams = [
+                nome_cliente, telefone || null, email || null, data_nascimento || null,
+                dataReservaFinal, horaReservaFinal, maximoPessoas || 1, null, nomeCamarote,
+                'confirmed', 'CAMAROTE', notesRR, userId, idPlace, null, false, null, false
+            ];
+            const rrResult = await client.query(insertRR, rrParams);
+            restaurantReservationId = rrResult.rows[0].id;
+            console.log('✅ Reserva de restaurante (calendário) criada com ID:', restaurantReservationId);
+
+            await client.query(
+                'UPDATE reservas_camarote SET restaurant_reservation_id = $1 WHERE id = $2',
+                [restaurantReservationId, reservaCamaroteId]
+            );
+
+            const crypto = require('crypto');
+            const token = crypto.randomBytes(24).toString('hex');
+            const expirationDate = new Date(dataReservaFinal + 'T00:00:00');
+            expirationDate.setDate(expirationDate.getDate() + 1);
+            expirationDate.setHours(23, 59, 59, 0);
+            const expiresAt = expirationDate.toISOString().slice(0, 19).replace('T', ' ');
+
+            const glResult = await client.query(
+                `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
+                 VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
+                [restaurantReservationId, null, token, expiresAt]
+            );
+            const guestListId = glResult.rows[0]?.id;
+            if (guestListId) {
+                const hasOwner = await client.query(
+                    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
+                );
+                const hasQr = await client.query(
+                    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'qr_code_token'`
+                );
+                const addGuest = async (name, isOwner = false) => {
+                    let sql = 'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)';
+                    const params = [guestListId, name || 'Convidado', null];
+                    if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
+                        const qrToken = isOwner ? 'vc_guest_' + crypto.randomBytes(24).toString('hex') : null;
+                        sql = 'INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, $3, $4, $5)';
+                        params.push(isOwner, qrToken);
+                    }
+                    await client.query(sql, params);
+                };
+                await addGuest(nome_cliente, true);
+                if (lista_convidados && Array.isArray(lista_convidados)) {
+                    for (const c of lista_convidados) {
+                        if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
+                            await addGuest(c.nome.trim(), false);
+                        }
+                    }
+                }
+                console.log('✅ Lista de convidados (guest_lists) vinculada à reserva do calendário');
+            }
+        } catch (syncErr) {
+            console.error('❌ Erro ao criar reserva no calendário/guest_list:', syncErr);
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(500).json({
+                success: false,
+                error: 'Reserva de camarote falhou ao sincronizar com o calendário do restaurante.',
+                details: syncErr.message
+            });
         }
 
         await client.query('COMMIT');
@@ -705,6 +809,45 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
                 success: false,
                 error: 'Reserva de camarote não encontrada.' 
             });
+        }
+
+        // Sincronizar com reserva do calendário (cascata): atualizar ou cancelar restaurant_reservation
+        try {
+            const linkResult = await client.query(
+                'SELECT restaurant_reservation_id, status_reserva, id_camarote FROM reservas_camarote WHERE id = $1',
+                [id_reserva_camarote]
+            );
+            const hasLink = linkResult.rows[0]?.restaurant_reservation_id;
+            const newStatusReserva = updates.status_reserva !== undefined ? updates.status_reserva : linkResult.rows[0]?.status_reserva;
+            if (hasLink) {
+                const cancelStatuses = ['disponivel', 'cancelado'];
+                if (cancelStatuses.includes(String(newStatusReserva).toLowerCase())) {
+                    await client.query(
+                        "UPDATE restaurant_reservations SET status = 'cancelled' WHERE id = $1",
+                        [linkResult.rows[0].restaurant_reservation_id]
+                    );
+                    console.log('✅ Reserva do calendário cancelada em cascata (reserva camarote cancelada/liberada)');
+                } else {
+                    const row = await client.query(
+                        `SELECT rc.nome_cliente, rc.telefone, rc.data_reserva, rc.hora_reserva, rc.maximo_pessoas, rc.observacao, c.nome_camarote
+                         FROM reservas_camarote rc LEFT JOIN camarotes c ON c.id = rc.id_camarote WHERE rc.id = $1`,
+                        [id_reserva_camarote]
+                    );
+                    const r = row.rows[0];
+                    const nomeCamarote = r?.nome_camarote || ('Camarote-' + (r?.id_camarote || ''));
+                    const dataReserva = r?.data_reserva ? (String(r.data_reserva).includes('T') ? String(r.data_reserva).split('T')[0] : String(r.data_reserva)) : null;
+                    let horaReserva = r?.hora_reserva;
+                    if (horaReserva && String(horaReserva).length === 5) horaReserva = String(horaReserva) + ':00';
+                    await client.query(
+                        `UPDATE restaurant_reservations SET client_name = $1, client_phone = $2, reservation_date = $3, reservation_time = $4, number_of_people = $5, table_number = $6, notes = $7 WHERE id = $8`,
+                        [r?.nome_cliente || null, r?.telefone || null, dataReserva, horaReserva, r?.maximo_pessoas || 1, nomeCamarote, (r?.observacao && r.observacao.trim()) ? r.observacao.trim() : 'Reserva Camarote', linkResult.rows[0].restaurant_reservation_id]
+                    );
+                    console.log('✅ Reserva do calendário atualizada em cascata');
+                }
+            }
+        } catch (cascadeErr) {
+            console.warn('⚠️ Sincronização com calendário (cascata) ignorada:', cascadeErr.message);
+            // Não falha a atualização da reserva de camarote se a coluna restaurant_reservation_id não existir ou outro erro
         }
 
         await client.query('COMMIT');
