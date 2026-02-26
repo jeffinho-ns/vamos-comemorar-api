@@ -33,6 +33,24 @@ const PORT = config.server.port;
 
 // Middleware
 app.use(cors(config.server.cors));
+
+// Garantir que o preflight OPTIONS responda sempre com CORS (evita bloqueio a partir de agilizaiapp.com.br etc.)
+const allowedOrigins = config.server.cors.origin || [];
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', (config.server.cors.methods || ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']).join(', '));
+      res.setHeader('Access-Control-Allow-Headers', (config.server.cors.allowedHeaders || ['Content-Type', 'Authorization', 'X-Requested-With', 'Content-Length']).join(', '));
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+    return res.status(204).end();
+  }
+  next();
+});
+
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
