@@ -169,9 +169,11 @@ module.exports = (pool) => {
   router.post('/:codigo/convidado', async (req, res) => {
     try {
       const { codigo } = req.params;
-      const { nome, whatsapp, evento_id } = req.body;
+      const { nome, whatsapp, evento_id, vip_tipo } = req.body;
 
-      console.log('🔍 [CONVIDADO] Adicionando convidado:', { codigo, nome, whatsapp: whatsapp ? 'fornecido' : 'não fornecido', evento_id });
+      const vipTipoValue = (vip_tipo === 'M' || vip_tipo === 'F') ? vip_tipo : null;
+
+      console.log('🔍 [CONVIDADO] Adicionando convidado:', { codigo, nome, whatsapp: whatsapp ? 'fornecido' : 'não fornecido', evento_id, vip_tipo: vipTipoValue });
 
       if (!nome || !nome.trim()) {
         return res.status(400).json({ 
@@ -187,7 +189,7 @@ module.exports = (pool) => {
       let promotersResult;
       try {
         promotersResult = await pool.query(
-          `SELECT promoter_id, nome 
+          `SELECT promoter_id, nome, establishment_id 
            FROM meu_backup_db.promoters 
            WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
            LIMIT 1`,
@@ -196,9 +198,8 @@ module.exports = (pool) => {
         console.log('📊 [CONVIDADO] Query de promoter executada com sucesso (status::TEXT)');
       } catch (queryError) {
         console.log('⚠️ [CONVIDADO] Erro na primeira tentativa, tentando sem cast:', queryError.message);
-        // Tentar sem cast se falhar
         promotersResult = await pool.query(
-          `SELECT promoter_id, nome 
+          `SELECT promoter_id, nome, establishment_id 
            FROM meu_backup_db.promoters 
            WHERE codigo_identificador = $1 AND ativo = TRUE
            LIMIT 1`,
@@ -220,6 +221,50 @@ module.exports = (pool) => {
 
       const promoter = promotersResult.rows[0];
       console.log('✅ [CONVIDADO] Promoter encontrado:', promoter.promoter_id);
+
+      // Validar limite VIP Noite Tuda (vip_tipo M/F)
+      if (vipTipoValue) {
+        try {
+          const establishmentId = promoter.establishment_id || null;
+          let vipMLimit = 0;
+          let vipFLimit = 0;
+          if (establishmentId) {
+            const ruleResult = await pool.query(`
+              SELECT vip_m_limit, vip_f_limit FROM gift_rules
+              WHERE establishment_id = $1 AND tipo_beneficiario = 'PROMOTER' AND status = 'ATIVA'
+              AND (promoter_id = $2 OR promoter_id IS NULL)
+              ORDER BY CASE WHEN promoter_id = $2 THEN 0 ELSE 1 END
+              LIMIT 1
+            `, [establishmentId, promoter.promoter_id]);
+            if (ruleResult.rows.length > 0) {
+              const r = ruleResult.rows[0];
+              vipMLimit = parseInt(r.vip_m_limit, 10) || 0;
+              vipFLimit = parseInt(r.vip_f_limit, 10) || 0;
+            }
+          }
+          const countResult = await pool.query(`
+            SELECT 
+              COUNT(*) FILTER (WHERE vip_tipo = 'M') as count_m,
+              COUNT(*) FILTER (WHERE vip_tipo = 'F') as count_f
+            FROM meu_backup_db.promoter_convidados
+            WHERE promoter_id = $1
+          `, [promoter.promoter_id]);
+          const countM = parseInt(countResult.rows[0]?.count_m || 0, 10);
+          const countF = parseInt(countResult.rows[0]?.count_f || 0, 10);
+          if (vipTipoValue === 'M' && vipMLimit > 0 && countM >= vipMLimit) {
+            return res.status(400).json({ success: false, error: 'Limite atingido. Entre em contato com o administrador para aumentar sua cota.' });
+          }
+          if (vipTipoValue === 'F' && vipFLimit > 0 && countF >= vipFLimit) {
+            return res.status(400).json({ success: false, error: 'Limite atingido. Entre em contato com o administrador para aumentar sua cota.' });
+          }
+        } catch (limitErr) {
+          if (limitErr.code === '42703') {
+            // coluna vip_tipo ou vip_m_limit não existe - ignorar validação
+          } else {
+            throw limitErr;
+          }
+        }
+      }
 
       // Verificar se já existe um convidado com o mesmo nome e WhatsApp (se fornecido) para este promoter
       // Se WhatsApp não foi fornecido, verificar apenas por nome e evento
@@ -308,24 +353,26 @@ module.exports = (pool) => {
           try {
             result = await pool.query(
               `INSERT INTO meu_backup_db.promoter_convidados (
-                promoter_id, 
-                nome, 
-                whatsapp,
-                evento_id,
-                status
-              ) VALUES ($1, $2, NULL, $3, 'pendente') RETURNING id`,
-              [promoter.promoter_id, nome.trim(), evento_id || null]
+                promoter_id, nome, whatsapp, evento_id, status, vip_tipo
+              ) VALUES ($1, $2, NULL, $3, 'pendente', $4) RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue]
             );
             console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (usando NULL para WhatsApp):', result.rows[0].id);
           } catch (nullError) {
-            // Se NULL não funcionar, usar um valor único curto (máximo 20 caracteres)
-            // Formato: "nw_{timestamp_curto}_{random_curto}"
-            const timestamp = Date.now().toString(36).substr(-6); // Últimos 6 caracteres
-            const random = Math.random().toString(36).substr(2, 6); // 6 caracteres
-            const uniqueWhatsapp = `nw_${timestamp}_${random}`; // Total: 3 + 1 + 6 + 1 + 6 = 17 caracteres
-            whatsappForInsert = uniqueWhatsapp;
-            console.log('📊 [CONVIDADO] Usando valor único temporário para WhatsApp:', uniqueWhatsapp);
-            // Continuar para inserir com o valor único
+            if (nullError.code === '42703') {
+              result = await pool.query(
+                `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status)
+                 VALUES ($1, $2, NULL, $3, 'pendente') RETURNING id`,
+                [promoter.promoter_id, nome.trim(), evento_id || null]
+              );
+              console.log('✅ [CONVIDADO] Convidado adicionado (NULL WhatsApp, tabela sem vip_tipo):', result.rows[0].id);
+            } else {
+              // Se NULL não funcionar, usar um valor único curto
+              const timestamp = Date.now().toString(36).substr(-6);
+              const random = Math.random().toString(36).substr(2, 6);
+              whatsappForInsert = `nw_${timestamp}_${random}`;
+              console.log('📊 [CONVIDADO] Usando valor único temporário para WhatsApp:', whatsappForInsert);
+            }
           }
         }
       }
@@ -339,16 +386,21 @@ module.exports = (pool) => {
               nome, 
               whatsapp,
               evento_id,
-              status
-            ) VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
-            [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
+              status,
+              vip_tipo
+            ) VALUES ($1, $2, $3, $4, 'pendente', $5) RETURNING id`,
+            [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null, vipTipoValue]
           );
           console.log('✅ [CONVIDADO] Convidado adicionado com sucesso:', result.rows[0].id);
         } catch (insertError) {
-          console.error('❌ [CONVIDADO] Erro ao inserir convidado:', insertError);
-          
-          // Tratar outros erros
-          if (insertError.code === '23505') {
+          if (insertError.code === '42703') {
+            result = await pool.query(
+              `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status)
+               VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
+              [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
+            );
+            console.log('✅ [CONVIDADO] Convidado adicionado (tabela sem vip_tipo):', result.rows[0].id);
+          } else if (insertError.code === '23505') {
             // Ainda assim deu erro de constraint única
             console.log('⚠️ [CONVIDADO] Erro de constraint única após verificação');
             return res.status(400).json({ 
@@ -363,9 +415,10 @@ module.exports = (pool) => {
                 nome, 
                 whatsapp,
                 evento_id,
-                status
-              ) VALUES ($1, $2, '', $3, 'pendente') RETURNING id`,
-              [promoter.promoter_id, nome.trim(), evento_id || null]
+                status,
+                vip_tipo
+              ) VALUES ($1, $2, '', $3, 'pendente', $4) RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue]
             );
             console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (sem WhatsApp):', result.rows[0].id);
           } else {
@@ -406,25 +459,30 @@ module.exports = (pool) => {
             }
 
             if (existeNaListaResult.rows.length === 0) {
-              // Inserir na tabela listas_convidados
-              // telefone_convidado pode ser NULL
-              await pool.query(
-                `INSERT INTO meu_backup_db.listas_convidados (
-                  lista_id,
-                  nome_convidado,
-                  telefone_convidado,
-                  status_checkin,
-                  is_vip
-                ) VALUES ($1, $2, $3, 'Pendente', FALSE)`,
-                [lista_id, nome.trim(), whatsappValue || null]
-              );
-
+              try {
+                await pool.query(
+                  `INSERT INTO meu_backup_db.listas_convidados (
+                    lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip, vip_tipo
+                  ) VALUES ($1, $2, $3, 'Pendente', $4, $5)`,
+                  [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue, vipTipoValue]
+                );
+              } catch (listaInsertErr) {
+                if (listaInsertErr.code === '42703') {
+                  await pool.query(
+                    `INSERT INTO meu_backup_db.listas_convidados (
+                      lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip
+                    ) VALUES ($1, $2, $3, 'Pendente', $4)`,
+                    [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue]
+                  );
+                } else {
+                  throw listaInsertErr;
+                }
+              }
               console.log(`✅ [CONVIDADO] Convidado também adicionado à lista ${lista_id}`);
             }
           }
         }
       } catch (listaError) {
-        // Log do erro mas não falha a operação principal
         console.error('⚠️ [CONVIDADO] Erro ao adicionar convidado à lista:', listaError);
       }
 
@@ -863,40 +921,50 @@ module.exports = (pool) => {
       const promoter = promotersResult.rows[0];
       console.log('✅ [CONVIDADOS] Promoter encontrado:', promoter.promoter_id);
 
-      // Buscar convidados
       let query = `
         SELECT 
           c.id,
           c.nome,
           c.status,
           c.created_at,
+          c.whatsapp,
           e.nome_do_evento as evento_nome,
           e.data_do_evento as evento_data
         FROM meu_backup_db.promoter_convidados c
         LEFT JOIN meu_backup_db.eventos e ON c.evento_id = e.id
         WHERE c.promoter_id = $1
       `;
-
       const params = [promoter.promoter_id];
-
       if (evento_id) {
         query += ` AND c.evento_id = $2`;
         params.push(evento_id);
       }
-
       query += ` ORDER BY c.created_at DESC`;
 
-      console.log('📊 [CONVIDADOS] Executando query de convidados...');
-      const convidadosResult = await pool.query(query, params);
+      let convidadosResult;
+      try {
+        convidadosResult = await pool.query(
+          query.replace('c.whatsapp,', 'c.whatsapp, c.vip_tipo,'),
+          params
+        );
+      } catch (colErr) {
+        if (colErr.code === '42703') {
+          convidadosResult = await pool.query(query, params);
+        } else {
+          throw colErr;
+        }
+      }
+
       console.log('✅ [CONVIDADOS] Convidados encontrados:', convidadosResult.rows.length);
 
-      // Ocultar informações sensíveis (WhatsApp) na listagem pública
       const convidadosPublicos = convidadosResult.rows.map(c => ({
         id: c.id,
         nome: c.nome,
         status: c.status,
         evento_nome: c.evento_nome,
-        evento_data: c.evento_data
+        evento_data: c.evento_data,
+        whatsapp: c.whatsapp || null,
+        vip_tipo: (c.vip_tipo === 'M' || c.vip_tipo === 'F') ? c.vip_tipo : null
       }));
 
       res.json({
