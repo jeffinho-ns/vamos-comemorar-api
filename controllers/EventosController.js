@@ -1547,14 +1547,14 @@ class EventosController {
                 l.tipo as tipo_lista,
                 COALESCE(p.nome, 'N/A') as responsavel,
                 COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
-              FROM listas_convidados lc
-              INNER JOIN listas l ON lc.lista_id = l.lista_id
-              LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+              FROM meu_backup_db.listas_convidados lc
+              INNER JOIN meu_backup_db.listas l ON lc.lista_id = l.lista_id
+              LEFT JOIN meu_backup_db.promoters p ON l.promoter_responsavel_id = p.promoter_id
               WHERE lc.lista_id = ANY($1)
               ORDER BY lc.nome_convidado ASC
             `, [listaIds]);
           } catch (colsError) {
-            const missingColumn = colsError.code === '42703' || (colsError.message && (colsError.message.includes('entrada_tipo') || colsError.message.includes('entrada_valor')));
+            const missingColumn = colsError.code === '42703' || (colsError.message && (colsError.message.includes('entrada_tipo') || colsError.message.includes('entrada_valor') || colsError.message.includes('vip_tipo')));
             if (missingColumn) {
               listasPromotersResult = await this.pool.query(`
                 SELECT DISTINCT
@@ -1573,9 +1573,9 @@ class EventosController {
                   l.tipo as tipo_lista,
                   COALESCE(p.nome, 'N/A') as responsavel,
                   COALESCE(p.promoter_id, l.promoter_responsavel_id)::INTEGER as promoter_id
-                FROM listas_convidados lc
-                INNER JOIN listas l ON lc.lista_id = l.lista_id
-                LEFT JOIN promoters p ON l.promoter_responsavel_id = p.promoter_id
+                FROM meu_backup_db.listas_convidados lc
+                INNER JOIN meu_backup_db.listas l ON lc.lista_id = l.lista_id
+                LEFT JOIN meu_backup_db.promoters p ON l.promoter_responsavel_id = p.promoter_id
                 WHERE lc.lista_id = ANY($1)
                 ORDER BY lc.nome_convidado ASC
               `, [listaIds]);
