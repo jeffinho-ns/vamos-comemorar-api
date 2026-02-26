@@ -202,6 +202,67 @@ router.post('/', async (req, res) => {
         }
     });
 
+    // ==========================================================================================
+    // ROTAS DE CAMAROTES (definidas antes de /:id para não serem capturadas por :id)
+    // ==========================================================================================
+    const liberarCamarotesEventosPassados = async () => {
+        try {
+            const hoje = new Date().toISOString().split('T')[0];
+            await pool.query(`
+                UPDATE reservas_camarote rc
+                SET status_reserva = 'disponivel',
+                    updated_at = CURRENT_TIMESTAMP
+                FROM eventos e
+                WHERE rc.id_evento = e.id
+                AND DATE(e.data_do_evento) < $1
+                AND rc.status_reserva != 'disponivel'
+                AND rc.status_reserva != 'cancelado'
+            `, [hoje]);
+        } catch (e) {
+            console.warn("liberarCamarotesEventosPassados:", e.message);
+        }
+    };
+
+    router.get('/camarotes/:id_place', auth, async (req, res) => {
+        const { id_place } = req.params;
+        try {
+            await liberarCamarotesEventosPassados();
+            const hoje = new Date().toISOString().split('T')[0];
+            let camarotesResult;
+            try {
+                camarotesResult = await pool.query(`
+                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                        rc.id AS reserva_camarote_id, rc.nome_cliente,
+                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
+                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
+                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
+                    FROM camarotes c
+                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva != 'disponivel' AND rc.status_reserva != 'cancelado'
+                    LEFT JOIN eventos e ON rc.id_evento = e.id
+                    WHERE c.id_place = $1 AND (rc.id_evento IS NULL OR e.data_do_evento IS NULL OR DATE(e.data_do_evento) >= $2)
+                    ORDER BY c.nome_camarote
+                `, [id_place, hoje]);
+            } catch (queryErr) {
+                console.warn('Query camarotes com eventos falhou, fallback:', queryErr.message);
+                camarotesResult = await pool.query(`
+                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                        rc.id AS reserva_camarote_id, rc.nome_cliente,
+                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
+                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
+                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
+                    FROM camarotes c
+                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva IS NOT NULL AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
+                    WHERE c.id_place = $1
+                    ORDER BY c.nome_camarote
+                `, [id_place]);
+            }
+            res.status(200).json(camarotesResult.rows);
+        } catch (error) {
+            console.error("Erro ao buscar camarotes:", error);
+            res.status(500).json({ error: "Erro ao buscar camarotes", details: process.env.NODE_ENV === 'development' ? error.message : undefined });
+        }
+    });
+
     // ROTA PARA BUSCAR DETALHES DE UMA ÚNICA RESERVA POR ID (GET /:id)
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
@@ -320,84 +381,6 @@ router.post('/', async (req, res) => {
         }
     });
 
-
-    // Função para liberar camarotes de eventos que já passaram
-    const liberarCamarotesEventosPassados = async () => {
-        try {
-            const hoje = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            
-            // Atualizar reservas de camarotes vinculadas a eventos que já passaram
-            // Usando PostgreSQL (pool.query)
-            const result = await pool.query(`
-                UPDATE reservas_camarote rc
-                SET status_reserva = 'disponivel',
-                    updated_at = CURRENT_TIMESTAMP
-                FROM eventos e
-                WHERE rc.id_evento = e.id
-                AND DATE(e.data_do_evento) < $1
-                AND rc.status_reserva != 'disponivel'
-                AND rc.status_reserva != 'cancelado'
-            `, [hoje]);
-            
-            if (result.rowCount > 0) {
-                console.log(`✅ ${result.rowCount} camarote(s) liberado(s) automaticamente (evento já passou)`);
-            }
-        } catch (error) {
-            console.error("Erro ao liberar camarotes de eventos passados:", error);
-            // Não lançar erro para não quebrar a requisição principal
-        }
-    };
-
-    router.get('/camarotes/:id_place', auth, async (req, res) => {
-    const { id_place } = req.params;
-    try {
-        // Primeiro, liberar camarotes de eventos que já passaram
-        await liberarCamarotesEventosPassados();
-        
-        const hoje = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        
-        const camarotesResult = await pool.query(`
-            SELECT 
-                c.id, 
-                c.nome_camarote, 
-                c.capacidade_maxima, 
-                c.status,
-                rc.id AS reserva_camarote_id,
-                rc.nome_cliente,
-                rc.entradas_unisex_free,
-                rc.entradas_masculino_free,
-                rc.entradas_feminino_free,
-                rc.valor_camarote,
-                rc.valor_consumacao,
-                rc.valor_pago,
-                rc.valor_sinal,
-                rc.status_reserva,
-                rc.data_reserva,
-                rc.data_expiracao
-            FROM camarotes c
-            LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote 
-                AND rc.status_reserva != 'disponivel'
-                AND rc.status_reserva != 'cancelado'
-            LEFT JOIN eventos e ON rc.id_evento = e.id
-            WHERE c.id_place = $1
-                AND (
-                    -- Incluir reserva apenas se:
-                    -- 1. Não tem evento vinculado (rc.id_evento IS NULL)
-                    -- 2. OU o evento ainda não passou (e.data_do_evento >= hoje)
-                    -- 3. OU não tem data de evento (e.data_do_evento IS NULL)
-                    rc.id_evento IS NULL 
-                    OR e.data_do_evento IS NULL
-                    OR DATE(e.data_do_evento) >= $2
-                )
-            ORDER BY c.nome_camarote
-        `, [id_place, hoje]);
-
-        res.status(200).json(camarotesResult.rows);
-    } catch (error) {
-        console.error("Erro ao buscar camarotes:", error);
-        res.status(500).json({ error: "Erro ao buscar camarotes" });
-    }
-});
 
 // ROTA PARA CRIAR UMA NOVA RESERVA DE CAMAROTE
 router.post('/camarote', auth, async (req, res) => {
