@@ -24,6 +24,8 @@ const ROLE_TO_ENUM = {
 const ENUM_TO_ROLE = {};
 Object.keys(ROLE_TO_ENUM).forEach((k) => { ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k; });
 ENUM_TO_ROLE['Atendente'] = 'atendente';
+// Se o banco tiver role "Promoter-list", normalizar para o frontend
+ENUM_TO_ROLE['Promoter-list'] = 'promoter-list';
 if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE['Recepção'] = 'recepcao';
 
 function roleToEnum(role) {
@@ -327,9 +329,9 @@ module.exports = (pool, upload) => {
                 { expiresIn: '7d' }
             );
 
-            // Se o usuário for promoter, buscar o código identificador
+            // Se o usuário for promoter ou promoter-list, buscar o código identificador
             let promoterCodigo = null;
-            if (roleNormalized === 'promoter') {
+            if (roleNormalized === 'promoter' || roleNormalized === 'promoter-list') {
                 try {
                     const promoterResult = await pool.query(
                         'SELECT codigo_identificador FROM promoters WHERE email = $1 AND ativo = TRUE AND status = $2',
