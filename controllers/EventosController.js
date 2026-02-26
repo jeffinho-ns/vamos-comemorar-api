@@ -1542,7 +1542,7 @@ class EventosController {
                 lc.observacoes,
                 lc.entrada_tipo,
                 lc.entrada_valor,
-                lc.vip_tipo,
+                COALESCE(NULLIF(TRIM(lc.vip_tipo), ''), pc.vip_tipo) as vip_tipo,
                 l.nome as origem,
                 l.tipo as tipo_lista,
                 COALESCE(p.nome, 'N/A') as responsavel,
@@ -1550,6 +1550,13 @@ class EventosController {
               FROM meu_backup_db.listas_convidados lc
               INNER JOIN meu_backup_db.listas l ON lc.lista_id = l.lista_id
               LEFT JOIN meu_backup_db.promoters p ON l.promoter_responsavel_id = p.promoter_id
+              LEFT JOIN LATERAL (
+                SELECT vip_tipo FROM meu_backup_db.promoter_convidados
+                WHERE promoter_id = l.promoter_responsavel_id
+                  AND TRIM(nome) = TRIM(lc.nome_convidado)
+                  AND vip_tipo IN ('M','F')
+                LIMIT 1
+              ) pc ON true
               WHERE lc.lista_id = ANY($1)
               ORDER BY lc.nome_convidado ASC
             `, [listaIds]);
@@ -1568,7 +1575,7 @@ class EventosController {
                   lc.observacoes,
                   NULL::TEXT as entrada_tipo,
                   NULL::NUMERIC as entrada_valor,
-                  NULL::VARCHAR(1) as vip_tipo,
+                  pc.vip_tipo as vip_tipo,
                   l.nome as origem,
                   l.tipo as tipo_lista,
                   COALESCE(p.nome, 'N/A') as responsavel,
@@ -1576,6 +1583,13 @@ class EventosController {
                 FROM meu_backup_db.listas_convidados lc
                 INNER JOIN meu_backup_db.listas l ON lc.lista_id = l.lista_id
                 LEFT JOIN meu_backup_db.promoters p ON l.promoter_responsavel_id = p.promoter_id
+                LEFT JOIN LATERAL (
+                  SELECT vip_tipo FROM meu_backup_db.promoter_convidados
+                  WHERE promoter_id = l.promoter_responsavel_id
+                    AND TRIM(nome) = TRIM(lc.nome_convidado)
+                    AND vip_tipo IN ('M','F')
+                  LIMIT 1
+                ) pc ON true
                 WHERE lc.lista_id = ANY($1)
                 ORDER BY lc.nome_convidado ASC
               `, [listaIds]);

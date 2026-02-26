@@ -49,16 +49,15 @@ async function run() {
       }
     }
 
-    // 3. listas_convidados
+    // 3. listas_convidados (schema meu_backup_db usado pela API)
     try {
-      await client.query(`SET search_path TO meu_backup_db, public`);
-      await client.query(`ALTER TABLE listas_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL`);
-      console.log('✅ listas_convidados.vip_tipo');
+      await client.query(`ALTER TABLE meu_backup_db.listas_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL`);
+      console.log('✅ meu_backup_db.listas_convidados.vip_tipo');
     } catch (e) {
-      if (e.code === '42P01') {
-        await client.query(`SET search_path TO public`);
+      if (e.code === '42P01' || (e.message && e.message.includes('does not exist'))) {
+        await client.query(`SET search_path TO meu_backup_db, public`);
         await client.query(`ALTER TABLE listas_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL`);
-        console.log('✅ listas_convidados.vip_tipo (public)');
+        console.log('✅ listas_convidados.vip_tipo (via search_path)');
       } else {
         throw e;
       }

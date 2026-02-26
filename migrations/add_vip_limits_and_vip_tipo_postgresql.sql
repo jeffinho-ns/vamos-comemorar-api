@@ -25,6 +25,6 @@ ALTER TABLE promoter_convidados
 ALTER TABLE listas_convidados
   ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL;
 
--- Se as tabelas estiverem no schema meu_backup_db, descomente e execute em separado:
--- ALTER TABLE meu_backup_db.promoter_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL;
--- ALTER TABLE meu_backup_db.listas_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL;
+-- Se as tabelas estiverem no schema meu_backup_db (recomendado para a API), execute:
+ALTER TABLE meu_backup_db.promoter_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL;
+ALTER TABLE meu_backup_db.listas_convidados ADD COLUMN IF NOT EXISTS vip_tipo VARCHAR(1) NULL;
