@@ -981,7 +981,7 @@ router.delete('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         if (restaurantReservationId) {
             try {
                 await client.query(
-                    \"UPDATE restaurant_reservations SET status = 'cancelled' WHERE id = $1\",
+                    "UPDATE restaurant_reservations SET status = 'cancelled' WHERE id = $1",
                     [restaurantReservationId]
                 );
                 console.log('✅ Reserva do calendário cancelada (DELETE camarote)');
