@@ -230,77 +230,35 @@ router.post('/', async (req, res) => {
         } catch (e) {
             console.warn("liberarCamarotesEventosPassados ignorado:", e.message);
         }
-        let camarotesResult;
-        // Tentar query completa com LATERAL
         try {
-            camarotesResult = await pool.query(`
+            // Subquery com DISTINCT ON: uma reserva ativa por camarote (a mais recente)
+            const camarotesResult = await pool.query(`
                 SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
                     rc.id AS reserva_camarote_id, rc.nome_cliente,
                     rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
                     rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
                     rc.status_reserva, rc.data_reserva, rc.data_expiracao
                 FROM camarotes c
-                LEFT JOIN LATERAL (
-                    SELECT id, nome_cliente, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+                LEFT JOIN (
+                    SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente,
+                        entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                         valor_camarote, valor_consumacao, valor_pago, valor_sinal,
                         status_reserva, data_reserva, data_expiracao
                     FROM reservas_camarote
-                    WHERE id_camarote = c.id
-                    AND status_reserva NOT IN ('disponivel', 'cancelado')
-                    ORDER BY id DESC
-                    LIMIT 1
-                ) rc ON true
+                    WHERE status_reserva NOT IN ('disponivel', 'cancelado')
+                    ORDER BY id_camarote, id DESC
+                ) rc ON rc.id_camarote = c.id
                 WHERE c.id_place = $1
                 ORDER BY c.nome_camarote
             `, [id_place]);
-        } catch (err1) {
-            console.warn("Query LATERAL falhou, tentando LEFT JOIN simples:", err1.message);
-            // Fallback: query simples com LEFT JOIN (sem LATERAL)
-            try {
-                camarotesResult = await pool.query(`
-                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
-                        rc.id AS reserva_camarote_id, rc.nome_cliente,
-                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
-                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
-                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
-                    FROM camarotes c
-                    LEFT JOIN (
-                        SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente,
-                            entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-                            valor_camarote, valor_consumacao, valor_pago, valor_sinal,
-                            status_reserva, data_reserva, data_expiracao
-                        FROM reservas_camarote
-                        WHERE status_reserva NOT IN ('disponivel', 'cancelado')
-                        ORDER BY id_camarote, id DESC
-                    ) rc ON c.id = rc.id_camarote
-                    WHERE c.id_place = $1
-                    ORDER BY c.nome_camarote
-                `, [id_place]);
-            } catch (err2) {
-                console.warn("Query LEFT JOIN falhou, tentando só camarotes:", err2.message);
-                // Fallback final: só camarotes (sem reservas)
-                try {
-                    camarotesResult = await pool.query(`
-                        SELECT id, nome_camarote, capacidade_maxima, status,
-                            NULL::int AS reserva_camarote_id, NULL::text AS nome_cliente,
-                            NULL::int AS entradas_unisex_free, NULL::int AS entradas_masculino_free, NULL::int AS entradas_feminino_free,
-                            NULL::numeric AS valor_camarote, NULL::numeric AS valor_consumacao, NULL::numeric AS valor_pago, NULL::numeric AS valor_sinal,
-                            NULL::text AS status_reserva, NULL::date AS data_reserva, NULL::date AS data_expiracao
-                        FROM camarotes
-                        WHERE id_place = $1
-                        ORDER BY nome_camarote
-                    `, [id_place]);
-                } catch (err3) {
-                    console.error("Erro ao buscar camarotes (todas as tentativas falharam):", err3);
-                    return res.status(500).json({
-                        error: "Erro ao buscar camarotes",
-                        details: err3.message,
-                        hint: "Verifique se as tabelas camarotes e reservas_camarote existem no schema. Execute a migração: node scripts/run_create_camarotes_tables.js"
-                    });
-                }
-            }
+            res.status(200).json(camarotesResult.rows);
+        } catch (error) {
+            console.error("Erro ao buscar camarotes:", error);
+            res.status(500).json({
+                error: "Erro ao buscar camarotes",
+                details: error.message
+            });
         }
-        res.status(200).json(camarotesResult.rows);
     });
 
     // ROTA PARA BUSCAR DETALHES DE UMA ÚNICA RESERVA POR ID (GET /:id)
@@ -606,7 +564,10 @@ router.post('/camarote', auth, async (req, res) => {
         await client.query('SAVEPOINT before_sync');
         let syncOk = false;
         try {
-            const insertRR = `
+            const notesRR = (observacao && observacao.trim()) ? observacao.trim() : 'Reserva Camarote';
+            const maximoPessoas = Math.max(1, parseInt(maximo_pessoas, 10) || 1);
+            let rrResult;
+            const insertRRFull = `
                 INSERT INTO restaurant_reservations (
                     client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
                     reservation_time, number_of_people, area_id, table_number,
@@ -614,13 +575,30 @@ router.post('/camarote', auth, async (req, res) => {
                     area_display_name, has_bistro_table
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
             `;
-            const notesRR = (observacao && observacao.trim()) ? observacao.trim() : 'Reserva Camarote';
-            const rrParams = [
+            const rrParamsFull = [
                 nome_cliente, telefone || null, email || null, data_nascimento || null,
-                dataReservaFinal, horaReservaFinal || '20:00:00', maximoPessoas || 1, null, nomeCamarote,
+                dataReservaFinal, horaReservaFinal || '20:00:00', maximoPessoas, null, nomeCamarote,
                 'confirmed', 'CAMAROTE', notesRR, userId, idPlace, null, false, null, false
             ];
-            const rrResult = await client.query(insertRR, rrParams);
+            try {
+                rrResult = await client.query(insertRRFull, rrParamsFull);
+            } catch (insertErr) {
+                // Fallback: INSERT mínimo (colunas básicas) se o schema não tiver colunas opcionais
+                if (insertErr.message && (insertErr.message.includes('column') || insertErr.message.includes('does not exist'))) {
+                    console.warn('Insert completo falhou, tentando fallback mínimo:', insertErr.message);
+                    rrResult = await client.query(`
+                        INSERT INTO restaurant_reservations (
+                            client_name, client_phone, client_email, reservation_date, reservation_time,
+                            number_of_people, table_number, status, origin, notes, created_by, establishment_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+                    `, [
+                        nome_cliente, telefone || null, email || null, dataReservaFinal, horaReservaFinal || '20:00:00',
+                        maximoPessoas, nomeCamarote, 'confirmed', 'CAMAROTE', notesRR, userId, idPlace
+                    ]);
+                } else {
+                    throw insertErr;
+                }
+            }
             const restaurantReservationId = rrResult.rows[0].id;
             console.log('✅ Reserva de restaurante (calendário) criada com ID:', restaurantReservationId);
 
