@@ -227,35 +227,27 @@ router.post('/', async (req, res) => {
         const { id_place } = req.params;
         try {
             await liberarCamarotesEventosPassados();
-            const hoje = new Date().toISOString().split('T')[0];
-            let camarotesResult;
-            try {
-                camarotesResult = await pool.query(`
-                    SELECT DISTINCT ON (c.id) c.id, c.nome_camarote, c.capacidade_maxima, c.status, c.regras_especificas,
-                        rc.id AS reserva_camarote_id, rc.nome_cliente,
-                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
-                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
-                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
-                    FROM camarotes c
-                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
-                    LEFT JOIN eventos e ON rc.id_evento = e.id
-                    WHERE c.id_place = $1 AND (rc.id IS NULL OR rc.id_evento IS NULL OR e.data_do_evento IS NULL OR DATE(e.data_do_evento) >= $2)
-                    ORDER BY c.id, rc.id DESC NULLS LAST, c.nome_camarote
-                `, [id_place, hoje]);
-            } catch (queryErr) {
-                console.warn('Query camarotes com eventos falhou, fallback:', queryErr.message);
-                camarotesResult = await pool.query(`
-                    SELECT DISTINCT ON (c.id) c.id, c.nome_camarote, c.capacidade_maxima, c.status, c.regras_especificas,
-                        rc.id AS reserva_camarote_id, rc.nome_cliente,
-                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
-                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
-                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
-                    FROM camarotes c
-                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
-                    WHERE c.id_place = $1
-                    ORDER BY c.id, rc.id DESC NULLS LAST, c.nome_camarote
-                `, [id_place]);
-            }
+            // Query simplificada: evita regras_especificas e eventos que podem não existir em todos os ambientes
+            const camarotesResult = await pool.query(`
+                SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                    rc.id AS reserva_camarote_id, rc.nome_cliente,
+                    rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
+                    rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
+                    rc.status_reserva, rc.data_reserva, rc.data_expiracao
+                FROM camarotes c
+                LEFT JOIN LATERAL (
+                    SELECT id, nome_cliente, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+                        valor_camarote, valor_consumacao, valor_pago, valor_sinal,
+                        status_reserva, data_reserva, data_expiracao
+                    FROM reservas_camarote
+                    WHERE id_camarote = c.id
+                    AND status_reserva NOT IN ('disponivel', 'cancelado')
+                    ORDER BY id DESC
+                    LIMIT 1
+                ) rc ON true
+                WHERE c.id_place = $1
+                ORDER BY c.nome_camarote
+            `, [id_place]);
             res.status(200).json(camarotesResult.rows);
         } catch (error) {
             console.error("Erro ao buscar camarotes:", error);
