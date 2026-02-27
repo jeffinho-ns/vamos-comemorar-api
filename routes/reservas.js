@@ -215,8 +215,8 @@ router.post('/', async (req, res) => {
                 FROM eventos e
                 WHERE rc.id_evento = e.id
                 AND DATE(e.data_do_evento) < $1
-                AND rc.status_reserva != 'disponivel'
-                AND rc.status_reserva != 'cancelado'
+                AND rc.status_reserva::text != 'disponivel'
+                AND rc.status_reserva::text != 'cancelado'
             `, [hoje]);
         } catch (e) {
             console.warn("liberarCamarotesEventosPassados:", e.message);
@@ -250,7 +250,7 @@ router.post('/', async (req, res) => {
                             valor_camarote, valor_consumacao, valor_pago, valor_sinal,
                             status_reserva, data_reserva, data_expiracao
                         FROM reservas_camarote
-                        WHERE status_reserva NOT IN ('disponivel', 'cancelado')
+                        WHERE status_reserva::text NOT IN ('disponivel', 'cancelado')
                         ORDER BY id_camarote, id DESC
                     ) rc ON rc.id_camarote = c.id
                     WHERE c.id_place = $1
@@ -270,7 +270,7 @@ router.post('/', async (req, res) => {
                         r.status_reserva, r.data_reserva, r.data_expiracao
                     FROM reservas_camarote r
                     INNER JOIN camarotes c ON c.id = r.id_camarote AND c.id_place = $1
-                    WHERE r.status_reserva NOT IN ('disponivel', 'cancelado')
+                    WHERE r.status_reserva::text NOT IN ('disponivel', 'cancelado')
                     ORDER BY r.id_camarote, r.id DESC
                 `, [idPlace]);
                 const reservaPorCamarote = {};
