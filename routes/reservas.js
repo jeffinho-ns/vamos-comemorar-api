@@ -224,7 +224,10 @@ router.post('/', async (req, res) => {
     };
 
     router.get('/camarotes/:id_place', auth, async (req, res) => {
-        const { id_place } = req.params;
+        const idPlace = parseInt(req.params.id_place, 10);
+        if (isNaN(idPlace)) {
+            return res.status(400).json({ error: "id_place inválido" });
+        }
         try {
             await liberarCamarotesEventosPassados();
         } catch (e) {
@@ -232,25 +235,68 @@ router.post('/', async (req, res) => {
         }
         try {
             // Subquery com DISTINCT ON: uma reserva ativa por camarote (a mais recente)
-            const camarotesResult = await pool.query(`
-                SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
-                    rc.id AS reserva_camarote_id, rc.nome_cliente, rc.telefone, rc.email,
-                    rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
-                    rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
-                    rc.status_reserva, rc.data_reserva, rc.data_expiracao
-                FROM camarotes c
-                LEFT JOIN (
-                    SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente, telefone, email,
-                        entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
-                        valor_camarote, valor_consumacao, valor_pago, valor_sinal,
-                        status_reserva, data_reserva, data_expiracao
-                    FROM reservas_camarote
-                    WHERE status_reserva NOT IN ('disponivel', 'cancelado')
-                    ORDER BY id_camarote, id DESC
-                ) rc ON rc.id_camarote = c.id
-                WHERE c.id_place = $1
-                ORDER BY c.nome_camarote
-            `, [id_place]);
+            let camarotesResult;
+            try {
+                camarotesResult = await pool.query(`
+                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                        rc.id AS reserva_camarote_id, rc.nome_cliente, rc.telefone, rc.email,
+                        rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
+                        rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
+                        rc.status_reserva, rc.data_reserva, rc.data_expiracao
+                    FROM camarotes c
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente, telefone, email,
+                            entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
+                            valor_camarote, valor_consumacao, valor_pago, valor_sinal,
+                            status_reserva, data_reserva, data_expiracao
+                        FROM reservas_camarote
+                        WHERE status_reserva NOT IN ('disponivel', 'cancelado')
+                        ORDER BY id_camarote, id DESC
+                    ) rc ON rc.id_camarote = c.id
+                    WHERE c.id_place = $1
+                    ORDER BY c.nome_camarote
+                `, [idPlace]);
+            } catch (qErr) {
+                console.warn("Query principal falhou, tentando fallback:", qErr.message);
+                // Fallback: buscar camarotes e reservas separadamente e mesclar
+                const camResult = await pool.query(
+                    'SELECT id, nome_camarote, capacidade_maxima, status FROM camarotes WHERE id_place = $1 ORDER BY nome_camarote',
+                    [idPlace]
+                );
+                const reservasResult = await pool.query(`
+                    SELECT r.id, r.id_camarote, r.nome_cliente, r.telefone, r.email,
+                        r.entradas_unisex_free, r.entradas_masculino_free, r.entradas_feminino_free,
+                        r.valor_camarote, r.valor_consumacao, r.valor_pago, r.valor_sinal,
+                        r.status_reserva, r.data_reserva, r.data_expiracao
+                    FROM reservas_camarote r
+                    INNER JOIN camarotes c ON c.id = r.id_camarote AND c.id_place = $1
+                    WHERE r.status_reserva NOT IN ('disponivel', 'cancelado')
+                    ORDER BY r.id_camarote, r.id DESC
+                `, [idPlace]);
+                const reservaPorCamarote = {};
+                for (const r of reservasResult.rows) {
+                    if (!reservaPorCamarote[r.id_camarote]) reservaPorCamarote[r.id_camarote] = r;
+                }
+                camarotesResult = {
+                    rows: camResult.rows.map(c => ({
+                        ...c,
+                        reserva_camarote_id: reservaPorCamarote[c.id]?.id || null,
+                        nome_cliente: reservaPorCamarote[c.id]?.nome_cliente || null,
+                        telefone: reservaPorCamarote[c.id]?.telefone || null,
+                        email: reservaPorCamarote[c.id]?.email || null,
+                        entradas_unisex_free: reservaPorCamarote[c.id]?.entradas_unisex_free ?? null,
+                        entradas_masculino_free: reservaPorCamarote[c.id]?.entradas_masculino_free ?? null,
+                        entradas_feminino_free: reservaPorCamarote[c.id]?.entradas_feminino_free ?? null,
+                        valor_camarote: reservaPorCamarote[c.id]?.valor_camarote ?? null,
+                        valor_consumacao: reservaPorCamarote[c.id]?.valor_consumacao ?? null,
+                        valor_pago: reservaPorCamarote[c.id]?.valor_pago ?? null,
+                        valor_sinal: reservaPorCamarote[c.id]?.valor_sinal ?? null,
+                        status_reserva: reservaPorCamarote[c.id]?.status_reserva || null,
+                        data_reserva: reservaPorCamarote[c.id]?.data_reserva || null,
+                        data_expiracao: reservaPorCamarote[c.id]?.data_expiracao || null
+                    }))
+                };
+            }
             res.status(200).json(camarotesResult.rows);
         } catch (error) {
             console.error("Erro ao buscar camarotes:", error);
