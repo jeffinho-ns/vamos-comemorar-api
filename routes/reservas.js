@@ -858,7 +858,8 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         
         values.push(id_reserva_camarote);
         const setClause = setClauseParts.join(', ');
-        const sql = `UPDATE reservas_camarote SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $${values.length} RETURNING *`;
+        // Não usar updated_at aqui, pois a coluna pode não existir em alguns bancos legados
+        const sql = `UPDATE reservas_camarote SET ${setClause} WHERE id = $${values.length} RETURNING *`;
 
         console.log('📝 SQL:', sql);
         console.log('📝 Valores:', values);
