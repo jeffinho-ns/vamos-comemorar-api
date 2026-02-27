@@ -601,15 +601,11 @@ router.post('/camarote', auth, async (req, res) => {
             });
         }
 
-        // IMPORTANTE: COMMIT da reserva de camarote ANTES do sync do calendário.
-        // Assim, mesmo que o sync falhe, a reserva fica salva e o camarote permanece travado.
-        await client.query('COMMIT');
-        console.log('✅ Reserva de camarote commitada com sucesso (camarote travado)');
-
-        // ----- Sincronizar com Calendário de Restaurante (opcional, não bloqueia a reserva) -----
-        let restaurantReservationId = null;
+        // ----- Sincronizar com Calendário de Restaurante + Lista de Convidados -----
+        // Usa SAVEPOINT: se o sync falhar, desfazemos só o sync; a reserva de camarote permanece.
+        await client.query('SAVEPOINT before_sync');
+        let syncOk = false;
         try {
-
             const insertRR = `
                 INSERT INTO restaurant_reservations (
                     client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
@@ -621,11 +617,11 @@ router.post('/camarote', auth, async (req, res) => {
             const notesRR = (observacao && observacao.trim()) ? observacao.trim() : 'Reserva Camarote';
             const rrParams = [
                 nome_cliente, telefone || null, email || null, data_nascimento || null,
-                dataReservaFinal, horaReservaFinal, maximoPessoas || 1, null, nomeCamarote,
+                dataReservaFinal, horaReservaFinal || '20:00:00', maximoPessoas || 1, null, nomeCamarote,
                 'confirmed', 'CAMAROTE', notesRR, userId, idPlace, null, false, null, false
             ];
             const rrResult = await client.query(insertRR, rrParams);
-            restaurantReservationId = rrResult.rows[0].id;
+            const restaurantReservationId = rrResult.rows[0].id;
             console.log('✅ Reserva de restaurante (calendário) criada com ID:', restaurantReservationId);
 
             await client.query(
@@ -647,39 +643,54 @@ router.post('/camarote', auth, async (req, res) => {
             );
             const guestListId = glResult.rows[0]?.id;
             if (guestListId) {
-                const hasOwner = await client.query(
-                    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'is_owner'`
-                );
-                const hasQr = await client.query(
-                    `SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'guests' AND column_name = 'qr_code_token'`
-                );
-                const addGuest = async (name, isOwner = false) => {
-                    let sql = 'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)';
-                    const params = [guestListId, name || 'Convidado', null];
-                    if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
-                        const qrToken = isOwner ? 'vc_guest_' + crypto.randomBytes(24).toString('hex') : null;
-                        sql = 'INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, $3, $4, $5)';
-                        params.push(isOwner, qrToken);
-                    }
-                    await client.query(sql, params);
-                };
-                await addGuest(nome_cliente, true);
-                if (lista_convidados && Array.isArray(lista_convidados)) {
-                    for (const c of lista_convidados) {
-                        if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
-                            await addGuest(c.nome.trim(), false);
+                try {
+                    await client.query(
+                        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)',
+                        [guestListId, nome_cliente || 'Cliente', null]
+                    );
+                    if (lista_convidados && Array.isArray(lista_convidados)) {
+                        for (const c of lista_convidados) {
+                            if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
+                                await client.query(
+                                    'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)',
+                                    [guestListId, c.nome.trim(), null]
+                                );
+                            }
                         }
                     }
+                } catch (guestErr) {
+                    console.warn('Erro ao inserir guests (tentando colunas extras):', guestErr.message);
+                    try {
+                        await client.query(
+                            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) 
+                             VALUES ($1, $2, $3, $4, $5)`,
+                            [guestListId, nome_cliente || 'Cliente', null, true, 'vc_guest_' + crypto.randomBytes(24).toString('hex')]
+                        );
+                        if (lista_convidados && Array.isArray(lista_convidados)) {
+                            for (const c of lista_convidados) {
+                                if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
+                                    await client.query(
+                                        'INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, $3, $4, $5)',
+                                        [guestListId, c.nome.trim(), null, false, null]
+                                    );
+                                }
+                            }
+                        }
+                    } catch (e2) {
+                        throw guestErr;
+                    }
                 }
-                console.log('✅ Lista de convidados (guest_lists) vinculada à reserva do calendário');
+                console.log('✅ Lista de convidados (guest_lists + guests) vinculada à reserva do calendário');
             }
+            syncOk = true;
+            await client.query('RELEASE SAVEPOINT before_sync');
         } catch (syncErr) {
-            // Reserva de camarote já foi commitada - apenas logar e continuar.
-            // O camarote permanece travado com os dados da reserva.
-            console.warn('⚠️ Erro ao sincronizar com calendário (reserva de camarote já salva):', syncErr.message);
+            console.error('❌ Erro ao sincronizar com calendário:', syncErr);
+            await client.query('ROLLBACK TO SAVEPOINT before_sync');
         }
 
-        // Não precisa de COMMIT adicional - já foi feito antes do sync
+        await client.query('COMMIT');
+        console.log('✅ Reserva de camarote commitada com sucesso (camarote travado)' + (syncOk ? ' + calendário + lista de convidados' : ' [sync calendário falhou]'));
         
         // Buscar a reserva criada para retornar dados completos (após commit)
         const reservaCriada = await client.query(
@@ -692,9 +703,10 @@ router.post('/camarote', auth, async (req, res) => {
         
         res.status(201).json({ 
             success: true,
-            message: 'Reserva de camarote criada com sucesso!', 
+            message: syncOk ? 'Reserva de camarote criada com sucesso! Aparece no calendário e na lista de convidados.' : 'Reserva de camarote criada! O camarote está travado. (Calendário/lista de convidados não foram sincronizados.)',
             data: reservaCriada.rows[0],
-            reservaId: reservaCamaroteId 
+            reservaId: reservaCamaroteId,
+            syncCalendarioOk: syncOk
         });
 
     } catch (error) {

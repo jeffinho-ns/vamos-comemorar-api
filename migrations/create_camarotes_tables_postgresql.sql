@@ -86,13 +86,17 @@ CREATE TABLE IF NOT EXISTS camarote_convidados (
 
 CREATE INDEX IF NOT EXISTS idx_camarote_convidados_reserva ON camarote_convidados(id_reserva_camarote);
 
--- Inserir camarotes de exemplo para o High Line (id_place = 7)
+-- Inserir camarotes para o High Line (id_place = 7) - apenas Highline Lounge 30 a 35
 INSERT INTO camarotes (id, id_place, nome_camarote, capacidade_maxima, status, regras_especificas, valor_base, descricao)
 VALUES
-  (101, 7, 'Highline-C1', 10, 'disponivel', 'Camarote com vista privilegiada para o deck', 500.00, 'Camarote com vista privilegiada para o deck, ideal para grupos pequenos'),
-  (102, 7, 'Highline-C2', 12, 'disponivel', 'Camarote com acesso direto ao rooftop', 600.00, 'Camarote com acesso direto ao rooftop, perfeito para celebrações'),
-  (103, 7, 'Highline-C3', 8, 'disponivel', 'Camarote mais íntimo e reservado', 400.00, 'Camarote mais íntimo e reservado, ideal para encontros especiais'),
-  (104, 7, 'Highline-C4', 15, 'disponivel', 'Camarote com vista panorâmica', 700.00, 'Camarote com vista panorâmica da cidade, ideal para grupos maiores'),
-  (105, 7, 'Highline-C5', 20, 'disponivel', 'Camarote premium com serviço exclusivo', 900.00, 'Camarote premium com serviço exclusivo e garçom dedicado'),
-  (106, 7, 'Highline-C6', 25, 'disponivel', 'Camarote master com toda a estrutura', 1200.00, 'Camarote master com toda a estrutura e conforto para grandes eventos')
-ON CONFLICT (id) DO NOTHING;
+  (101, 7, 'Highline Lounge 30', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 30'),
+  (102, 7, 'Highline Lounge 31', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 31'),
+  (103, 7, 'Highline Lounge 32', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 32'),
+  (104, 7, 'Highline Lounge 33', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 33'),
+  (105, 7, 'Highline Lounge 34', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 34'),
+  (106, 7, 'Highline Lounge 35', 10, 'disponivel', 'Camarote Highline Lounge', 500.00, 'Highline Lounge 35')
+ON CONFLICT (id) DO UPDATE SET
+  nome_camarote = EXCLUDED.nome_camarote,
+  descricao = EXCLUDED.descricao,
+  regras_especificas = EXCLUDED.regras_especificas,
+  updated_at = CURRENT_TIMESTAMP;
