@@ -231,29 +231,29 @@ router.post('/', async (req, res) => {
             let camarotesResult;
             try {
                 camarotesResult = await pool.query(`
-                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                    SELECT DISTINCT ON (c.id) c.id, c.nome_camarote, c.capacidade_maxima, c.status, c.regras_especificas,
                         rc.id AS reserva_camarote_id, rc.nome_cliente,
                         rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
                         rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
                         rc.status_reserva, rc.data_reserva, rc.data_expiracao
                     FROM camarotes c
-                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva != 'disponivel' AND rc.status_reserva != 'cancelado'
+                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
                     LEFT JOIN eventos e ON rc.id_evento = e.id
-                    WHERE c.id_place = $1 AND (rc.id_evento IS NULL OR e.data_do_evento IS NULL OR DATE(e.data_do_evento) >= $2)
-                    ORDER BY c.nome_camarote
+                    WHERE c.id_place = $1 AND (rc.id IS NULL OR rc.id_evento IS NULL OR e.data_do_evento IS NULL OR DATE(e.data_do_evento) >= $2)
+                    ORDER BY c.id, rc.id DESC NULLS LAST, c.nome_camarote
                 `, [id_place, hoje]);
             } catch (queryErr) {
                 console.warn('Query camarotes com eventos falhou, fallback:', queryErr.message);
                 camarotesResult = await pool.query(`
-                    SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
+                    SELECT DISTINCT ON (c.id) c.id, c.nome_camarote, c.capacidade_maxima, c.status, c.regras_especificas,
                         rc.id AS reserva_camarote_id, rc.nome_cliente,
                         rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
                         rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
                         rc.status_reserva, rc.data_reserva, rc.data_expiracao
                     FROM camarotes c
-                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva IS NOT NULL AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
+                    LEFT JOIN reservas_camarote rc ON c.id = rc.id_camarote AND rc.status_reserva NOT IN ('disponivel', 'cancelado')
                     WHERE c.id_place = $1
-                    ORDER BY c.nome_camarote
+                    ORDER BY c.id, rc.id DESC NULLS LAST, c.nome_camarote
                 `, [id_place]);
             }
             res.status(200).json(camarotesResult.rows);
@@ -528,10 +528,9 @@ router.post('/camarote', auth, async (req, res) => {
             console.log('✅ Convidados adicionados');
         }
 
-        // ----- Sincronizar com Calendário de Restaurante: criar reserva em restaurant_reservations + guest_list -----
-        let restaurantReservationId = null;
+        // Verificação de lotação ANTES do commit (se falhar, podemos fazer rollback)
+        let lotacaoOk = true;
         try {
-            // Respeitar regras de lotação (mesma lógica do calendário: giros/ capacidade por área)
             const areaWhere = idPlace === 9 ? "ra.name ILIKE 'Reserva Rooftop - %'" : "ra.name NOT ILIKE 'Reserva Rooftop - %'";
             const capacityResult = await client.query(`
                 SELECT (COALESCE(SUM(ra.capacity_dinner), 0) + COALESCE(SUM(ra.capacity_lunch), 0))::int as total_cap
@@ -548,13 +547,28 @@ router.post('/camarote', auth, async (req, res) => {
             const currentPeople = Math.max(0, parseInt(currentResult.rows[0]?.total_people, 10) || 0);
             const maximoPessoas = Math.max(0, parseInt(maximo_pessoas, 10) || 0);
             if (totalCap > 0 && currentPeople + maximoPessoas > totalCap) {
-                await client.query('ROLLBACK');
-                client.release();
-                return res.status(400).json({
-                    success: false,
-                    error: 'Lotação do estabelecimento para esta data não permite mais esta quantidade de pessoas. Ajuste a data ou o número de pessoas.'
-                });
+                lotacaoOk = false;
             }
+        } catch (lotacaoErr) {
+            console.warn('Verificação de lotação ignorada:', lotacaoErr.message);
+        }
+        if (!lotacaoOk) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(400).json({
+                success: false,
+                error: 'Lotação do estabelecimento para esta data não permite mais esta quantidade de pessoas. Ajuste a data ou o número de pessoas.'
+            });
+        }
+
+        // IMPORTANTE: COMMIT da reserva de camarote ANTES do sync do calendário.
+        // Assim, mesmo que o sync falhe, a reserva fica salva e o camarote permanece travado.
+        await client.query('COMMIT');
+        console.log('✅ Reserva de camarote commitada com sucesso (camarote travado)');
+
+        // ----- Sincronizar com Calendário de Restaurante (opcional, não bloqueia a reserva) -----
+        let restaurantReservationId = null;
+        try {
 
             const insertRR = `
                 INSERT INTO restaurant_reservations (
@@ -620,18 +634,12 @@ router.post('/camarote', auth, async (req, res) => {
                 console.log('✅ Lista de convidados (guest_lists) vinculada à reserva do calendário');
             }
         } catch (syncErr) {
-            console.error('❌ Erro ao criar reserva no calendário/guest_list:', syncErr);
-            await client.query('ROLLBACK');
-            client.release();
-            return res.status(500).json({
-                success: false,
-                error: 'Reserva de camarote falhou ao sincronizar com o calendário do restaurante.',
-                details: syncErr.message
-            });
+            // Reserva de camarote já foi commitada - apenas logar e continuar.
+            // O camarote permanece travado com os dados da reserva.
+            console.warn('⚠️ Erro ao sincronizar com calendário (reserva de camarote já salva):', syncErr.message);
         }
 
-        await client.query('COMMIT');
-        console.log('✅ Transação commitada com sucesso');
+        // Não precisa de COMMIT adicional - já foi feito antes do sync
         
         // Buscar a reserva criada para retornar dados completos (após commit)
         const reservaCriada = await client.query(
