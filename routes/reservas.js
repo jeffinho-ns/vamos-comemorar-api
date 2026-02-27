@@ -962,6 +962,80 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
     }
 });
 
+// ROTA PARA EXCLUIR UMA RESERVA DE CAMAROTE (cancelamento definitivo)
+router.delete('/camarote/:id_reserva_camarote', auth, async (req, res) => {
+    const { id_reserva_camarote } = req.params;
+    const client = await pool.connect();
+    console.log('🗑 Iniciando exclusão de reserva de camarote:', id_reserva_camarote);
+    try {
+        await client.query('BEGIN');
+
+        // Buscar vínculo com restaurant_reservations (se existir)
+        const linkResult = await client.query(
+            'SELECT restaurant_reservation_id FROM reservas_camarote WHERE id = $1',
+            [id_reserva_camarote]
+        );
+        const restaurantReservationId = linkResult.rows[0]?.restaurant_reservation_id;
+
+        // Cancelar reserva do calendário, se houver vínculo
+        if (restaurantReservationId) {
+            try {
+                await client.query(
+                    \"UPDATE restaurant_reservations SET status = 'cancelled' WHERE id = $1\",
+                    [restaurantReservationId]
+                );
+                console.log('✅ Reserva do calendário cancelada (DELETE camarote)');
+            } catch (calendarErr) {
+                console.warn('⚠️ Falha ao cancelar reserva do calendário (prosseguindo com exclusão do camarote):', calendarErr.message);
+            }
+        }
+
+        // Excluir convidados vinculados ao camarote
+        await client.query(
+            'DELETE FROM camarote_convidados WHERE id_reserva_camarote = $1',
+            [id_reserva_camarote]
+        );
+
+        // Excluir a reserva de camarote
+        const deleteResult = await client.query(
+            'DELETE FROM reservas_camarote WHERE id = $1',
+            [id_reserva_camarote]
+        );
+
+        if (deleteResult.rowCount === 0) {
+            await client.query('ROLLBACK');
+            client.release();
+            return res.status(404).json({
+                success: false,
+                error: 'Reserva de camarote não encontrada.'
+            });
+        }
+
+        await client.query('COMMIT');
+        console.log('✅ Reserva de camarote excluída com sucesso.');
+        res.status(200).json({
+            success: true,
+            message: 'Reserva de camarote cancelada e excluída com sucesso. O camarote foi liberado.'
+        });
+    } catch (error) {
+        console.error('❌ Erro ao excluir reserva de camarote:', error);
+        try {
+            await client.query('ROLLBACK');
+        } catch (rollbackErr) {
+            console.error('❌ Erro ao fazer rollback na exclusão:', rollbackErr);
+        }
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao excluir reserva de camarote.',
+            details: error.message
+        });
+    } finally {
+        if (client) {
+            client.release();
+        }
+    }
+});
+
 // ROTA PARA BLOQUEAR UM CAMAROTE (novo)
 router.put('/camarotes/:id_camarote/block', auth, async (req, res) => {
     const { id_camarote } = req.params;
