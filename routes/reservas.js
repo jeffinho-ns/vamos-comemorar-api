@@ -234,13 +234,13 @@ router.post('/', async (req, res) => {
             // Subquery com DISTINCT ON: uma reserva ativa por camarote (a mais recente)
             const camarotesResult = await pool.query(`
                 SELECT c.id, c.nome_camarote, c.capacidade_maxima, c.status,
-                    rc.id AS reserva_camarote_id, rc.nome_cliente,
+                    rc.id AS reserva_camarote_id, rc.nome_cliente, rc.telefone, rc.email,
                     rc.entradas_unisex_free, rc.entradas_masculino_free, rc.entradas_feminino_free,
                     rc.valor_camarote, rc.valor_consumacao, rc.valor_pago, rc.valor_sinal,
                     rc.status_reserva, rc.data_reserva, rc.data_expiracao
                 FROM camarotes c
                 LEFT JOIN (
-                    SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente,
+                    SELECT DISTINCT ON (id_camarote) id, id_camarote, nome_cliente, telefone, email,
                         entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                         valor_camarote, valor_consumacao, valor_pago, valor_sinal,
                         status_reserva, data_reserva, data_expiracao
