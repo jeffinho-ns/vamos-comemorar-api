@@ -688,8 +688,14 @@ module.exports = (pool) => {
       console.log('📊 [EVENTOS] Eventos associados ao promoter:', promoterEventIds.size);
 
       // Filtrar eventos
-      const today = new Date();
+      const now = new Date();
+      const today = new Date(now);
       today.setHours(0, 0, 0, 0);
+      // Madrugada: 00:00 até 05:59 do dia seguinte — evento do "dia anterior" ainda pode aceitar entradas
+      const hour = now.getHours();
+      const isMadrugada = hour >= 0 && hour < 6;
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
 
       // Converter establishment_id para número se necessário
       const establishmentId = promoter.establishment_id ? 
@@ -700,13 +706,13 @@ module.exports = (pool) => {
 
       const filteredEvents = allEvents
         .filter(event => {
-          // Eventos associados ao promoter
+          // Eventos associados ao promoter — sempre incluir (permite adicionar nomes mesmo após meia-noite)
           if (promoterEventIds.has(event.id)) {
             console.log('✅ [EVENTOS] Evento', event.id, 'associado ao promoter');
             return true;
           }
           
-          // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura
+          // OU eventos únicos do estabelecimento do promoter que não têm data ou têm data futura/hoje/ontem na madrugada
           if (establishmentId) {
             // Converter id_place para número se necessário
             const eventPlaceId = event.id_place ? 
@@ -724,11 +730,14 @@ module.exports = (pool) => {
               }
               const eventDate = new Date(event.data_do_evento);
               eventDate.setHours(0, 0, 0, 0);
-              const isFuture = eventDate >= today;
-              if (isFuture) {
-                console.log('✅ [EVENTOS] Evento', event.id, 'com data futura, incluindo');
+              const isFutureOrToday = eventDate >= today;
+              // Evento do dia anterior ainda válido durante a madrugada (ex.: 27/02 ativo até 05:59 do dia 28)
+              const isYesterdayDuringMadrugada = isMadrugada && eventDate.getTime() === yesterday.getTime();
+              const isActive = isFutureOrToday || isYesterdayDuringMadrugada;
+              if (isActive) {
+                console.log('✅ [EVENTOS] Evento', event.id, isYesterdayDuringMadrugada ? 'dia anterior na madrugada, incluindo' : 'data futura/hoje, incluindo');
               }
-              return isFuture;
+              return isActive;
             }
           }
           
