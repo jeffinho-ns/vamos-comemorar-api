@@ -79,6 +79,11 @@ class NotificationService {
       return 'https://grupoideiaum.com.br/emails/justino/header-justino.png';
     }
     
+    // Verificar Reserva Rooftop
+    if (nameLower.includes('reserva rooftop')) {
+      return 'https://grupoideiaum.com.br/emails/reserva/email-reserva.png';
+    }
+    
     // Verificar Highline
     if (nameLower.includes('high')) {
       return 'https://grupoideiaum.com.br/emails/highline/header.png';
