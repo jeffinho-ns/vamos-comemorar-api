@@ -3,6 +3,76 @@
 const express = require('express');
 const router = express.Router();
 
+// Mesma lógica de horários do Reserva Rooftop usada em restaurantReservations.js
+const getRooftopShift = (dateStr, timeStr) => {
+  if (!dateStr || !timeStr) return null;
+  try {
+    const parts = String(timeStr).split(':');
+    const h = parseInt(parts[0] || '0', 10);
+    const m = parseInt(parts[1] || '0', 10);
+    if (Number.isNaN(h)) return null;
+    const minutes = h * 60 + (Number.isNaN(m) ? 0 : m);
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    const weekday = d.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+
+    const twelve = 12 * 60;
+    const sixteen = 16 * 60;
+    const seventeen = 17 * 60;
+    const twenty = 20 * 60;
+    const twentyThirty = 20 * 60 + 30;
+    const twentyTwoThirty = 22 * 60 + 30;
+
+    // Terça a Quinta (2,3,4): apenas jantar 18:00–22:30
+    if (weekday >= 2 && weekday <= 4) {
+      if (minutes >= 18 * 60 && minutes <= twentyTwoThirty) {
+        return 'dinner';
+      }
+      return null;
+    }
+
+    // Sexta (5) e Sábado (6)
+    if (weekday === 5 || weekday === 6) {
+      // Almoço: 12:00–16:00
+      if (minutes >= twelve && minutes <= sixteen) {
+        return 'lunch';
+      }
+      // Janela morta: 16:01–16:59
+      if (minutes > sixteen && minutes < seventeen) {
+        return null;
+      }
+      // Jantar: 17:00–22:30
+      if (minutes >= seventeen && minutes <= twentyTwoThirty) {
+        return 'dinner';
+      }
+      return null;
+    }
+
+    // Domingo (0)
+    if (weekday === 0) {
+      // Almoço: 12:00–16:00
+      if (minutes >= twelve && minutes <= sixteen) {
+        return 'lunch';
+      }
+      // Janela morta: 16:01–16:59
+      if (minutes > sixteen && minutes < seventeen) {
+        return null;
+      }
+      // Jantar: 17:00–20:30
+      if (minutes >= seventeen && minutes <= twentyThirty) {
+        return 'dinner';
+      }
+      return null;
+    }
+
+    // Segunda-feira (1) e qualquer outro dia não operam
+    return null;
+  } catch (e) {
+    console.warn('⚠️ Erro ao calcular shift do Reserva Rooftop (waitlist):', e.message);
+    return null;
+  }
+};
+
 module.exports = (pool) => {
   /**
    * @route   GET /api/waitlist
@@ -153,8 +223,26 @@ module.exports = (pool) => {
         });
       }
 
+      const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+
       const preferredDate = preferred_date || new Date().toISOString().split('T')[0];
       const preferredTime = preferred_time && String(preferred_time).trim() !== '' ? preferred_time : null;
+
+      // Bloquear lista de espera para Reserva Rooftop em horários fora do funcionamento
+      if (establishmentIdNum === 9 && preferredTime) {
+        const rooftopShift = getRooftopShift(preferredDate, preferredTime);
+        if (!rooftopShift) {
+          return res.status(400).json({
+            success: false,
+            error:
+              'Horário fora do funcionamento do Reserva Rooftop. ' +
+              'Regras: Terça a Quinta 18:00–22:30 (1 giro jantar); ' +
+              'Sexta e Sábado: 12:00–16:00 (almoço) e 17:00–22:30 (jantar); ' +
+              'Domingo: 12:00–16:00 (almoço) e 17:00–20:30 (jantar). ' +
+              'Entre 16:01 e 16:59 não é permitido criar reservas nem lista de espera.'
+          });
+        }
+      }
       
       // Calcular posição na fila
       let positionQuery = "SELECT COUNT(*) as count FROM waitlist WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2";

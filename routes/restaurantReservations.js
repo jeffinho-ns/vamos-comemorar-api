@@ -8,6 +8,106 @@ const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 module.exports = (pool) => {
+  // Limite diário específico para o Reserva Rooftop (establishment_id = 9)
+  const MAX_DAILY_RESERVATIONS_ROOFTOP = 60;
+
+  // Determina se um horário do Reserva Rooftop pertence ao "almoço" ou "jantar"
+  // com base na data (para saber o dia da semana) e nas faixas de funcionamento
+  // DEFINITIVAS:
+  //
+  // - Terça a Quinta: 1 giro único (jantar)
+  //     • 18:00–22:30 → jantar
+  //
+  // - Sexta: 2 giros
+  //     • 12:00–16:00 → almoço (1º giro)
+  //     • 17:00–22:30 → jantar (2º giro)
+  //
+  // - Sábado: 2 giros
+  //     • 12:00–16:00 → almoço (1º giro)
+  //     • 17:00–22:30 → jantar (2º giro)
+  //
+  // - Domingo: 2 giros
+  //     • 12:00–16:00 → almoço (1º giro)
+  //     • 17:00–20:30 → jantar (2º giro)
+  //
+  // Janela morta (sem reservas nem lista de espera):
+  //   • Entre 16:01 e 16:59 em Sexta, Sábado e Domingo.
+  const getRooftopShift = (dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return null;
+    try {
+      const parts = String(timeStr).split(':');
+      const h = parseInt(parts[0] || '0', 10);
+      const m = parseInt(parts[1] || '0', 10);
+      if (Number.isNaN(h)) return null;
+      const minutes = h * 60 + (Number.isNaN(m) ? 0 : m);
+      const d = new Date(`${dateStr}T00:00:00`);
+      if (Number.isNaN(d.getTime())) return null;
+      const weekday = d.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+
+      const twelve = 12 * 60;
+      const sixteen = 16 * 60;
+      const seventeen = 17 * 60;
+      const twenty = 20 * 60;
+      const twentyThirty = 20 * 60 + 30;
+      const twentyTwoThirty = 22 * 60 + 30;
+
+      // Terça a Quinta (2,3,4): apenas jantar 18:00–22:30
+      if (weekday >= 2 && weekday <= 4) {
+        if (minutes >= 18 * 60 && minutes <= twentyTwoThirty) {
+          return 'dinner';
+        }
+        return null;
+      }
+
+      // Sexta (5) e Sábado (6)
+      if (weekday === 5 || weekday === 6) {
+        // Almoço: 12:00–16:00
+        if (minutes >= twelve && minutes <= sixteen) {
+          return 'lunch';
+        }
+        // Janela morta: 16:01–16:59
+        if (minutes > sixteen && minutes < seventeen) {
+          return null;
+        }
+        // Jantar: 17:00–22:30
+        if (minutes >= seventeen && minutes <= twentyTwoThirty) {
+          return 'dinner';
+        }
+        return null;
+      }
+
+      // Domingo (0)
+      if (weekday === 0) {
+        // Almoço: 12:00–16:00
+        if (minutes >= twelve && minutes <= sixteen) {
+          return 'lunch';
+        }
+        // Janela morta: 16:01–16:59
+        if (minutes > sixteen && minutes < seventeen) {
+          return null;
+        }
+        // Jantar: 17:00–20:30
+        if (minutes >= seventeen && minutes <= twentyThirty) {
+          return 'dinner';
+        }
+        return null;
+      }
+
+      // Segunda-feira (1) e qualquer outro dia não operam
+      return null;
+    } catch (e) {
+      console.warn('⚠️ Erro ao calcular shift do Reserva Rooftop:', e.message);
+      return null;
+    }
+  };
+
+  const isSameRooftopShift = (dateStr, timeA, timeB) => {
+    const shiftA = getRooftopShift(dateStr, timeA);
+    const shiftB = getRooftopShift(dateStr, timeB);
+    if (!shiftA || !shiftB) return false;
+    return shiftA === shiftB;
+  };
+
   /**
    * @route   GET /api/restaurant-reservations
    * @desc    Lista todas as reservas do restaurante com filtros opcionais
@@ -105,26 +205,111 @@ module.exports = (pool) => {
          FROM restaurant_areas ra
          WHERE ra.is_active = TRUE AND ${areaWhere}`
       );
-      let totalCapacity = Math.max(0, parseInt(areasResult.rows[0]?.total_dinner, 10) || 0);
-      if (totalCapacity === 0) {
-        totalCapacity = Math.max(0, parseInt(areasResult.rows[0]?.total_lunch, 10) || 0);
+
+      const totalDinner = Math.max(0, parseInt(areasResult.rows[0]?.total_dinner, 10) || 0);
+      const totalLunch = Math.max(0, parseInt(areasResult.rows[0]?.total_lunch, 10) || 0);
+
+      const timeStr = time && String(time).trim() ? String(time).trim() : null;
+      let rooftopShift = null;
+
+      if (establishmentIdNum === 9 && timeStr) {
+        rooftopShift = getRooftopShift(date, timeStr);
       }
+
+      let totalCapacity = totalDinner;
+      if (totalCapacity === 0 && totalLunch > 0) {
+        totalCapacity = totalLunch;
+      }
+
+      // Para o Reserva Rooftop, usar capacidade distinta por turno (almoço/jantar)
+      if (establishmentIdNum === 9 && rooftopShift) {
+        if (rooftopShift === 'lunch' && totalLunch > 0) {
+          totalCapacity = totalLunch;
+        } else if (rooftopShift === 'dinner' && totalDinner > 0) {
+          totalCapacity = totalDinner;
+        }
+      }
+
       if (totalCapacity === 0) {
         totalCapacity = 99999;
       }
 
       // Contar pessoas das reservas ativas para a data (valores numéricos seguros)
-      const activeReservationsResult = await pool.query(`
+      let currentPeople = 0;
+
+      // Para o Reserva Rooftop, somar apenas as pessoas do mesmo turno (almoço/jantar)
+      if (establishmentIdNum === 9 && timeStr && rooftopShift) {
+        const activeReservationsResult = await pool.query(
+          `
+          SELECT reservation_time, number_of_people
+          FROM restaurant_reservations
+          WHERE reservation_date = $1
+            AND establishment_id = $2
+            AND status IN ('confirmed', 'checked-in', 'seated')
+        `,
+          [date, establishment_id]
+        );
+
+        const rows = activeReservationsResult.rows || [];
+        currentPeople = rows.reduce((sum, row) => {
+          const rowTime = row.reservation_time ? String(row.reservation_time) : '';
+          if (!rowTime) return sum;
+          return isSameRooftopShift(date, rowTime, timeStr)
+            ? sum + Math.max(0, Number(row.number_of_people) || 0)
+            : sum;
+        }, 0);
+      } else {
+        const activeReservationsResult = await pool.query(
+          `
         SELECT COALESCE(SUM(number_of_people), 0)::int as total_people
         FROM restaurant_reservations
         WHERE reservation_date = $1
         AND establishment_id = $2
         AND status IN ('confirmed', 'checked-in', 'seated')
-      `, [date, establishment_id]);
+      `,
+          [date, establishment_id]
+        );
 
-      const currentPeople = Math.max(0, parseInt(activeReservationsResult.rows[0]?.total_people, 10) || 0);
+        currentPeople = Math.max(
+          0,
+          parseInt(activeReservationsResult.rows[0]?.total_people, 10) || 0
+        );
+      }
+
       const newPeople = Math.max(0, parseInt(new_reservation_people, 10) || 0);
       const totalWithNew = currentPeople + newPeople;
+
+      // Limite de quantidade de reservas por dia para o Reserva Rooftop
+      let dailyReservationsCount = null;
+      let dailyReservationsLimitReached = false;
+
+      if (establishmentIdNum === 9) {
+        try {
+          const dailyCountResult = await pool.query(
+            `
+            SELECT COUNT(*) AS count
+            FROM restaurant_reservations
+            WHERE reservation_date = $1
+              AND establishment_id = $2
+              AND status NOT IN (
+                'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
+                'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
+                'no_show', 'NO_SHOW', 'NO-SHOW'
+              )
+          `,
+            [date, establishment_id]
+          );
+          dailyReservationsCount =
+            parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
+          dailyReservationsLimitReached =
+            dailyReservationsCount >= MAX_DAILY_RESERVATIONS_ROOFTOP;
+        } catch (e) {
+          console.error(
+            '⚠️ Erro ao verificar limite diário de reservas para Reserva Rooftop (capacity.check):',
+            e
+          );
+        }
+      }
 
       // Trava só para o mesmo dia + hora: só considera waitlist quando `time` é informado
       // e apenas entradas com preferred_date + preferred_time exatos (mesmo estabelecimento)
@@ -144,7 +329,16 @@ module.exports = (pool) => {
         hasWaitlist = parseInt(waitlistCountResult.rows[0].count) > 0;
       }
 
-      const canMakeReservation = !hasWaitlist && totalWithNew <= totalCapacity;
+      // Se for Reserva Rooftop e o horário não estiver em nenhum turno válido,
+      // nunca permitir reserva via capacity.check
+      const outsideRooftopOperatingHours =
+        establishmentIdNum === 9 && !!timeStr && !rooftopShift;
+
+      const canMakeReservation =
+        !hasWaitlist &&
+        !dailyReservationsLimitReached &&
+        !outsideRooftopOperatingHours &&
+        totalWithNew <= totalCapacity;
 
       const availableCapacity = Math.max(0, totalCapacity - currentPeople);
 
@@ -158,7 +352,17 @@ module.exports = (pool) => {
           availableCapacity,
           hasWaitlist,
           canMakeReservation,
-          occupancyPercentage: totalCapacity > 0 ? Math.round((currentPeople / totalCapacity) * 100) : 0
+          occupancyPercentage:
+            totalCapacity > 0
+              ? Math.round((currentPeople / totalCapacity) * 100)
+              : 0,
+          // Informações extras específicas do Reserva Rooftop
+          rooftopShift,
+          dailyReservationsCount,
+          dailyReservationsLimitReached,
+          maxDailyReservationsRooftop:
+            establishmentIdNum === 9 ? MAX_DAILY_RESERVATIONS_ROOFTOP : null,
+          outsideRooftopOperatingHours
         }
       });
 
@@ -358,6 +562,56 @@ module.exports = (pool) => {
           success: false,
           error: `number_of_people inválido: ${number_of_people}. Deve ser um número maior ou igual a 1.`
         });
+      }
+
+      // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
+      // Conta apenas reservas ativas (ignora canceladas, concluídas e no-show)
+      if (establishmentIdNumber === 9 && reservation_date) {
+        try {
+          const dailyCountResult = await pool.query(
+            `
+            SELECT COUNT(*) AS count
+            FROM restaurant_reservations
+            WHERE reservation_date = $1
+              AND establishment_id = $2
+              AND status NOT IN (
+                'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
+                'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
+                'no_show', 'NO_SHOW', 'NO-SHOW'
+              )
+          `,
+            [reservation_date, establishmentIdNumber]
+          );
+          const dailyCount = parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
+          if (dailyCount >= MAX_DAILY_RESERVATIONS_ROOFTOP) {
+            return res.status(400).json({
+              success: false,
+              error: `Limite diário de ${MAX_DAILY_RESERVATIONS_ROOFTOP} reservas atingido para o Reserva Rooftop nesta data.`
+            });
+          }
+        } catch (e) {
+          console.error(
+            '⚠️ Erro ao verificar limite diário de reservas para Reserva Rooftop (POST /restaurant-reservations):',
+            e
+          );
+          // Em caso de erro na verificação, não bloquear a criação da reserva
+        }
+      }
+
+      // Validação de horário de funcionamento específico para o Reserva Rooftop (establishment_id = 9)
+      if (establishmentIdNumber === 9 && reservation_date && reservation_time) {
+        const rooftopShift = getRooftopShift(reservation_date, reservation_time);
+        if (!rooftopShift) {
+          return res.status(400).json({
+            success: false,
+            error:
+              'Horário fora do funcionamento do Reserva Rooftop. ' +
+              'Regras: Terça a Quinta 18:00–22:30 (1 giro jantar); ' +
+              'Sexta e Sábado: 12:00–16:00 (almoço) e 17:00–22:30 (jantar); ' +
+              'Domingo: 12:00–16:00 (almoço) e 17:00–20:30 (jantar). ' +
+              'Entre 16:01 e 16:59 não é permitido criar reservas nem lista de espera.'
+          });
+        }
       }
 
       // REGRA NOVA 2º GIRO (BISTRÔ) — APENAS Seu Justino (ID 1) e Pracinha (ID 8)
