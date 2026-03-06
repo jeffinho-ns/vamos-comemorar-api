@@ -16,8 +16,9 @@ const pool = new Pool({
 pool.on('connect', async (client) => {
   try {
     await client.query(`SET search_path TO meu_backup_db, public`);
+    await client.query(`SET timezone = 'America/Sao_Paulo'`);
   } catch (e) {
-    console.error('⚠️ Falha ao definir search_path:', e.message);
+    console.error('⚠️ Falha ao definir search_path/timezone:', e.message);
   }
 });
 
