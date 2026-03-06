@@ -6,7 +6,7 @@
  * (ou rode a migration via seu processo habitual)
  *
  * Grupo 1 - Apenas visualizar/validar (sem adicionar/editar reservas ou lista de espera):
- *   Recepcao@reservarooftop.com.br
+ *   recepcao@reservarooftop.com.br
  *   gerente.maitre@reservarooftop.com.br
  *   diego.gomes@reservarooftop.com.br
  * Acesso: Check-in, Sistema de Reservas (só check-in/check-out/alocar mesa), Detalhes Operacionais (visualizar), Scanner QR Code.
@@ -26,12 +26,13 @@
 const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
-const RESERVA_ROOFTOP_ESTABLISHMENT_ID = 9;
+// ID padrão do Reserva Rooftop; será sobrescrito se encontrado no banco
+const DEFAULT_RESERVA_ROOFTOP_ID = 9;
 const DEFAULT_PASSWORD = '@123Mudar';
 
 // Grupo 1: só validar check-in, check-out, alocar mesa. Não podem criar/editar reservas nem lista de espera.
 const USERS_VIEW_ONLY = [
-  { email: 'Recepcao@reservarooftop.com.br', name: 'Recepção Reserva Rooftop' },
+  { email: 'recepcao@reservarooftop.com.br', name: 'Recepção Reserva Rooftop' },
   { email: 'gerente.maitre@reservarooftop.com.br', name: 'Gerente Maitre Reserva Rooftop' },
   { email: 'diego.gomes@reservarooftop.com.br', name: 'Diego Gomes Reserva Rooftop' },
 ];
@@ -76,6 +77,19 @@ async function run() {
   const client = await pool.connect();
 
   try {
+    // Buscar ID do estabelecimento Reserva Rooftop
+    const placeResult = await client.query(
+      `SELECT id FROM places WHERE LOWER(name) LIKE '%reserva%rooftop%' OR LOWER(TRIM(name)) = 'reserva rooftop' LIMIT 1`
+    );
+    const RESERVA_ROOFTOP_ESTABLISHMENT_ID = placeResult.rows.length > 0
+      ? placeResult.rows[0].id
+      : DEFAULT_RESERVA_ROOFTOP_ID;
+    if (placeResult.rows.length === 0) {
+      console.warn(`⚠️ Estabelecimento Reserva Rooftop não encontrado por nome. Usando id ${DEFAULT_RESERVA_ROOFTOP_ID}.`);
+    } else {
+      console.log(`📍 Estabelecimento Reserva Rooftop: id ${RESERVA_ROOFTOP_ESTABLISHMENT_ID}`);
+    }
+
     // Verificar se a coluna can_create_edit_reservations existe
     const colCheck = await client.query(`
       SELECT column_name FROM information_schema.columns
@@ -109,10 +123,10 @@ async function run() {
       if (existing.rows.length > 0) {
         userId = existing.rows[0].id;
         await client.query(
-          `UPDATE users SET name = $1, password = $2, role = $3 WHERE id = $4`,
-          [u.name, hashedPassword, 'recepção', userId]
+          `UPDATE users SET name = $1, email = $2, password = $3, role = $4 WHERE id = $5`,
+          [u.name, emailNormalized, hashedPassword, 'recepção', userId]
         );
-        console.log(`✅ Usuário atualizado: ${u.email} (id ${userId}), role recepção`);
+        console.log(`✅ Usuário atualizado: ${u.email} (id ${userId}), email normalizado, role recepção`);
       } else {
         const placeholderCpf = `000000009${String(userIndex).padStart(2, '0')}`;
         const insertUser = await client.query(

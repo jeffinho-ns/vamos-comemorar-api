@@ -41,7 +41,7 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   router.get(
     '/',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter', 'recepção'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'recepção', 'recepcao', 'atendente'),
     (req, res) => controller.getEventos(req, res)
   );
 
@@ -53,7 +53,7 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   router.get(
     '/:eventoId',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter', 'recepção'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'recepção', 'recepcao', 'atendente'),
     (req, res) => controller.getEvento(req, res)
   );
 
@@ -149,7 +149,7 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   router.get(
     '/:eventoId/checkins',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'hostess', 'promoter', 'recepção'),
+    authorizeRoles('admin', 'gerente', 'hostess', 'promoter', 'recepção', 'recepcao', 'atendente'),
     (req, res) => controller.getCheckinsConsolidados(req, res)
   );
 
@@ -161,7 +161,7 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   router.put(
     '/checkin/:listaConvidadoId',
     authenticateToken,
-    authorizeRoles('admin', 'gerente', 'promoter', 'hostess', 'recepção'),
+    authorizeRoles('admin', 'gerente', 'promoter', 'hostess', 'recepção', 'recepcao', 'atendente'),
     (req, res) => controller.updateCheckin(req, res)
   );
 

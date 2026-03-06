@@ -8,7 +8,7 @@ const authorize = require('../middleware/authorize');
 module.exports = (pool) => {
   const router = express.Router();
 
-  const allowedRoles = ['admin', 'gerente', 'hostess', 'promoter', 'recepção', 'recepcao'];
+  const allowedRoles = ['admin', 'gerente', 'hostess', 'promoter', 'recepção', 'recepcao', 'atendente'];
 
   /**
    * GET /api/rooftop/conduction

@@ -302,9 +302,11 @@ module.exports = (pool, upload) => {
         console.log('Login - Password:', password);
 
         try {
+            // Login case-insensitive para email (e-mails são case-insensitive por RFC)
+            const accessTrimmed = (access && String(access).trim()) || '';
             const result = await pool.query(
-                'SELECT * FROM users WHERE email = $1 OR cpf = $2',
-                [access, access]
+                `SELECT * FROM users WHERE (LOWER(TRIM(email)) = LOWER($1) OR cpf = $2)`,
+                [accessTrimmed, accessTrimmed]
             );
             console.log('Login - Resultados da consulta:', result.rows);
 
