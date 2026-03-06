@@ -109,6 +109,7 @@ module.exports = (pool) => {
           can_manage_reservations: true,
           can_manage_checkins: true,
           can_view_reports: true,
+          can_create_edit_reservations: true,
           is_active: true
         }];
         console.log('✅ [my-permissions] Fallback analista.mkt03: restrita ao estabelecimento Pracinha do Seu Justino (id 8)');
@@ -193,6 +194,7 @@ module.exports = (pool) => {
         can_manage_reservations,
         can_manage_checkins,
         can_view_reports,
+        can_create_edit_reservations,
         is_active
       } = req.body;
       
@@ -225,9 +227,10 @@ module.exports = (pool) => {
           can_view_os, can_download_os, can_view_operational_detail,
           can_create_os, can_create_operational_detail,
           can_manage_reservations, can_manage_checkins, can_view_reports,
+          can_create_edit_reservations,
           is_active, created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
         ) RETURNING *
       `;
       
@@ -245,6 +248,7 @@ module.exports = (pool) => {
         can_manage_reservations || false,
         can_manage_checkins || false,
         can_view_reports || false,
+        can_create_edit_reservations !== undefined ? can_create_edit_reservations : true,
         is_active !== undefined ? is_active : true,
         req.user.id
       ];
@@ -320,6 +324,7 @@ module.exports = (pool) => {
         can_manage_reservations,
         can_manage_checkins,
         can_view_reports,
+        can_create_edit_reservations,
         is_active
       } = req.body;
       
@@ -331,7 +336,6 @@ module.exports = (pool) => {
       if (can_edit_operational_detail !== undefined && can_edit_operational_detail !== current.can_edit_operational_detail) {
         changes.can_edit_operational_detail = { from: current.can_edit_operational_detail, to: can_edit_operational_detail };
       }
-      // Adicionar outras mudanças...
       
       const updateQuery = `
         UPDATE user_establishment_permissions SET
@@ -345,10 +349,11 @@ module.exports = (pool) => {
           can_manage_reservations = COALESCE($8, can_manage_reservations),
           can_manage_checkins = COALESCE($9, can_manage_checkins),
           can_view_reports = COALESCE($10, can_view_reports),
-          is_active = COALESCE($11, is_active),
-          updated_by = $12,
+          can_create_edit_reservations = COALESCE($11, can_create_edit_reservations),
+          is_active = COALESCE($12, is_active),
+          updated_by = $13,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $13
+        WHERE id = $14
         RETURNING *
       `;
       
@@ -363,6 +368,7 @@ module.exports = (pool) => {
         can_manage_reservations,
         can_manage_checkins,
         can_view_reports,
+        can_create_edit_reservations,
         is_active,
         req.user.id,
         id

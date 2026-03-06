@@ -1724,6 +1724,19 @@ class EventosController {
       }
       
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        const isReservaRooftop = Number(eventoInfo.establishment_id) === 9;
+        let dateStart = eventoInfo.data_evento;
+        let dateEnd = eventoInfo.data_evento;
+        if (isReservaRooftop) {
+          const d = new Date(eventoInfo.data_evento + 'T12:00:00');
+          const start = new Date(d);
+          start.setDate(start.getDate() - 7);
+          const end = new Date(d);
+          end.setDate(end.getDate() + 30);
+          dateStart = start.toISOString().split('T')[0];
+          dateEnd = end.toISOString().split('T')[0];
+          console.log('📅 Reserva Rooftop: buscando múltiplos dias', { dateStart, dateEnd });
+        }
         console.log('✅ Condições satisfeitas! Buscando guest lists...');
         console.log('🔍 Buscando guest lists para evento:', {
           evento_id: eventoId,
@@ -1735,6 +1748,9 @@ class EventosController {
           // Busca tanto listas vinculadas a restaurant_reservations quanto a large_reservations
           // Tenta filtrar por evento_id se a coluna existir, caso contrário usa filtro tradicional
           let guestListsResult = [];
+          const guestListDateParams = isReservaRooftop
+            ? [eventoInfo.establishment_id, dateStart, dateEnd]
+            : [eventoInfo.establishment_id, eventoInfo.data_evento];
           
           try {
             console.log('📝 Tentando buscar guest lists com filtro de evento_id...');
@@ -1805,9 +1821,9 @@ class EventosController {
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
-              AND rr.reservation_date::DATE = $2::DATE
+              AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, rr.notes, u.name, ra.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            `, guestListDateParams);
             console.log(`✅ Encontradas ${resultRestaurant.rows.length} guest lists de restaurant_reservations`);
             
             // DEBUG ESPECÍFICO: Verificar se há reservas no banco para este estabelecimento/data
@@ -1820,8 +1836,8 @@ class EventosController {
                 FROM restaurant_reservations rr
                 LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
                 WHERE rr.establishment_id = $1
-                AND rr.reservation_date::DATE = $2::DATE
-              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+                AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
+              `, guestListDateParams);
               
               console.log('🔍 [DEBUG] Diagnóstico de reservas:', {
                 establishment_id: eventoInfo.establishment_id,
@@ -1838,10 +1854,10 @@ class EventosController {
                   FROM restaurant_reservations rr
                   LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
                   WHERE rr.establishment_id = $1
-                  AND rr.reservation_date::DATE = $2::DATE
+                  AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
                   AND gl.id IS NULL
                   LIMIT 5
-                `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+                `, guestListDateParams);
                 
                 console.log('📋 [DEBUG] Exemplos de reservas sem guest_list:', reservasSemGuestList.rows);
               }
@@ -1851,13 +1867,13 @@ class EventosController {
             const debugLargeReservations = await this.pool.query(`
               SELECT 
                 COUNT(*) as total_reservations,
-                COUNT(CASE WHEN evento_id = $3 THEN 1 END) as vinculadas_ao_evento,
+                COUNT(CASE WHEN evento_id = ${isReservaRooftop ? '$4' : '$3'} THEN 1 END) as vinculadas_ao_evento,
                 COUNT(CASE WHEN evento_id IS NULL THEN 1 END) as sem_evento,
-                COUNT(CASE WHEN evento_id IS NOT NULL AND evento_id != $3 THEN 1 END) as vinculadas_outro_evento
+                COUNT(CASE WHEN evento_id IS NOT NULL AND evento_id != ${isReservaRooftop ? '$4' : '$3'} THEN 1 END) as vinculadas_outro_evento
               FROM large_reservations
               WHERE establishment_id = $1
-              AND reservation_date::DATE = $2::DATE
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+              AND (${isReservaRooftop ? 'reservation_date::DATE >= $2::DATE AND reservation_date::DATE <= $3::DATE' : 'reservation_date::DATE = $2::DATE'})
+            `, isReservaRooftop ? [...guestListDateParams, eventoId] : [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log('🔍 DEBUG - Status das large_reservations:', debugLargeReservations.rows[0]);
             
             // DEBUG: Verificar quantas large_reservations têm guest_lists
@@ -1868,9 +1884,9 @@ class EventosController {
               FROM large_reservations lr
               LEFT JOIN guest_lists gl ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
               WHERE lr.establishment_id = $1
-              AND lr.reservation_date::DATE = $2::DATE
-              AND lr.evento_id = $3
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+              AND (${isReservaRooftop ? 'lr.reservation_date::DATE >= $2::DATE AND lr.reservation_date::DATE <= $3::DATE' : 'lr.reservation_date::DATE = $2::DATE'})
+              AND lr.evento_id = ${isReservaRooftop ? '$4' : '$3'}
+            `, isReservaRooftop ? [...guestListDateParams, eventoId] : [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
             console.log('🔍 DEBUG - Guest lists de large_reservations disponíveis:', debugLargeGuestLists.rows[0]);
             
             // Query para listas vinculadas a large_reservations (listas criadas sem reserva de restaurante)
@@ -1910,9 +1926,9 @@ class EventosController {
               LEFT JOIN users u ON lr.created_by = u.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
-              AND lr.reservation_date::DATE = $2::DATE
+              AND (${isReservaRooftop ? 'lr.reservation_date::DATE >= $2::DATE AND lr.reservation_date::DATE <= $3::DATE' : 'lr.reservation_date::DATE = $2::DATE'})
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            `, guestListDateParams);
             console.log(`✅ Encontradas ${resultLarge.rows.length} guest lists de large_reservations`);
             
             // DEBUG ESPECÍFICO: Verificar se há large_reservations no banco
@@ -1925,8 +1941,8 @@ class EventosController {
                 FROM large_reservations lr
                 LEFT JOIN guest_lists gl ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
                 WHERE lr.establishment_id = $1
-                AND lr.reservation_date::DATE = $2::DATE
-              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+                AND (${isReservaRooftop ? 'lr.reservation_date::DATE >= $2::DATE AND lr.reservation_date::DATE <= $3::DATE' : 'lr.reservation_date::DATE = $2::DATE'})
+              `, guestListDateParams);
               
               console.log('🔍 [DEBUG] Diagnóstico de large_reservations:', {
                 establishment_id: eventoInfo.establishment_id,
@@ -1993,9 +2009,9 @@ class EventosController {
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE rr.establishment_id = $1
-              AND rr.reservation_date::DATE = $2::DATE
+              AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, rr.client_name, rr.id, rr.reservation_date, rr.reservation_time, rr.number_of_people, rr.origin, rr.table_number, rr.checked_in, rr.checkin_time, rr.status, rr.notes, u.name, ra.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            `, guestListDateParams);
             
             // Query para large_reservations (sem filtro de evento_id)
             const resultLarge = await this.pool.query(`
@@ -2028,9 +2044,9 @@ class EventosController {
               LEFT JOIN users u ON lr.created_by = u.id
               LEFT JOIN guests g ON gl.id = g.guest_list_id
               WHERE lr.establishment_id = $1
-              AND lr.reservation_date::DATE = $2::DATE
+              AND (${isReservaRooftop ? 'lr.reservation_date::DATE >= $2::DATE AND lr.reservation_date::DATE <= $3::DATE' : 'lr.reservation_date::DATE = $2::DATE'})
               GROUP BY gl.id, gl.reservation_type, gl.event_type, gl.shareable_link_token, gl.expires_at, gl.owner_checked_in, gl.owner_checkin_time, lr.client_name, lr.id, lr.reservation_date, lr.reservation_time, lr.number_of_people, lr.origin, lr.status, lr.check_in_time, u.name
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+            `, guestListDateParams);
             
             // Combinar resultados
             guestListsResult = [...resultRestaurant.rows, ...resultLarge.rows];
@@ -2061,15 +2077,15 @@ class EventosController {
             console.log('⚠️ [DEBUG] Nenhuma guest list encontrada. Verificando dados no banco...');
             const totalCheck = await this.pool.query(`
               SELECT 
-                (SELECT COUNT(*) FROM restaurant_reservations WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE) as total_restaurant,
-                (SELECT COUNT(*) FROM large_reservations WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE) as total_large,
+                (SELECT COUNT(*) FROM restaurant_reservations WHERE establishment_id = $1 AND (${isReservaRooftop ? 'reservation_date::DATE >= $2::DATE AND reservation_date::DATE <= $3::DATE' : 'reservation_date::DATE = $2::DATE'})) as total_restaurant,
+                (SELECT COUNT(*) FROM large_reservations WHERE establishment_id = $1 AND (${isReservaRooftop ? 'reservation_date::DATE >= $2::DATE AND reservation_date::DATE <= $3::DATE' : 'reservation_date::DATE = $2::DATE'})) as total_large,
                 (SELECT COUNT(*) FROM guest_lists gl 
                  INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-                 WHERE rr.establishment_id = $1 AND rr.reservation_date::DATE = $2::DATE) as guest_lists_restaurant,
+                 WHERE rr.establishment_id = $1 AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})) as guest_lists_restaurant,
                 (SELECT COUNT(*) FROM guest_lists gl 
                  INNER JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
-                 WHERE lr.establishment_id = $1 AND lr.reservation_date::DATE = $2::DATE) as guest_lists_large
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+                 WHERE lr.establishment_id = $1 AND (${isReservaRooftop ? 'lr.reservation_date::DATE >= $2::DATE AND lr.reservation_date::DATE <= $3::DATE' : 'lr.reservation_date::DATE = $2::DATE'})) as guest_lists_large
+            `, guestListDateParams);
             
             console.log('📊 [DEBUG] Resumo completo do banco:', totalCheck.rows[0]);
           }
@@ -2092,8 +2108,8 @@ class EventosController {
               SELECT COUNT(*) as total
               FROM restaurant_reservations
               WHERE establishment_id = $1
-              AND reservation_date::DATE = $2::DATE
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              AND (${isReservaRooftop ? 'reservation_date::DATE >= $2::DATE AND reservation_date::DATE <= $3::DATE' : 'reservation_date::DATE = $2::DATE'})
+            `, guestListDateParams);
             console.log('📊 Total de reservas no banco:', checkReservations.rows[0]?.total || 0);
             
             const checkGuestLists = await this.pool.query(`
@@ -2101,12 +2117,15 @@ class EventosController {
               FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               WHERE rr.establishment_id = $1
-              AND rr.reservation_date::DATE = $2::DATE
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
+            `, guestListDateParams);
             console.log('📊 Total de guest lists no banco:', checkGuestLists.rows[0]?.total || 0);
           }
           
           // Buscar também reservas de restaurante SEM guest list (reservas simples)
+          const reservasDateParamsMain = isReservaRooftop
+            ? [eventoInfo.establishment_id, dateStart, dateEnd, eventoId]
+            : [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId];
           let reservasSemGuestList = [];
           try {
             const reservasSemGuestListResult = await this.pool.query(`
@@ -2134,11 +2153,11 @@ class EventosController {
               LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
               LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
               WHERE rr.establishment_id = $1
-              AND rr.reservation_date::DATE = $2::DATE
+              AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
               AND gl.id IS NULL
-              AND (rr.evento_id = $3 OR rr.evento_id IS NULL OR rr.evento_id = 0)
+              AND (rr.evento_id = ${isReservaRooftop ? '$4' : '$3'} OR rr.evento_id IS NULL OR rr.evento_id = 0)
               ORDER BY rr.reservation_time ASC
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento, eventoId]);
+            `, reservasDateParamsMain);
             
             reservasSemGuestList = reservasSemGuestListResult.rows;
             console.log(`✅ Reservas de restaurante SEM guest list encontradas: ${reservasSemGuestList.length}`);
@@ -2198,11 +2217,11 @@ class EventosController {
                 LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
                 LEFT JOIN guest_lists gl ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
                 WHERE rr.establishment_id = $1
-                AND rr.reservation_date::DATE = $2::DATE
+                AND (${isReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
                 AND gl.id IS NULL
                 AND (rr.status NOT IN ('cancelled', 'CANCELADA') OR rr.status IS NULL)
                 ORDER BY rr.reservation_time ASC
-              `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              `, guestListDateParams);
               
               reservasSemGuestList = reservasSemGuestListResult.rows;
               console.log(`✅ Reservas de restaurante SEM guest list encontradas (sem filtro evento_id): ${reservasSemGuestList.length}`);
@@ -2293,6 +2312,21 @@ class EventosController {
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
       let convidadosReservasRestaurante = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
+        const convIsReservaRooftop = Number(eventoInfo.establishment_id) === 9;
+        let convDateStart = eventoInfo.data_evento;
+        let convDateEnd = eventoInfo.data_evento;
+        if (convIsReservaRooftop) {
+          const d = new Date(eventoInfo.data_evento + 'T12:00:00');
+          const start = new Date(d);
+          start.setDate(start.getDate() - 7);
+          const end = new Date(d);
+          end.setDate(end.getDate() + 30);
+          convDateStart = start.toISOString().split('T')[0];
+          convDateEnd = end.toISOString().split('T')[0];
+        }
+        const convidadosDateParams = convIsReservaRooftop
+          ? [eventoInfo.establishment_id, convDateStart, convDateEnd]
+          : [eventoInfo.establishment_id, eventoInfo.data_evento];
         try {
           console.log('🔍 Buscando convidados de reservas restaurante:', {
             establishment_id: eventoInfo.establishment_id,
@@ -2317,9 +2351,9 @@ class EventosController {
             INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
             INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
             WHERE rr.establishment_id = $1
-            AND rr.reservation_date::DATE = $2::DATE
+            AND (${convIsReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
             ORDER BY g.name ASC
-          `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+          `, convidadosDateParams);
           
           convidadosReservasRestaurante = convidadosReservasRestauranteResult.rows;
           console.log(`✅ Convidados de reservas restaurante encontrados: ${convidadosReservasRestaurante.length}`);
@@ -2330,16 +2364,16 @@ class EventosController {
             // Debug: verificar se há reservas no establishment/date
             const reservasDebugResult = await this.pool.query(`
               SELECT COUNT(*) as total FROM restaurant_reservations 
-              WHERE establishment_id = $1 AND reservation_date::DATE = $2::DATE
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              WHERE establishment_id = $1 AND (${convIsReservaRooftop ? 'reservation_date::DATE >= $2::DATE AND reservation_date::DATE <= $3::DATE' : 'reservation_date::DATE = $2::DATE'})
+            `, convidadosDateParams);
             console.log('🔍 Reservas no establishment/date:', reservasDebugResult.rows[0]?.total || 0);
             
             // Debug: verificar se há guest_lists para essas reservas
             const guestListsDebugResult = await this.pool.query(`
               SELECT COUNT(*) as total FROM guest_lists gl
               INNER JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
-              WHERE rr.establishment_id = $1 AND rr.reservation_date::DATE = $2::DATE
-            `, [eventoInfo.establishment_id, eventoInfo.data_evento]);
+              WHERE rr.establishment_id = $1 AND (${convIsReservaRooftop ? 'rr.reservation_date::DATE >= $2::DATE AND rr.reservation_date::DATE <= $3::DATE' : 'rr.reservation_date::DATE = $2::DATE'})
+            `, convidadosDateParams);
             console.log('🔍 Guest lists encontradas:', guestListsDebugResult.rows[0]?.total || 0);
           }
         } catch (err) {
