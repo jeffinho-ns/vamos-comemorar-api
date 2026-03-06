@@ -503,6 +503,10 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         console.warn(`⚠️ Convidado ${id} não tem guest_list_id associado. Pulando verificação de brindes.`);
       }
 
+      const checkinTimeIso = savedCheckinTime
+        ? (savedCheckinTime instanceof Date ? savedCheckinTime : new Date(savedCheckinTime)).toISOString()
+        : new Date().toISOString();
+
       res.json({
         success: true,
         message: 'Check-in do convidado confirmado com sucesso',
@@ -510,7 +514,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           id: guest.id,
           name: guest.name,
           checked_in: true,
-          checkin_time: new Date().toISOString(),
+          checkin_time: checkinTimeIso,
           entrada_tipo: entrada_tipo || null,
           entrada_valor: entrada_valor || null
         },
@@ -919,13 +923,19 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         });
       }
 
-      // Atualizar check-in do dono
-      await pool.query(
+      // Atualizar check-in do dono e obter o horário exato gravado (para giro correto)
+      const updateResult = await pool.query(
         `UPDATE guest_lists 
          SET owner_checked_in = TRUE, owner_checkin_time = CURRENT_TIMESTAMP 
-         WHERE id = $1`,
+         WHERE id = $1
+         RETURNING owner_checkin_time`,
         [id]
       );
+
+      const savedTime = updateResult.rows[0]?.owner_checkin_time;
+      const ownerCheckinTimeIso = savedTime
+        ? (savedTime instanceof Date ? savedTime : new Date(savedTime)).toISOString()
+        : new Date().toISOString();
 
       console.log(`✅ Check-in do dono confirmado: ${guestList.owner_name} (Guest List ID: ${id})`);
 
@@ -942,7 +952,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           id: id,
           owner_name: guestList.owner_name,
           owner_checked_in: true,
-          owner_checkin_time: new Date().toISOString()
+          owner_checkin_time: ownerCheckinTimeIso
         }
       });
 
