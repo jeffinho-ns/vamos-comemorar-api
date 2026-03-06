@@ -456,21 +456,24 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       // Atualizar check-in do convidado com tipo e valor de entrada
       // PostgreSQL usa TRUE/FALSE, não 1/0
       // Verificar se as colunas entrada_tipo e entrada_valor existem antes de usar
+      let savedCheckinTime = null;
       let updateQuery;
       let updateParams;
-      
+
       try {
         // Tentar atualizar com entrada_tipo e entrada_valor (colunas podem não existir em versões antigas)
-        updateQuery = 'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = $1, entrada_valor = $2 WHERE id = $3';
+        updateQuery = 'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP, entrada_tipo = $1, entrada_valor = $2 WHERE id = $3 RETURNING checkin_time';
         updateParams = [entrada_tipo || null, entrada_valor || null, id];
-        await pool.query(updateQuery, updateParams);
+        const updateResult = await pool.query(updateQuery, updateParams);
+        savedCheckinTime = updateResult.rows[0]?.checkin_time;
       } catch (updateError) {
         // Se der erro (coluna não existe), tentar sem essas colunas
         if (updateError.code === '42703' || updateError.message.includes('entrada_tipo') || updateError.message.includes('entrada_valor')) {
           console.warn('⚠️ Colunas entrada_tipo/entrada_valor não existem, atualizando sem elas...');
-          updateQuery = 'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP WHERE id = $1';
+          updateQuery = 'UPDATE guests SET checked_in = TRUE, checkin_time = CURRENT_TIMESTAMP WHERE id = $1 RETURNING checkin_time';
           updateParams = [id];
-          await pool.query(updateQuery, updateParams);
+          const updateResult = await pool.query(updateQuery, updateParams);
+          savedCheckinTime = updateResult.rows[0]?.checkin_time;
         } else {
           throw updateError; // Re-throw se for outro erro
         }
