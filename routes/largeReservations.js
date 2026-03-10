@@ -177,7 +177,102 @@ module.exports = (pool) => {
    * @desc    Cria uma nova reserva grande
    * @access  Private
    */
- router.post('/', async (req, res) => {
+  // Helper: verifica bloqueios de agenda para reservas grandes
+  const checkReservationBlocks = async ({
+    establishmentIdNumber,
+    areaIdNumber,
+    reservation_date,
+    reservation_time,
+    number_of_people,
+  }) => {
+    if (!reservation_date || !reservation_time || !establishmentIdNumber) {
+      return null;
+    }
+
+    const reservationDateTime = `${reservation_date}T${String(
+      reservation_time,
+    ).substring(0, 8)}`;
+
+    // 1) Bloqueios de intervalo direto
+    const blocksResult = await pool.query(
+      `
+      SELECT *
+      FROM restaurant_reservation_blocks
+      WHERE establishment_id = $1
+        AND (area_id IS NULL OR area_id = $2)
+        AND start_datetime <= $3
+        AND end_datetime   >= $3
+      `,
+      [establishmentIdNumber, areaIdNumber || null, reservationDateTime],
+    );
+
+    let activeBlock = blocksResult.rows[0] || null;
+
+    // 2) Bloqueios recorrentes semanais (por dia da semana)
+    if (!activeBlock) {
+      const weekday = new Date(reservation_date + 'T00:00:00').getDay();
+      const recResult = await pool.query(
+        `
+        SELECT *
+        FROM restaurant_reservation_blocks
+        WHERE establishment_id = $1
+          AND (area_id IS NULL OR area_id = $2)
+          AND recurrence_type = 'weekly'
+          AND recurrence_weekday = $3
+        `,
+        [establishmentIdNumber, areaIdNumber || null, weekday],
+      );
+      activeBlock = recResult.rows[0] || null;
+    }
+
+    if (!activeBlock) return null;
+
+    // Bloqueio total
+    if (activeBlock.max_people_capacity == null) {
+      return {
+        type: 'full',
+        reason:
+          activeBlock.reason ||
+          'Este período está bloqueado para novas reservas. Por favor, escolha outro dia/horário.',
+      };
+    }
+
+    // Bloqueio parcial: checar capacidade máxima de pessoas considerando
+    // restaurant_reservations + large_reservations
+    const capResult = await pool.query(
+      `
+      SELECT COALESCE(SUM(number_of_people), 0)::int AS total_people
+      FROM (
+        SELECT reservation_date, establishment_id, area_id, number_of_people, status
+        FROM restaurant_reservations
+        UNION ALL
+        SELECT reservation_date, establishment_id, area_id, number_of_people, status
+        FROM large_reservations
+      ) t
+      WHERE reservation_date = $1
+        AND establishment_id = $2
+        AND (area_id = $3 OR $3 IS NULL)
+        AND status IN ('confirmed', 'checked-in', 'seated', 'NOVA')
+      `,
+      [reservation_date, establishmentIdNumber, areaIdNumber || null],
+    );
+
+    const currentPeople = parseInt(capResult.rows[0].total_people, 10) || 0;
+    const newPeople = Number(number_of_people) || 0;
+
+    if (currentPeople + newPeople > activeBlock.max_people_capacity) {
+      return {
+        type: 'partial',
+        reason:
+          'Este horário está com capacidade reduzida e já atingiu o limite de pessoas permitido. ' +
+          'Por favor, escolha outro horário ou data.',
+      };
+    }
+
+    return null;
+  };
+
+  router.post('/', async (req, res) => {
     try {
       console.log('📥 Dados recebidos na API de reservas grandes:', JSON.stringify(req.body, null, 2));
 
@@ -222,6 +317,23 @@ module.exports = (pool) => {
         return res.status(400).json({ 
           success: false, 
           error: 'establishment_id deve ser um número válido.' 
+        });
+      }
+
+      // Verificar bloqueios de agenda antes de inserir
+      const areaIdNumber = area_id ? Number(area_id) : null;
+      const blockInfo = await checkReservationBlocks({
+        establishmentIdNumber,
+        areaIdNumber,
+        reservation_date,
+        reservation_time,
+        number_of_people,
+      });
+
+      if (blockInfo) {
+        return res.status(400).json({
+          success: false,
+          error: blockInfo.reason,
         });
       }
 
