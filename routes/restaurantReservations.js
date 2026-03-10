@@ -564,6 +564,85 @@ module.exports = (pool) => {
         });
       }
 
+      // 🔒 Verificar bloqueios de agenda (bloqueio total ou capacidade parcial)
+      if (reservation_date && reservation_time && establishmentIdNumber && areaIdNumber) {
+        try {
+          const reservationDateTime = `${reservation_date}T${String(reservation_time).substring(0, 8)}`;
+
+          // Bloqueios de intervalo direto
+          const blocksResult = await pool.query(
+            `
+            SELECT *
+            FROM restaurant_reservation_blocks
+            WHERE establishment_id = $1
+              AND (area_id IS NULL OR area_id = $2)
+              AND start_datetime <= $3
+              AND end_datetime   >= $3
+            `,
+            [establishmentIdNumber, areaIdNumber, reservationDateTime]
+          );
+
+          let activeBlock = blocksResult.rows[0] || null;
+
+          // Bloqueios recorrentes semanais (por dia da semana)
+          if (!activeBlock) {
+            const weekday = new Date(reservation_date + 'T00:00:00').getDay();
+            const recResult = await pool.query(
+              `
+              SELECT *
+              FROM restaurant_reservation_blocks
+              WHERE establishment_id = $1
+                AND (area_id IS NULL OR area_id = $2)
+                AND recurrence_type = 'weekly'
+                AND recurrence_weekday = $3
+              `,
+              [establishmentIdNumber, areaIdNumber, weekday]
+            );
+            activeBlock = recResult.rows[0] || null;
+          }
+
+          if (activeBlock) {
+            if (activeBlock.max_people_capacity != null) {
+              // Bloqueio parcial: limitar capacidade máxima de pessoas
+              const capResult = await pool.query(
+                `
+                SELECT COALESCE(SUM(number_of_people), 0)::int AS total_people
+                FROM restaurant_reservations
+                WHERE reservation_date = $1
+                  AND establishment_id = $2
+                  AND area_id = $3
+                  AND status IN ('confirmed', 'checked-in', 'seated')
+                `,
+                [reservation_date, establishmentIdNumber, areaIdNumber]
+              );
+
+              const currentPeople = parseInt(capResult.rows[0].total_people, 10) || 0;
+              const newPeople = numberOfPeople;
+
+              if (currentPeople + newPeople > activeBlock.max_people_capacity) {
+                return res.status(400).json({
+                  success: false,
+                  error:
+                    'Este horário está com capacidade reduzida e já atingiu o limite de pessoas permitido. ' +
+                    'Por favor, escolha outro horário ou data.',
+                });
+              }
+            } else {
+              // Bloqueio total
+              return res.status(400).json({
+                success: false,
+                error:
+                  activeBlock.reason ||
+                  'Este período está bloqueado para novas reservas. Por favor, escolha outro dia/horário.',
+              });
+            }
+          }
+        } catch (blockError) {
+          console.error('⚠️ Erro ao verificar bloqueios de agenda:', blockError);
+          // Em caso de erro na verificação, não bloquear a criação (fallback seguro)
+        }
+      }
+
       // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
       // Conta apenas reservas ativas (ignora canceladas, concluídas e no-show)
       if (establishmentIdNumber === 9 && reservation_date) {
