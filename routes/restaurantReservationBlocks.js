@@ -34,7 +34,10 @@ module.exports = (pool) => {
   };
 
   // Lista bloqueios com filtros opcionais
-  router.get('/', authenticateToken, async (req, res) => {
+  // IMPORTANTE: rota pública (sem autenticação) para permitir que o frontend
+  // da página /reservar oculte horários bloqueados. Os dados expostos aqui
+  // não incluem informações sensíveis de usuário.
+  router.get('/', async (req, res) => {
     try {
       const { establishment_id, date } = req.query;
       const params = [];
