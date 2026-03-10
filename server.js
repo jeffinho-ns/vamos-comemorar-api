@@ -118,6 +118,7 @@ const checkinsSelfValidateRoutes = require('./routes/checkinsSelfValidate');
 const executiveEventsRoutes = require('./routes/executiveEvents');
 const establishmentPermissionsRoutes = require('./routes/establishmentPermissions');
 const rooftopConductionRoutes = require('./routes/rooftopConduction');
+const relatoriosRoutes = require('./routes/relatorios')(pool);
 
 
 // Usando as Rotas
@@ -179,6 +180,7 @@ app.use('/api/executive-events', executiveEventsRoutes(pool));
 app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
 // Condução Fluxo Rooftop (GET/POST /api/rooftop/conduction)
 app.use('/api/rooftop', rooftopConductionRoutes(pool));
+app.use('/api/relatorios', relatoriosRoutes);
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
