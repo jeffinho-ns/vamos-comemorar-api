@@ -309,7 +309,7 @@ module.exports = (pool) => {
    */
   router.post('/', auth, async (req, res) => {
     try {
-      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit } = req.body;
+      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada } = req.body;
 
       if (!establishment_id || !descricao || !checkins_necessarios) {
         return res.status(400).json({ 
@@ -326,16 +326,17 @@ module.exports = (pool) => {
 
       const vipMLimit = typeof vip_m_limit === 'number' ? vip_m_limit : (parseInt(vip_m_limit, 10) || 0);
       const vipFLimit = typeof vip_f_limit === 'number' ? vip_f_limit : (parseInt(vip_f_limit, 10) || 0);
+      const valorEntrada = typeof valor_entrada === 'number' ? valor_entrada : (parseFloat(valor_entrada) || 0);
 
       let result;
       try {
         result = await pool.query(`
-          INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           RETURNING *
         `, [
           establishment_id, evento_id || null, descricao, parseInt(checkins_necessarios), status || 'ATIVA',
-          beneficiario, promoterIdValue, vipMLimit, vipFLimit
+          beneficiario, promoterIdValue, vipMLimit, vipFLimit, valorEntrada
         ]);
       } catch (insertErr) {
         if (insertErr.code === '42703') {
@@ -349,6 +350,7 @@ module.exports = (pool) => {
           ]);
           result.rows[0].vip_m_limit = vipMLimit;
           result.rows[0].vip_f_limit = vipFLimit;
+          result.rows[0].valor_entrada = valorEntrada;
         } else {
           throw insertErr;
         }
@@ -381,7 +383,7 @@ module.exports = (pool) => {
   router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit } = req.body;
+      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada } = req.body;
 
       const updates = [];
       const params = [];
@@ -429,6 +431,11 @@ module.exports = (pool) => {
       if (vip_f_limit !== undefined) {
         updates.push(`vip_f_limit = $${paramIndex++}`);
         params.push(typeof vip_f_limit === 'number' ? vip_f_limit : (parseInt(vip_f_limit, 10) || 0));
+      }
+
+      if (valor_entrada !== undefined) {
+        updates.push(`valor_entrada = $${paramIndex++}`);
+        params.push(typeof valor_entrada === 'number' ? valor_entrada : (parseFloat(valor_entrada) || 0));
       }
 
       if (updates.length === 0) {

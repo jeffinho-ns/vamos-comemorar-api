@@ -1619,7 +1619,39 @@ class EventosController {
         // Retornar array vazio em caso de erro para não quebrar o endpoint
         listasPromotersResult = { rows: [] };
       }
-      
+
+      // 4.1. Enriquecer convidados de promoters com valor_entrada da regra de brinde (para modal de check-in)
+      if (listasPromotersResult.rows.length > 0 && eventoInfo.establishment_id) {
+        try {
+          const rulesResult = await this.pool.query(`
+            SELECT id, promoter_id, COALESCE(valor_entrada, 0)::NUMERIC as valor_entrada
+            FROM gift_rules
+            WHERE establishment_id = $1
+              AND tipo_beneficiario = 'PROMOTER'
+              AND status = 'ATIVA'
+              AND (evento_id = $2 OR evento_id IS NULL)
+            ORDER BY CASE WHEN promoter_id IS NOT NULL THEN 0 ELSE 1 END, id ASC
+          `, [eventoInfo.establishment_id, eventoId || null]);
+          const rules = rulesResult.rows || [];
+          const byPromoter = new Map();
+          const generalRules = [];
+          rules.forEach((r) => {
+            if (r.promoter_id != null) byPromoter.set(Number(r.promoter_id), parseFloat(r.valor_entrada) || 0);
+            else generalRules.push(parseFloat(r.valor_entrada) || 0);
+          });
+          const defaultValor = generalRules.length > 0 ? generalRules[0] : 0;
+          listasPromotersResult.rows.forEach((row) => {
+            const promoterId = row.promoter_id != null ? Number(row.promoter_id) : null;
+            row.valor_entrada_regra = promoterId != null && byPromoter.has(promoterId)
+              ? byPromoter.get(promoterId)
+              : defaultValor;
+          });
+        } catch (err) {
+          if (err.code !== '42703') console.error('Erro ao buscar valor_entrada das regras:', err.message);
+          listasPromotersResult.rows.forEach((row) => { row.valor_entrada_regra = 0; });
+        }
+      }
+
       // 5. Buscar promoters vinculados ao evento
       const promotersResult = await this.pool.query(`
         SELECT
