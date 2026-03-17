@@ -1,0 +1,1199 @@
+{
+  "evento": {
+    "id": 98,
+    "nome": "Xic Hop",
+    "data": "2026-02-27",
+    "detalhes": {
+      "id": "98",
+      "nome_do_evento": "Xic Hop",
+      "data_do_evento": "2026-02-27T08:00:00.000Z",
+      "hora_do_evento": "18:00:00",
+      "tipo_evento": "unico",
+      "casa_do_evento": "HighLine"
+    }
+  },
+  "gerado_em": "2026-03-10T01:39:18.533Z",
+  "resumo": {
+    "total_pessoas_na_lista": 276,
+    "total_checkins": 119,
+    "total_pendentes": 153,
+    "total_noshow": 4,
+    "taxa_checkin_pct": 43,
+    "total_listas": 8
+  },
+  "por_promoter": [
+    {
+      "promoter_nome": "Jefferson Lima",
+      "promoter_email": "jeffersonlima@ideiaum.com.br",
+      "listas": [
+        "Lista de Jefferson Lima"
+      ],
+      "total_na_lista": 2,
+      "total_checkins": 1,
+      "total_pendentes": 1,
+      "total_noshow": 0,
+      "taxa_checkin_pct": 50
+    },
+    {
+      "promoter_nome": "Nina",
+      "promoter_email": "ninaa.gdc@gmail.com",
+      "listas": [
+        "Lista de Nina"
+      ],
+      "total_na_lista": 122,
+      "total_checkins": 53,
+      "total_pendentes": 67,
+      "total_noshow": 2,
+      "taxa_checkin_pct": 43
+    },
+    {
+      "promoter_nome": "Michele",
+      "promoter_email": "michelealinep27@gmail.com",
+      "listas": [
+        "Lista de Michele"
+      ],
+      "total_na_lista": 60,
+      "total_checkins": 37,
+      "total_pendentes": 23,
+      "total_noshow": 0,
+      "taxa_checkin_pct": 62
+    },
+    {
+      "promoter_nome": "CIAO",
+      "promoter_email": "io.ciao@gmail.com",
+      "listas": [
+        "Lista de Caio"
+      ],
+      "total_na_lista": 49,
+      "total_checkins": 17,
+      "total_pendentes": 30,
+      "total_noshow": 2,
+      "taxa_checkin_pct": 35
+    },
+    {
+      "promoter_nome": "Marília",
+      "promoter_email": "contactmariliaviana@gmail.com",
+      "listas": [
+        "Lista de Marília"
+      ],
+      "total_na_lista": 6,
+      "total_checkins": 4,
+      "total_pendentes": 2,
+      "total_noshow": 0,
+      "taxa_checkin_pct": 67
+    },
+    {
+      "promoter_nome": "Highline",
+      "promoter_email": "rreservas@highlinebar.com.br",
+      "listas": [
+        "Lista de Highline"
+      ],
+      "total_na_lista": 22,
+      "total_checkins": 1,
+      "total_pendentes": 21,
+      "total_noshow": 0,
+      "taxa_checkin_pct": 5
+    },
+    {
+      "promoter_nome": "Carolyne",
+      "promoter_email": "carolynemoura07@gmail.com",
+      "listas": [
+        "Lista de Carolyne"
+      ],
+      "total_na_lista": 15,
+      "total_checkins": 6,
+      "total_pendentes": 9,
+      "total_noshow": 0,
+      "taxa_checkin_pct": 40
+    }
+  ],
+  "duplicidades": [
+    {
+      "lista": "Lista de Michele",
+      "promoter": "Michele",
+      "duplicados": [
+        {
+          "nome": "julia lazzarini",
+          "quantidade": 3
+        }
+      ]
+    },
+    {
+      "lista": "Lista de Nina",
+      "promoter": "Nina",
+      "duplicados": [
+        {
+          "nome": "carla giseli passos da silva",
+          "quantidade": 2
+        }
+      ]
+    }
+  ],
+  "vip_noite_toda": [
+    {
+      "nome": "Jeff",
+      "promoter": "Jefferson Lima",
+      "lista": "Lista de Jefferson Lima",
+      "data_checkin": "26/02/2026, 02:48"
+    },
+    {
+      "nome": "Jessica Rodrigues do Nascimento",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 21:56"
+    },
+    {
+      "nome": "João Dhemerson Alves Farias",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "27/02/2026, 22:28"
+    },
+    {
+      "nome": "Larissa Cristina da Silva",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "27/02/2026, 22:29"
+    },
+    {
+      "nome": "Alexandra Kaun Dohs Silva",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "27/02/2026, 22:30"
+    },
+    {
+      "nome": "Hugo favaro",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 22:44"
+    },
+    {
+      "nome": "Geovanna zucchi",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 22:51"
+    },
+    {
+      "nome": "Jossema Joseph",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "27/02/2026, 23:10"
+    },
+    {
+      "nome": "Fabio Santanna",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "27/02/2026, 23:10"
+    },
+    {
+      "nome": "Vanclecia Almeida",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 23:11"
+    },
+    {
+      "nome": "Sheila amador",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 23:13"
+    },
+    {
+      "nome": "raquel araujo silva",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 23:29"
+    },
+    {
+      "nome": "Sabrina liberato",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "27/02/2026, 23:47"
+    },
+    {
+      "nome": "Izabella ramos",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:00"
+    },
+    {
+      "nome": "Laurene Nunes",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:01"
+    },
+    {
+      "nome": "Beatriz Santana",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:01"
+    },
+    {
+      "nome": "Felipe Mota",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "28/02/2026, 00:03"
+    },
+    {
+      "nome": "Will Costa",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "28/02/2026, 00:03"
+    },
+    {
+      "nome": "Paula Sales",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "28/02/2026, 00:05"
+    },
+    {
+      "nome": "Nathaly Stefanie",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:19"
+    },
+    {
+      "nome": "Aline Pezzarim",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:26"
+    },
+    {
+      "nome": "Jennifer Louzada",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:30"
+    },
+    {
+      "nome": "Renata Alves",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "28/02/2026, 00:51"
+    },
+    {
+      "nome": "Daniela Rodrigues",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "28/02/2026, 00:52"
+    },
+    {
+      "nome": "Rafael Pereira",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:53"
+    },
+    {
+      "nome": "Thiago satiro",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 00:53"
+    },
+    {
+      "nome": "Kemillyn Oliveira",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "data_checkin": "28/02/2026, 01:01"
+    },
+    {
+      "nome": "Samantha Faria",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 01:12"
+    },
+    {
+      "nome": "Gustavo Henrique",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 01:12"
+    },
+    {
+      "nome": "Deise Honório",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 01:13"
+    },
+    {
+      "nome": "Marcio Honorio",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "data_checkin": "28/02/2026, 01:13"
+    },
+    {
+      "nome": "Marina Gabriel",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "data_checkin": "28/02/2026, 01:22"
+    },
+    {
+      "nome": "Miloury Moliere",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "data_checkin": "28/02/2026, 01:54"
+    },
+    {
+      "nome": "Gabriela Donola",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "03/03/2026, 14:11"
+    },
+    {
+      "nome": "Graziela Campos",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "03/03/2026, 14:11"
+    },
+    {
+      "nome": "Kathleen Rayara",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "03/03/2026, 14:13"
+    },
+    {
+      "nome": "Lima marina",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "data_checkin": "03/03/2026, 14:14"
+    }
+  ],
+  "horarios_entrada": [
+    {
+      "nome": "Jeff",
+      "promoter": "Jefferson Lima",
+      "lista": "Lista de Jefferson Lima",
+      "horario": "02:48:29",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Julia dos Santos Silva",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "21:08:38",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "KEPFEL NEVES",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "21:38:26",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Kaique Marques da Silva",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "21:42:09",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Victor da Silva Freitas",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "21:42:21",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Jessica Rodrigues do Nascimento",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "21:56:59",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Pamela Félix da Silva",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "22:18:21",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "NATHALLY REGINA DA SILVA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "22:21:08",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "João Dhemerson Alves Farias",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "22:28:20",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Larissa Cristina da Silva",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "22:29:25",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Alexandra Kaun Dohs Silva",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "22:30:04",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Hugo favaro",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "22:44:19",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Geovanna zucchi",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "22:51:17",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "GABRIELLA GAMBOA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "22:57:52",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "IGOR TORRES DA SILVA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "22:58:25",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "CAROLINE ARAUJO AMORIM",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "22:59:25",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Kaique Nathan Silvestre Araujo Amorim",
+      "promoter": "Marília",
+      "lista": "Lista de Marília",
+      "horario": "23:00:49",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Jossema Joseph",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "23:10:11",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Fabio Santanna",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "23:10:58",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Vanclecia Almeida",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:11:53",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Sheila amador",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:13:19",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Bruno Martins",
+      "promoter": "Highline",
+      "lista": "Lista de Highline",
+      "horario": "23:23:32",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "BIANCA VIEIRA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "23:28:42",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "raquel araujo silva",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:29:36",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Jeferson Soares de Moraes",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "23:31:20",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Elizeu Oliveira",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:41:18",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Daniel Júnior Gigga",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:45:37",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Sabrina liberato",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "23:47:46",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "ARIANE HOLANDA GAETA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "23:55:10",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Izabella ramos",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:00:45",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Laurene Nunes",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:01:13",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Beatriz Santana",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:01:37",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Felipe Mota",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "00:03:31",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Will Costa",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "00:03:59",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Paula Sales",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "00:05:03",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Andréia Bispo",
+      "promoter": "Marília",
+      "lista": "Lista de Marília",
+      "horario": "00:12:08",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "SARA KALI DE ÂNGELO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "00:13:59",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "PEDRO BRANDÃO COELHO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "00:15:12",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Nathaly Stefanie",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:19:20",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Aline Pezzarim",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:26:09",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Jennifer Louzada",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:30:37",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Renata Alves",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "00:51:57",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Daniela Rodrigues",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "00:52:38",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Rafael Pereira",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:53:13",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Thiago satiro",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "00:53:48",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Kemillyn Oliveira",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:01:44",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "GLAUCIA DE CASSIA COSTA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:04:56",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "INGRID KLEIN MARQUES DA SILVA SOUZA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:06:15",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "ALECSANDER DE MOURA CAVALCANTI",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:06:50",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Samantha Faria",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "01:12:15",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Gustavo Henrique",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "01:12:22",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Deise Honório",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "01:13:13",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Marcio Honorio",
+      "promoter": "CIAO",
+      "lista": "Lista de Caio",
+      "horario": "01:13:50",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "DANIELE SIGNORELLI",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:16:53",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Marina Gabriel",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:22:15",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Pamella Araújo de Carvalho",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:28:34",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Ricardo Ricky Kedo",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:33:08",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Alberto Bunga",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:34:47",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Caike Henrique Souza",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "01:48:27",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Fernando Henrique",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "01:48:34",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "William Batista da Silva",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "01:49:42",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "FERNANDA BALLES AMORIM",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:52:15",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "GUSTAVO SOARES DE SOUZA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "01:53:24",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Miloury Moliere",
+      "promoter": "Carolyne",
+      "lista": "Lista de Carolyne",
+      "horario": "01:54:41",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Mamadou cisse",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "02:50:57",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Gabriela Pina",
+      "promoter": "Marília",
+      "lista": "Lista de Marília",
+      "horario": "14:06:42",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Rennan Coelho",
+      "promoter": "Marília",
+      "lista": "Lista de Marília",
+      "horario": "14:06:47",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Bruna Barreto",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:08:07",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Bruno Pinheiro",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:08:31",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Camila Dassa",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:08:41",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Diego Barros",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:09:32",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Felipe Fortunato",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:11:13",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Gabriela Donola",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:11:32",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Gabriel Fidelis",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:11:43",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Graziela Campos",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:11:55",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "José Casemiro",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:12:36",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "José Roberto fortunato Júnior",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:12:55",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Julia lazzarini",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:13:07",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Kathleen Rayara",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:13:20",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Lima marina",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:14:20",
+      "tipo_entrada": "VIP"
+    },
+    {
+      "nome": "Luciana dos santos",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:14:33",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Luiz Gustavo",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:14:43",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Richard Batista",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:15:36",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Romilson Graciano",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:15:47",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Thiago  Ramos",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:16:18",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Tyrell Perry",
+      "promoter": "Michele",
+      "lista": "Lista de Michele",
+      "horario": "14:16:28",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "AGATHA VITÓRIA CARVALHO DE SOUZA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:17:22",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "ALEXANDER COSTA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:17:41",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "ALLEF MARZANO LIMA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:17:43",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "AMANDA COSTA CARVALHO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:17:54",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "AMANDA DE ALMEIDA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:18:30",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "AUANNY ALMEIDA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:19:12",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "CAIO LOPES PRAZERES",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:19:50",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "CARLOS ALBERTO SANTIAGO DA CRUZ",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:20:25",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "CRISTIANE ANDRADE BENTO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:21:12",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "DAFNE SANTOS PAULINO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:21:31",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "DANIELA AMADOR",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:21:41",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "DAYANE MÁXIMO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:22:17",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Enzo Morige",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:22:59",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "FABIANE PEDROSA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:23:15",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "GISLAYNE PAIVA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:24:43",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "GUSTAVO SILVA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:25:05",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Hellen da Silva Freitas",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:25:21",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "HENRIQUE TADEU DE PAULA MARCONDES SANTOS",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:25:46",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "IAN LIMA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:26:04",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "ISABELA BRANDINO DE SOUZA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:26:16",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "ISABELLA PADOVAN BARBOSA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:26:23",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "JESSICA JADE OYAGAWA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:26:45",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "KAINAN LUCAS",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:27:20",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "KAIQUE NATHAN SILVESTRE ARAUJO AMORIM",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:27:29",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "LETICIA HARUMI ADACHI",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:28:13",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "MARIA HELOÍSA",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:30:05",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "Mirella Furquim Slobodeicov",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:30:40",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "NATÁLIA SILVA DE ARAÚJO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:31:04",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "PABLO MARÇAL",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:31:28",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "VICTOR BERNARDES DE BRITO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:33:16",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "VITÓRIA DOS SANTOS LUCIO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:34:10",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "WALTER PRAZERES",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:34:25",
+      "tipo_entrada": "N/A"
+    },
+    {
+      "nome": "WESLEY COSTA CARVALHO",
+      "promoter": "Nina",
+      "lista": "Lista de Nina",
+      "horario": "14:34:33",
+      "tipo_entrada": "N/A"
+    }
+  ],
+  "estabilidade_sistema": {
+    "status": "Estável",
+    "descricao": "Todos os check-ins foram processados com sucesso durante o evento.",
+    "sem_quedas": true,
+    "check_ins_fluidios": true,
+    "sem_erros_registrados": true,
+    "observacao": "Dados extraídos diretamente do banco de dados. Não houve registro de falhas nas operações de check-in."
+  }
+}

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Relatório Highline - Período</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;color:#333}
+h1{color:#1a5f2a;border-bottom:2px solid #1a5f2a;padding-bottom:8px}
+h2{color:#2d7a3e;margin-top:32px}
+table{border-collapse:collapse;width:100%;margin:16px 0}
+th,td{border:1px solid #ddd;padding:10px 12px;text-align:left}
+th{background:#1a5f2a;color:white}
+.metric{background:#e8f5e9;border-left:4px solid #1a5f2a;padding:16px 24px;margin:8px 0;display:inline-block;min-width:140px}
+.ok{color:#2e7d32}
+.alerta{background:#fff3e0;border-left:4px solid #ff9800;padding:16px;margin:16px 0}
+.btn-pdf{position:fixed;top:20px;right:20px;padding:12px 24px;background:#c62828;color:white;border:none;border-radius:8px;cursor:pointer}
+@media print{.btn-pdf{display:none}}
+</style>
+</head>
+<body>
+<button class="btn-pdf" onclick="window.print();">Salvar em PDF</button>
+<h1>Relatório Consolidado - Highline</h1>
+<p style="color:#666">Período: 2025-11-28 a 2026-03-10 | Gerado em: 10/03/2026, 01:16:33</p>
+
+<h2>1. Resumo e Médias</h2>
+<div>
+<span class="metric"><strong>2705</strong><br>Total Check-ins</span>
+<span class="metric"><strong>96.6</strong><br>Média/dia com evento</span>
+<span class="metric"><strong>96.6</strong><br>Média/evento</span>
+<span class="metric"><strong>28</strong><br>Eventos</span>
+<span class="metric"><strong>44</strong><br>Dias operacionais</span>
+</div>
+
+<h2>2. Estabilidade - Indicadores de Travamento</h2>
+<table>
+<tr><th>Indicador</th><th>Status</th></tr>
+<tr><td>Dias com evento e sem check-in</td><td class="">2</td></tr>
+<tr><td>Avaliação</td><td>2 dia(s) com evento e sem check-in (verificar manualmente)</td></tr>
+<tr><td>Conclusão</td><td>Recomenda-se verificar os dias listados em possíveis anomalias.</td></tr>
+</table>
+<div class="alerta"><strong>Possíveis anomalias:</strong><ul><li>11/12/2025: Dia com 1 evento(s) mas sem registro de check-in</li><li>16/02/2026: Dia com 1 evento(s) mas sem registro de check-in</li></ul></div>
+
+<h2>3. Consistência de Validação</h2>
+<table>
+<tr><th>Métrica</th><th>Valor</th></tr>
+<tr><td>Check-ins validados</td><td>2550</td></tr>
+<tr><td>Duplicidades (mesmo dia/lista)</td><td>1</td></tr>
+<tr><td>Avaliação</td><td>Consistência de validação boa. Poucos casos de duplicidade nas listas.</td></tr>
+</table>
+
+<h2>4. Por Mês</h2>
+<table><tr><th>Mês</th><th>Check-ins</th><th>Dias</th><th>Eventos</th></tr><tr><td>2025-11</td><td>34</td><td>2</td><td>2</td></tr><tr><td>2025-12</td><td>242</td><td>12</td><td>7</td></tr><tr><td>2026-01</td><td>903</td><td>12</td><td>7</td></tr><tr><td>2026-02</td><td>1186</td><td>16</td><td>10</td></tr><tr><td>2026-03</td><td>340</td><td>4</td><td>2</td></tr></table>
+<p style="margin-top:40px;color:#888;font-size:0.85em">Relatório gerado automaticamente - vamos-comemorar-api</p>
+</body></html>

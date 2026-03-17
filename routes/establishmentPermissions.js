@@ -73,9 +73,7 @@ module.exports = (pool) => {
   router.get('/my-permissions', auth, async (req, res) => {
     try {
       const userId = req.user.id;
-      const userEmail = (req.user.email || req.user.userEmail || '').trim().toLowerCase();
-      const role = (req.user.role || '').toLowerCase();
-      
+
       const query = `
         SELECT 
           uep.*,
@@ -89,32 +87,8 @@ module.exports = (pool) => {
       `;
       
       const result = await pool.query(query, [userId]);
-      let rows = result.rows;
+      const rows = result.rows;
 
-      // analista.mkt03@ideiaum.com.br: acesso apenas ao estabelecimento Pracinha do Seu Justino (place id 8)
-      if (rows.length === 0 && userEmail === 'analista.mkt03@ideiaum.com.br' && (role === 'promoter' || role === 'promoter-list')) {
-        rows = [{
-          id: 0,
-          user_id: userId,
-          user_email: userEmail,
-          establishment_id: 8,
-          establishment_name: 'Pracinha do Seu Justino',
-          can_edit_os: false,
-          can_edit_operational_detail: false,
-          can_view_os: true,
-          can_download_os: true,
-          can_view_operational_detail: true,
-          can_create_os: false,
-          can_create_operational_detail: false,
-          can_manage_reservations: true,
-          can_manage_checkins: true,
-          can_view_reports: true,
-          can_create_edit_reservations: true,
-          is_active: true
-        }];
-        console.log('✅ [my-permissions] Fallback analista.mkt03: restrita ao estabelecimento Pracinha do Seu Justino (id 8)');
-      }
-      
       res.json({
         success: true,
         data: rows,

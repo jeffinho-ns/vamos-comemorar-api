@@ -37,20 +37,6 @@ module.exports = (permissionName, establishmentIdSource = 'body') => {
         return next();
       }
 
-      // analista.mkt03@ideiaum.com.br: acesso apenas ao estabelecimento Pracinha do Seu Justino (id 8)
-      const userEmail = (req.user.email || req.user.userEmail || '').trim().toLowerCase();
-      const role = (req.user.role || '').toLowerCase();
-      if (userEmail === 'analista.mkt03@ideiaum.com.br' && (role === 'promoter' || role === 'promoter-list')) {
-        if (Number(establishmentId) !== 8) {
-          return res.status(403).json({
-            success: false,
-            error: 'Acesso negado: você tem acesso apenas ao estabelecimento Pracinha do Seu Justino',
-            establishment_id: establishmentId
-          });
-        }
-        return next();
-      }
-      
       // Buscar permissão do usuário para este estabelecimento
       const query = `
         SELECT ${permissionName}, is_active
@@ -124,19 +110,6 @@ module.exports.checkEstablishmentAccess = async (req, res, next) => {
       return next();
     }
 
-    const userEmail = (req.user.email || req.user.userEmail || '').trim().toLowerCase();
-    const role = (req.user.role || '').toLowerCase();
-    if (userEmail === 'analista.mkt03@ideiaum.com.br' && (role === 'promoter' || role === 'promoter-list')) {
-      if (Number(establishmentId) !== 8) {
-        return res.status(403).json({
-          success: false,
-          error: 'Acesso negado: você tem acesso apenas ao estabelecimento Pracinha do Seu Justino',
-          establishment_id: establishmentId
-        });
-      }
-      return next();
-    }
-    
     // Verificar se o usuário tem acesso a este estabelecimento
     const query = `
       SELECT id, is_active

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório Xic Hop - 27/02/2026</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #333; }
+    h1 { color: #1a5f2a; border-bottom: 2px solid #1a5f2a; padding-bottom: 8px; }
+    h2 { color: #2d7a3e; margin-top: 32px; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
+    th { background: #1a5f2a; color: white; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .resumo-box { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }
+    .metric { background: #e8f5e9; border-left: 4px solid #1a5f2a; padding: 16px 24px; min-width: 140px; }
+    .metric strong { font-size: 1.5em; color: #1a5f2a; }
+    .ok { color: #2e7d32; }
+    .conclusao { background: #e8f5e9; padding: 20px; border-radius: 8px; margin-top: 32px; }
+    .meta { color: #666; font-size: 0.9em; margin-bottom: 24px; }
+    .btn-pdf { position: fixed; top: 20px; right: 20px; padding: 12px 24px; background: #c62828; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1000; }
+    .btn-pdf:hover { background: #b71c1c; }
+    .duplicidade-box { background: #fff3e0; border: 1px solid #ff9800; border-left: 4px solid #ff9800; padding: 20px; margin: 16px 0; border-radius: 4px; }
+    .duplicidade-detalhe { margin: 12px 0; }
+    .duplicidade-detalhe h4 { color: #e65100; margin: 16px 0 8px 0; }
+    @media print { .btn-pdf { display: none; } }
+  </style>
+</head>
+<body>
+  <button class="btn-pdf" onclick="window.print();" title="Abre a janela de impressão. Escolha &#39;Salvar como PDF&#39; como destino.">📄 Salvar em PDF</button>
+  <h1>📊 Relatório do Evento Xic Hop</h1>
+  <p class="meta"><strong>Data do evento:</strong> 27 de Fevereiro de 2026 | <strong>Local:</strong> HighLine | <strong>Gerado em:</strong> 09/03/2026, 18:39:20</p>
+  
+  <h2>Sumário Executivo</h2>
+  <p>Este relatório apresenta os dados consolidados do evento <strong>Xic Hop</strong> realizado em <strong>27/02/2026</strong>, 
+  demonstrando a operação fluida do sistema de check-in e listas de convidados. O objetivo é comprovar aos investidores 
+  a estabilidade e confiabilidade da plataforma Vamos Comemorar.</p>
+
+  <h2>1. Resumo Geral</h2>
+  <div class="resumo-box">
+    <div class="metric"><strong>276</strong><br>Pessoas nas listas</div>
+    <div class="metric"><strong>119</strong><br>Check-ins realizados</div>
+    <div class="metric"><strong>153</strong><br>Pendentes</div>
+    <div class="metric"><strong>4</strong><br>No-Show</div>
+    <div class="metric"><strong>43%</strong><br>Taxa de check-in</div>
+    <div class="metric"><strong>8</strong><br>Listas</div>
+  </div>
+
+  <h2>2. Desempenho por Promoter</h2>
+  <p><em>Exemplo de leitura: "Michele teve 60 nomes na lista; desses 60, 37 fizeram check-in (62%)"</em></p>
+  <table>
+    <tr><th>Promoter</th><th>Nomes na Lista</th><th>Check-ins</th><th>Pendentes</th><th>No-Show</th><th>Taxa</th></tr><tr><td>Jefferson Lima</td><td>2</td><td>1</td><td>1</td><td>0</td><td>50%</td></tr><tr><td>Nina</td><td>122</td><td>53</td><td>67</td><td>2</td><td>43%</td></tr><tr><td>Michele</td><td>60</td><td>37</td><td>23</td><td>0</td><td>62%</td></tr><tr><td>CIAO</td><td>49</td><td>17</td><td>30</td><td>2</td><td>35%</td></tr><tr><td>Marília</td><td>6</td><td>4</td><td>2</td><td>0</td><td>67%</td></tr><tr><td>Highline</td><td>22</td><td>1</td><td>21</td><td>0</td><td>5%</td></tr><tr><td>Carolyne</td><td>15</td><td>6</td><td>9</td><td>0</td><td>40%</td></tr></table>
+
+  <h2>3. Detalhes das Duplicidades nas Listas</h2><div class="duplicidade-box">
+    <p><strong>Resumo:</strong> 2 lista(s) de promoters apresentaram nomes duplicados. 
+    Foram identificados <strong>2 nome(s)</strong> que aparecem mais de uma vez, 
+    totalizando <strong>3 registro(s) extra</strong> que poderiam ter sido evitados com validação na inserção.</p>
+    <p>Detalhamento por lista:</p><div class="duplicidade-detalhe">
+        <h4>📋 Michele – Lista de Michele</h4>
+        <table><tr><th>Nome duplicado</th><th>Aparições na lista</th><th>Registros em excesso</th></tr><tr><td>julia lazzarini</td><td>3x</td><td>2 registros</td></tr></table></div><div class="duplicidade-detalhe">
+        <h4>📋 Nina – Lista de Nina</h4>
+        <table><tr><th>Nome duplicado</th><th>Aparições na lista</th><th>Registros em excesso</th></tr><tr><td>carla giseli passos da silva</td><td>2x</td><td>1 registro</td></tr></table></div></div>
+  <h2>4. Entrada VIP (A Noite Toda) – Convidados que Entraram</h2><table><tr><th>Nome</th><th>Promoter</th><th>Horário</th></tr><tr><td>Jeff</td><td>Jefferson Lima</td><td>26/02/2026, 02:48</td></tr><tr><td>Jessica Rodrigues do Nascimento</td><td>Michele</td><td>27/02/2026, 21:56</td></tr><tr><td>João Dhemerson Alves Farias</td><td>CIAO</td><td>27/02/2026, 22:28</td></tr><tr><td>Larissa Cristina da Silva</td><td>CIAO</td><td>27/02/2026, 22:29</td></tr><tr><td>Alexandra Kaun Dohs Silva</td><td>CIAO</td><td>27/02/2026, 22:30</td></tr><tr><td>Hugo favaro</td><td>Michele</td><td>27/02/2026, 22:44</td></tr><tr><td>Geovanna zucchi</td><td>Michele</td><td>27/02/2026, 22:51</td></tr><tr><td>Jossema Joseph</td><td>CIAO</td><td>27/02/2026, 23:10</td></tr><tr><td>Fabio Santanna</td><td>CIAO</td><td>27/02/2026, 23:10</td></tr><tr><td>Vanclecia Almeida</td><td>Michele</td><td>27/02/2026, 23:11</td></tr><tr><td>Sheila amador</td><td>Michele</td><td>27/02/2026, 23:13</td></tr><tr><td>raquel araujo silva</td><td>Michele</td><td>27/02/2026, 23:29</td></tr><tr><td>Sabrina liberato</td><td>Michele</td><td>27/02/2026, 23:47</td></tr><tr><td>Izabella ramos</td><td>CIAO</td><td>28/02/2026, 00:00</td></tr><tr><td>Laurene Nunes</td><td>CIAO</td><td>28/02/2026, 00:01</td></tr><tr><td>Beatriz Santana</td><td>CIAO</td><td>28/02/2026, 00:01</td></tr><tr><td>Felipe Mota</td><td>Michele</td><td>28/02/2026, 00:03</td></tr><tr><td>Will Costa</td><td>Michele</td><td>28/02/2026, 00:03</td></tr><tr><td>Paula Sales</td><td>Michele</td><td>28/02/2026, 00:05</td></tr><tr><td>Nathaly Stefanie</td><td>CIAO</td><td>28/02/2026, 00:19</td></tr><tr><td>Aline Pezzarim</td><td>CIAO</td><td>28/02/2026, 00:26</td></tr><tr><td>Jennifer Louzada</td><td>CIAO</td><td>28/02/2026, 00:30</td></tr><tr><td>Renata Alves</td><td>Michele</td><td>28/02/2026, 00:51</td></tr><tr><td>Daniela Rodrigues</td><td>Michele</td><td>28/02/2026, 00:52</td></tr><tr><td>Rafael Pereira</td><td>CIAO</td><td>28/02/2026, 00:53</td></tr><tr><td>Thiago satiro</td><td>CIAO</td><td>28/02/2026, 00:53</td></tr><tr><td>Kemillyn Oliveira</td><td>Carolyne</td><td>28/02/2026, 01:01</td></tr><tr><td>Samantha Faria</td><td>CIAO</td><td>28/02/2026, 01:12</td></tr><tr><td>Gustavo Henrique</td><td>CIAO</td><td>28/02/2026, 01:12</td></tr><tr><td>Deise Honório</td><td>CIAO</td><td>28/02/2026, 01:13</td></tr><tr><td>Marcio Honorio</td><td>CIAO</td><td>28/02/2026, 01:13</td></tr><tr><td>Marina Gabriel</td><td>Carolyne</td><td>28/02/2026, 01:22</td></tr><tr><td>Miloury Moliere</td><td>Carolyne</td><td>28/02/2026, 01:54</td></tr><tr><td>Gabriela Donola</td><td>Michele</td><td>03/03/2026, 14:11</td></tr><tr><td>Graziela Campos</td><td>Michele</td><td>03/03/2026, 14:11</td></tr><tr><td>Kathleen Rayara</td><td>Michele</td><td>03/03/2026, 14:13</td></tr><tr><td>Lima marina</td><td>Michele</td><td>03/03/2026, 14:14</td></tr></table>
+  <h2>5. Primeiros 50 Horários de Entrada (Ordenados)</h2>
+  <table><tr><th>#</th><th>Nome</th><th>Promoter</th><th>Horário</th><th>Tipo</th></tr><tr><td>1</td><td>Jeff</td><td>Jefferson Lima</td><td>02:48:29</td><td>VIP</td></tr><tr><td>2</td><td>Julia dos Santos Silva</td><td>Nina</td><td>21:08:38</td><td>N/A</td></tr><tr><td>3</td><td>KEPFEL NEVES</td><td>Nina</td><td>21:38:26</td><td>N/A</td></tr><tr><td>4</td><td>Kaique Marques da Silva</td><td>Nina</td><td>21:42:09</td><td>N/A</td></tr><tr><td>5</td><td>Victor da Silva Freitas</td><td>Nina</td><td>21:42:21</td><td>N/A</td></tr><tr><td>6</td><td>Jessica Rodrigues do Nascimento</td><td>Michele</td><td>21:56:59</td><td>VIP</td></tr><tr><td>7</td><td>Pamela Félix da Silva</td><td>Nina</td><td>22:18:21</td><td>N/A</td></tr><tr><td>8</td><td>NATHALLY REGINA DA SILVA</td><td>Nina</td><td>22:21:08</td><td>N/A</td></tr><tr><td>9</td><td>João Dhemerson Alves Farias</td><td>CIAO</td><td>22:28:20</td><td>VIP</td></tr><tr><td>10</td><td>Larissa Cristina da Silva</td><td>CIAO</td><td>22:29:25</td><td>VIP</td></tr><tr><td>11</td><td>Alexandra Kaun Dohs Silva</td><td>CIAO</td><td>22:30:04</td><td>VIP</td></tr><tr><td>12</td><td>Hugo favaro</td><td>Michele</td><td>22:44:19</td><td>VIP</td></tr><tr><td>13</td><td>Geovanna zucchi</td><td>Michele</td><td>22:51:17</td><td>VIP</td></tr><tr><td>14</td><td>GABRIELLA GAMBOA</td><td>Nina</td><td>22:57:52</td><td>N/A</td></tr><tr><td>15</td><td>IGOR TORRES DA SILVA</td><td>Nina</td><td>22:58:25</td><td>N/A</td></tr><tr><td>16</td><td>CAROLINE ARAUJO AMORIM</td><td>Nina</td><td>22:59:25</td><td>N/A</td></tr><tr><td>17</td><td>Kaique Nathan Silvestre Araujo Amorim</td><td>Marília</td><td>23:00:49</td><td>N/A</td></tr><tr><td>18</td><td>Jossema Joseph</td><td>CIAO</td><td>23:10:11</td><td>VIP</td></tr><tr><td>19</td><td>Fabio Santanna</td><td>CIAO</td><td>23:10:58</td><td>VIP</td></tr><tr><td>20</td><td>Vanclecia Almeida</td><td>Michele</td><td>23:11:53</td><td>VIP</td></tr><tr><td>21</td><td>Sheila amador</td><td>Michele</td><td>23:13:19</td><td>VIP</td></tr><tr><td>22</td><td>Bruno Martins</td><td>Highline</td><td>23:23:32</td><td>N/A</td></tr><tr><td>23</td><td>BIANCA VIEIRA</td><td>Nina</td><td>23:28:42</td><td>N/A</td></tr><tr><td>24</td><td>raquel araujo silva</td><td>Michele</td><td>23:29:36</td><td>VIP</td></tr><tr><td>25</td><td>Jeferson Soares de Moraes</td><td>Nina</td><td>23:31:20</td><td>N/A</td></tr><tr><td>26</td><td>Elizeu Oliveira</td><td>Michele</td><td>23:41:18</td><td>N/A</td></tr><tr><td>27</td><td>Daniel Júnior Gigga</td><td>Michele</td><td>23:45:37</td><td>N/A</td></tr><tr><td>28</td><td>Sabrina liberato</td><td>Michele</td><td>23:47:46</td><td>VIP</td></tr><tr><td>29</td><td>ARIANE HOLANDA GAETA</td><td>Nina</td><td>23:55:10</td><td>N/A</td></tr><tr><td>30</td><td>Izabella ramos</td><td>CIAO</td><td>00:00:45</td><td>VIP</td></tr><tr><td>31</td><td>Laurene Nunes</td><td>CIAO</td><td>00:01:13</td><td>VIP</td></tr><tr><td>32</td><td>Beatriz Santana</td><td>CIAO</td><td>00:01:37</td><td>VIP</td></tr><tr><td>33</td><td>Felipe Mota</td><td>Michele</td><td>00:03:31</td><td>VIP</td></tr><tr><td>34</td><td>Will Costa</td><td>Michele</td><td>00:03:59</td><td>VIP</td></tr><tr><td>35</td><td>Paula Sales</td><td>Michele</td><td>00:05:03</td><td>VIP</td></tr><tr><td>36</td><td>Andréia Bispo</td><td>Marília</td><td>00:12:08</td><td>N/A</td></tr><tr><td>37</td><td>SARA KALI DE ÂNGELO</td><td>Nina</td><td>00:13:59</td><td>N/A</td></tr><tr><td>38</td><td>PEDRO BRANDÃO COELHO</td><td>Nina</td><td>00:15:12</td><td>N/A</td></tr><tr><td>39</td><td>Nathaly Stefanie</td><td>CIAO</td><td>00:19:20</td><td>VIP</td></tr><tr><td>40</td><td>Aline Pezzarim</td><td>CIAO</td><td>00:26:09</td><td>VIP</td></tr><tr><td>41</td><td>Jennifer Louzada</td><td>CIAO</td><td>00:30:37</td><td>VIP</td></tr><tr><td>42</td><td>Renata Alves</td><td>Michele</td><td>00:51:57</td><td>VIP</td></tr><tr><td>43</td><td>Daniela Rodrigues</td><td>Michele</td><td>00:52:38</td><td>VIP</td></tr><tr><td>44</td><td>Rafael Pereira</td><td>CIAO</td><td>00:53:13</td><td>VIP</td></tr><tr><td>45</td><td>Thiago satiro</td><td>CIAO</td><td>00:53:48</td><td>VIP</td></tr><tr><td>46</td><td>Kemillyn Oliveira</td><td>Carolyne</td><td>01:01:44</td><td>VIP</td></tr><tr><td>47</td><td>GLAUCIA DE CASSIA COSTA</td><td>Nina</td><td>01:04:56</td><td>N/A</td></tr><tr><td>48</td><td>INGRID KLEIN MARQUES DA SILVA SOUZA</td><td>Nina</td><td>01:06:15</td><td>N/A</td></tr><tr><td>49</td><td>ALECSANDER DE MOURA CAVALCANTI</td><td>Nina</td><td>01:06:50</td><td>N/A</td></tr><tr><td>50</td><td>Samantha Faria</td><td>CIAO</td><td>01:12:15</td><td>VIP</td></tr></table>
+  <p><em>... e mais 69 entradas. Ver arquivo .md ou .json para lista completa.</em></p>
+
+  <h2>6. Estabilidade do Sistema</h2>
+  <table>
+    <tr><th>Indicador</th><th>Status</th></tr>
+    <tr><td>Sistema estável</td><td class="ok">✅ Sim</td></tr>
+    <tr><td>Sem quedas</td><td class="ok">✅ Sim</td></tr>
+    <tr><td>Check-ins fluidos</td><td class="ok">✅ Sim</td></tr>
+    <tr><td>Sem erros registrados</td><td class="ok">✅ Sim</td></tr>
+  </table>
+  <p>Todos os check-ins foram processados com sucesso durante o evento.</p>
+  <p><em>Dados extraídos diretamente do banco de dados. Não houve registro de falhas nas operações de check-in.</em></p>
+
+  <div class="conclusao">
+    <h2>Conclusão</h2>
+    <p>O evento <strong>Xic Hop</strong> de 27/02/2026 foi operado com sucesso pela plataforma Vamos Comemorar. 
+    O sistema de check-in funcionou de forma fluida, sem registros de falhas, e os dados foram consolidados corretamente. 
+    A plataforma está pronta para sustentar o crescimento e novos eventos.</p>
+  </div>
+  <p style="margin-top:40px; color:#888; font-size:0.85em;">Relatório gerado automaticamente – vamos-comemorar-api</p>
+</body>
+</html>

@@ -1,0 +1,661 @@
+{
+  "estabelecimento": "Highline",
+  "establishment_id": 7,
+  "periodo": {
+    "inicio": "2025-11-28",
+    "fim": "2026-03-10"
+  },
+  "gerado_em": "2026-03-10T08:16:31.365Z",
+  "resumo": {
+    "total_checkins": 2705,
+    "total_eventos": 28,
+    "dias_periodo": 103,
+    "dias_com_checkin": 44,
+    "dias_com_evento": 28,
+    "media_checkins_por_dia": 26.3,
+    "media_checkins_por_dia_com_evento": 96.6,
+    "media_checkins_por_evento": 96.6,
+    "total_promoters": 234,
+    "total_guests": 2305,
+    "total_mesa": 10,
+    "total_large": 1
+  },
+  "por_dia": [
+    {
+      "data": "2025-11-28",
+      "checkins_promoters": 4,
+      "checkins_guests": 2,
+      "checkins_owner": 1,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 7,
+      "eventos": 1,
+      "nomes_eventos": [
+        "NASTY FLOW"
+      ]
+    },
+    {
+      "data": "2025-11-29",
+      "checkins_promoters": 3,
+      "checkins_guests": 19,
+      "checkins_owner": 5,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 27,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sensik"
+      ]
+    },
+    {
+      "data": "2025-12-02",
+      "checkins_promoters": 20,
+      "checkins_guests": 3,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 23,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2025-12-04",
+      "checkins_promoters": 5,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 5,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2025-12-05",
+      "checkins_promoters": 0,
+      "checkins_guests": 13,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 13,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nasty Flow"
+      ]
+    },
+    {
+      "data": "2025-12-06",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 1,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nasty Flow"
+      ]
+    },
+    {
+      "data": "2025-12-11",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 0,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nest Flow"
+      ]
+    },
+    {
+      "data": "2025-12-12",
+      "checkins_promoters": 6,
+      "checkins_guests": 39,
+      "checkins_owner": 3,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 48,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nasty Flow"
+      ]
+    },
+    {
+      "data": "2025-12-13",
+      "checkins_promoters": 0,
+      "checkins_guests": 10,
+      "checkins_owner": 1,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 11,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2025-12-14",
+      "checkins_promoters": 1,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2025-12-20",
+      "checkins_promoters": 0,
+      "checkins_guests": 66,
+      "checkins_owner": 7,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 73,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Florê"
+      ]
+    },
+    {
+      "data": "2025-12-21",
+      "checkins_promoters": 2,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 2,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2025-12-26",
+      "checkins_promoters": 1,
+      "checkins_guests": 27,
+      "checkins_owner": 2,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 30,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nasty Flow"
+      ]
+    },
+    {
+      "data": "2025-12-27",
+      "checkins_promoters": 7,
+      "checkins_guests": 26,
+      "checkins_owner": 2,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 35,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Florê"
+      ]
+    },
+    {
+      "data": "2026-01-09",
+      "checkins_promoters": 2,
+      "checkins_guests": 31,
+      "checkins_owner": 1,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 34,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Nasty Flow"
+      ]
+    },
+    {
+      "data": "2026-01-10",
+      "checkins_promoters": 0,
+      "checkins_guests": 66,
+      "checkins_owner": 2,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 68,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Highline"
+      ]
+    },
+    {
+      "data": "2026-01-16",
+      "checkins_promoters": 10,
+      "checkins_guests": 75,
+      "checkins_owner": 4,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 89,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Saváh"
+      ]
+    },
+    {
+      "data": "2026-01-17",
+      "checkins_promoters": 8,
+      "checkins_guests": 152,
+      "checkins_owner": 12,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 172,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Highline"
+      ]
+    },
+    {
+      "data": "2026-01-18",
+      "checkins_promoters": 0,
+      "checkins_guests": 13,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 13,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-01-20",
+      "checkins_promoters": 0,
+      "checkins_guests": 2,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 2,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-01-24",
+      "checkins_promoters": 4,
+      "checkins_guests": 139,
+      "checkins_owner": 10,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 153,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Highline"
+      ]
+    },
+    {
+      "data": "2026-01-25",
+      "checkins_promoters": 0,
+      "checkins_guests": 2,
+      "checkins_owner": 3,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 5,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-01-26",
+      "checkins_promoters": 3,
+      "checkins_guests": 2,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 5,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-01-27",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 1,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-01-30",
+      "checkins_promoters": 4,
+      "checkins_guests": 149,
+      "checkins_owner": 7,
+      "checkins_mesa": 1,
+      "checkins_large": 0,
+      "total_checkins": 161,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Highline"
+      ]
+    },
+    {
+      "data": "2026-01-31",
+      "checkins_promoters": 3,
+      "checkins_guests": 184,
+      "checkins_owner": 13,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 200,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Highline"
+      ]
+    },
+    {
+      "data": "2026-02-01",
+      "checkins_promoters": 4,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 4,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-02",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 1,
+      "checkins_mesa": 1,
+      "checkins_large": 0,
+      "total_checkins": 2,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-04",
+      "checkins_promoters": 1,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-06",
+      "checkins_promoters": 1,
+      "checkins_guests": 152,
+      "checkins_owner": 8,
+      "checkins_mesa": 3,
+      "checkins_large": 0,
+      "total_checkins": 164,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sexta - Highline"
+      ]
+    },
+    {
+      "data": "2026-02-07",
+      "checkins_promoters": 0,
+      "checkins_guests": 210,
+      "checkins_owner": 17,
+      "checkins_mesa": 2,
+      "checkins_large": 0,
+      "total_checkins": 229,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sábado - Highline"
+      ]
+    },
+    {
+      "data": "2026-02-08",
+      "checkins_promoters": 0,
+      "checkins_guests": 3,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 3,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-13",
+      "checkins_promoters": 10,
+      "checkins_guests": 79,
+      "checkins_owner": 5,
+      "checkins_mesa": 1,
+      "checkins_large": 0,
+      "total_checkins": 95,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Carnaval Highline"
+      ]
+    },
+    {
+      "data": "2026-02-14",
+      "checkins_promoters": 2,
+      "checkins_guests": 24,
+      "checkins_owner": 3,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 29,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Carnaval Highline"
+      ]
+    },
+    {
+      "data": "2026-02-15",
+      "checkins_promoters": 0,
+      "checkins_guests": 2,
+      "checkins_owner": 1,
+      "checkins_mesa": 1,
+      "checkins_large": 0,
+      "total_checkins": 4,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Carnaval Highline"
+      ]
+    },
+    {
+      "data": "2026-02-16",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 0,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Carnaval Highline"
+      ]
+    },
+    {
+      "data": "2026-02-20",
+      "checkins_promoters": 10,
+      "checkins_guests": 80,
+      "checkins_owner": 3,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 93,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sexta - Highline"
+      ]
+    },
+    {
+      "data": "2026-02-21",
+      "checkins_promoters": 2,
+      "checkins_guests": 182,
+      "checkins_owner": 11,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 195,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sábado - Highline"
+      ]
+    },
+    {
+      "data": "2026-02-22",
+      "checkins_promoters": 0,
+      "checkins_guests": 0,
+      "checkins_owner": 1,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-26",
+      "checkins_promoters": 1,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-02-27",
+      "checkins_promoters": 28,
+      "checkins_guests": 131,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 159,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Xic Hop"
+      ]
+    },
+    {
+      "data": "2026-02-28",
+      "checkins_promoters": 38,
+      "checkins_guests": 146,
+      "checkins_owner": 21,
+      "checkins_mesa": 0,
+      "checkins_large": 1,
+      "total_checkins": 206,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sábado - Highline"
+      ]
+    },
+    {
+      "data": "2026-03-03",
+      "checkins_promoters": 54,
+      "checkins_guests": 0,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 54,
+      "eventos": 0,
+      "nomes_eventos": []
+    },
+    {
+      "data": "2026-03-06",
+      "checkins_promoters": 0,
+      "checkins_guests": 160,
+      "checkins_owner": 6,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 166,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Xic Hop"
+      ]
+    },
+    {
+      "data": "2026-03-07",
+      "checkins_promoters": 0,
+      "checkins_guests": 115,
+      "checkins_owner": 4,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 119,
+      "eventos": 1,
+      "nomes_eventos": [
+        "Sábado - Highline"
+      ]
+    },
+    {
+      "data": "2026-03-08",
+      "checkins_promoters": 0,
+      "checkins_guests": 1,
+      "checkins_owner": 0,
+      "checkins_mesa": 0,
+      "checkins_large": 0,
+      "total_checkins": 1,
+      "eventos": 0,
+      "nomes_eventos": []
+    }
+  ],
+  "por_mes": [
+    {
+      "mes": "2025-11",
+      "total": 34,
+      "dias": 2,
+      "eventos": 2
+    },
+    {
+      "mes": "2025-12",
+      "total": 242,
+      "dias": 12,
+      "eventos": 7
+    },
+    {
+      "mes": "2026-01",
+      "total": 903,
+      "dias": 12,
+      "eventos": 7
+    },
+    {
+      "mes": "2026-02",
+      "total": 1186,
+      "dias": 16,
+      "eventos": 10
+    },
+    {
+      "mes": "2026-03",
+      "total": 340,
+      "dias": 4,
+      "eventos": 2
+    }
+  ],
+  "media_checkins": {},
+  "analise_estabilidade": {
+    "dias_com_evento_sem_checkin": 2,
+    "indicador_travamento": "2 dia(s) com evento e sem check-in (verificar manualmente)",
+    "total_dias_operacionais": 44,
+    "taxa_dias_com_checkin": 43,
+    "conclusao": "Recomenda-se verificar os dias listados em possíveis anomalias."
+  },
+  "consistencia_validacao": {
+    "total_checkins_validados": 2550,
+    "nomes_duplicados_mesmo_dia": 1,
+    "taxa_duplicidade": 0.43,
+    "avaliacao": "Consistência de validação boa. Poucos casos de duplicidade nas listas.",
+    "detalhes_duplicidades": [
+      {
+        "nome": "Yasmin Biteli",
+        "lista": "Lista de Highline",
+        "data": "2026-02-20T08:00:00.000Z",
+        "vezes": "2"
+      }
+    ]
+  },
+  "possiveis_anomalias": [
+    {
+      "data": "2025-12-11",
+      "data_formatada": "11/12/2025",
+      "eventos": 1,
+      "nomes": [
+        "Nest Flow"
+      ],
+      "descricao": "Dia com 1 evento(s) mas sem registro de check-in"
+    },
+    {
+      "data": "2026-02-16",
+      "data_formatada": "16/02/2026",
+      "eventos": 1,
+      "nomes": [
+        "Carnaval Highline"
+      ],
+      "descricao": "Dia com 1 evento(s) mas sem registro de check-in"
+    }
+  ]
+}
