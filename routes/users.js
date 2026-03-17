@@ -33,6 +33,14 @@ function roleToEnum(role) {
     const r = String(role).toLowerCase();
     return ROLE_TO_ENUM[r] || 'Cliente';
 }
+function enumDbCandidatesForRole(role) {
+    if (!role) return [];
+    const r = String(role).toLowerCase();
+    const primary = roleToEnum(r);
+    const candidates = [primary, r].filter(Boolean);
+    // remove duplicados preservando ordem
+    return candidates.filter((v, idx) => candidates.indexOf(v) === idx);
+}
 function roleFromEnum(enumValue) {
     if (!enumValue) return 'cliente';
     return ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
@@ -395,6 +403,8 @@ module.exports = (pool, upload) => {
             const updates = [];
             const params = [];
             let paramIndex = 1;
+            let roleParamPos = null;
+            let roleCandidates = null;
 
             if (name) { updates.push(`name = $${paramIndex++}`); params.push(String(name).trim()); }
             if (email) { updates.push(`email = $${paramIndex++}`); params.push(String(email).trim().toLowerCase()); }
@@ -421,12 +431,16 @@ module.exports = (pool, upload) => {
                 updates.push(`password = $${paramIndex++}`);
                 params.push(hashedPassword);
             }
-                        if (bodyRole) {
+            if (bodyRole !== undefined) {
                 const r = String(bodyRole).toLowerCase().replace('ç', 'c');
-                if (['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter', 'recepcao'].includes(r)) {
-                    updates.push(`role = $${paramIndex++}`);
-                    params.push(roleToEnum(r));
+                const allowed = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter', 'recepcao'];
+                if (!allowed.includes(r)) {
+                    return res.status(400).json({ error: `Cargo global (role) inválido: ${String(bodyRole)}` });
                 }
+                updates.push(`role = $${paramIndex++}`);
+                roleParamPos = params.length; // posição do valor no array params antes do push
+                roleCandidates = enumDbCandidatesForRole(r);
+                params.push(roleCandidates[0]);
             }
 
             if (updates.length === 0) {
@@ -438,7 +452,24 @@ module.exports = (pool, upload) => {
             console.log("PUT /:id - Query SQL executada:", query);
             console.log("PUT /:id - Parâmetros SQL:", params);
 
-            const result = await pool.query(query, params);
+            let result;
+            try {
+                result = await pool.query(query, params);
+            } catch (err) {
+                const msg = err && err.message ? String(err.message) : '';
+                const isEnumRoleError =
+                    msg.includes('invalid input value for enum') &&
+                    (msg.includes('users_role') || msg.includes('role'));
+                if (isEnumRoleError && roleCandidates && roleCandidates.length > 1 && roleParamPos !== null) {
+                    // Tenta novamente com o outro formato (ex.: enum no banco em minúsculas)
+                    const paramsRetry = [...params];
+                    paramsRetry[roleParamPos] = roleCandidates[1];
+                    console.log("PUT /:id - Retry enum role com:", paramsRetry[roleParamPos]);
+                    result = await pool.query(query, paramsRetry);
+                } else {
+                    throw err;
+                }
+            }
 
             if (result.rowCount === 0) {
                 return res.status(404).json({ error: 'Usuário não encontrado.' });
