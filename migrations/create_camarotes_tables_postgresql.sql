@@ -1,4 +1,30 @@
--- Migração para criar tabelas de camarotes e reservas de camarotes
+Contexto Profissional: Atue como um Engenheiro Full Stack Sênior. O projeto "Vamos Comemorar" está em produção e precisamos reestruturar o gerenciamento de usuários sem gerar downtime ou perda de acessos.
+
+Stack: Next.js (Front), Node.js (API), PostgreSQL (DB).
+
+Objetivo: Unificar e aprimorar as páginas /admin/users e /admin/permissions em uma interface única e completa.
+
+Tarefas solicitadas:
+
+Análise de Permissões: Analise app/admin/users/page.tsx, app/admin/permissions/page.tsx e o hook useUserPermissions.ts.
+
+Refatoração do Hook: Identifique a lógica hardcoded de e-mails (como Helena e Reserva Rooftop) em useUserPermissions.ts. Crie um plano para que essas permissões passem a ser lidas exclusivamente da tabela establishment_permissions no banco de dados.
+
+Novo Componente de Gestão: Crie uma interface de usuário que permita:
+
+Adicionar/Editar usuários.
+
+Definir um Cargo (Role) global.
+
+Para cada Estabelecimento, definir permissões granulares (Visualizar, Editar, Criar, Deletar) para as páginas: Reservas, Check-ins, Relatórios, OS e Cardápio.
+
+Segurança em Produção: Garanta que, ao salvar novas permissões, a API utilize os endpoints existentes (/api/establishment-permissions). Não remova acessos atuais sem que os novos estejam persistidos no banco.
+
+Layout: Utilize Tailwind CSS para um design moderno (Dark Mode, como o restante do admin), usando Modais ou Drawers laterais para edição, evitando trocar de página para gerenciar acessos.
+
+Dica Extra: Verifique se as interfaces UserRow e PermissionRow no front-end estão em sincronia com o schema do banco de dados para evitar erros de tipo.
+
+Analise os arquivos agora e me sugira a ordem de execução.-- Migração para criar tabelas de camarotes e reservas de camarotes
 -- Execute este script no seu banco PostgreSQL (Render)
 --
 -- IMPORTANTE: Execute no schema correto do seu banco. Exemplo:
