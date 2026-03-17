@@ -72,27 +72,34 @@ module.exports = (pool) => {
    */
   router.get('/my-permissions', auth, async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.user?.id;
+      const userEmail = (req.user?.email || req.user?.userEmail || '').trim().toLowerCase();
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'Usuário não identificado',
+          details: 'Token inválido ou expirado'
+        });
+      }
 
       const query = `
         SELECT 
           uep.*,
-          COALESCE(p.name, b.name) as establishment_name,
-          uep.establishment_id
+          p.name as establishment_name
         FROM user_establishment_permissions uep
         LEFT JOIN places p ON uep.establishment_id = p.id
-        LEFT JOIN bars b ON uep.establishment_id = b.id
         WHERE uep.user_id = $1 AND uep.is_active = TRUE
-        ORDER BY COALESCE(p.name, b.name)
+        ORDER BY p.name NULLS LAST, uep.establishment_id
       `;
-      
+
       const result = await pool.query(query, [userId]);
       const rows = result.rows;
 
       res.json({
         success: true,
         data: rows,
-        userEmail: userEmail
+        userEmail: userEmail || null
       });
     } catch (error) {
       console.error('❌ Erro ao buscar permissões do usuário:', error);
