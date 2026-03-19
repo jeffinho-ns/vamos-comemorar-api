@@ -37,7 +37,25 @@ function enumDbCandidatesForRole(role) {
     if (!role) return [];
     const r = String(role).toLowerCase();
     const primary = roleToEnum(r);
-    const candidates = [primary, r].filter(Boolean);
+
+    // Alguns ambientes usam enum com variações de acentuação/case.
+    // Para evitar 500 no cadastro/edição, tentamos múltiplos candidatos.
+    const candidates = [primary, r];
+
+    if (r === 'recepcao' || r === 'recepção') {
+        candidates.push('Recepção', 'recepção', 'Atendente', 'atendente');
+    }
+    if (r === 'atendente') {
+        candidates.push('Atendente', 'atendente', 'Recepção', 'recepção');
+    }
+
+    // Tentar também variações usuais para os demais papéis.
+    if (r === 'admin') candidates.push('Admin', 'admin');
+    if (r === 'gerente') candidates.push('Gerente', 'gerente');
+    if (r === 'usuario') candidates.push('Usuario', 'usuario');
+    if (r === 'cliente') candidates.push('Cliente', 'cliente');
+    if (r === 'promoter') candidates.push('Promoter', 'promoter');
+
     // remove duplicados preservando ordem
     return candidates.filter((v, idx) => candidates.indexOf(v) === idx);
 }
@@ -93,41 +111,41 @@ module.exports = (pool, upload) => {
 
         // CPF é NOT NULL no banco; se não for informado, usa placeholder único (11 dígitos)
         const cpfValue = (cpf && String(cpf).trim()) ? String(cpf).trim() : ('9' + String(Date.now()).padStart(10, '0').slice(-10));
-        const roleEnum = roleToEnum(role);
+        const roleCandidates = enumDbCandidatesForRole(role);
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         let result;
-        try {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            result = await pool.query(
-                `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, roleEnum]
-            );
-        } catch (error) {
-            // Se o enum rejeitar (ex.: banco com enum em minúsculas), tenta com role em minúsculas
-            const isEnumError = error.message && String(error.message).includes('invalid input value for enum') && String(error.message).includes('role');
-            if (isEnumError && role !== roleEnum) {
-                try {
-                    const hashedPassword = await bcrypt.hash(password, 10);
-                    result = await pool.query(
-                        `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                        [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, role]
-                    );
-                } catch (retryErr) {
-                    console.error('Erro ao cadastrar usuário (retry):', retryErr);
-                    const msg = retryErr.message || 'Erro ao cadastrar usuário';
-                    return res.status(500).json({ error: msg });
+        let lastError = null;
+        for (const roleValue of roleCandidates) {
+            try {
+                result = await pool.query(
+                    `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
+                    [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, roleValue]
+                );
+                lastError = null;
+                break;
+            } catch (error) {
+                lastError = error;
+                const msg = error && error.message ? String(error.message) : '';
+                const isEnumError = msg.includes('invalid input value for enum') && (msg.includes('users_role') || msg.includes('role'));
+                if (isEnumError) {
+                    console.warn('Cadastro usuário: role rejeitado pelo enum, tentando fallback:', roleValue);
+                    continue;
                 }
-            } else {
-                console.error('Erro ao cadastrar usuário:', error);
                 if (error.code === '23505') {
                     const isEmail = error.constraint && (error.constraint.includes('email') || error.detail && error.detail.includes('email'));
                     return res.status(409).json({
                         error: isEmail ? 'E-mail já cadastrado. Use outro e-mail.' : 'Dados duplicados. Verifique os campos.'
                     });
                 }
-                const message = error.message || 'Erro ao cadastrar usuário';
-                return res.status(500).json({ error: message });
+                throw error;
             }
+        }
+
+        if (!result) {
+            console.error('Erro ao cadastrar usuário (enum fallback esgotado):', lastError);
+            const message = (lastError && lastError.message) ? String(lastError.message) : 'Erro ao cadastrar usuário';
+            return res.status(500).json({ error: message });
         }
 
         try {
