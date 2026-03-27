@@ -22,8 +22,7 @@ function auth(req, res, next) {
                 error: 'INVALID_TOKEN'
             });
         }
-        
-        console.log(`✅ Usuário autenticado: ${user.role} (ID: ${user.id}) para ${req.method} ${req.path}`);
+
         req.user = user;
         next();
     });

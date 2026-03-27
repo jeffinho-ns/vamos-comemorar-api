@@ -56,7 +56,9 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
 // Middleware para logs de requisições
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  }
   next();
 });
 
