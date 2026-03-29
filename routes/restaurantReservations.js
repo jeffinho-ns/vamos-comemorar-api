@@ -8,6 +8,29 @@ const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 module.exports = (pool) => {
+  /** Snapshot estável para auditoria (antes/depois) em logs de reserva */
+  function auditReservationSnapshot(row) {
+    if (!row) return null;
+    return {
+      client_name: row.client_name,
+      client_phone: row.client_phone,
+      client_email: row.client_email,
+      reservation_date: row.reservation_date,
+      reservation_time: row.reservation_time,
+      number_of_people: row.number_of_people,
+      area_id: row.area_id,
+      area_name: row.area_name,
+      table_number: row.table_number,
+      status: row.status,
+      notes: row.notes,
+      establishment_id: row.establishment_id,
+      establishment_name: row.establishment_name,
+      origin: row.origin,
+      check_in_time: row.check_in_time,
+      check_out_time: row.check_out_time,
+    };
+  }
+
   // Limite diário específico para o Reserva Rooftop (establishment_id = 9)
   const MAX_DAILY_RESERVATIONS_ROOFTOP = 60;
 
@@ -1140,11 +1163,11 @@ module.exports = (pool) => {
               establishmentName: newReservationResult.rows[0].establishment_name,
               status: 'success',
               additionalData: {
-                client_name,
-                number_of_people: numberOfPeople,
-                area_name: newReservationResult.rows[0].area_name,
-                table_number
-              }
+                audit: {
+                  before: null,
+                  after: auditReservationSnapshot(newReservationResult.rows[0]),
+                },
+              },
             });
           }
         } catch (logError) {
@@ -1293,9 +1316,19 @@ module.exports = (pool) => {
         has_bistro_table
       } = req.body;
 
-      // Verificar se a reserva existe e buscar dados atuais
+      // Estado completo antes da alteração (auditoria antes/depois)
       const existingReservationResult = await pool.query(
-        'SELECT id, area_id, reservation_date, establishment_id FROM restaurant_reservations WHERE id = $1',
+        `
+        SELECT
+          rr.*,
+          COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
+          COALESCE(p.name, b.name) as establishment_name
+        FROM restaurant_reservations rr
+        LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
+        LEFT JOIN places p ON rr.establishment_id = p.id
+        LEFT JOIN bars b ON rr.establishment_id = b.id
+        WHERE rr.id = $1
+      `,
         [id]
       );
 
@@ -1307,6 +1340,7 @@ module.exports = (pool) => {
       }
 
       const existingReservation = existingReservationResult.rows[0];
+      const reservationBeforeAudit = auditReservationSnapshot(existingReservation);
       
       // Se a data ou área estão sendo alteradas, verificar se há bloqueio
       const newAreaId = area_id !== undefined ? Number(area_id) : existingReservation.area_id;
@@ -1514,9 +1548,12 @@ module.exports = (pool) => {
               establishmentName: updatedReservationResult.rows[0].establishment_name,
               status: 'success',
               additionalData: {
+                audit: {
+                  before: reservationBeforeAudit,
+                  after: auditReservationSnapshot(updatedReservationResult.rows[0]),
+                },
                 changed_fields: changedFields,
-                client_name: updatedReservationResult.rows[0].client_name
-              }
+              },
             });
           }
         } catch (logError) {

@@ -1,7 +1,24 @@
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const { logAction } = require('../middleware/actionLogger');
 
 module.exports = (pool) => {
+    function auditMenuItemSnapshot(row) {
+        if (!row) return null;
+        const snap = {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            price: row.price,
+            categoryId: row.categoryid ?? row.categoryId,
+            barId: row.barid ?? row.barId,
+            subCategory: row.subcategory ?? row.subCategory,
+            order: row.order,
+        };
+        if (row.visible !== undefined) snap.visible = row.visible;
+        return snap;
+    }
     // Função helper para extrair apenas o nome do arquivo da URL
     const extractFilename = (url) => {
         if (!url) return null;
@@ -1142,7 +1159,7 @@ module.exports = (pool) => {
     // ============================================
 
     // Rotas para Itens
-    router.post('/items', async (req, res) => {
+    router.post('/items', optionalAuth, async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
         const client = await pool.connect();
         try {
@@ -1185,6 +1202,43 @@ module.exports = (pool) => {
             }
 
             await client.query('COMMIT');
+
+            if (req.user) {
+                try {
+                    const u = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [req.user.id]);
+                    const barRow = await pool.query('SELECT name FROM bars WHERE id = $1', [barId]);
+                    if (u.rows.length > 0) {
+                        const user = u.rows[0];
+                        const afterRow = await pool.query(
+                            `SELECT mi.id, mi.name, mi.description, mi.price, mi.categoryid, mi.barid, mi.subcategory, mi."order"
+                             FROM menu_items mi WHERE mi.id = $1`,
+                            [itemId]
+                        );
+                        await logAction(pool, {
+                            userId: user.id,
+                            userName: user.name,
+                            userEmail: user.email,
+                            userRole: user.role,
+                            actionType: 'create_cardapio_item',
+                            actionDescription: `Criou item do cardápio: ${name}`,
+                            resourceType: 'menu_item',
+                            resourceId: itemId,
+                            establishmentId: barId,
+                            establishmentName: barRow.rows[0]?.name || null,
+                            status: 'success',
+                            additionalData: {
+                                audit: {
+                                    before: null,
+                                    after: auditMenuItemSnapshot(afterRow.rows[0]),
+                                },
+                            },
+                        });
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Log cardápio (create item):', e.message);
+                }
+            }
+
             res.status(201).json({ id: itemId, ...req.body });
         } catch (error) {
             await client.query('ROLLBACK');
@@ -1423,9 +1477,20 @@ module.exports = (pool) => {
     });
 
     // Rota para atualizar um item
-    router.put('/items/:id', async (req, res) => {
+    router.put('/items/:id', optionalAuth, async (req, res) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
+
+        const beforeSnapResult = await pool.query(
+            `SELECT mi.id, mi.name, mi.description, mi.price, mi.categoryid, mi.barid, mi.subcategory, mi."order"
+             FROM menu_items mi WHERE mi.id = $1`,
+            [id]
+        );
+        if (beforeSnapResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Item não encontrado.' });
+        }
+        const beforeAudit = auditMenuItemSnapshot(beforeSnapResult.rows[0]);
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -1475,6 +1540,43 @@ module.exports = (pool) => {
             }
             
             await client.query('COMMIT');
+
+            if (req.user) {
+                try {
+                    const u = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [req.user.id]);
+                    const barRow = await pool.query('SELECT name FROM bars WHERE id = $1', [barId]);
+                    const afterRow = await pool.query(
+                        `SELECT mi.id, mi.name, mi.description, mi.price, mi.categoryid, mi.barid, mi.subcategory, mi."order"
+                         FROM menu_items mi WHERE mi.id = $1`,
+                        [id]
+                    );
+                    if (u.rows.length > 0 && afterRow.rows.length > 0) {
+                        const user = u.rows[0];
+                        await logAction(pool, {
+                            userId: user.id,
+                            userName: user.name,
+                            userEmail: user.email,
+                            userRole: user.role,
+                            actionType: 'update_cardapio_item',
+                            actionDescription: `Atualizou item do cardápio #${id}: ${name}`,
+                            resourceType: 'menu_item',
+                            resourceId: parseInt(id, 10),
+                            establishmentId: barId,
+                            establishmentName: barRow.rows[0]?.name || null,
+                            status: 'success',
+                            additionalData: {
+                                audit: {
+                                    before: beforeAudit,
+                                    after: auditMenuItemSnapshot(afterRow.rows[0]),
+                                },
+                            },
+                        });
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Log cardápio (update item):', e.message);
+                }
+            }
+
             res.json({ message: 'Item atualizado com sucesso.' });
         } catch (error) {
             await client.query('ROLLBACK');

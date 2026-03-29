@@ -31,7 +31,9 @@ const logAction = async (pool, {
         ip_address, user_agent,
         request_method, request_url,
         status, additional_data
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+      )
     `;
 
     const values = [
@@ -53,11 +55,10 @@ const logAction = async (pool, {
       additionalData ? JSON.stringify(additionalData) : null
     ];
 
-    await pool.execute(query, values);
+    await pool.query(query, values);
     console.log(`📝 Log registrado: ${actionType} por ${userName} (${userRole})`);
   } catch (error) {
     console.error('❌ Erro ao registrar log de ação:', error);
-    // Não interrompe a execução mesmo em caso de erro no log
   }
 };
 
@@ -66,13 +67,10 @@ const logAction = async (pool, {
  */
 const autoLogMiddleware = (pool) => {
   return async (req, res, next) => {
-    // Sobrescreve res.json para capturar a resposta antes de enviar
     const originalJson = res.json.bind(res);
-    
-    res.json = function(body) {
-      // Se temos um usuário autenticado e a operação foi bem-sucedida
+
+    res.json = function (body) {
       if (req.user && res.statusCode < 400) {
-        // Determina o tipo de ação baseado no método HTTP
         let actionType = 'unknown';
         switch (req.method) {
           case 'POST':
@@ -90,11 +88,9 @@ const autoLogMiddleware = (pool) => {
             break;
         }
 
-        // Extrai informações da requisição
-        const ipAddress = req.ip || req.connection.remoteAddress;
+        const ipAddress = req.ip || req.connection?.remoteAddress;
         const userAgent = req.get('user-agent');
 
-        // Log assíncrono (não bloqueia a resposta)
         setImmediate(() => {
           logAction(pool, {
             userId: req.user.id,
@@ -123,12 +119,3 @@ module.exports = {
   logAction,
   autoLogMiddleware
 };
-
-
-
-
-
-
-
-
-

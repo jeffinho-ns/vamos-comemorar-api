@@ -2,12 +2,41 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 const { logAction } = require('../middleware/actionLogger');
+const {
+  getActionLogsViewerContext,
+  appendEstablishmentScope,
+  assertEstablishmentFilterAllowed
+} = require('../middleware/logAccessHelpers');
+
+function parseAdditionalData(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function appendActionCategoryFilter(sql, params, paramIndex, actionCategory) {
+  const cat = String(actionCategory).toLowerCase().trim();
+  const map = {
+    create: `(action_type ILIKE '%create%' OR action_type = 'create')`,
+    update: `(action_type ILIKE '%update%' OR action_type = 'update')`,
+    delete: `(action_type ILIKE '%delete%' OR action_type = 'delete')`,
+    view: `(action_type ILIKE '%view%' OR action_type ILIKE 'page_view%')`
+  };
+  if (!map[cat]) return { sql, params, paramIndex };
+  return {
+    sql: `${sql} AND ${map[cat]}`,
+    params,
+    paramIndex
+  };
+}
 
 module.exports = (pool) => {
   /**
    * @route   POST /api/action-logs
-   * @desc    Registra uma nova ação do usuário
-   * @access  Private
    */
   router.post('/', authenticateToken, async (req, res) => {
     try {
@@ -22,7 +51,6 @@ module.exports = (pool) => {
         additionalData
       } = req.body;
 
-      // Validações básicas
       if (!actionType || !actionDescription) {
         return res.status(400).json({
           success: false,
@@ -30,11 +58,9 @@ module.exports = (pool) => {
         });
       }
 
-      // Extrai informações do usuário autenticado
-      const ipAddress = req.ip || req.connection.remoteAddress;
+      const ipAddress = req.ip || req.connection?.remoteAddress;
       const userAgent = req.get('user-agent');
 
-      // Busca informações completas do usuário
       const usersResult = await pool.query(
         'SELECT id, name, email, role FROM users WHERE id = $1',
         [req.user.id]
@@ -49,7 +75,6 @@ module.exports = (pool) => {
 
       const user = usersResult.rows[0];
 
-      // Registra a ação
       await logAction(pool, {
         userId: user.id,
         userName: user.name,
@@ -73,7 +98,6 @@ module.exports = (pool) => {
         success: true,
         message: 'Ação registrada com sucesso'
       });
-
     } catch (error) {
       console.error('Erro ao registrar ação:', error);
       res.status(500).json({
@@ -85,16 +109,23 @@ module.exports = (pool) => {
 
   /**
    * @route   GET /api/action-logs
-   * @desc    Busca logs de ações com filtros
-   * @access  Private (Admin only)
    */
   router.get('/', authenticateToken, async (req, res) => {
     try {
-      // Verifica se o usuário é admin
-      if (req.user.role !== 'admin') {
+      const ctx = await getActionLogsViewerContext(pool, req);
+
+      if (!ctx.superAdmin && !ctx.establishmentIds.length) {
         return res.status(403).json({
           success: false,
-          error: 'Acesso negado. Apenas administradores podem visualizar os logs.'
+          error: 'Sem permissão para visualizar logs. É necessário vínculo com um estabelecimento.'
+        });
+      }
+
+      const filterCheck = assertEstablishmentFilterAllowed(ctx, req.query.establishmentId);
+      if (!filterCheck.ok) {
+        return res.status(filterCheck.status).json({
+          success: false,
+          error: filterCheck.error
         });
       }
 
@@ -103,15 +134,14 @@ module.exports = (pool) => {
         userRole,
         actionType,
         resourceType,
-        establishmentId,
         startDate,
         endDate,
         limit = 100,
         offset = 0,
-        search
+        search,
+        actionCategory
       } = req.query;
 
-      // Constrói a query dinamicamente baseado nos filtros
       let query = `
         SELECT 
           id,
@@ -136,18 +166,26 @@ module.exports = (pool) => {
         WHERE 1=1
       `;
 
-      const params = [];
+      let params = [];
       let paramIndex = 1;
 
-      // Filtro por usuário
+      let scoped = appendEstablishmentScope(query, params, paramIndex, ctx);
+      query = scoped.sql;
+      params = scoped.params;
+      paramIndex = scoped.paramIndex;
+
+      if (filterCheck.establishmentId != null) {
+        query += ` AND establishment_id = $${paramIndex++}`;
+        params.push(filterCheck.establishmentId);
+      }
+
       if (userId) {
         query += ` AND user_id = $${paramIndex++}`;
         params.push(userId);
       }
 
-      // Filtro por role (aceita múltiplos valores separados por vírgula)
       if (userRole) {
-        const roles = userRole.split(',').map(r => r.trim());
+        const roles = userRole.split(',').map((r) => r.trim());
         if (roles.length === 1) {
           query += ` AND user_role = $${paramIndex++}`;
           params.push(roles[0]);
@@ -159,61 +197,65 @@ module.exports = (pool) => {
         }
       }
 
-      // Filtro por tipo de ação
       if (actionType) {
         query += ` AND action_type = $${paramIndex++}`;
         params.push(actionType);
       }
 
-      // Filtro por tipo de recurso
       if (resourceType) {
         query += ` AND resource_type = $${paramIndex++}`;
         params.push(resourceType);
       }
 
-      // Filtro por estabelecimento
-      if (establishmentId) {
-        query += ` AND establishment_id = $${paramIndex++}`;
-        params.push(establishmentId);
+      if (actionCategory) {
+        const ac = appendActionCategoryFilter(query, params, paramIndex, actionCategory);
+        query = ac.sql;
+        params = ac.params;
+        paramIndex = ac.paramIndex;
       }
 
-      // Filtro por data inicial
       if (startDate) {
-        query += ` AND created_at >= $${paramIndex++}`;
-        params.push(startDate);
+        query += ` AND created_at >= $${paramIndex++}::timestamp`;
+        params.push(`${startDate}T00:00:00`);
       }
 
-      // Filtro por data final
       if (endDate) {
-        query += ` AND created_at <= $${paramIndex++}`;
-        params.push(endDate);
+        query += ` AND created_at <= $${paramIndex++}::timestamp`;
+        params.push(`${endDate}T23:59:59.999`);
       }
 
-      // Busca textual
       if (search) {
         query += ` AND (user_name ILIKE $${paramIndex++} OR user_email ILIKE $${paramIndex++} OR action_description ILIKE $${paramIndex++})`;
         const searchTerm = `%${search}%`;
         params.push(searchTerm, searchTerm, searchTerm);
       }
 
-      // Ordenação e paginação
       query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-      params.push(parseInt(limit), parseInt(offset));
+      params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-      // Executa a query
       const logsResult = await pool.query(query, params);
 
-      // Query para contar total de registros (sem paginação)
       let countQuery = `SELECT COUNT(*) as total FROM action_logs WHERE 1=1`;
-      const countParams = [];
+      let countParams = [];
       let countParamIndex = 1;
+
+      let countScoped = appendEstablishmentScope(countQuery, countParams, countParamIndex, ctx);
+      countQuery = countScoped.sql;
+      countParams = countScoped.params;
+      countParamIndex = countScoped.paramIndex;
+
+      if (filterCheck.establishmentId != null) {
+        countQuery += ` AND establishment_id = $${countParamIndex++}`;
+        countParams.push(filterCheck.establishmentId);
+      }
 
       if (userId) {
         countQuery += ` AND user_id = $${countParamIndex++}`;
         countParams.push(userId);
       }
+
       if (userRole) {
-        const roles = userRole.split(',').map(r => r.trim());
+        const roles = userRole.split(',').map((r) => r.trim());
         if (roles.length === 1) {
           countQuery += ` AND user_role = $${countParamIndex++}`;
           countParams.push(roles[0]);
@@ -224,26 +266,34 @@ module.exports = (pool) => {
           countParamIndex += roles.length;
         }
       }
+
       if (actionType) {
         countQuery += ` AND action_type = $${countParamIndex++}`;
         countParams.push(actionType);
       }
+
       if (resourceType) {
         countQuery += ` AND resource_type = $${countParamIndex++}`;
         countParams.push(resourceType);
       }
-      if (establishmentId) {
-        countQuery += ` AND establishment_id = $${countParamIndex++}`;
-        countParams.push(establishmentId);
+
+      if (actionCategory) {
+        const ac = appendActionCategoryFilter(countQuery, countParams, countParamIndex, actionCategory);
+        countQuery = ac.sql;
+        countParams = ac.params;
+        countParamIndex = ac.paramIndex;
       }
+
       if (startDate) {
-        countQuery += ` AND created_at >= $${countParamIndex++}`;
-        countParams.push(startDate);
+        countQuery += ` AND created_at >= $${countParamIndex++}::timestamp`;
+        countParams.push(`${startDate}T00:00:00`);
       }
+
       if (endDate) {
-        countQuery += ` AND created_at <= $${countParamIndex++}`;
-        countParams.push(endDate);
+        countQuery += ` AND created_at <= $${countParamIndex++}::timestamp`;
+        countParams.push(`${endDate}T23:59:59.999`);
       }
+
       if (search) {
         countQuery += ` AND (user_name ILIKE $${countParamIndex++} OR user_email ILIKE $${countParamIndex++} OR action_description ILIKE $${countParamIndex++})`;
         const searchTerm = `%${search}%`;
@@ -251,12 +301,11 @@ module.exports = (pool) => {
       }
 
       const countResult = await pool.query(countQuery, countParams);
-      const total = parseInt(countResult.rows[0].total);
+      const total = parseInt(countResult.rows[0].total, 10);
 
-      // Parse additional_data JSON
-      const logsWithParsedData = logsResult.rows.map(log => ({
+      const logsWithParsedData = logsResult.rows.map((log) => ({
         ...log,
-        additional_data: log.additional_data ? JSON.parse(log.additional_data) : null
+        additional_data: parseAdditionalData(log.additional_data)
       }));
 
       res.json({
@@ -264,12 +313,15 @@ module.exports = (pool) => {
         logs: logsWithParsedData,
         pagination: {
           total,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          hasMore: (parseInt(offset) + parseInt(limit)) < total
+          limit: parseInt(limit, 10),
+          offset: parseInt(offset, 10),
+          hasMore: parseInt(offset, 10) + parseInt(limit, 10) < total
+        },
+        viewer: {
+          isSuperAdmin: ctx.superAdmin,
+          establishmentIds: ctx.superAdmin ? null : ctx.establishmentIds
         }
       });
-
     } catch (error) {
       console.error('Erro ao buscar logs:', error);
       res.status(500).json({
@@ -281,89 +333,109 @@ module.exports = (pool) => {
 
   /**
    * @route   GET /api/action-logs/stats
-   * @desc    Retorna estatísticas dos logs
-   * @access  Private (Admin only)
    */
   router.get('/stats', authenticateToken, async (req, res) => {
     try {
-      // Verifica se o usuário é admin
-      if (req.user.role !== 'admin') {
+      const ctx = await getActionLogsViewerContext(pool, req);
+
+      if (!ctx.superAdmin && !ctx.establishmentIds.length) {
         return res.status(403).json({
           success: false,
-          error: 'Acesso negado. Apenas administradores podem visualizar estatísticas.'
+          error: 'Sem permissão para visualizar estatísticas.'
+        });
+      }
+
+      const filterCheck = assertEstablishmentFilterAllowed(ctx, req.query.establishmentId);
+      if (!filterCheck.ok) {
+        return res.status(filterCheck.status).json({
+          success: false,
+          error: filterCheck.error
         });
       }
 
       const { startDate, endDate } = req.query;
 
-      let dateFilter = '';
+      let scopeWhere = '';
       const params = [];
       let paramIndex = 1;
 
-      if (startDate) {
-        dateFilter += ` AND created_at >= $${paramIndex++}`;
-        params.push(startDate);
-      }
-      if (endDate) {
-        dateFilter += ` AND created_at <= $${paramIndex++}`;
-        params.push(endDate);
+      if (!ctx.superAdmin) {
+        scopeWhere += ` AND establishment_id = ANY($${paramIndex}::int[])`;
+        params.push(ctx.establishmentIds);
+        paramIndex += 1;
       }
 
-      // Total de ações
+      if (filterCheck.establishmentId != null) {
+        scopeWhere += ` AND establishment_id = $${paramIndex++}`;
+        params.push(filterCheck.establishmentId);
+      }
+
+      if (startDate) {
+        scopeWhere += ` AND created_at >= $${paramIndex++}::timestamp`;
+        params.push(`${startDate}T00:00:00`);
+      }
+
+      if (endDate) {
+        scopeWhere += ` AND created_at <= $${paramIndex++}::timestamp`;
+        params.push(`${endDate}T23:59:59.999`);
+      }
+
       const totalActionsResult = await pool.query(
-        `SELECT COUNT(*) as total FROM action_logs WHERE 1=1 ${dateFilter}`,
+        `SELECT COUNT(*) as total FROM action_logs WHERE 1=1 ${scopeWhere}`,
         params
       );
 
-      // Ações por tipo
       const actionsByTypeResult = await pool.query(
-        `SELECT action_type, COUNT(*) as count 
+        `SELECT action_type, COUNT(*)::int as count 
          FROM action_logs 
-         WHERE 1=1 ${dateFilter}
+         WHERE 1=1 ${scopeWhere}
          GROUP BY action_type 
          ORDER BY count DESC`,
         params
       );
 
-      // Ações por role
       const actionsByRoleResult = await pool.query(
-        `SELECT user_role, COUNT(*) as count 
+        `SELECT user_role, COUNT(*)::int as count 
          FROM action_logs 
-         WHERE 1=1 ${dateFilter}
+         WHERE 1=1 ${scopeWhere}
          GROUP BY user_role 
          ORDER BY count DESC`,
         params
       );
 
-      // Top usuários mais ativos
       const topUsersResult = await pool.query(
-        `SELECT user_name, user_email, user_role, COUNT(*) as count 
+        `SELECT user_name, user_email, user_role, COUNT(*)::int as count 
          FROM action_logs 
-         WHERE 1=1 ${dateFilter}
+         WHERE 1=1 ${scopeWhere}
          GROUP BY user_id, user_name, user_email, user_role 
          ORDER BY count DESC 
          LIMIT 10`,
         params
       );
 
-      // Ações recentes (últimas 24h)
+      const recentParams = ctx.superAdmin ? [] : [ctx.establishmentIds];
+      const recentScope = ctx.superAdmin
+        ? ''
+        : ` AND establishment_id = ANY($1::int[])`;
+
       const recentActionsResult = await pool.query(
-        `SELECT COUNT(*) as count 
+        `SELECT COUNT(*)::int as count 
          FROM action_logs 
-         WHERE created_at >= NOW() - INTERVAL '24 hours'`
+         WHERE created_at >= NOW() - INTERVAL '24 hours'
+         ${recentScope}`,
+        recentParams
       );
 
       res.json({
         success: true,
         stats: {
-          totalActions: parseInt(totalActionsResult.rows[0].total),
-          recentActions24h: parseInt(recentActionsResult.rows[0].count),
+          totalActions: parseInt(totalActionsResult.rows[0].total, 10),
+          recentActions24h: parseInt(recentActionsResult.rows[0].count, 10),
           actionsByType: actionsByTypeResult.rows,
           actionsByRole: actionsByRoleResult.rows,
           topUsers: topUsersResult.rows
         }
       });
-
     } catch (error) {
       console.error('Erro ao buscar estatísticas:', error);
       res.status(500).json({
@@ -375,29 +447,60 @@ module.exports = (pool) => {
 
   /**
    * @route   GET /api/action-logs/users
-   * @desc    Lista todos os usuários que têm logs (para filtro)
-   * @access  Private (Admin only)
+   * Todos os utilizadores com registo em user_establishment_permissions (ativos, com establishment_id),
+   * independentemente de já terem gerado linhas em action_logs.
    */
   router.get('/users', authenticateToken, async (req, res) => {
     try {
-      if (req.user.role !== 'admin') {
+      const ctx = await getActionLogsViewerContext(pool, req);
+
+      if (!ctx.superAdmin && !ctx.establishmentIds.length) {
         return res.status(403).json({
           success: false,
-          error: 'Acesso negado'
+          error: 'Sem permissão'
         });
       }
 
-      const usersResult = await pool.query(`
-        SELECT DISTINCT user_id, user_name, user_email, user_role
-        FROM action_logs
-        ORDER BY user_name
-      `);
+      let usersResult;
+
+      if (ctx.superAdmin) {
+        usersResult = await pool.query(`
+          SELECT DISTINCT ON (u.id)
+            u.id AS user_id,
+            u.name AS user_name,
+            u.email AS user_email,
+            u.role AS user_role
+          FROM users u
+          INNER JOIN user_establishment_permissions uep
+            ON uep.user_id = u.id
+            AND uep.is_active = TRUE
+            AND uep.establishment_id IS NOT NULL
+          ORDER BY u.id, u.name NULLS LAST, u.email
+        `);
+      } else {
+        usersResult = await pool.query(
+          `
+          SELECT DISTINCT ON (u.id)
+            u.id AS user_id,
+            u.name AS user_name,
+            u.email AS user_email,
+            u.role AS user_role
+          FROM users u
+          INNER JOIN user_establishment_permissions uep
+            ON uep.user_id = u.id
+            AND uep.is_active = TRUE
+            AND uep.establishment_id IS NOT NULL
+          WHERE uep.establishment_id = ANY($1::int[])
+          ORDER BY u.id, u.name NULLS LAST, u.email
+        `,
+          [ctx.establishmentIds]
+        );
+      }
 
       res.json({
         success: true,
         users: usersResult.rows
       });
-
     } catch (error) {
       console.error('Erro ao buscar usuários:', error);
       res.status(500).json({
@@ -409,5 +512,3 @@ module.exports = (pool) => {
 
   return router;
 };
-
-
