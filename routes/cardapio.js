@@ -229,6 +229,7 @@ module.exports = (pool) => {
             try {
                 cardapioImagesResult = await pool.query(`
                     SELECT 
+                        id,
                         filename,
                         url,
                         uploaded_at as created_at,
@@ -248,10 +249,17 @@ module.exports = (pool) => {
 
             console.log(`📊 [GALLERY] Encontradas ${cardapioImagesResult.rows.length} imagens na tabela cardapio_images`);
 
+            // Índice para lookup rápido (evita .find O(n²))
+            const cardapioImagesByFilename = new Map();
+            cardapioImagesResult.rows.forEach((row) => {
+                if (row?.filename) cardapioImagesByFilename.set(row.filename, row);
+            });
+
             cardapioImagesResult.rows.forEach(row => {
                 const filename = row.filename;
                 if (filename && filename !== 'null' && filename.trim() !== '') {
                     imageMap.set(filename, {
+                        imageId: row.id,
                         filename: filename,
                         url: row.url || null, // URL completa do Cloudinary se disponível
                         sourceType: row.source_type,
@@ -301,13 +309,14 @@ module.exports = (pool) => {
                     } else {
                         // Buscar URL completa na tabela cardapio_images se existir, ou usar URL direta
                         let finalUrl = directUrl;
-                        const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
+                        const cardapioImage = cardapioImagesByFilename.get(filename);
                         if (!finalUrl && cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) {
                             finalUrl = cardapioImage.url;
                         }
                         
                         // Adicionar nova imagem
                         imageMap.set(filename, {
+                            imageId: cardapioImage?.id || null,
                             filename: filename,
                             url: finalUrl, // URL completa (Firebase/Cloudinary) se encontrada
                             sourceType: row.source_type,
@@ -340,7 +349,7 @@ module.exports = (pool) => {
                 // Função helper para buscar URL na tabela cardapio_images (Firebase/Cloudinary)
                 const getCloudinaryUrl = (filename) => {
                     if (!filename) return null;
-                    const cardapioImage = cardapioImagesResult.rows.find(img => img.filename === filename);
+                    const cardapioImage = cardapioImagesByFilename.get(filename);
                     return (cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) 
                         ? cardapioImage.url 
                         : null;
@@ -366,7 +375,9 @@ module.exports = (pool) => {
                                 existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
+                            const cardapioImage = cardapioImagesByFilename.get(filename);
                             imageMap.set(filename, {
+                                imageId: cardapioImage?.id || null,
                                 filename: filename,
                                 url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
@@ -398,7 +409,9 @@ module.exports = (pool) => {
                                 existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
+                            const cardapioImage = cardapioImagesByFilename.get(filename);
                             imageMap.set(filename, {
+                                imageId: cardapioImage?.id || null,
                                 filename: filename,
                                 url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
@@ -430,7 +443,9 @@ module.exports = (pool) => {
                                 existing.url = directUrl || getCloudinaryUrl(filename);
                             }
                         } else {
+                            const cardapioImage = cardapioImagesByFilename.get(filename);
                             imageMap.set(filename, {
+                                imageId: cardapioImage?.id || null,
                                 filename: filename,
                                 url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
                                 sourceType: 'bar',
@@ -474,6 +489,165 @@ module.exports = (pool) => {
             console.error('❌ [GALLERY] Erro ao listar imagens da galeria:', error);
             console.error('❌ [GALLERY] Stack trace:', error.stack);
             res.status(500).json({ error: 'Erro ao listar imagens da galeria.', details: error.message });
+        }
+    });
+
+    // Detalhar onde uma imagem está sendo usada (itens + bares)
+    // Aceita filename (objectPath) OU URL (Firebase/Cloudinary) OU pedaço (contém)
+    router.get('/gallery/usage/:value', async (req, res) => {
+        try {
+            const raw = String(req.params.value || '').trim();
+            if (!raw) return res.status(400).json({ error: 'value é obrigatório' });
+
+            const value = raw;
+            const valueEncoded = encodeURIComponent(value);
+
+            // Itens do cardápio
+            const items = await pool.query(
+                `
+                SELECT mi.id, mi.name, mi.barid as "barId", b.name as "barName", mi.imageurl as "imageUrl"
+                FROM menu_items mi
+                LEFT JOIN bars b ON b.id = mi.barid
+                WHERE mi.deleted_at IS NULL
+                  AND mi.imageurl IS NOT NULL
+                  AND (
+                    mi.imageurl = $1
+                    OR mi.imageurl LIKE '%' || $1 || '%'
+                    OR mi.imageurl LIKE '%' || $2 || '%'
+                    OR mi.imageurl LIKE '%' || $3 || '%'
+                  )
+                ORDER BY mi.id DESC
+                LIMIT 500
+                `,
+                [value, valueEncoded, extractFilename(value)],
+            );
+
+            // Bares (logo/capa/popup)
+            const bars = await pool.query(
+                `
+                SELECT id as "barId", name as "barName",
+                       logourl as "logoUrl",
+                       coverimageurl as "coverImageUrl",
+                       popupimageurl as "popupImageUrl"
+                FROM bars
+                WHERE
+                  (logourl IS NOT NULL AND (logourl = $1 OR logourl LIKE '%' || $1 || '%' OR logourl LIKE '%' || $2 || '%' OR logourl LIKE '%' || $3 || '%'))
+                  OR
+                  (coverimageurl IS NOT NULL AND (coverimageurl = $1 OR coverimageurl LIKE '%' || $1 || '%' OR coverimageurl LIKE '%' || $2 || '%' OR coverimageurl LIKE '%' || $3 || '%'))
+                  OR
+                  (popupimageurl IS NOT NULL AND (popupimageurl = $1 OR popupimageurl LIKE '%' || $1 || '%' OR popupimageurl LIKE '%' || $2 || '%' OR popupimageurl LIKE '%' || $3 || '%'))
+                ORDER BY id DESC
+                LIMIT 200
+                `,
+                [value, valueEncoded, extractFilename(value)],
+            );
+
+            return res.json({
+                success: true,
+                value,
+                matches: {
+                    items: items.rows,
+                    bars: bars.rows,
+                },
+                counts: {
+                    items: items.rows.length,
+                    bars: bars.rows.length,
+                    total: items.rows.length + bars.rows.length,
+                },
+            });
+        } catch (error) {
+            console.error('❌ [GALLERY] Erro ao buscar uso da imagem:', error);
+            return res.status(500).json({ error: 'Erro ao buscar uso da imagem.', details: error.message });
+        }
+    });
+
+    // Substituir uma imagem por outra no banco (atualiza referências em menu_items e bars)
+    // from/to podem ser URL completa ou filename/objectPath.
+    router.post('/gallery/replace', async (req, res) => {
+        const { from, to } = req.body || {};
+        const fromVal = String(from || '').trim();
+        const toVal = String(to || '').trim();
+
+        if (!fromVal || !toVal) {
+            return res.status(400).json({ error: '`from` e `to` são obrigatórios.' });
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Atualizar menu_items.imageurl (match exato ou contém filename)
+            const fromFilename = extractFilename(fromVal);
+            const fromEncoded = encodeURIComponent(fromFilename || fromVal);
+
+            const itemsResult = await client.query(
+                `
+                UPDATE menu_items
+                SET imageurl = $1
+                WHERE deleted_at IS NULL
+                  AND imageurl IS NOT NULL
+                  AND (
+                    imageurl = $2
+                    OR imageurl LIKE '%' || $3 || '%'
+                    OR imageurl LIKE '%' || $4 || '%'
+                  )
+                `,
+                [toVal, fromVal, fromFilename || fromVal, fromEncoded],
+            );
+
+            // Atualizar bars (logo/capa/popup)
+            const barsLogo = await client.query(
+                `
+                UPDATE bars
+                SET logourl = $1
+                WHERE logourl IS NOT NULL
+                  AND (logourl = $2 OR logourl LIKE '%' || $3 || '%' OR logourl LIKE '%' || $4 || '%')
+                `,
+                [toVal, fromVal, fromFilename || fromVal, fromEncoded],
+            );
+            const barsCover = await client.query(
+                `
+                UPDATE bars
+                SET coverimageurl = $1
+                WHERE coverimageurl IS NOT NULL
+                  AND (coverimageurl = $2 OR coverimageurl LIKE '%' || $3 || '%' OR coverimageurl LIKE '%' || $4 || '%')
+                `,
+                [toVal, fromVal, fromFilename || fromVal, fromEncoded],
+            );
+            const barsPopup = await client.query(
+                `
+                UPDATE bars
+                SET popupimageurl = $1
+                WHERE popupimageurl IS NOT NULL
+                  AND (popupimageurl = $2 OR popupimageurl LIKE '%' || $3 || '%' OR popupimageurl LIKE '%' || $4 || '%')
+                `,
+                [toVal, fromVal, fromFilename || fromVal, fromEncoded],
+            );
+
+            await client.query('COMMIT');
+
+            return res.json({
+                success: true,
+                from: fromVal,
+                to: toVal,
+                updated: {
+                    menuItems: itemsResult.rowCount || 0,
+                    barsLogo: barsLogo.rowCount || 0,
+                    barsCover: barsCover.rowCount || 0,
+                    barsPopup: barsPopup.rowCount || 0,
+                    total:
+                        (itemsResult.rowCount || 0) +
+                        (barsLogo.rowCount || 0) +
+                        (barsCover.rowCount || 0) +
+                        (barsPopup.rowCount || 0),
+                },
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            console.error('❌ [GALLERY] Erro ao substituir imagem:', error);
+            return res.status(500).json({ error: 'Erro ao substituir imagem.', details: error.message });
+        } finally {
+            client.release();
         }
     });
 
