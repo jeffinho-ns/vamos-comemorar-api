@@ -1,24 +1,35 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const os = require('os');
+const fs = require('fs/promises');
 const { customAlphabet } = require('nanoid');
 const firebaseStorage = require('../services/firebaseStorageAdminService');
+const sharp = require('sharp');
 
 const router = express.Router();
 
-// Configuração Multer para armazenamento em memória
+const MAX_UPLOAD_MB = 100;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+// Configuração Multer para armazenamento em disco (evita estourar RAM com uploads grandes)
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, os.tmpdir()),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 10) || '';
+      cb(null, `upload-${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`);
+    },
+  }),
   limits: {
-    fileSize: 10 * 1024 * 1024 // Limite de 10MB
+    fileSize: MAX_UPLOAD_BYTES, // Limite de 100MB (airbag)
   },
   fileFilter: (req, file, cb) => {
     console.log('🔍 Multer fileFilter - Arquivo:', {
       originalname: file.originalname,
       mimetype: file.mimetype,
-      size: file.size
     });
-    
+
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (allowedTypes.includes(file.mimetype)) {
       console.log('✅ Tipo de arquivo permitido');
@@ -27,7 +38,7 @@ const upload = multer({
       console.log('❌ Tipo de arquivo não permitido:', file.mimetype);
       cb(new Error('Tipo de arquivo não permitido. Apenas imagens são aceitas.'), false);
     }
-  }
+  },
 });
 
 // Middleware para capturar erros do multer
@@ -35,7 +46,9 @@ const handleMulterError = (error, req, res, next) => {
   console.error('💥 Erro do Multer:', error);
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'Arquivo muito grande. Tamanho máximo: 10MB' });
+      return res
+        .status(400)
+        .json({ error: `Arquivo muito grande. Tamanho máximo: ${MAX_UPLOAD_MB}MB` });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({ error: 'Muitos arquivos enviados' });
@@ -46,6 +59,42 @@ const handleMulterError = (error, req, res, next) => {
   }
   return res.status(400).json({ error: error.message });
 };
+
+async function optimizeImage({ filePath, mimetype }) {
+  // Para GIF (principalmente animado), evitar "quebrar" animação aqui; mantém original.
+  if (mimetype === 'image/gif') {
+    const original = await fs.readFile(filePath);
+    return {
+      buffer: original,
+      contentType: mimetype,
+      extension: '.gif',
+      optimized: false,
+    };
+  }
+
+  const pipeline = sharp(filePath, { failOnError: false }).rotate();
+
+  pipeline.resize({
+    width: 2000,
+    height: 2000,
+    fit: 'inside',
+    withoutEnlargement: true,
+  });
+
+  const buffer = await pipeline
+    .webp({
+      quality: 80,
+      effort: 4,
+    })
+    .toBuffer();
+
+  return {
+    buffer,
+    contentType: 'image/webp',
+    extension: '.webp',
+    optimized: true,
+  };
+}
 
 // Gerador de nome de arquivo único
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
@@ -66,21 +115,29 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
   }
 
   const file = req.file;
-  const extension = path.extname(file.originalname);
-  const remoteFilename = `${nanoid()}${extension}`;
   const folder = req.body.folder || 'cardapio-agilizaiapp';
-  const objectPath = `${String(folder).replace(/^\/+/, '').replace(/\/+$/, '')}/${remoteFilename}`;
+  const safeFolder = String(folder).replace(/^\/+/, '').replace(/\/+$/, '');
+  let processed = null;
   
-  console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
-  console.log(`🆔 Objeto remoto: ${objectPath}`);
-
   try {
+    console.log(`📋 Detalhes do arquivo: ${file.originalname} (${file.size} bytes, ${file.mimetype})`);
+    console.log(`🧰 Otimizando imagem (quando aplicável)...`);
+
+    processed = await optimizeImage({ filePath: file.path, mimetype: file.mimetype });
+
+    const remoteFilename = `${nanoid()}${processed.extension}`;
+    const objectPath = `${safeFolder}/${remoteFilename}`;
+
+    console.log(`🆔 Objeto remoto: ${objectPath}`);
+    console.log(`📦 Tamanho original: ${file.size} bytes`);
+    console.log(`📦 Tamanho final: ${processed.buffer.length} bytes (${processed.contentType})`);
+
     // Faz upload para o Firebase Storage (Admin) e obtém URL pública via token
     console.log(`📤 Fazendo upload de ${objectPath} para Firebase Storage...`);
     const uploadResult = await firebaseStorage.uploadBuffer({
       objectPath,
-      buffer: file.buffer,
-      contentType: file.mimetype,
+      buffer: processed.buffer,
+      contentType: processed.contentType,
     });
 
     const publicUrl = uploadResult.url;
@@ -92,8 +149,8 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
     const imageData = {
       filename: objectPath,
       originalName: file.originalname,
-      fileSize: file.size,
-      mimeType: file.mimetype,
+      fileSize: processed.buffer.length,
+      mimeType: processed.contentType,
       url: publicUrl,
       type: req.body.type || 'general',
       entityId: req.body.entityId || null,
@@ -123,6 +180,15 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       filename: objectPath,
       url: publicUrl,
       message: 'Imagem enviada com sucesso',
+      original: {
+        fileSize: file.size,
+        mimeType: file.mimetype,
+      },
+      optimized: {
+        applied: !!processed?.optimized,
+        fileSize: processed?.buffer?.length || null,
+        mimeType: processed?.contentType || null,
+      },
     });
   } catch (err) {
     console.error('❌ Erro no upload Firebase:', err.message);
@@ -131,6 +197,13 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       error: 'Erro ao fazer upload para o Firebase Storage',
       details: err.message,
     });
+  } finally {
+    // Limpar arquivo temporário do disco
+    try {
+      if (file?.path) await fs.unlink(file.path);
+    } catch (e) {
+      console.warn('⚠️ Falha ao remover arquivo temporário:', e.message);
+    }
   }
 });
 
