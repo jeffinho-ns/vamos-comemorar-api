@@ -96,6 +96,48 @@ async function optimizeImage({ filePath, mimetype }) {
   };
 }
 
+function buildVariantPaths({ folder, baseId, extension }) {
+  const objectBase = `${folder}/${baseId}`;
+  // Para GIF, manter extensão original e não gerar variantes.
+  if (extension === '.gif') {
+    return {
+      full: `${objectBase}${extension}`,
+      medium: null,
+      thumb: null,
+    };
+  }
+  return {
+    full: `${objectBase}_full${extension}`,
+    medium: `${objectBase}_medium${extension}`,
+    thumb: `${objectBase}_thumb${extension}`,
+  };
+}
+
+async function generateVariants({ buffer, extension, contentType }) {
+  if (extension === '.gif') {
+    return {
+      full: { buffer, contentType, extension },
+      medium: null,
+      thumb: null,
+    };
+  }
+
+  // Gerar a partir do buffer já convertido (webp) para reduzir custo.
+  const thumbBuffer = await sharp(buffer, { failOnError: false })
+    .resize({ width: 300, height: 300, fit: 'inside', withoutEnlargement: true })
+    .toBuffer();
+
+  const mediumBuffer = await sharp(buffer, { failOnError: false })
+    .resize({ width: 800, height: 800, fit: 'inside', withoutEnlargement: true })
+    .toBuffer();
+
+  return {
+    full: { buffer, contentType, extension },
+    medium: { buffer: mediumBuffer, contentType, extension },
+    thumb: { buffer: thumbBuffer, contentType, extension },
+  };
+}
+
 // Gerador de nome de arquivo único
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10);
 
@@ -125,33 +167,64 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
 
     processed = await optimizeImage({ filePath: file.path, mimetype: file.mimetype });
 
-    const remoteFilename = `${nanoid()}${processed.extension}`;
-    const objectPath = `${safeFolder}/${remoteFilename}`;
-
-    console.log(`🆔 Objeto remoto: ${objectPath}`);
-    console.log(`📦 Tamanho original: ${file.size} bytes`);
-    console.log(`📦 Tamanho final: ${processed.buffer.length} bytes (${processed.contentType})`);
-
-    // Faz upload para o Firebase Storage (Admin) e obtém URL pública via token
-    console.log(`📤 Fazendo upload de ${objectPath} para Firebase Storage...`);
-    const uploadResult = await firebaseStorage.uploadBuffer({
-      objectPath,
+    const baseId = nanoid();
+    const paths = buildVariantPaths({ folder: safeFolder, baseId, extension: processed.extension });
+    const variants = await generateVariants({
       buffer: processed.buffer,
+      extension: processed.extension,
       contentType: processed.contentType,
     });
 
-    const publicUrl = uploadResult.url;
+    console.log(`🆔 Objeto remoto (full): ${paths.full}`);
+    console.log(`📦 Tamanho original: ${file.size} bytes`);
+    console.log(`📦 Tamanho final: ${processed.buffer.length} bytes (${processed.contentType})`);
 
-    console.log(`✅ Upload Firebase concluído: ${objectPath}`);
-    console.log(`   URL pública: ${publicUrl}`);
+    // Upload full/medium/thumb (quando aplicável).
+    console.log(`📤 Fazendo upload (full) para Firebase Storage...`);
+    await firebaseStorage.uploadBuffer({
+      objectPath: paths.full,
+      buffer: variants.full.buffer,
+      contentType: variants.full.contentType,
+    });
 
-    // Salvar no banco - armazenar filename como objectPath (estável) e url como downloadURL
+    if (paths.medium && variants.medium) {
+      console.log(`📤 Fazendo upload (medium) para Firebase Storage...`);
+      await firebaseStorage.uploadBuffer({
+        objectPath: paths.medium,
+        buffer: variants.medium.buffer,
+        contentType: variants.medium.contentType,
+      });
+    }
+
+    if (paths.thumb && variants.thumb) {
+      console.log(`📤 Fazendo upload (thumb) para Firebase Storage...`);
+      await firebaseStorage.uploadBuffer({
+        objectPath: paths.thumb,
+        buffer: variants.thumb.buffer,
+        contentType: variants.thumb.contentType,
+      });
+    }
+
+    const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+    const fullProxyUrl = `${apiBaseUrl}/public/images/${encodeURIComponent(paths.full)}`;
+    const thumbProxyUrl = paths.thumb
+      ? `${apiBaseUrl}/public/images/${encodeURIComponent(paths.thumb)}`
+      : fullProxyUrl;
+    const mediumProxyUrl = paths.medium
+      ? `${apiBaseUrl}/public/images/${encodeURIComponent(paths.medium)}`
+      : fullProxyUrl;
+
+    console.log(`✅ Upload Firebase concluído: ${paths.full}`);
+    console.log(`   URL (proxy full): ${fullProxyUrl}`);
+
+    // Salvar no banco - armazenar filename como objectPath (estável).
+    // NUNCA armazenar URL com token do Firebase (evita vazamentos acidentais).
     const imageData = {
-      filename: objectPath,
+      filename: paths.full,
       originalName: file.originalname,
-      fileSize: processed.buffer.length,
-      mimeType: processed.contentType,
-      url: publicUrl,
+      fileSize: variants.full.buffer.length,
+      mimeType: variants.full.contentType,
+      url: fullProxyUrl,
       type: req.body.type || 'general',
       entityId: req.body.entityId || null,
       entityType: req.body.entityType || null,
@@ -172,13 +245,16 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       ],
     );
 
-    console.log(`✅ Imagem salva no banco: ID ${result.rows[0].id}, Filename: ${objectPath}`);
+    console.log(`✅ Imagem salva no banco: ID ${result.rows[0].id}, Filename: ${paths.full}`);
 
     return res.json({
       success: true,
       imageId: result.rows[0].id,
-      filename: objectPath,
-      url: publicUrl,
+      filename: paths.full,
+      url: thumbProxyUrl,
+      fullUrl: fullProxyUrl,
+      mediumUrl: mediumProxyUrl,
+      thumbUrl: thumbProxyUrl,
       message: 'Imagem enviada com sucesso',
       original: {
         fileSize: file.size,
@@ -186,8 +262,8 @@ router.post('/upload', upload.single('image'), handleMulterError, async (req, re
       },
       optimized: {
         applied: !!processed?.optimized,
-        fileSize: processed?.buffer?.length || null,
-        mimeType: processed?.contentType || null,
+        fileSize: variants?.full?.buffer?.length || null,
+        mimeType: variants?.full?.contentType || null,
       },
     });
   } catch (err) {

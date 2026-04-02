@@ -21,6 +21,9 @@ const io = new Server(server, {
     cors: config.server.cors
 });
 
+// Importante para rate limiting e logging correto de IP quando atrás de proxy/CDN (Render/Cloudflare)
+app.set('trust proxy', 1);
+
 app.set('socketio', io);
 
 const pool = require('./config/database');
@@ -122,6 +125,7 @@ const executiveEventsRoutes = require('./routes/executiveEvents');
 const establishmentPermissionsRoutes = require('./routes/establishmentPermissions');
 const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
+const publicImagesRoutes = require('./routes/publicImages');
 
 
 // Usando as Rotas
@@ -186,6 +190,8 @@ app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
 // Condução Fluxo Rooftop (GET/POST /api/rooftop/conduction)
 app.use('/api/rooftop', rooftopConductionRoutes(pool));
 app.use('/api/relatorios', relatoriosRoutes);
+// Conteúdo público de imagens (para permitir CDN/cache sem vazar tokens de download)
+app.use('/public', publicImagesRoutes);
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');

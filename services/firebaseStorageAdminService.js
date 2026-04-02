@@ -80,6 +80,11 @@ function getBucket() {
   return admin.storage().bucket();
 }
 
+function getBucketName() {
+  const b = getBucket();
+  return b?.name;
+}
+
 function generateDownloadToken() {
   return crypto.randomUUID();
 }
@@ -112,6 +117,9 @@ async function uploadBuffer({ objectPath, buffer, contentType }) {
     resumable: false,
     metadata: {
       contentType: contentType || undefined,
+      // Como o nome do arquivo é aleatório (nanoid) e efetivamente imutável,
+      // podemos aplicar cache forte para reduzir egress por repetição de downloads.
+      cacheControl: 'public, max-age=31536000, immutable',
       metadata: {
         firebaseStorageDownloadTokens: token,
       },
@@ -139,6 +147,8 @@ module.exports = {
   extractObjectPathFromFirebaseUrl,
   uploadBuffer,
   deleteByUrlOrPath,
+  getBucket,
+  getBucketName,
 };
 
 

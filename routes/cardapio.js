@@ -2,8 +2,43 @@ const express = require('express');
 const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
 const { logAction } = require('../middleware/actionLogger');
+const { limiter60PerMin } = require('../middleware/rateLimiters');
 
 module.exports = (pool) => {
+    function buildImageUrls(apiBaseUrl, filename) {
+        const safe = String(filename || '').trim();
+        if (!safe) return { thumbUrl: null, mediumUrl: null, fullUrl: null };
+
+        const enc = (p) => `${apiBaseUrl}/public/images/${encodeURIComponent(p)}`;
+
+        // Novo padrão: *_full.webp / *_medium.webp / *_thumb.webp
+        if (safe.endsWith('_full.webp')) {
+            const base = safe.slice(0, -'_full.webp'.length);
+            return {
+                fullUrl: enc(`${base}_full.webp`),
+                mediumUrl: enc(`${base}_medium.webp`),
+                thumbUrl: enc(`${base}_thumb.webp`),
+            };
+        }
+
+        // Legado: arquivo único. Tentamos convenção de sufixo antes da extensão.
+        const m = safe.match(/^(.*)(\.[a-z0-9]+)$/i);
+        if (m) {
+            const prefix = m[1];
+            const ext = m[2];
+            return {
+                fullUrl: enc(safe),
+                mediumUrl: enc(`${prefix}_medium${ext}`),
+                thumbUrl: enc(`${prefix}_thumb${ext}`),
+            };
+        }
+
+        return {
+            fullUrl: enc(safe),
+            mediumUrl: enc(safe),
+            thumbUrl: enc(safe),
+        };
+    }
     function auditMenuItemSnapshot(row) {
         if (!row) return null;
         const snap = {
@@ -217,11 +252,15 @@ module.exports = (pool) => {
         }
     });
     
-    router.get('/gallery/images', async (req, res) => {
+    router.get('/gallery/images', limiter60PerMin, async (req, res) => {
         try {
             console.log('🖼️ [GALLERY] Endpoint chamado - Buscando imagens da galeria...');
             const images = [];
             const imageMap = new Map(); // Para evitar duplicatas e rastrear data mais recente
+            const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+            const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
+            const limitRaw = parseInt(String(req.query.limit || '30'), 10) || 30;
+            const limit = Math.min(Math.max(limitRaw, 1), 100);
 
             // Buscar imagens da tabela cardapio_images (mais recentes primeiro)
             // Usar try-catch para caso a tabela não exista ou tenha problemas
@@ -258,10 +297,16 @@ module.exports = (pool) => {
             cardapioImagesResult.rows.forEach(row => {
                 const filename = row.filename;
                 if (filename && filename !== 'null' && filename.trim() !== '') {
+                    const urls = buildImageUrls(apiBaseUrl, filename);
                     imageMap.set(filename, {
                         imageId: row.id,
                         filename: filename,
-                        url: row.url || null, // URL completa do Cloudinary se disponível
+                        // Não retornar URL com token do Firebase para evitar scraping/hotlinking.
+                        // Em vez disso, expor um endpoint proxy com cache forte.
+                        url: urls.thumbUrl,
+                        thumbUrl: urls.thumbUrl,
+                        mediumUrl: urls.mediumUrl,
+                        fullUrl: urls.fullUrl,
                         sourceType: row.source_type,
                         imageType: row.image_type,
                         usageCount: 0,
@@ -310,15 +355,18 @@ module.exports = (pool) => {
                         // Buscar URL completa na tabela cardapio_images se existir, ou usar URL direta
                         let finalUrl = directUrl;
                         const cardapioImage = cardapioImagesByFilename.get(filename);
-                        if (!finalUrl && cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) {
-                            finalUrl = cardapioImage.url;
-                        }
+                        // Nunca propagar URL tokenizada do Firebase; sempre usar proxy por filename.
+                        const urls = buildImageUrls(apiBaseUrl, filename);
+                        if (!finalUrl) finalUrl = urls.thumbUrl;
                         
                         // Adicionar nova imagem
                         imageMap.set(filename, {
                             imageId: cardapioImage?.id || null,
                             filename: filename,
                             url: finalUrl, // URL completa (Firebase/Cloudinary) se encontrada
+                            thumbUrl: urls.thumbUrl,
+                            mediumUrl: urls.mediumUrl,
+                            fullUrl: urls.fullUrl,
                             sourceType: row.source_type,
                             imageType: row.image_type,
                             usageCount: parseInt(row.usage_count),
@@ -349,10 +397,8 @@ module.exports = (pool) => {
                 // Função helper para buscar URL na tabela cardapio_images (Firebase/Cloudinary)
                 const getCloudinaryUrl = (filename) => {
                     if (!filename) return null;
-                    const cardapioImage = cardapioImagesByFilename.get(filename);
-                    return (cardapioImage && cardapioImage.url && (cardapioImage.url.startsWith('http://') || cardapioImage.url.startsWith('https://'))) 
-                        ? cardapioImage.url 
-                        : null;
+                    // Não usar URL armazenada (pode ser token do Firebase). Sempre proxy por filename.
+                    return buildImageUrls(apiBaseUrl, filename);
                 };
                 
                 // Processar logoUrl
@@ -376,10 +422,14 @@ module.exports = (pool) => {
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
+                            const urls = buildImageUrls(apiBaseUrl, filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
-                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
+                                url: directUrl || urls.thumbUrl,
+                                thumbUrl: urls.thumbUrl,
+                                mediumUrl: urls.mediumUrl,
+                                fullUrl: urls.fullUrl,
                                 sourceType: 'bar',
                                 imageType: 'bar_logo',
                                 usageCount: 1,
@@ -410,10 +460,14 @@ module.exports = (pool) => {
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
+                            const urls = buildImageUrls(apiBaseUrl, filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
-                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
+                                url: directUrl || urls.thumbUrl,
+                                thumbUrl: urls.thumbUrl,
+                                mediumUrl: urls.mediumUrl,
+                                fullUrl: urls.fullUrl,
                                 sourceType: 'bar',
                                 imageType: 'bar_cover',
                                 usageCount: 1,
@@ -444,10 +498,14 @@ module.exports = (pool) => {
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
+                            const urls = buildImageUrls(apiBaseUrl, filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
-                                url: directUrl || getCloudinaryUrl(filename), // URL completa se encontrada
+                                url: directUrl || urls.thumbUrl,
+                                thumbUrl: urls.thumbUrl,
+                                mediumUrl: urls.mediumUrl,
+                                fullUrl: urls.fullUrl,
                                 sourceType: 'bar',
                                 imageType: 'bar_popup',
                                 usageCount: 1,
@@ -480,10 +538,23 @@ module.exports = (pool) => {
 
             console.log(`✅ [GALLERY] Total de ${images.length} imagens únicas encontradas`);
 
+            const total = images.length;
+            const totalPages = Math.max(Math.ceil(total / limit), 1);
+            const start = (page - 1) * limit;
+            const data = images.slice(start, start + limit);
+
+            // Resposta cacheável por pouco tempo (a lista muda com alguma frequência no admin).
+            res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=120, stale-while-revalidate=300');
+
+            // Formato novo + compatibilidade (images)
             res.json({
+                data,
+                page,
+                limit,
+                total,
+                totalPages,
+                images: data,
                 success: true,
-                images: images,
-                total: images.length
             });
         } catch (error) {
             console.error('❌ [GALLERY] Erro ao listar imagens da galeria:', error);
