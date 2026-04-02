@@ -24,12 +24,12 @@ module.exports = (pool) => {
         // Legado: arquivo único. Tentamos convenção de sufixo antes da extensão.
         const m = safe.match(/^(.*)(\.[a-z0-9]+)$/i);
         if (m) {
-            const prefix = m[1];
-            const ext = m[2];
+            // Para não quebrar previews de imagens antigas (sem variantes geradas),
+            // usamos o próprio arquivo como thumb/medium/full.
             return {
                 fullUrl: enc(safe),
-                mediumUrl: enc(`${prefix}_medium${ext}`),
-                thumbUrl: enc(`${prefix}_thumb${ext}`),
+                mediumUrl: enc(safe),
+                thumbUrl: enc(safe),
             };
         }
 

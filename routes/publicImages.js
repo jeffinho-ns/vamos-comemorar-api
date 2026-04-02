@@ -32,6 +32,17 @@ router.get(
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
+    // Garantir Content-Type para browsers e para o otimizador do Next/Image.
+    // (Sem isso, alguns clientes tratam como octet-stream e não exibem.)
+    try {
+      const [meta] = await file.getMetadata();
+      if (meta?.contentType) res.setHeader('Content-Type', meta.contentType);
+      if (meta?.size) res.setHeader('Content-Length', meta.size);
+      if (meta?.etag) res.setHeader('ETag', meta.etag);
+    } catch (e) {
+      // Se metadata falhar, ainda tenta stream.
+    }
+
     // Stream direto do bucket
     file
       .createReadStream()
