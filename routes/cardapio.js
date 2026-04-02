@@ -5,11 +5,26 @@ const { logAction } = require('../middleware/actionLogger');
 const { limiter60PerMin } = require('../middleware/rateLimiters');
 
 module.exports = (pool) => {
+    /**
+     * URL pública de leitura no Firebase Storage (sem proxy da API).
+     * Se FIREBASE_STORAGE_BUCKET não estiver definido, cai no proxy /public/images/.
+     */
+    function storageMediaUrl(apiBaseUrl, objectPath) {
+        const bucket = process.env.FIREBASE_STORAGE_BUCKET;
+        const p = String(objectPath || '').trim().replace(/^\/+/, '');
+        if (!p) return null;
+        if (bucket) {
+            return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(p)}?alt=media`;
+        }
+        const base = String(apiBaseUrl || '').replace(/\/+$/, '');
+        return `${base}/public/images/${encodeURIComponent(p)}`;
+    }
+
     function buildImageUrls(apiBaseUrl, filename) {
         const safe = String(filename || '').trim();
         if (!safe) return { thumbUrl: null, mediumUrl: null, fullUrl: null };
 
-        const enc = (p) => `${apiBaseUrl}/public/images/${encodeURIComponent(p)}`;
+        const enc = (p) => storageMediaUrl(apiBaseUrl, p);
 
         // Novo padrão: *_full.webp / *_medium.webp / *_thumb.webp
         if (safe.endsWith('_full.webp')) {
@@ -79,6 +94,94 @@ module.exports = (pool) => {
         // Remover query strings se houver
         return filename.split('?')[0].trim();
     };
+
+    /**
+     * Base pública da API (URLs absolutas de imagem no JSON).
+     * Preferir PUBLIC_API_BASE_URL no Render/proxy; senão host da requisição.
+     */
+    function getPublicApiBaseUrl(req) {
+        if (process.env.PUBLIC_API_BASE_URL) {
+            return String(process.env.PUBLIC_API_BASE_URL).replace(/\/+$/, '');
+        }
+        const proto = req.get('x-forwarded-proto') || req.protocol;
+        const host = req.get('x-forwarded-host') || req.get('host');
+        return `${proto}://${host}`.replace(/\/+$/, '');
+    }
+
+    /**
+     * Expande nome/arquivo solto para object path em cardapio/items (padrão do bucket no print).
+     * - UUID + ext → cardapio/items/<uuid>.<ext>
+     * - Nanoid 10 + .webp (ou _full/_medium/_thumb) → cardapio/items/<id>_full.webp etc.
+     * - Path que já contém "/" → retorna como está
+     */
+    function expandBasenameToCardapioItemsObjectPath(basename) {
+        const clean = String(basename || '').trim().replace(/^\/+/, '');
+        if (!clean) return '';
+        if (clean.includes('/')) return clean;
+
+        const uuidFile =
+            /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\.[a-z0-9]+)$/i.exec(
+                clean,
+            );
+        if (uuidFile) {
+            return `cardapio/items/${uuidFile[1]}${uuidFile[2]}`;
+        }
+
+        const nanoidVariants =
+            /^([A-Z0-9]{10})((_full)|(_medium)|(_thumb))?(\.[a-z0-9]+)$/i.exec(clean);
+        if (nanoidVariants) {
+            const id = nanoidVariants[1];
+            const variant = nanoidVariants[3] || '_full';
+            const ext = nanoidVariants[5] || '.webp';
+            return `cardapio/items/${id}${variant}${ext}`;
+        }
+
+        return `cardapio/items/${clean}`;
+    }
+
+    /**
+     * Normaliza imageUrl de menu_items para URL direta do Firebase (?alt=media) quando possível.
+     * Mantém Cloudinary e outras URLs HTTP externas intactas.
+     */
+    function normalizeMenuItemImageUrlForPublic(apiBaseUrl, raw) {
+        if (!raw || typeof raw !== 'string') return null;
+        const trimmed = raw.trim();
+        if (!trimmed) return null;
+
+        const base = String(apiBaseUrl || '').replace(/\/+$/, '');
+        const prefix = `${base}/public/images/`;
+
+        if (trimmed.toLowerCase().includes('cloudinary.com')) {
+            return trimmed;
+        }
+
+        if (
+            trimmed.includes('firebasestorage.googleapis.com') ||
+            trimmed.includes('storage.googleapis.com')
+        ) {
+            return trimmed;
+        }
+
+        if (trimmed.startsWith(prefix)) {
+            let rest = trimmed.slice(prefix.length).split('?')[0];
+            let decoded;
+            try {
+                decoded = decodeURIComponent(rest);
+            } catch (_) {
+                decoded = rest;
+            }
+            if (decoded.includes('/')) {
+                return storageMediaUrl(base, decoded.replace(/^\/+/, ''));
+            }
+            return storageMediaUrl(base, expandBasenameToCardapioItemsObjectPath(decoded));
+        }
+
+        if (/^https?:\/\//i.test(trimmed)) {
+            return trimmed;
+        }
+
+        return storageMediaUrl(base, expandBasenameToCardapioItemsObjectPath(trimmed));
+    }
 
     // ============================================
     // ROTA DE GALERIA - DEVE VIR ANTES DE TODAS AS OUTRAS
@@ -1568,7 +1671,8 @@ module.exports = (pool) => {
             `;
             
             const result = await pool.query(query, barId ? [barId] : []);
-            
+            const apiBase = getPublicApiBaseUrl(req);
+
             const itemsWithToppings = result.rows.map((item) => {
                 // Processar toppings do GROUP_CONCAT
                 let toppings = [];
@@ -1592,14 +1696,14 @@ module.exports = (pool) => {
                     }
                 }
                 
-                // Garantir que imageUrl seja uma string válida (query já retorna como "imageUrl" via alias)
+                // Normalizar imageUrl → Firebase direto (ou proxy se sem FIREBASE_STORAGE_BUCKET)
                 let imageUrl = item.imageUrl || null;
                 if (imageUrl && typeof imageUrl === 'string') {
-                    // Se não começa com http, assumir que é apenas o filename
                     if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-                        // Remover barras iniciais se houver
                         const cleanFilename = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
-                        imageUrl = cleanFilename; // Manter apenas o filename para o frontend construir a URL
+                        imageUrl = normalizeMenuItemImageUrlForPublic(apiBase, cleanFilename);
+                    } else {
+                        imageUrl = normalizeMenuItemImageUrlForPublic(apiBase, imageUrl);
                     }
                 } else {
                     imageUrl = null;
@@ -1677,6 +1781,7 @@ module.exports = (pool) => {
                 return res.status(404).json({ error: 'Item não encontrado.' });
             }
             const item = itemsResult.rows[0];
+            const apiBase = getPublicApiBaseUrl(req);
             const toppingsResult = await pool.query('SELECT t.id, t.name, t.price FROM toppings t JOIN item_toppings it ON t.id = it.topping_id WHERE it.item_id = $1', [id]);
             
             // Converter seals de JSON para array (apenas se o campo existir)
@@ -1690,14 +1795,13 @@ module.exports = (pool) => {
                 }
             }
             
-            // Garantir que imageUrl seja uma string válida (query já retorna como "imageUrl" via alias)
             let imageUrl = item.imageUrl || null;
             if (imageUrl && typeof imageUrl === 'string') {
-                // Se não começa com http, assumir que é apenas o filename
                 if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-                    // Remover barras iniciais se houver
                     const cleanFilename = imageUrl.startsWith('/') ? imageUrl.substring(1) : imageUrl;
-                    imageUrl = cleanFilename; // Manter apenas o filename para o frontend construir a URL
+                    imageUrl = normalizeMenuItemImageUrlForPublic(apiBase, cleanFilename);
+                } else {
+                    imageUrl = normalizeMenuItemImageUrlForPublic(apiBase, imageUrl);
                 }
             } else {
                 imageUrl = null;
