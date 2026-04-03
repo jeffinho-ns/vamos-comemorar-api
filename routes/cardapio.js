@@ -139,6 +139,33 @@ module.exports = (pool) => {
         return `cardapio/items/${clean}`;
     }
 
+    /** Caminho canônico no bucket (ex.: cardapio/items/uuid.jpg) para deduplicar DB + Firebase. */
+    function toGalleryObjectPath(value) {
+        if (!value) return '';
+        const urlStr = String(value).trim();
+        if (!urlStr) return '';
+        if (urlStr.includes('firebasestorage.googleapis.com')) {
+            const match = urlStr.match(/\/o\/([^?]+)(?:\?|$)/);
+            if (match && match[1]) {
+                try {
+                    return decodeURIComponent(match[1]).replace(/^\/+/, '');
+                } catch {
+                    return match[1].replace(/^\/+/, '');
+                }
+            }
+        }
+        const noQuery = urlStr.split('?')[0];
+        if (noQuery.startsWith('http://') || noQuery.startsWith('https://')) {
+            const parts = noQuery.split('/').filter(Boolean);
+            const last = parts[parts.length - 1] || '';
+            return toGalleryObjectPath(last);
+        }
+        const s = noQuery.replace(/^\/+/, '');
+        if (s.startsWith('cardapio/items/')) return s;
+        if (s.includes('/')) return s;
+        return expandBasenameToCardapioItemsObjectPath(s);
+    }
+
     /**
      * Normaliza imageUrl de menu_items para URL direta do Firebase (?alt=media) quando possível.
      * Mantém Cloudinary e outras URLs HTTP externas intactas.
@@ -363,7 +390,7 @@ module.exports = (pool) => {
             const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
             const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
             const limitRaw = parseInt(String(req.query.limit || '30'), 10) || 30;
-            const limit = Math.min(Math.max(limitRaw, 1), 100);
+            const limit = Math.min(Math.max(limitRaw, 1), 2000);
 
             // Buscar imagens da tabela cardapio_images (mais recentes primeiro)
             // Usar try-catch para caso a tabela não exista ou tenha problemas
@@ -619,6 +646,46 @@ module.exports = (pool) => {
                     }
                 }
             });
+
+            // Incluir todos os objetos em cardapio/items/ do Firebase Storage (não só os referenciados no DB)
+            try {
+                const firebaseStorage = require('../services/firebaseStorageAdminService');
+                const maxList = Math.min(10000, Math.max(limit * 10, 5000));
+                const firebasePaths = await firebaseStorage.listCardapioItemObjectPaths({
+                    maxResults: maxList,
+                });
+                const seenCanonical = new Set();
+                for (const entry of imageMap.values()) {
+                    const canon = toGalleryObjectPath(entry.filename);
+                    if (canon) seenCanonical.add(canon);
+                }
+                for (const objectPath of firebasePaths) {
+                    const canon = String(objectPath || '').replace(/^\/+/, '');
+                    if (!canon || seenCanonical.has(canon)) continue;
+                    seenCanonical.add(canon);
+                    const urls = buildImageUrls(apiBaseUrl, canon);
+                    imageMap.set(canon, {
+                        imageId: null,
+                        filename: canon,
+                        url: urls.thumbUrl,
+                        thumbUrl: urls.thumbUrl,
+                        mediumUrl: urls.mediumUrl,
+                        fullUrl: urls.fullUrl,
+                        sourceType: 'firebase_storage',
+                        imageType: 'item',
+                        usageCount: 0,
+                        isFromCardapioImages: false,
+                    });
+                }
+                console.log(
+                    `📦 [GALLERY] Mesclados ${firebasePaths.length} paths do Firebase (prefixo cardapio/items/)`,
+                );
+            } catch (firebaseListErr) {
+                console.warn(
+                    '⚠️ [GALLERY] Lista Firebase cardapio/items ignorada (credenciais ou rede):',
+                    firebaseListErr.message,
+                );
+            }
 
             // Converter Map para array
             const imageArray = Array.from(imageMap.values());

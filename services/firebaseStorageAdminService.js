@@ -143,12 +143,49 @@ async function deleteByUrlOrPath(value) {
   await deleteObject(objectPath);
 }
 
+/**
+ * Lista object paths sob cardapio/items/ (galeria de itens do cardápio).
+ * Omite variantes _medium e _thumb do padrão nanoid (evita 3 cards por imagem).
+ */
+async function listCardapioItemObjectPaths(options = {}) {
+  const maxTotal = Math.min(Math.max(options.maxResults || 5000, 1), 10000);
+  const bucket = getBucket();
+  const prefix = 'cardapio/items/';
+  const paths = [];
+  let query = {
+    prefix,
+    maxResults: Math.min(1000, maxTotal),
+    autoPaginate: false,
+  };
+
+  while (paths.length < maxTotal) {
+    const [files, nextQuery] = await bucket.getFiles(query);
+    for (const f of files) {
+      if (paths.length >= maxTotal) break;
+      const name = f.name;
+      if (!name || name.endsWith('/')) continue;
+      const base = name.startsWith(prefix) ? name.slice(prefix.length) : name;
+      if (/^[A-Za-z0-9]{10}_(medium|thumb)\.webp$/i.test(base)) continue;
+      paths.push(name);
+    }
+    if (!nextQuery || !nextQuery.pageToken) break;
+    query = {
+      ...query,
+      pageToken: nextQuery.pageToken,
+      maxResults: Math.min(1000, maxTotal - paths.length),
+    };
+  }
+
+  return paths;
+}
+
 module.exports = {
   extractObjectPathFromFirebaseUrl,
   uploadBuffer,
   deleteByUrlOrPath,
   getBucket,
   getBucketName,
+  listCardapioItemObjectPaths,
 };
 
 
