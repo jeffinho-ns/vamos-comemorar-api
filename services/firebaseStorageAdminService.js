@@ -13,7 +13,7 @@
  * - FIREBASE_ADMIN_CREDENTIALS_JSON_BASE64: base64 do JSON do service account
  *
  * E:
- * - FIREBASE_STORAGE_BUCKET (ex: agiliza iapp-img.firebasestorage.app)
+ * - FIREBASE_STORAGE_BUCKET (ex: agilizaiapp-img.firebasestorage.app)
  */
 
 const crypto = require('crypto');
