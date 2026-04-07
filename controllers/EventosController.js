@@ -13,6 +13,55 @@ class EventosController {
   }
 
   /**
+   * Mesma ideia de routes/events.js: filename legado → tenta URL na tabela cardapio_images.
+   */
+  async getCloudinaryUrlForImageFilename(filename) {
+    if (!filename || typeof filename !== 'string') return null;
+    const trimmed = filename.trim();
+    if (!trimmed || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return null;
+    }
+    const leaf = trimmed.includes('/') ? trimmed.replace(/^.*\//, '') : trimmed;
+    try {
+      const result = await this.pool.query(
+        `SELECT url FROM cardapio_images 
+         WHERE (filename = $1 OR filename = $2) AND url IS NOT NULL 
+         LIMIT 1`,
+        [trimmed, leaf],
+      );
+      return result.rows[0]?.url || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * URL pública para exibir imagem do evento (Firebase completo, Cloudinary ou FTP legado).
+   */
+  async resolveEventImagePublicUrl(raw, urlCache) {
+    if (raw == null) return null;
+    const trimmed = String(raw).trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+    if (urlCache && urlCache.has(trimmed)) return urlCache.get(trimmed);
+
+    const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (urlCache) urlCache.set(trimmed, trimmed);
+      return trimmed;
+    }
+
+    let imagemUrl = `${BASE_IMAGE_URL}${trimmed}`;
+    const cloudinaryUrl = await this.getCloudinaryUrlForImageFilename(trimmed);
+    if (cloudinaryUrl) {
+      imagemUrl = cloudinaryUrl;
+    }
+
+    if (urlCache) urlCache.set(trimmed, imagemUrl);
+    return imagemUrl;
+  }
+
+  /**
    * GET /api/v1/eventos/todos
    * Lista TODOS os eventos (sistema antigo) para habilitar uso com listas
    */
@@ -412,18 +461,17 @@ class EventosController {
       }
       
       const eventosResult = await this.pool.query(query, params);
-      const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
-      const eventos = eventosResult.rows.map((row) => {
-        const raw = row.imagem_do_evento;
-        let imagem_url = null;
-        if (raw && String(raw).trim()) {
-          const s = String(raw).trim();
-          imagem_url =
-            s.startsWith('http://') || s.startsWith('https://') ? s : `${BASE_IMAGE_URL}${s}`;
-        }
-        const { imagem_do_evento, ...rest } = row;
-        return { ...rest, imagem_url };
-      });
+      const urlCache = new Map();
+      const eventos = await Promise.all(
+        eventosResult.rows.map(async (row) => {
+          const imagem_url = await this.resolveEventImagePublicUrl(
+            row.imagem_do_evento,
+            urlCache,
+          );
+          const { imagem_do_evento, ...rest } = row;
+          return { ...rest, imagem_url };
+        }),
+      );
 
       res.json({
         success: true,
