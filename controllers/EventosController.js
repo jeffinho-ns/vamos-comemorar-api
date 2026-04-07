@@ -336,12 +336,14 @@ class EventosController {
           e.nome_do_evento as nome,
           TO_CHAR(e.data_do_evento, 'YYYY-MM-DD') as data_evento,
           e.hora_do_evento as horario_funcionamento,
+          e.hora_do_evento as horario,
           e.descricao,
           e.tipo_evento,
           e.dia_da_semana,
           e.usado_para_listas,
           e.casa_do_evento,
           e.id_place as establishment_id,
+          e.imagem_do_evento,
           p.nome as promoter_criador_nome,
           COALESCE(CAST(pl.name AS TEXT), CAST(b.name AS TEXT)) as establishment_name,
           COUNT(DISTINCT l.lista_id) as total_listas,
@@ -392,7 +394,7 @@ class EventosController {
         params.push(data_fim);
       }
       
-      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.criado_em, p.nome, pl.name, b.name`;
+      query += ` GROUP BY e.id, e.nome_do_evento, e.data_do_evento, e.hora_do_evento, e.descricao, e.tipo_evento, e.dia_da_semana, e.usado_para_listas, e.casa_do_evento, e.id_place, e.imagem_do_evento, e.criado_em, p.nome, pl.name, b.name`;
       
       // Ordenação melhorada: eventos únicos por data (NULLs por último), semanais por dia da semana (inteiro)
       query += ` ORDER BY 
@@ -410,8 +412,19 @@ class EventosController {
       }
       
       const eventosResult = await this.pool.query(query, params);
-      const eventos = eventosResult.rows;
-      
+      const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
+      const eventos = eventosResult.rows.map((row) => {
+        const raw = row.imagem_do_evento;
+        let imagem_url = null;
+        if (raw && String(raw).trim()) {
+          const s = String(raw).trim();
+          imagem_url =
+            s.startsWith('http://') || s.startsWith('https://') ? s : `${BASE_IMAGE_URL}${s}`;
+        }
+        const { imagem_do_evento, ...rest } = row;
+        return { ...rest, imagem_url };
+      });
+
       res.json({
         success: true,
         eventos

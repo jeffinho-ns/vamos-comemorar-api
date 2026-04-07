@@ -119,6 +119,7 @@ const guestListsAdminRoutes = require('./routes/guestListsAdmin');
 const giftRulesModule = require('./routes/giftRules');
 const actionLogsRoutes = require('./routes/actionLogs');
 const eventosRoutes = require('./routes/eventos');
+const adminDashboardRoutes = require('./routes/adminDashboard');
 const operationalDetailsRoutes = require('./routes/operationalDetails');
 const checkinsSelfValidateRoutes = require('./routes/checkinsSelfValidate');
 const executiveEventsRoutes = require('./routes/executiveEvents');
@@ -179,6 +180,7 @@ app.use('/api/action-logs', actionLogsRoutes(pool));
 // Nota: Todas as rotas estão no mesmo router com prefixo /api/v1/eventos
 // Passar checkAndAwardPromoterGifts para verificar brindes após check-in de promoters
 app.use('/api/v1/eventos', eventosRoutes(pool, checkAndAwardPromoterGifts));
+app.use('/api/v1/admin-dashboard', adminDashboardRoutes(pool));
 // Rotas de Detalhes Operacionais
 app.use('/api/v1/operational-details', operationalDetailsRoutes(pool));
 // Rota adicional sem /v1 para compatibilidade
