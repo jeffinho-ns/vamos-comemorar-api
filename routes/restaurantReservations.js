@@ -34,6 +34,163 @@ module.exports = (pool) => {
   // Limite diário específico para o Reserva Rooftop (establishment_id = 9)
   const MAX_DAILY_RESERVATIONS_ROOFTOP = 60;
 
+  const operatingWindowsCache = new Map();
+
+  const defaultWindowsByEstablishment = (establishmentId, dateStr) => {
+    if (dateStr === '2026-04-20') {
+      if (Number(establishmentId) === 1) {
+        return [{ start: '12:00', end: '00:00', label: 'Segunda especial (20/04): 12:00–00:00' }];
+      }
+      if (Number(establishmentId) === 8) {
+        return [{ start: '14:00', end: '00:00', label: 'Segunda especial (20/04): 14:00–00:00' }];
+      }
+      if (Number(establishmentId) === 9) {
+        return [{ start: '12:00', end: '20:00', label: 'Segunda especial (20/04): 12:00–20:00' }];
+      }
+    }
+
+    const date = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return [];
+    const weekday = date.getDay();
+
+    // Reserva Rooftop
+    if (Number(establishmentId) === 9) {
+      if (weekday >= 2 && weekday <= 4) {
+        return [{ start: '18:00', end: '22:30', label: 'Terça a Quinta: 18:00–22:30' }];
+      }
+      if (weekday === 5 || weekday === 6) {
+        return [
+          { start: '12:00', end: '16:00', label: 'Almoço: 12:00–16:00' },
+          { start: '17:00', end: '22:30', label: 'Jantar: 17:00–22:30' },
+        ];
+      }
+      if (weekday === 0) {
+        return [
+          { start: '12:00', end: '16:00', label: 'Almoço: 12:00–16:00' },
+          { start: '17:00', end: '20:30', label: 'Jantar: 17:00–20:30' },
+        ];
+      }
+      return [];
+    }
+
+    // Seu Justino (1) e Pracinha (8)
+    if (Number(establishmentId) === 1 || Number(establishmentId) === 8) {
+      if (weekday >= 2 && weekday <= 4) {
+        return [{ start: '18:00', end: '01:00', label: 'Terça a Quinta: 18:00–01:00' }];
+      }
+      if (weekday === 5 || weekday === 6) {
+        return [{ start: '18:00', end: '03:30', label: 'Sexta e Sábado: 18:00–03:30' }];
+      }
+      if (weekday === 0) {
+        return [{ start: '12:00', end: '21:00', label: 'Domingo: 12:00–21:00' }];
+      }
+      return [];
+    }
+
+    return [];
+  };
+
+  const toMinutes = (timeStr) => {
+    const [h, m] = String(timeStr || '').split(':').map(Number);
+    if (Number.isNaN(h)) return null;
+    return h * 60 + (Number.isNaN(m) ? 0 : m);
+  };
+
+  const isTimeWithinWindows = (timeStr, windows) => {
+    const value = toMinutes(timeStr);
+    if (value == null || !Array.isArray(windows) || windows.length === 0) return false;
+    return windows.some((w) => {
+      const startMin = toMinutes(w.start);
+      const endMin = toMinutes(w.end);
+      if (startMin == null || endMin == null) return false;
+      if (endMin < startMin) {
+        return value >= startMin || value <= endMin;
+      }
+      return value >= startMin && value <= endMin;
+    });
+  };
+
+  const getOperatingWindowsForDate = async (establishmentId, dateStr) => {
+    const cacheKey = `${establishmentId}|${dateStr}`;
+    if (operatingWindowsCache.has(cacheKey)) {
+      return operatingWindowsCache.get(cacheKey);
+    }
+
+    let windows = [];
+    try {
+      const overrideResult = await pool.query(
+        `SELECT is_open, start_time::text, end_time::text, second_start_time::text, second_end_time::text
+           FROM restaurant_reservation_date_overrides
+          WHERE establishment_id = $1 AND override_date = $2
+          LIMIT 1`,
+        [establishmentId, dateStr]
+      );
+
+      if (overrideResult.rows.length > 0) {
+        const o = overrideResult.rows[0];
+        if (!o.is_open) {
+          windows = [];
+        } else {
+          if (o.start_time && o.end_time) {
+            windows.push({
+              start: o.start_time.slice(0, 5),
+              end: o.end_time.slice(0, 5),
+              label: `${o.start_time.slice(0, 5)}–${o.end_time.slice(0, 5)}`,
+            });
+          }
+          if (o.second_start_time && o.second_end_time) {
+            windows.push({
+              start: o.second_start_time.slice(0, 5),
+              end: o.second_end_time.slice(0, 5),
+              label: `${o.second_start_time.slice(0, 5)}–${o.second_end_time.slice(0, 5)}`,
+            });
+          }
+        }
+        operatingWindowsCache.set(cacheKey, windows);
+        return windows;
+      }
+
+      const date = new Date(`${dateStr}T00:00:00`);
+      if (!Number.isNaN(date.getTime())) {
+        const weekday = date.getDay();
+        const weeklyResult = await pool.query(
+          `SELECT is_open, start_time::text, end_time::text, second_start_time::text, second_end_time::text
+             FROM restaurant_reservation_operating_hours
+            WHERE establishment_id = $1 AND weekday = $2
+            LIMIT 1`,
+          [establishmentId, weekday]
+        );
+        if (weeklyResult.rows.length > 0) {
+          const w = weeklyResult.rows[0];
+          if (w.is_open) {
+            if (w.start_time && w.end_time) {
+              windows.push({
+                start: w.start_time.slice(0, 5),
+                end: w.end_time.slice(0, 5),
+                label: `${w.start_time.slice(0, 5)}–${w.end_time.slice(0, 5)}`,
+              });
+            }
+            if (w.second_start_time && w.second_end_time) {
+              windows.push({
+                start: w.second_start_time.slice(0, 5),
+                end: w.second_end_time.slice(0, 5),
+                label: `${w.second_start_time.slice(0, 5)}–${w.second_end_time.slice(0, 5)}`,
+              });
+            }
+          }
+          operatingWindowsCache.set(cacheKey, windows);
+          return windows;
+        }
+      }
+    } catch (e) {
+      // fallback para regras antigas quando tabelas ainda não existem
+    }
+
+    windows = defaultWindowsByEstablishment(establishmentId, dateStr);
+    operatingWindowsCache.set(cacheKey, windows);
+    return windows;
+  };
+
   // Determina se um horário do Reserva Rooftop pertence ao "almoço" ou "jantar"
   // com base na data (para saber o dia da semana) e nas faixas de funcionamento
   // DEFINITIVAS:
@@ -55,78 +212,23 @@ module.exports = (pool) => {
   //
   // Janela morta (sem reservas nem lista de espera):
   //   • Entre 16:01 e 16:59 em Sexta, Sábado e Domingo.
-  const getRooftopShift = (dateStr, timeStr) => {
+  const getRooftopShift = async (dateStr, timeStr) => {
     if (!dateStr || !timeStr) return null;
     try {
-      const parts = String(timeStr).split(':');
-      const h = parseInt(parts[0] || '0', 10);
-      const m = parseInt(parts[1] || '0', 10);
-      if (Number.isNaN(h)) return null;
-      const minutes = h * 60 + (Number.isNaN(m) ? 0 : m);
-      const d = new Date(`${dateStr}T00:00:00`);
-      if (Number.isNaN(d.getTime())) return null;
-      const weekday = d.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-
-      const twelve = 12 * 60;
-      const sixteen = 16 * 60;
-      const seventeen = 17 * 60;
-      const twenty = 20 * 60;
-      const twentyThirty = 20 * 60 + 30;
-      const twentyTwoThirty = 22 * 60 + 30;
-
-      // Terça a Quinta (2,3,4): apenas jantar 18:00–22:30
-      if (weekday >= 2 && weekday <= 4) {
-        if (minutes >= 18 * 60 && minutes <= twentyTwoThirty) {
-          return 'dinner';
-        }
-        return null;
-      }
-
-      // Sexta (5) e Sábado (6)
-      if (weekday === 5 || weekday === 6) {
-        // Almoço: 12:00–16:00
-        if (minutes >= twelve && minutes <= sixteen) {
-          return 'lunch';
-        }
-        // Janela morta: 16:01–16:59
-        if (minutes > sixteen && minutes < seventeen) {
-          return null;
-        }
-        // Jantar: 17:00–22:30
-        if (minutes >= seventeen && minutes <= twentyTwoThirty) {
-          return 'dinner';
-        }
-        return null;
-      }
-
-      // Domingo (0)
-      if (weekday === 0) {
-        // Almoço: 12:00–16:00
-        if (minutes >= twelve && minutes <= sixteen) {
-          return 'lunch';
-        }
-        // Janela morta: 16:01–16:59
-        if (minutes > sixteen && minutes < seventeen) {
-          return null;
-        }
-        // Jantar: 17:00–20:30
-        if (minutes >= seventeen && minutes <= twentyThirty) {
-          return 'dinner';
-        }
-        return null;
-      }
-
-      // Segunda-feira (1) e qualquer outro dia não operam
-      return null;
+      const windows = await getOperatingWindowsForDate(9, dateStr);
+      if (!isTimeWithinWindows(timeStr, windows)) return null;
+      if (windows.length <= 1) return 'dinner';
+      const first = windows[0];
+      return isTimeWithinWindows(timeStr, [first]) ? 'lunch' : 'dinner';
     } catch (e) {
       console.warn('⚠️ Erro ao calcular shift do Reserva Rooftop:', e.message);
       return null;
     }
   };
 
-  const isSameRooftopShift = (dateStr, timeA, timeB) => {
-    const shiftA = getRooftopShift(dateStr, timeA);
-    const shiftB = getRooftopShift(dateStr, timeB);
+  const isSameRooftopShift = async (dateStr, timeA, timeB) => {
+    const shiftA = await getRooftopShift(dateStr, timeA);
+    const shiftB = await getRooftopShift(dateStr, timeB);
     if (!shiftA || !shiftB) return false;
     return shiftA === shiftB;
   };
@@ -236,7 +338,7 @@ module.exports = (pool) => {
       let rooftopShift = null;
 
       if (establishmentIdNum === 9 && timeStr) {
-        rooftopShift = getRooftopShift(date, timeStr);
+        rooftopShift = await getRooftopShift(date, timeStr);
       }
 
       let totalCapacity = totalDinner;
@@ -274,13 +376,15 @@ module.exports = (pool) => {
         );
 
         const rows = activeReservationsResult.rows || [];
-        currentPeople = rows.reduce((sum, row) => {
+        currentPeople = 0;
+        for (const row of rows) {
           const rowTime = row.reservation_time ? String(row.reservation_time) : '';
-          if (!rowTime) return sum;
-          return isSameRooftopShift(date, rowTime, timeStr)
-            ? sum + Math.max(0, Number(row.number_of_people) || 0)
-            : sum;
-        }, 0);
+          if (!rowTime) continue;
+          const sameShift = await isSameRooftopShift(date, rowTime, timeStr);
+          if (sameShift) {
+            currentPeople += Math.max(0, Number(row.number_of_people) || 0);
+          }
+        }
       } else {
         const activeReservationsResult = await pool.query(
           `
@@ -702,16 +806,18 @@ module.exports = (pool) => {
 
       // Validação de horário de funcionamento específico para o Reserva Rooftop (establishment_id = 9)
       if (establishmentIdNumber === 9 && reservation_date && reservation_time) {
-        const rooftopShift = getRooftopShift(reservation_date, reservation_time);
+        const rooftopShift = await getRooftopShift(reservation_date, reservation_time);
+        const rooftopWindows = await getOperatingWindowsForDate(9, reservation_date);
         if (!rooftopShift) {
+          const windowsLabel =
+            rooftopWindows.length > 0
+              ? rooftopWindows.map((w) => w.label).join(' | ')
+              : 'Reservas fechadas para este dia';
           return res.status(400).json({
             success: false,
             error:
               'Horário fora do funcionamento do Reserva Rooftop. ' +
-              'Regras: Terça a Quinta 18:00–22:30 (1 giro jantar); ' +
-              'Sexta e Sábado: 12:00–16:00 (almoço) e 17:00–22:30 (jantar); ' +
-              'Domingo: 12:00–16:00 (almoço) e 17:00–20:30 (jantar). ' +
-              'Entre 16:01 e 16:59 não é permitido criar reservas nem lista de espera.'
+              `Regras atuais: ${windowsLabel}.`
           });
         }
       }
@@ -763,48 +869,16 @@ module.exports = (pool) => {
       const isAdminReservationForTimeValidation = origin === 'PESSOAL';
       
       if ((isSeuJustino || isPracinha) && !isAdminReservationForTimeValidation && !finalEsperaAntecipada && reservation_time && reservation_date) {
-        const reservationDate = new Date(reservation_date + 'T00:00:00');
-        const weekday = reservationDate.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-        const [hours, minutes] = reservation_time.split(':').map(Number);
-        const reservationMinutes = hours * 60 + (isNaN(minutes) ? 0 : minutes);
-        
-        let isValidTime = false;
-        
-        // Terça a Quinta (2, 3, 4): 18:00 às 01:00 (próximo dia)
-        if (weekday >= 2 && weekday <= 4) {
-          const startMin = 18 * 60; // 18:00
-          const endMin = 1 * 60; // 01:00
-          // Horário válido se estiver após 18:00 OU antes de 01:00 (cruza meia-noite)
-          isValidTime = reservationMinutes >= startMin || reservationMinutes <= endMin;
-        }
-        // Sexta e Sábado (5, 6): 18:00 às 03:30 (próximo dia)
-        else if (weekday === 5 || weekday === 6) {
-          const startMin = 18 * 60; // 18:00
-          const endMin = 3 * 60 + 30; // 03:30
-          // Horário válido se estiver após 18:00 OU antes de 03:30 (cruza meia-noite)
-          isValidTime = reservationMinutes >= startMin || reservationMinutes <= endMin;
-        }
-        // Domingo (0): 12:00 às 21:00
-        else if (weekday === 0) {
-          const startMin = 12 * 60; // 12:00
-          const endMin = 21 * 60; // 21:00
-          isValidTime = reservationMinutes >= startMin && reservationMinutes <= endMin;
-        }
-        
+        const windows = await getOperatingWindowsForDate(establishmentIdNumber, reservation_date);
+        const isValidTime = isTimeWithinWindows(reservation_time, windows);
         if (!isValidTime) {
-          let errorMessage = 'Horário fora do funcionamento. ';
-          if (weekday >= 2 && weekday <= 4) {
-            errorMessage += 'Terça a Quinta: 18:00–01:00';
-          } else if (weekday === 5 || weekday === 6) {
-            errorMessage += 'Sexta e Sábado: 18:00–03:30';
-          } else if (weekday === 0) {
-            errorMessage += 'Domingo: 12:00–21:00';
-          } else {
-            errorMessage += 'Reservas fechadas para este dia.';
-          }
+          const windowsLabel =
+            windows.length > 0
+              ? windows.map((w) => w.label).join(' | ')
+              : 'Reservas fechadas para este dia.';
           return res.status(400).json({
             success: false,
-            error: errorMessage
+            error: `Horário fora do funcionamento. Regras atuais: ${windowsLabel}`
           });
         }
       }
