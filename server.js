@@ -109,6 +109,7 @@ const cardapioRoutes = require('./routes/cardapio');
 const barsRoutes = require('./routes/bars');
 const restaurantReservationsRoutes = require('./routes/restaurantReservations');
 const restaurantReservationBlocksRoutes = require('./routes/restaurantReservationBlocks');
+const restaurantReservationSettingsRoutes = require('./routes/restaurantReservationSettings');
 const walkInsRoutes = require('./routes/walkIns');
 const waitlistRoutes = require('./routes/waitlist');
 const restaurantAreasRoutes = require('./routes/restaurantAreas');
@@ -153,6 +154,8 @@ app.use('/api/bars', barsRoutes(pool));
 app.use('/api/restaurant-reservations', restaurantReservationsRoutes(pool));
 // Rotas de bloqueio de agenda de reservas de restaurante
 app.use('/api/restaurant-reservation-blocks', restaurantReservationBlocksRoutes(pool));
+// Configurações de funcionamento de reservas (semanal + exceções por data)
+app.use('/api/restaurant-reservation-settings', restaurantReservationSettingsRoutes(pool));
 // A rota de walk-ins está em /api/walk-ins
 app.use('/api/walk-ins', walkInsRoutes(pool));
 // A rota de waitlist está em /api/waitlist
