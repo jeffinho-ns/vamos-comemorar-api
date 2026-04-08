@@ -128,6 +128,7 @@ const establishmentPermissionsRoutes = require('./routes/establishmentPermission
 const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 
 
 // Usando as Rotas
@@ -197,6 +198,8 @@ app.use('/api/rooftop', rooftopConductionRoutes(pool));
 app.use('/api/relatorios', relatoriosRoutes);
 // Conteúdo público de imagens (para permitir CDN/cache sem vazar tokens de download)
 app.use('/public', publicImagesRoutes);
+// Webhook público do WhatsApp (Meta)
+app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes());
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
