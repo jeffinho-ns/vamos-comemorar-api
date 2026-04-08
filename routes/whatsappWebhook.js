@@ -1,5 +1,6 @@
 const express = require('express');
 const { interpretMessage } = require('../services/aiService');
+const { sendMessage } = require('../services/whatsappService');
 
 const router = express.Router();
 
@@ -21,6 +22,16 @@ function extractMessageText(payload) {
   }
 
   return null;
+}
+
+function extractSenderNumber(payload) {
+  const entry = payload?.entry?.[0];
+  const change = entry?.changes?.[0];
+  const value = change?.value;
+  const firstMessage = value?.messages?.[0];
+  const firstContact = value?.contacts?.[0];
+
+  return firstMessage?.from || firstContact?.wa_id || null;
 }
 
 /**
@@ -62,6 +73,7 @@ router.post('/', async (req, res) => {
 
   console.log('[WhatsApp webhook] payload:', JSON.stringify(payload, null, 2));
   const messageText = extractMessageText(payload);
+  const senderNumber = extractSenderNumber(payload);
 
   if (!messageText) {
     console.log('[WhatsApp webhook] Nenhuma mensagem de texto encontrada no payload.');
@@ -71,8 +83,18 @@ router.post('/', async (req, res) => {
   try {
     const interpreted = await interpretMessage(messageText);
     console.log('[WhatsApp webhook] interpretação IA:', interpreted);
+
+    if (!senderNumber) {
+      console.warn('[WhatsApp webhook] Número do remetente não encontrado para resposta.');
+      return res.sendStatus(200);
+    }
+
+    const intent = interpreted?.intent || 'duvida_geral';
+    const confirmationText = `Recebi seu pedido para: ${intent}`;
+    const sendResult = await sendMessage(senderNumber, confirmationText);
+    console.log('[WhatsApp webhook] mensagem de confirmação enviada:', sendResult);
   } catch (error) {
-    console.error('[WhatsApp webhook] erro ao interpretar mensagem com IA:', error.message);
+    console.error('[WhatsApp webhook] erro ao processar mensagem (IA/envio):', error.message);
   }
 
   return res.sendStatus(200);
