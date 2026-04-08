@@ -129,6 +129,7 @@ const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+const whatsappAdminRoutes = require('./routes/whatsappAdmin');
 
 
 // Usando as Rotas
@@ -176,6 +177,8 @@ const { router: giftRulesRouter, checkAndAwardGifts, checkAndAwardPromoterGifts 
 app.use('/api/gift-rules', giftRulesRouter);
 // Passar checkAndAwardGifts para guestListsAdminRoutes
 app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
+// Central WhatsApp (inbox + envio manual) — autenticado
+app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
 // Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
 app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
 // Rota de logs de ações
@@ -199,7 +202,7 @@ app.use('/api/relatorios', relatoriosRoutes);
 // Conteúdo público de imagens (para permitir CDN/cache sem vazar tokens de download)
 app.use('/public', publicImagesRoutes);
 // Webhook público do WhatsApp (Meta)
-app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes());
+app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes(pool, app));
 
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
@@ -358,6 +361,10 @@ io.on('connection', (socket) => {
       const room = getRoomName(establishmentId, flowDate.trim());
       socket.join(room);
     }
+  });
+
+  socket.on('join_whatsapp_inbox', () => {
+    socket.join('whatsapp_inbox');
   });
 });
 
