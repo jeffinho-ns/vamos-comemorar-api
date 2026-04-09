@@ -60,6 +60,22 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.post('/conversations/:waId/resume', auth, authorize(...allowedRoles), async (req, res) => {
+    const { waId } = req.params;
+    try {
+      const existing = await inbox.getConversationByWaId(pool, waId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Conversa não encontrada' });
+      }
+      const conv = await inbox.clearHumanTakeover(pool, waId);
+      emitInbox({ type: 'resume', conversation: conv });
+      return res.json({ ok: true, conversation: conv });
+    } catch (e) {
+      console.error('[whatsappAdmin] resume:', e);
+      return res.status(500).json({ message: 'Erro ao retomar IA da conversa' });
+    }
+  });
+
   router.post('/conversations/:waId/send', auth, authorize(...allowedRoles), async (req, res) => {
     const { waId } = req.params;
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';

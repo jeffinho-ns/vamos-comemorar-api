@@ -46,6 +46,17 @@ async function setHumanTakeoverHours(pool, waId, hours = 24) {
   return getConversationByWaId(pool, waId);
 }
 
+async function clearHumanTakeover(pool, waId) {
+  await pool.query(
+    `UPDATE whatsapp_conversations
+     SET human_takeover_until = NULL,
+         updated_at = NOW()
+     WHERE wa_id = $1`,
+    [waId]
+  );
+  return getConversationByWaId(pool, waId);
+}
+
 async function insertMessage(pool, { conversationId, direction, body, intent, suggestedReply, rawPayload }) {
   const r = await pool.query(
     `INSERT INTO whatsapp_messages (conversation_id, direction, body, intent, suggested_reply, raw_payload)
@@ -116,6 +127,7 @@ module.exports = {
   getConversationByWaId,
   isHumanTakeoverActive,
   setHumanTakeoverHours,
+  clearHumanTakeover,
   insertMessage,
   updateInboundAiFields,
   getRecentMessagesForContext,
