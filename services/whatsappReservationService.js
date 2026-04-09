@@ -102,9 +102,15 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
   // - Seu Justino: 1
   // - Pracinha do Seu Justino: 8
   // - Reserva Rooftop: 9
+  // - Highline: configurar via HIGHLINE_ESTABLISHMENT_ID (evita hardcode errado)
+  const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
   if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
   if (hint.includes('pracinha')) return 8;
   if (hint.includes('seu justino') || hint.includes('justino')) return 1;
+  if (hint.includes('highline') || hint.includes('high line')) {
+    if (Number.isFinite(highlineEnvId) && highlineEnvId > 0) return highlineEnvId;
+    return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : establishmentIdRaw;
+  }
 
   // Fallback por ID quando o hint não vier.
   return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : establishmentIdRaw;

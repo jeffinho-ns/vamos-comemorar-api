@@ -41,6 +41,7 @@ IDs canônicos operacionais (priorize estes quando houver dúvida de IDs duplica
 - Seu Justino: 1
 - Pracinha do Seu Justino: 8
 - Reserva Rooftop: 9
+- Highline: use o ID canônico configurado no sistema
 
 ÁREAS (use area_id exato quando possível; se o cliente descrever a área, escolha o id mais adequado):
 ${areasBlock}
