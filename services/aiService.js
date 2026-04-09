@@ -50,7 +50,8 @@ Valores permitidos para "action":
 - "COLLECT_DATA": ainda faltam dados obrigatórios ou há ambiguidade; "missing_fields" deve listar chaves faltando (ex.: "client_email", "reservation_time").
 - "PROCESS_RESERVATION": todos os dados obrigatórios estão claros e consistentes. Preencha "params" completo.
 - "REFUSE_MINOR": o cliente informou ou ficou evidente que é menor de 18 anos; seja gentil e explique que não é possível concluir a reserva.
-- "falar_com_humano": escalação para atendente (frustração, pedido explícito, ou caso que exija humano).
+- "falar_com_humano": APENAS quando houver frustração clara, insultos, pedido explícito de falar com pessoa/gerente/atendente, ou impossibilidade real de ajudar com dados do sistema.
+- NUNCA use "falar_com_humano" para: primeira mensagem, "como funciona?", "me explica", dúvidas sobre o processo de reserva, ou curiosidade antes de informar dados — nesses casos use "COLLECT_DATA", explique o passo a passo com carinho em "suggested_reply" e pergunte pelo primeiro dado (ex.: qual estabelecimento).
 
 O objeto "params" quando aplicável deve incluir:
 {
@@ -93,12 +94,49 @@ function buildTranscriptFromHistory(messageHistory) {
   return lines.join('\n');
 }
 
-function shouldForceHumanIntent(lastUserText) {
-  if (!lastUserText || typeof lastUserText !== 'string') return false;
-  const t = lastUserText
+function normalizeUserText(lastUserText) {
+  if (!lastUserText || typeof lastUserText !== 'string') return '';
+  return lastUserText
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Cliente pediu explicitamente pessoa humana (não confundir com "como funciona"). */
+function isExplicitHumanRequest(lastUserText) {
+  const t = normalizeUserText(lastUserText);
+  if (!t) return false;
+  return (
+    /\b(falar com (um |uma )?(atendente|gerente|humano|pessoa|alguem|alguém)|quero (um |uma )?(atendente|humano|gerente)|me passa (pra|para) (um |uma )?(atendente|gerente)|chama (um |uma )?(atendente|gerente)|operador(a)? humano|atendimento humano)\b/i.test(
+      t
+    ) ||
+    /\b(pessoa real|falar com alguem|falar com alguém)\b/i.test(t)
+  );
+}
+
+/** Dúvida amigável sobre reserva ou pedido de explicação — a IA deve responder, não escalar. */
+function isFriendlyReservationOnboarding(lastUserText) {
+  const t = normalizeUserText(lastUserText);
+  if (!t) return false;
+  const mentionsReserva =
+    /\b(reserva|reservar|mesa|aniversario|aniversário|lista|balada|restaurante|comemorar)\b/i.test(t);
+  const asksHow =
+    /\b(como funciona|me explica|explica como|como (eu )?(faco|faço)|o que preciso|quais dados|passo a passo|primeira vez|duvida|dúvida)\b/i.test(
+      t
+    );
+  const casualGreeting =
+    /\b(o+i+|oi|ola|olá|hey|bom dia|boa tarde|boa noite)\b/i.test(t);
+  const wantsToStart = /\b(quero|gostaria|daria|posso|queria)\b/i.test(t);
+
+  if (mentionsReserva && asksHow) return true;
+  if (mentionsReserva && (casualGreeting || wantsToStart)) return true;
+  if (asksHow) return true;
+  return false;
+}
+
+function shouldForceHumanIntent(lastUserText) {
+  const t = normalizeUserText(lastUserText);
+  if (!t) return false;
 
   const explicitHuman =
     /\b(atendente|humano|pessoa real|falar com alguem|falar com alguém|gerente|supervisor|escala|escalar)\b/i.test(
@@ -138,6 +176,16 @@ function normalizeInterpretation(parsed, lastUserText) {
     action = 'falar_com_humano';
   }
 
+  /* Modelo às vezes escala em "como funciona?" — corrigir para onboarding */
+  if (
+    action === 'falar_com_humano' &&
+    isFriendlyReservationOnboarding(lastUserText) &&
+    !isExplicitHumanRequest(lastUserText) &&
+    !shouldForceHumanIntent(lastUserText)
+  ) {
+    action = 'COLLECT_DATA';
+  }
+
   const params =
     parsed && typeof parsed.params === 'object' && parsed.params !== null && !Array.isArray(parsed.params)
       ? parsed.params
@@ -153,6 +201,18 @@ function normalizeInterpretation(parsed, lastUserText) {
   if (action === 'falar_com_humano' && !suggested_reply) {
     suggested_reply =
       'Oi! Percebi que faz sentido um atendente humano te ajudar melhor agora. Só um instante — já chamo alguém da equipe por aqui pra continuar com você, combinado?';
+  }
+
+  if (
+    action === 'COLLECT_DATA' &&
+    isFriendlyReservationOnboarding(lastUserText) &&
+    (!suggested_reply ||
+      /\b(equipe|atendente em breve|membro da nossa equipe|vai te atender em breve)\b/i.test(
+        suggested_reply
+      ))
+  ) {
+    suggested_reply =
+      'Oi! Que bom que você quer celebrar com a gente. Por aqui eu mesma te ajudo a reservar: é só me passar qual estabelecimento você prefere, a data, o horário, a área, quantas pessoas vêm, seu nome completo, e-mail e data de nascimento (só pra confirmar que é +18). Vamos começar: em qual casa você quer reservar?';
   }
 
   return { action, params, missing_fields, suggested_reply };
@@ -242,5 +302,7 @@ async function generateReservationConfirmationMessage(opts) {
 module.exports = {
   interpretMessage,
   shouldForceHumanIntent,
+  isExplicitHumanRequest,
+  isFriendlyReservationOnboarding,
   generateReservationConfirmationMessage,
 };
