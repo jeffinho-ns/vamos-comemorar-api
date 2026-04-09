@@ -61,6 +61,31 @@ function emitInbox(app, payload) {
   }
 }
 
+const MISSING_FIELD_LABELS_PT = {
+  establishment_id: 'estabelecimento',
+  client_name: 'nome completo',
+  client_email: 'e-mail',
+  data_nascimento: 'data de nascimento',
+  quantidade_convidados: 'quantidade de pessoas',
+  reservation_date: 'data da reserva',
+  reservation_time: 'horário',
+  area_id: 'área',
+};
+
+function formatMissingFieldsForUser(missingKeys) {
+  return (missingKeys || [])
+    .map((k) => MISSING_FIELD_LABELS_PT[k] || k)
+    .join(', ');
+}
+
+/** Evita enviar texto da IA que promete reserva já registrada quando ainda não foi. */
+function looksLikePrematureBookingPromise(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /quase pronta|está pronta|já está|ja esta|confirmad[ao]|registrad[ao]|reserva (foi|esta|está)|garantid[ao]|no sistema\b/i.test(
+    text
+  );
+}
+
 function validateProcessReservationParams(p) {
   const keys = [
     'establishment_id',
@@ -270,9 +295,16 @@ module.exports = (pool, app) => {
         const missing = validateProcessReservationParams(params);
 
         if (missing.length > 0) {
-          const fallback =
-            interpreted.suggested_reply ||
-            `Quase lá! Para concluir sua reserva, preciso destes dados: ${missing.join(', ')}. Pode me enviar?`;
+          const humanMissing = formatMissingFieldsForUser(missing);
+          let fallback = `Para registrar sua reserva no sistema, ainda preciso de: ${humanMissing}. Pode me enviar?`;
+          const sr = interpreted.suggested_reply || '';
+          if (sr && !looksLikePrematureBookingPromise(sr)) {
+            fallback = `${fallback}\n\n${sr}`;
+          } else if (sr && looksLikePrematureBookingPromise(sr)) {
+            console.warn(
+              '[WhatsApp webhook] IA sugeriu PROCESS_RESERVATION incompleto com texto enganoso; usando só lista de faltantes.'
+            );
+          }
           await sendMessage(senderNumber, fallback);
           await persistOutbound(fallback, 'COLLECT_DATA');
           return res.sendStatus(200);
@@ -336,9 +368,22 @@ module.exports = (pool, app) => {
 
       /** Coletar dados ou outras intenções — resposta conversacional */
       if (interpreted.suggested_reply) {
-        const sendResult = await sendMessage(senderNumber, interpreted.suggested_reply);
+        let replyText = interpreted.suggested_reply;
+        if (
+          (interpreted.action === 'COLLECT_DATA' || !interpreted.action) &&
+          looksLikePrematureBookingPromise(replyText)
+        ) {
+          const mf =
+            Array.isArray(interpreted.missing_fields) && interpreted.missing_fields.length
+              ? ` Para registrar no sistema, ainda preciso de: ${formatMissingFieldsForUser(interpreted.missing_fields)}.`
+              : ' Para registrar no sistema, ainda faltam alguns dados.';
+          replyText =
+            `Só pra alinhar: sua reserva ainda não foi salva aqui.${mf} Me envia o que faltar que eu fecho o cadastro na hora, combinado?`;
+          console.warn('[WhatsApp webhook] Substituída suggested_reply que prometia reserva sem salvar.');
+        }
+        const sendResult = await sendMessage(senderNumber, replyText);
         console.log('[WhatsApp webhook] envio automático:', sendResult);
-        await persistOutbound(interpreted.suggested_reply, interpreted.action || 'COLLECT_DATA');
+        await persistOutbound(replyText, interpreted.action || 'COLLECT_DATA');
       }
     } catch (error) {
       console.error('[WhatsApp webhook] erro ao processar mensagem (IA/envio):', error.message);
