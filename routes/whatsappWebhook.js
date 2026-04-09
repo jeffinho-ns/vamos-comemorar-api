@@ -1,7 +1,14 @@
 const express = require('express');
-const { interpretMessage } = require('../services/aiService');
+const { interpretMessage, generateReservationConfirmationMessage } = require('../services/aiService');
 const { sendMessage } = require('../services/whatsappService');
 const inbox = require('../services/whatsappInboxRepository');
+const {
+  ageFromIsoDate,
+  loadAiCatalog,
+  createReservationInternal,
+  buildReservationBodyFromParams,
+  buildGuestListSecondMessage,
+} = require('../services/whatsappReservationService');
 
 function extractMessageText(payload) {
   const entry = payload?.entry?.[0];
@@ -52,6 +59,34 @@ function emitInbox(app, payload) {
   if (io) {
     io.to('whatsapp_inbox').emit('whatsapp_inbox_update', payload);
   }
+}
+
+function validateProcessReservationParams(p) {
+  const keys = [
+    'establishment_id',
+    'client_name',
+    'client_email',
+    'data_nascimento',
+    'quantidade_convidados',
+    'reservation_date',
+    'reservation_time',
+    'area_id',
+  ];
+  const missing = [];
+  for (const k of keys) {
+    const v = p[k];
+    if (v === undefined || v === null || v === '') {
+      missing.push(k);
+      continue;
+    }
+    if (
+      (k === 'establishment_id' || k === 'area_id' || k === 'quantidade_convidados') &&
+      Number.isNaN(Number(v))
+    ) {
+      missing.push(k);
+    }
+  }
+  return missing;
 }
 
 module.exports = (pool, app) => {
@@ -148,21 +183,34 @@ module.exports = (pool, app) => {
     let messageHistory = [{ role: 'user', content: messageText }];
     if (usedPersistence && conversation) {
       try {
-        const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 5);
+        const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 12);
         messageHistory = mapRowsToOpenAIHistory(recent);
       } catch (e) {
         console.warn('[WhatsApp webhook] falha ao montar histórico:', e.message);
       }
     }
 
+    let catalog = { establishmentsBlock: '', areasBlock: '' };
     try {
-      const interpreted = await interpretMessage({ messageHistory });
+      catalog = await loadAiCatalog(pool);
+    } catch (e) {
+      console.warn('[WhatsApp webhook] catálogo IA:', e.message);
+    }
+
+    try {
+      const interpreted = await interpretMessage({
+        messageHistory,
+        context: {
+          establishmentsBlock: catalog.establishmentsBlock,
+          areasBlock: catalog.areasBlock,
+        },
+      });
       console.log('[WhatsApp webhook] interpretação IA:', interpreted);
 
       if (usedPersistence && inboundRow?.id) {
         try {
           await inbox.updateInboundAiFields(pool, inboundRow.id, {
-            intent: interpreted.intent,
+            intent: interpreted.action,
             suggestedReply: interpreted.suggested_reply,
           });
         } catch (e) {
@@ -175,34 +223,122 @@ module.exports = (pool, app) => {
         wa_id: senderNumber,
         conversation,
         messageId: inboundRow?.id,
-        intent: interpreted.intent,
+        action: interpreted.action,
         suggested_reply: interpreted.suggested_reply,
       });
 
-      if (interpreted.intent === 'falar_com_humano' && interpreted.suggested_reply) {
+      const persistOutbound = async (bodyText, intentLabel) => {
+        if (!usedPersistence || !conversation) return;
+        try {
+          const saved = await inbox.insertMessage(pool, {
+            conversationId: conversation.id,
+            direction: 'outbound',
+            body: bodyText,
+            intent: intentLabel || null,
+            suggestedReply: null,
+            rawPayload: null,
+          });
+          emitInbox(app, {
+            type: 'outbound',
+            wa_id: senderNumber,
+            conversation: await inbox.getConversationByWaId(pool, senderNumber),
+            message: saved,
+          });
+        } catch (e) {
+          console.warn('[WhatsApp webhook] falha ao gravar outbound:', e.message);
+        }
+      };
+
+      /** Escalamento humano */
+      if (interpreted.action === 'falar_com_humano' && interpreted.suggested_reply) {
         const sendResult = await sendMessage(senderNumber, interpreted.suggested_reply);
         console.log('[WhatsApp webhook] envio automático (handoff):', sendResult);
+        await persistOutbound(interpreted.suggested_reply, 'falar_com_humano');
+        return res.sendStatus(200);
+      }
 
-        if (usedPersistence && conversation) {
-          try {
-            const saved = await inbox.insertMessage(pool, {
-              conversationId: conversation.id,
-              direction: 'outbound',
-              body: interpreted.suggested_reply,
-              intent: 'falar_com_humano',
-              suggestedReply: null,
-              rawPayload: sendResult || null,
-            });
-            emitInbox(app, {
-              type: 'outbound',
-              wa_id: senderNumber,
-              conversation: await inbox.getConversationByWaId(pool, senderNumber),
-              message: saved,
-            });
-          } catch (e) {
-            console.warn('[WhatsApp webhook] falha ao gravar outbound handoff:', e.message);
-          }
+      /** Menor de idade — mensagem educada */
+      if (interpreted.action === 'REFUSE_MINOR' && interpreted.suggested_reply) {
+        await sendMessage(senderNumber, interpreted.suggested_reply);
+        await persistOutbound(interpreted.suggested_reply, 'REFUSE_MINOR');
+        return res.sendStatus(200);
+      }
+
+      /** Processar reserva no banco */
+      if (interpreted.action === 'PROCESS_RESERVATION') {
+        const params = interpreted.params || {};
+        const missing = validateProcessReservationParams(params);
+
+        if (missing.length > 0) {
+          const fallback =
+            interpreted.suggested_reply ||
+            `Quase lá! Para concluir sua reserva, preciso destes dados: ${missing.join(', ')}. Pode me enviar?`;
+          await sendMessage(senderNumber, fallback);
+          await persistOutbound(fallback, 'COLLECT_DATA');
+          return res.sendStatus(200);
         }
+
+        const age = ageFromIsoDate(params.data_nascimento);
+        if (age !== null && age < 18) {
+          const minorMsg =
+            'Puxa, muito obrigado pelo contato! Para reservar conosco é necessário ter 18 anos ou mais. ' +
+            'Se você for menor, peça para um responsável seguir por aqui, combinado? 💚';
+          await sendMessage(senderNumber, minorMsg);
+          await persistOutbound(minorMsg, 'REFUSE_MINOR');
+          return res.sendStatus(200);
+        }
+
+        const body = buildReservationBodyFromParams(params, senderNumber, {
+          notes: 'Origem: WhatsApp (IA)',
+        });
+
+        const created = await createReservationInternal(body);
+        if (!created.success) {
+          const errText =
+            `Não consegui finalizar a reserva agora: ${created.error}. ` +
+            `Podemos tentar outro horário ou outro dia? Se preferir, diga "atendente" e chamamos alguém da equipe.`;
+          await sendMessage(senderNumber, errText);
+          await persistOutbound(errText, 'PROCESS_RESERVATION_ERROR');
+          return res.sendStatus(200);
+        }
+
+        const resData = created.data || {};
+        const reservationRow = resData.reservation || resData;
+        const guestListLink = resData.guest_list_link || null;
+        const hasGuestList = Boolean(guestListLink);
+
+        let confirmText;
+        try {
+          confirmText = await generateReservationConfirmationMessage({
+            reservation: reservationRow,
+            hasGuestList,
+            isBirthday: Boolean(params.is_birthday),
+          });
+        } catch (ce) {
+          console.error('[WhatsApp webhook] confirmação IA:', ce.message);
+          confirmText =
+            `Sua reserva foi registrada com sucesso, ${reservationRow.client_name || ''}! ` +
+            `Te esperamos no ${reservationRow.establishment_name || 'estabelecimento'} ` +
+            `em ${reservationRow.reservation_date} às ${String(reservationRow.reservation_time || '').slice(0, 5)}.`;
+        }
+
+        await sendMessage(senderNumber, confirmText);
+        await persistOutbound(confirmText, 'PROCESS_RESERVATION_CONFIRM');
+
+        if (hasGuestList && guestListLink) {
+          const linkMsg = buildGuestListSecondMessage(guestListLink);
+          await sendMessage(senderNumber, linkMsg);
+          await persistOutbound(linkMsg, 'GUEST_LIST_LINK');
+        }
+
+        return res.sendStatus(200);
+      }
+
+      /** Coletar dados ou outras intenções — resposta conversacional */
+      if (interpreted.suggested_reply) {
+        const sendResult = await sendMessage(senderNumber, interpreted.suggested_reply);
+        console.log('[WhatsApp webhook] envio automático:', sendResult);
+        await persistOutbound(interpreted.suggested_reply, interpreted.action || 'COLLECT_DATA');
       }
     } catch (error) {
       console.error('[WhatsApp webhook] erro ao processar mensagem (IA/envio):', error.message);

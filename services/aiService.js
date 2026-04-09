@@ -1,31 +1,89 @@
 const OpenAI = require('openai');
 
-const systemPrompt = `Você é o Host Digital do Vamos Comemorar — não é um robô frio, é anfitrião de casa noturna/restaurante: acolhedor, animado, educado e genuíno. Use português do Brasil natural e caloroso.
+/** Evita crash ao subir o servidor sem OPENAI_API_KEY; a chave só é exigida ao chamar a IA. */
+let openaiClient = null;
+function getOpenAI() {
+  if (!openaiClient) {
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) {
+      throw new Error('OPENAI_API_KEY não definida no ambiente.');
+    }
+    openaiClient = new OpenAI({ apiKey: key });
+  }
+  return openaiClient;
+}
 
-Analise o histórico recente (até 5 mensagens) e a última mensagem do cliente. Devolva APENAS um JSON válido com este formato exato:
-{ "intent": string, "params": object, "suggested_reply": string }
+function buildBrainSystemPrompt(context) {
+  const establishmentsBlock =
+    context?.establishmentsBlock || '(carregue estabelecimentos no servidor)';
+  const areasBlock = context?.areasBlock || '(carregue áreas no servidor)';
 
-Regras de intent (use exatamente uma destas strings):
-- "fazer_reserva"
-- "ver_disponibilidade"
-- "duvida_geral"
-- "falar_com_humano"
+  return `Você é o Host Digital do Vamos Comemorar — anfitrião de restaurantes e casas noturnas: acolhedor, elegante e caloroso. Use português do Brasil.
 
-REGRA OBRIGATÓRIA — defina intent como "falar_com_humano" SEMPRE que houver QUALQUER um destes sinais:
-- Frustração, irritação, reclamação forte, tom agressivo ou desconfiança clara.
-- Pedido explícito para falar com pessoa humana, atendente, gerente ou "alguém da equipe".
-- Mensagem ilegível por gírias muito fechadas, abreviações excessivas ou texto confuso a ponto de você não ter segurança para ajudar sem um humano.
-- Cliente dizendo que a resposta anterior não resolveu ou pedindo escalação.
+Sua tarefa é conduzir reservas pelo WhatsApp com tom de hospitalidade. Celebre com carinho quando o cliente mencionar aniversário ou comemoração.
 
-O campo "params" deve ser um objeto com dados úteis que você inferir (datas, horários, número de pessoas, nome do lugar, etc.) — use {} se não houver.
+Colete educadamente TODOS estes dados antes de concluir:
+- Estabelecimento (use um dos IDs listados abaixo em establishment_id)
+- Nome completo do titular da reserva
+- E-mail
+- Data de nascimento (YYYY-MM-DD), para confirmar maioridade (+18) na casa
+- Quantidade de convidados (número inteiro)
+- Data da reserva (YYYY-MM-DD)
+- Horário (HH:mm)
+- Área preferida (use um dos IDs listados em area_id)
 
-O campo "suggested_reply" deve ser a mensagem que o Host Digital enviaria ao cliente no WhatsApp AGORA, em tom de hospitalidade, curta (1–3 parágrafos curtos no máximo), sem markdown, sem emojis em excesso (no máximo 1–2 se fizer sentido). Se intent for "falar_com_humano", tranquilize o cliente e diga que um humano da equipe vai assumir em instantes — sem prometer prazos irreais.
+ESTABELECIMENTOS (use establishment_id exato):
+${establishmentsBlock}
 
-Evite repetir literalmente frases que você já disse no histórico recente; varie com naturalidade.`;
+ÁREAS (use area_id exato quando possível; se o cliente descrever a área, escolha o id mais adequado):
+${areasBlock}
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+REGRAS DE SAÍDA — responda APENAS um JSON válido (sem markdown) neste formato:
+{
+  "action": string,
+  "params": object,
+  "missing_fields": string[],
+  "suggested_reply": string
+}
+
+Valores permitidos para "action":
+- "COLLECT_DATA": ainda faltam dados obrigatórios ou há ambiguidade; "missing_fields" deve listar chaves faltando (ex.: "client_email", "reservation_time").
+- "PROCESS_RESERVATION": todos os dados obrigatórios estão claros e consistentes. Preencha "params" completo.
+- "REFUSE_MINOR": o cliente informou ou ficou evidente que é menor de 18 anos; seja gentil e explique que não é possível concluir a reserva.
+- "falar_com_humano": escalação para atendente (frustração, pedido explícito, ou caso que exija humano).
+
+O objeto "params" quando aplicável deve incluir:
+{
+  "establishment_id": number | null,
+  "establishment_name_hint": string | null,
+  "client_name": string | null,
+  "client_email": string | null,
+  "data_nascimento": "YYYY-MM-DD" | null,
+  "quantidade_convidados": number | null,
+  "reservation_date": "YYYY-MM-DD" | null,
+  "reservation_time": "HH:mm" | null,
+  "area_id": number | null,
+  "area_name_hint": string | null,
+  "is_birthday": boolean
+}
+
+Quando action for "PROCESS_RESERVATION", todos os campos acima (exceto hints) devem estar preenchidos com valores válidos. Não invente datas ou horários não ditos pelo cliente.
+
+"suggested_reply" é sempre a mensagem que o Host enviaria AGORA no WhatsApp: curta (1–3 parágrafos), sem markdown, no máximo 1–2 emojis se fizer sentido.
+
+Se action for "COLLECT_DATA", faça UMA pergunta ou pedido claro por vez ou um resumo cordial do que falta.
+
+Se action for "PROCESS_RESERVATION", "suggested_reply" pode ser um resumo do que será registrado (o sistema confirmará após salvar).`;
+}
+
+const confirmationSystemPrompt = `Você é o Host Digital do Vamos Comemorar. O sistema já registrou a reserva com sucesso.
+Gere um JSON {"confirmation": "..."} onde "confirmation" é UMA mensagem calorosa em português do Brasil confirmando nome, estabelecimento, data, horário, área, quantidade de pessoas e e-mail.
+
+Se NÃO houver lista de convidados (grupos pequenos), inclua ao final um parágrafo breve sobre respeito às políticas da casa (entrada, horários e uso do espaço) de forma elegante, sem ser ríspido.
+
+Se houver lista de convidados, NÃO coloque o link na mensagem — o link será enviado na mensagem seguinte pelo sistema.
+
+Sem markdown. Máximo 1–2 emojis opcionais.`;
 
 function buildTranscriptFromHistory(messageHistory) {
   const lines = (messageHistory || []).map((m) => {
@@ -58,20 +116,26 @@ function shouldForceHumanIntent(lastUserText) {
 }
 
 function normalizeInterpretation(parsed, lastUserText) {
-  const allowed = new Set([
-    'fazer_reserva',
-    'ver_disponibilidade',
-    'duvida_geral',
+  const allowedActions = new Set([
+    'COLLECT_DATA',
+    'PROCESS_RESERVATION',
+    'REFUSE_MINOR',
     'falar_com_humano',
   ]);
 
-  let intent = typeof parsed?.intent === 'string' ? parsed.intent.trim() : 'duvida_geral';
-  if (!allowed.has(intent)) {
-    intent = 'duvida_geral';
+  let action =
+    typeof parsed?.action === 'string' ? parsed.action.trim() : 'COLLECT_DATA';
+
+  if (!allowedActions.has(action)) {
+    if (parsed?.intent === 'falar_com_humano') {
+      action = 'falar_com_humano';
+    } else {
+      action = 'COLLECT_DATA';
+    }
   }
 
   if (shouldForceHumanIntent(lastUserText)) {
-    intent = 'falar_com_humano';
+    action = 'falar_com_humano';
   }
 
   const params =
@@ -79,20 +143,25 @@ function normalizeInterpretation(parsed, lastUserText) {
       ? parsed.params
       : {};
 
+  const missing_fields = Array.isArray(parsed?.missing_fields)
+    ? parsed.missing_fields.filter((x) => typeof x === 'string')
+    : [];
+
   let suggested_reply =
     typeof parsed?.suggested_reply === 'string' ? parsed.suggested_reply.trim() : '';
 
-  if (intent === 'falar_com_humano' && !suggested_reply) {
+  if (action === 'falar_com_humano' && !suggested_reply) {
     suggested_reply =
       'Oi! Percebi que faz sentido um atendente humano te ajudar melhor agora. Só um instante — já chamo alguém da equipe por aqui pra continuar com você, combinado?';
   }
 
-  return { intent, params, suggested_reply };
+  return { action, params, missing_fields, suggested_reply };
 }
 
 /**
  * @param {object} opts
- * @param {Array<{ role: 'user'|'assistant', content: string }>} opts.messageHistory até 5 mensagens em ordem cronológica (mais antiga → mais recente)
+ * @param {Array<{ role: 'user'|'assistant', content: string }>} opts.messageHistory
+ * @param {{ establishmentsBlock?: string, areasBlock?: string }} [opts.context]
  */
 async function interpretMessage(opts) {
   const messageHistory = opts?.messageHistory;
@@ -100,24 +169,21 @@ async function interpretMessage(opts) {
     throw new Error('messageHistory deve ser um array não vazio.');
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY não definida no ambiente.');
-  }
-
-  const trimmed = messageHistory.slice(-5);
+  const trimmed = messageHistory.slice(-12);
   const lastUser = [...trimmed].reverse().find((m) => m.role === 'user');
   const lastUserText = lastUser?.content || '';
 
   const transcript = buildTranscriptFromHistory(trimmed);
+  const context = opts?.context || {};
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: 'gpt-4o-mini',
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: buildBrainSystemPrompt(context) },
       {
         role: 'user',
-        content: `Histórico recente (do mais antigo ao mais recente, no máximo 5 mensagens):\n${transcript}\n\nConsidere a última mensagem do cliente como a mais recente acima. Retorne o JSON conforme instruído.`,
+        content: `Histórico recente (do mais antigo ao mais recente):\n${transcript}\n\nConsidere a última mensagem do cliente como a mais recente. Retorne apenas o JSON exigido.`,
       },
     ],
     temperature: 0.35,
@@ -132,7 +198,49 @@ async function interpretMessage(opts) {
   return normalizeInterpretation(parsed, lastUserText);
 }
 
+/**
+ * Mensagem de confirmação pós-cadastro (sem incluir link de convidados).
+ * @param {object} opts
+ * @param {object} opts.reservation — linha ou objeto com campos legíveis
+ * @param {boolean} opts.hasGuestList
+ * @param {boolean} [opts.isBirthday]
+ */
+async function generateReservationConfirmationMessage(opts) {
+  if (!process.env.OPENAI_API_KEY) {
+    const r = opts?.reservation || {};
+    return `Reserva registrada com sucesso, ${r.client_name || ''}! Te esperamos no ${r.establishment_name || 'estabelecimento'}.`;
+  }
+
+  const completion = await getOpenAI().chat.completions.create({
+    model: 'gpt-4o-mini',
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: confirmationSystemPrompt },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          reservation: opts.reservation,
+          hasGuestList: Boolean(opts.hasGuestList),
+          isBirthday: Boolean(opts.isBirthday),
+        }),
+      },
+    ],
+    temperature: 0.4,
+  });
+
+  const content = completion?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Confirmação vazia da OpenAI.');
+  }
+  const parsed = JSON.parse(content);
+  if (typeof parsed.confirmation === 'string' && parsed.confirmation.trim()) {
+    return parsed.confirmation.trim();
+  }
+  throw new Error('JSON de confirmação inválido.');
+}
+
 module.exports = {
   interpretMessage,
   shouldForceHumanIntent,
+  generateReservationConfirmationMessage,
 };

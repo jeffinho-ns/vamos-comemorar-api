@@ -67,7 +67,7 @@ async function updateInboundAiFields(pool, messageId, { intent, suggestedReply }
   );
 }
 
-async function getRecentMessagesForContext(pool, conversationId, limit = 5) {
+async function getRecentMessagesForContext(pool, conversationId, limit = 12) {
   const r = await pool.query(
     `SELECT direction, body FROM whatsapp_messages
      WHERE conversation_id = $1

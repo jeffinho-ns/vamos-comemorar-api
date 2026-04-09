@@ -1259,7 +1259,7 @@ module.exports = (pool) => {
       const dayOfWeek = reservationDateObj.getDay(); // Domingo = 0, Sexta = 5, Sábado = 6
       const isWeekend = dayOfWeek === 5 || dayOfWeek === 6; // Sexta ou Sábado
       const isHighLine = establishmentIdNumber === 1;
-      const isLargeGroup = numberOfPeople >= 4;
+      const isLargeGroup = numberOfPeople > 4;
       const isBirthdayReservation = isWeekend && isHighLine;
       
       if (isLargeGroup || isBirthdayReservation) {
