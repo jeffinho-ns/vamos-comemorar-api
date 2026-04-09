@@ -87,6 +87,30 @@ function normalizeReservationTime(t) {
 }
 
 /**
+ * Evita cair em IDs duplicados de estabelecimentos com o mesmo nome.
+ * O painel operacional usa IDs canônicos para regras e calendário.
+ */
+function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentNameHintRaw) {
+  const establishmentId = Number(establishmentIdRaw);
+  const hint = String(establishmentNameHintRaw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  // IDs canônicos usados no projeto
+  // - Seu Justino: 1
+  // - Pracinha do Seu Justino: 8
+  // - Reserva Rooftop: 9
+  if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
+  if (hint.includes('pracinha')) return 8;
+  if (hint.includes('seu justino') || hint.includes('justino')) return 1;
+
+  // Fallback por ID quando o hint não vier.
+  return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : establishmentIdRaw;
+}
+
+/**
  * Catálogo de estabelecimentos e áreas para o prompt da IA.
  */
 async function loadAiCatalog(pool) {
@@ -166,6 +190,7 @@ async function createReservationInternal(body) {
 function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
   const {
     establishment_id,
+    establishment_name_hint,
     client_name,
     client_email,
     data_nascimento,
@@ -177,7 +202,9 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
   } = params || {};
 
   const numberOfPeople = Number(quantidade_convidados);
-  const estId = Number(establishment_id);
+  const estId = Number(
+    normalizeCanonicalEstablishmentId(establishment_id, establishment_name_hint)
+  );
   const aId = Number(area_id);
 
   const rawDate = reservation_date || null;
@@ -221,6 +248,7 @@ module.exports = {
   ageFromIsoDate,
   normalizeReservationDateToUpcoming,
   normalizeReservationTime,
+  normalizeCanonicalEstablishmentId,
   loadAiCatalog,
   createReservationInternal,
   buildReservationBodyFromParams,
