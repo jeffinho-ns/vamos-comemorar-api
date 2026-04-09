@@ -20,6 +20,59 @@ function ageFromIsoDate(isoDateStr) {
   return age;
 }
 
+/**
+ * Se a IA mandar ano errado (ex.: 2024 em vez de 2026) ou data no passado,
+ * ajusta para a próxima ocorrência de (mês/dia) a partir de hoje em America/Sao_Paulo.
+ * Assim o calendário admin e expires_at da lista de convidados ficam corretos.
+ */
+function getTodayPartsSaoPaulo() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const o = { year: 0, month: 0, day: 0 };
+  for (const p of parts) {
+    if (p.type === 'year') o.year = Number(p.value);
+    if (p.type === 'month') o.month = Number(p.value);
+    if (p.type === 'day') o.day = Number(p.value);
+  }
+  return { y: o.year, m: o.month, d: o.day };
+}
+
+function compareYmd(y1, m1, d1, y2, m2, d2) {
+  if (y1 !== y2) return y1 < y2 ? -1 : 1;
+  if (m1 !== m2) return m1 < m2 ? -1 : 1;
+  if (d1 !== d2) return d1 < d2 ? -1 : d1 > d2 ? 1 : 0;
+  return 0;
+}
+
+function normalizeReservationDateToUpcoming(isoDateStr) {
+  const m = String(isoDateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return isoDateStr;
+  const month = parseInt(m[2], 10);
+  const day = parseInt(m[3], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return isoDateStr;
+
+  const today = getTodayPartsSaoPaulo();
+
+  const ymd = (y) =>
+    `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  for (let delta = 0; delta <= 1; delta += 1) {
+    const y = today.y + delta;
+    const test = new Date(Date.UTC(y, month - 1, day, 12, 0, 0));
+    if (test.getUTCMonth() !== month - 1) continue;
+    if (compareYmd(y, month, day, today.y, today.m, today.d) >= 0) {
+      return ymd(y);
+    }
+  }
+
+  return ymd(today.y + 2);
+}
+
 function normalizeReservationTime(t) {
   if (t == null || t === '') return null;
   const s = String(t).trim();
@@ -127,17 +180,27 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
   const estId = Number(establishment_id);
   const aId = Number(area_id);
 
+  const rawDate = reservation_date || null;
+  const normalizedDate = rawDate ? normalizeReservationDateToUpcoming(rawDate) : null;
+  if (rawDate && normalizedDate && rawDate !== normalizedDate) {
+    console.warn('[whatsappReservationService] reservation_date ajustada:', {
+      de: rawDate,
+      para: normalizedDate,
+    });
+  }
+
   return {
     client_name: client_name != null ? String(client_name).trim() : null,
     client_phone: senderWaId ? String(senderWaId).replace(/\D/g, '') : null,
     client_email: client_email != null ? String(client_email).trim() : null,
     data_nascimento_cliente: data_nascimento || null,
-    reservation_date: reservation_date || null,
+    reservation_date: normalizedDate,
     reservation_time: normalizeReservationTime(reservation_time),
     number_of_people: numberOfPeople,
     area_id: aId,
     establishment_id: estId,
-    status: 'NOVA',
+    // confirmed: aparece no calendário como reserva válida (check-in, ocupação) como as criadas pela equipe após confirmação
+    status: 'confirmed',
     origin: 'WHATSAPP',
     notes: opts.notes || null,
     created_by: null,
@@ -156,6 +219,7 @@ function buildGuestListSecondMessage(link) {
 
 module.exports = {
   ageFromIsoDate,
+  normalizeReservationDateToUpcoming,
   normalizeReservationTime,
   loadAiCatalog,
   createReservationInternal,
