@@ -28,6 +28,15 @@ ENUM_TO_ROLE['Atendente'] = 'atendente';
 ENUM_TO_ROLE['Promoter-list'] = 'promoter-list';
 if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE['Recepção'] = 'recepcao';
 
+const PROMOTER_ONLY_EMAILS = new Set([
+    'montoya@ideiaum.com.br',
+    'golin@ideiaum.com.br',
+    'juliosolto@ideiaum.com.br',
+    'renans@ideiaum.com.br',
+    'renato@ideiaum.com.br',
+    'luisfelipe@ideiaum.com.br',
+]);
+
 function roleToEnum(role) {
     if (!role) return 'Cliente';
     const r = String(role).toLowerCase();
@@ -349,7 +358,11 @@ module.exports = (pool, upload) => {
                 return res.status(401).json({ error: 'Credenciais inválidas' });
             }
 
-            const roleNormalized = roleFromEnum(user.role);
+            const normalizedUserEmail = String(user.email || '').trim().toLowerCase();
+            let roleNormalized = roleFromEnum(user.role);
+            if (PROMOTER_ONLY_EMAILS.has(normalizedUserEmail)) {
+                roleNormalized = 'promoter';
+            }
             // Geração do token com role incluído (minúsculo para consistência)
             const token = jwt.sign(
                 { id: user.id, email: user.email, role: roleNormalized },
@@ -362,8 +375,8 @@ module.exports = (pool, upload) => {
             if (roleNormalized === 'promoter' || roleNormalized === 'promoter-list') {
                 try {
                     const promoterResult = await pool.query(
-                        'SELECT codigo_identificador FROM promoters WHERE email = $1 AND ativo = TRUE AND status = $2',
-                        [user.email, 'Ativo']
+                        'SELECT codigo_identificador FROM promoters WHERE LOWER(TRIM(email)) = LOWER($1) AND ativo = TRUE AND status = $2',
+                        [normalizedUserEmail, 'Ativo']
                     );
                     if (promoterResult.rows.length > 0 && promoterResult.rows[0].codigo_identificador) {
                         promoterCodigo = promoterResult.rows[0].codigo_identificador;
