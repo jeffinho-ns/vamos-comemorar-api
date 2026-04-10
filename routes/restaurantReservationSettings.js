@@ -93,6 +93,15 @@ module.exports = (pool) => {
         UNIQUE(establishment_id, override_date)
       );
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS restaurant_reservation_policy (
+        establishment_id INT PRIMARY KEY,
+        allow_capacity_override BOOLEAN NOT NULL DEFAULT FALSE,
+        allow_outside_hours BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
   };
 
   router.get('/', async (req, res) => {
@@ -125,6 +134,18 @@ module.exports = (pool) => {
         [establishmentId]
       );
 
+      const policyResult = await pool.query(
+        `SELECT allow_capacity_override, allow_outside_hours
+           FROM restaurant_reservation_policy
+          WHERE establishment_id = $1`,
+        [establishmentId]
+      );
+      const policyRow = policyResult.rows[0];
+      const policy = {
+        allow_capacity_override: !!policyRow?.allow_capacity_override,
+        allow_outside_hours: !!policyRow?.allow_outside_hours,
+      };
+
       const byWeekday = new Map(weeklyResult.rows.map((r) => [Number(r.weekday), r]));
       const weekly = defaults.map((d) => {
         const saved = byWeekday.get(d.weekday);
@@ -153,6 +174,7 @@ module.exports = (pool) => {
         establishment_name: establishmentName,
         weekly_settings: weekly,
         date_overrides: overrideResult.rows,
+        policy,
       });
     } catch (error) {
       console.error('❌ Erro ao buscar configurações de operação:', error);
@@ -240,6 +262,38 @@ module.exports = (pool) => {
       return res.status(201).json({ success: true, override: result.rows[0] });
     } catch (error) {
       console.error('❌ Erro ao salvar exceção de data:', error);
+      return res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    }
+  });
+
+  router.put('/policy', authenticateToken, async (req, res) => {
+    try {
+      await ensureTables();
+      const establishmentId = Number(req.body?.establishment_id);
+      if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+        return res.status(400).json({ success: false, error: 'establishment_id inválido' });
+      }
+      const allow_capacity_override = !!req.body?.allow_capacity_override;
+      const allow_outside_hours = !!req.body?.allow_outside_hours;
+
+      await pool.query(
+        `INSERT INTO restaurant_reservation_policy
+           (establishment_id, allow_capacity_override, allow_outside_hours, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (establishment_id)
+         DO UPDATE SET
+           allow_capacity_override = EXCLUDED.allow_capacity_override,
+           allow_outside_hours = EXCLUDED.allow_outside_hours,
+           updated_at = NOW()`,
+        [establishmentId, allow_capacity_override, allow_outside_hours]
+      );
+
+      return res.json({
+        success: true,
+        policy: { allow_capacity_override, allow_outside_hours },
+      });
+    } catch (error) {
+      console.error('❌ Erro ao salvar política de reservas:', error);
       return res.status(500).json({ success: false, error: 'Erro interno do servidor' });
     }
   });

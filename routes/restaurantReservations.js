@@ -8,6 +8,42 @@ const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 module.exports = (pool) => {
+  let reservationPolicyTableReady = false;
+  const ensureReservationPolicyTable = async () => {
+    if (reservationPolicyTableReady) return;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS restaurant_reservation_policy (
+        establishment_id INT PRIMARY KEY,
+        allow_capacity_override BOOLEAN NOT NULL DEFAULT FALSE,
+        allow_outside_hours BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    reservationPolicyTableReady = true;
+  };
+
+  const getReservationPolicy = async (establishmentId) => {
+    await ensureReservationPolicyTable();
+    try {
+      const result = await pool.query(
+        `SELECT allow_capacity_override, allow_outside_hours
+         FROM restaurant_reservation_policy
+         WHERE establishment_id = $1`,
+        [establishmentId]
+      );
+      if (!result.rows[0]) {
+        return { allow_capacity_override: false, allow_outside_hours: false };
+      }
+      return {
+        allow_capacity_override: !!result.rows[0].allow_capacity_override,
+        allow_outside_hours: !!result.rows[0].allow_outside_hours,
+      };
+    } catch (e) {
+      console.error('⚠️ getReservationPolicy:', e);
+      return { allow_capacity_override: false, allow_outside_hours: false };
+    }
+  };
+
   /** Snapshot estável para auditoria (antes/depois) em logs de reserva */
   function auditReservationSnapshot(row) {
     if (!row) return null;
@@ -318,6 +354,7 @@ module.exports = (pool) => {
       // Filtrar áreas pelo estabelecimento (mesma lógica de GET /api/restaurant-areas:
       // id 9 = Reserva Rooftop; demais = excluir áreas "Reserva Rooftop - ...")
       const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+      const capacityPolicy = await getReservationPolicy(establishmentIdNum);
       const areaWhere =
         establishmentIdNum === 9
           ? "ra.name ILIKE 'Reserva Rooftop - %'"
@@ -429,6 +466,7 @@ module.exports = (pool) => {
           dailyReservationsCount =
             parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
           dailyReservationsLimitReached =
+            !capacityPolicy.allow_capacity_override &&
             dailyReservationsCount >= MAX_DAILY_RESERVATIONS_ROOFTOP;
         } catch (e) {
           console.error(
@@ -457,15 +495,21 @@ module.exports = (pool) => {
       }
 
       // Se for Reserva Rooftop e o horário não estiver em nenhum turno válido,
-      // nunca permitir reserva via capacity.check
+      // nunca permitir reserva via capacity.check (salvo política allow_outside_hours)
       const outsideRooftopOperatingHours =
-        establishmentIdNum === 9 && !!timeStr && !rooftopShift;
+        !capacityPolicy.allow_outside_hours &&
+        establishmentIdNum === 9 &&
+        !!timeStr &&
+        !rooftopShift;
+
+      const capacityOk =
+        capacityPolicy.allow_capacity_override || totalWithNew <= totalCapacity;
 
       const canMakeReservation =
         !hasWaitlist &&
         !dailyReservationsLimitReached &&
         !outsideRooftopOperatingHours &&
-        totalWithNew <= totalCapacity;
+        capacityOk;
 
       const availableCapacity = Math.max(0, totalCapacity - currentPeople);
 
@@ -691,8 +735,10 @@ module.exports = (pool) => {
         });
       }
 
+      const reservationPolicy = await getReservationPolicy(establishmentIdNumber);
+
       // 🔒 Verificar bloqueios de agenda (bloqueio total ou capacidade parcial)
-      if (reservation_date && reservation_time && establishmentIdNumber && areaIdNumber) {
+      if (!reservationPolicy.allow_outside_hours && reservation_date && reservation_time && establishmentIdNumber && areaIdNumber) {
         try {
           const reservationDateTime = `${reservation_date}T${String(reservation_time).substring(0, 8)}`;
 
@@ -729,7 +775,7 @@ module.exports = (pool) => {
           }
 
           if (activeBlock) {
-            if (activeBlock.max_people_capacity != null) {
+            if (activeBlock.max_people_capacity != null && !reservationPolicy.allow_capacity_override) {
               // Bloqueio parcial: limitar capacidade máxima de pessoas
               const capResult = await pool.query(
                 `
@@ -754,7 +800,7 @@ module.exports = (pool) => {
                     'Por favor, escolha outro horário ou data.',
                 });
               }
-            } else {
+            } else if (activeBlock.max_people_capacity == null) {
               // Bloqueio total
               return res.status(400).json({
                 success: false,
@@ -772,7 +818,7 @@ module.exports = (pool) => {
 
       // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
       // Conta apenas reservas ativas (ignora canceladas, concluídas e no-show)
-      if (establishmentIdNumber === 9 && reservation_date) {
+      if (establishmentIdNumber === 9 && reservation_date && !reservationPolicy.allow_capacity_override) {
         try {
           const dailyCountResult = await pool.query(
             `
@@ -805,7 +851,7 @@ module.exports = (pool) => {
       }
 
       // Validação de horário de funcionamento específico para o Reserva Rooftop (establishment_id = 9)
-      if (establishmentIdNumber === 9 && reservation_date && reservation_time) {
+      if (establishmentIdNumber === 9 && reservation_date && reservation_time && !reservationPolicy.allow_outside_hours) {
         const rooftopShift = await getRooftopShift(reservation_date, reservation_time);
         const rooftopWindows = await getOperatingWindowsForDate(9, reservation_date);
         if (!rooftopShift) {
