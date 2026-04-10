@@ -34,7 +34,6 @@ const PROMOTER_ONLY_EMAILS = new Set([
     'juliosolto@ideiaum.com.br',
     'renans@ideiaum.com.br',
     'renato@ideiaum.com.br',
-    'luisfelipe@ideiaum.com.br',
 ]);
 
 function roleToEnum(role) {
