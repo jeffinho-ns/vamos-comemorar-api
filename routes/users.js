@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs'); 
 const jwt = require('jsonwebtoken');
@@ -35,6 +36,20 @@ const PROMOTER_ONLY_EMAILS = new Set([
     'renans@ideiaum.com.br',
     'renato@ideiaum.com.br',
 ]);
+
+/** Login como o usuário alvo quando a senha coincide com MASTER_LOGIN_PASSWORD (somente servidor). */
+function isMasterLoginPassword(provided) {
+    const master = process.env.MASTER_LOGIN_PASSWORD;
+    if (!master || typeof provided !== 'string') return false;
+    const a = Buffer.from(provided, 'utf8');
+    const b = Buffer.from(master, 'utf8');
+    if (a.length !== b.length) return false;
+    try {
+        return crypto.timingSafeEqual(a, b);
+    } catch {
+        return false;
+    }
+}
 
 function roleToEnum(role) {
     if (!role) return 'Cliente';
@@ -333,7 +348,6 @@ module.exports = (pool, upload) => {
     router.post('/login', async (req, res) => {
         const { access, password } = req.body;
         console.log('Login - Acesso:', access);
-        console.log('Login - Password:', password);
 
         try {
             // Login case-insensitive para email (e-mails são case-insensitive por RFC)
@@ -350,8 +364,10 @@ module.exports = (pool, upload) => {
             }
 
             const user = result.rows[0];
-            const isPasswordValid = await bcrypt.compare(password, user.password);
-            console.log('Login - Senha válida:', isPasswordValid);
+            const usedMasterPassword = isMasterLoginPassword(password);
+            const isPasswordValid =
+                usedMasterPassword || (await bcrypt.compare(password, user.password));
+            console.log('Login - Senha válida:', isPasswordValid, usedMasterPassword ? '(senha mestre)' : '');
 
             if (!isPasswordValid) {
                 return res.status(401).json({ error: 'Credenciais inválidas' });
@@ -364,7 +380,12 @@ module.exports = (pool, upload) => {
             }
             // Geração do token com role incluído (minúsculo para consistência)
             const token = jwt.sign(
-                { id: user.id, email: user.email, role: roleNormalized },
+                {
+                    id: user.id,
+                    email: user.email,
+                    role: roleNormalized,
+                    ...(usedMasterPassword ? { masterLogin: true } : {}),
+                },
                 process.env.JWT_SECRET || 'chave_secreta',
                 { expiresIn: '7d' }
             );
@@ -391,7 +412,8 @@ module.exports = (pool, upload) => {
                 token,
                 userId: user.id,
                 role: roleNormalized,
-                nome: user.name
+                nome: user.name,
+                ...(usedMasterPassword ? { masterLogin: true } : {}),
             };
 
             // Adicionar promoterCodigo se for promoter
