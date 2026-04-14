@@ -1,625 +1,858 @@
-const fs = require('fs');
-const crypto = require('crypto');
-const express = require('express');
-const bcrypt = require('bcryptjs'); 
-const jwt = require('jsonwebtoken');
+const fs = require("fs");
+const crypto = require("crypto");
+const express = require("express");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const path = require("path");
-const authenticateToken = require('../middleware/auth');
-
+const authenticateToken = require("../middleware/auth");
 
 const router = express.Router();
-const baseUrl = process.env.API_BASE_URL || 'https://vamos-comemorar-api.onrender.com';
+const baseUrl =
+  process.env.API_BASE_URL || "https://vamos-comemorar-api.onrender.com";
 
 // Mapeamento: frontend/envio usa minúsculas; o enum users_role no PostgreSQL usa PascalCase
 // Nota: "recepcao" (Recepcionista) é salvo como Atendente no banco se o enum não tiver 'Recepção'
 const ROLE_TO_ENUM = {
-    admin: 'Admin',
-    gerente: 'Gerente',
-    atendente: 'Atendente',
-    usuario: 'Usuario',
-    cliente: 'Cliente',
-    promoter: 'Promoter',
-    recepcao: 'Atendente',
-    recepção: 'Atendente',
+  admin: "Admin",
+  gerente: "Gerente",
+  atendente: "Atendente",
+  usuario: "Usuario",
+  cliente: "Cliente",
+  promoter: "Promoter",
+  recepcao: "Atendente",
+  recepção: "Atendente",
 };
 const ENUM_TO_ROLE = {};
-Object.keys(ROLE_TO_ENUM).forEach((k) => { ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k; });
-ENUM_TO_ROLE['Atendente'] = 'atendente';
+Object.keys(ROLE_TO_ENUM).forEach((k) => {
+  ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k;
+});
+ENUM_TO_ROLE["Atendente"] = "atendente";
 // Se o banco tiver role "Promoter-list", normalizar para o frontend
-ENUM_TO_ROLE['Promoter-list'] = 'promoter-list';
-if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE['Recepção'] = 'recepcao';
+ENUM_TO_ROLE["Promoter-list"] = "promoter-list";
+if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE["Recepção"] = "recepcao";
 
 const PROMOTER_ONLY_EMAILS = new Set([
-    'montoya@ideiaum.com.br',
-    'golin@ideiaum.com.br',
-    'juliosolto@ideiaum.com.br',
-    'renans@ideiaum.com.br',
-    'renato@ideiaum.com.br',
+  "montoya@ideiaum.com.br",
+  "golin@ideiaum.com.br",
+  "juliosolto@ideiaum.com.br",
+  "renans@ideiaum.com.br",
+  "renato@ideiaum.com.br",
 ]);
 
 /** Gerente geral: acesso amplo a estabelecimentos; não exclui usuários nem altera cargos globais. */
-const GERENTE_GERAL_EMAILS = new Set([
-    'luisfelipe@ideiaum.com.br',
-]);
+const GERENTE_GERAL_EMAILS = new Set(["luisfelipe@ideiaum.com.br"]);
 
 function isGerenteGeralEmail(email) {
-    if (!email || typeof email !== 'string') return false;
-    return GERENTE_GERAL_EMAILS.has(email.trim().toLowerCase());
+  if (!email || typeof email !== "string") return false;
+  return GERENTE_GERAL_EMAILS.has(email.trim().toLowerCase());
 }
 
 function getBearerPayload(req) {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
-        return null;
-    }
-    const token = authHeader.split(' ')[1];
-    if (!token) return null;
-    try {
-        return jwt.verify(token, process.env.JWT_SECRET || 'chave_secreta');
-    } catch {
-        return null;
-    }
+  const authHeader = req.headers["authorization"];
+  if (
+    !authHeader ||
+    typeof authHeader !== "string" ||
+    !authHeader.startsWith("Bearer ")
+  ) {
+    return null;
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) return null;
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET || "chave_secreta");
+  } catch {
+    return null;
+  }
 }
 
 /** Login como o usuário alvo quando a senha coincide com MASTER_LOGIN_PASSWORD (somente servidor). */
 function isMasterLoginPassword(provided) {
-    const master = process.env.MASTER_LOGIN_PASSWORD;
-    if (!master || typeof provided !== 'string') return false;
-    const a = Buffer.from(provided, 'utf8');
-    const b = Buffer.from(master, 'utf8');
-    if (a.length !== b.length) return false;
-    try {
-        return crypto.timingSafeEqual(a, b);
-    } catch {
-        return false;
-    }
+  const master = process.env.MASTER_LOGIN_PASSWORD;
+  if (!master || typeof provided !== "string") return false;
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(master, "utf8");
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 function roleToEnum(role) {
-    if (!role) return 'Cliente';
-    const r = String(role).toLowerCase();
-    return ROLE_TO_ENUM[r] || 'Cliente';
+  if (!role) return "Cliente";
+  const r = String(role).toLowerCase();
+  return ROLE_TO_ENUM[r] || "Cliente";
 }
 function enumDbCandidatesForRole(role) {
-    if (!role) return [];
-    const r = String(role).toLowerCase();
-    const primary = roleToEnum(r);
+  if (!role) return [];
+  const r = String(role).toLowerCase();
+  const primary = roleToEnum(r);
 
-    // Alguns ambientes usam enum com variações de acentuação/case.
-    // Para evitar 500 no cadastro/edição, tentamos múltiplos candidatos.
-    const candidates = [primary, r];
+  // Alguns ambientes usam enum com variações de acentuação/case.
+  // Para evitar 500 no cadastro/edição, tentamos múltiplos candidatos.
+  const candidates = [primary, r];
 
-    if (r === 'recepcao' || r === 'recepção') {
-        candidates.push('Recepção', 'recepção', 'Atendente', 'atendente');
-    }
-    if (r === 'atendente') {
-        candidates.push('Atendente', 'atendente', 'Recepção', 'recepção');
-    }
+  if (r === "recepcao" || r === "recepção") {
+    candidates.push("Recepção", "recepção", "Atendente", "atendente");
+  }
+  if (r === "atendente") {
+    candidates.push("Atendente", "atendente", "Recepção", "recepção");
+  }
 
-    // Tentar também variações usuais para os demais papéis.
-    if (r === 'admin') candidates.push('Admin', 'admin');
-    if (r === 'gerente') candidates.push('Gerente', 'gerente');
-    if (r === 'usuario') candidates.push('Usuario', 'usuario');
-    if (r === 'cliente') candidates.push('Cliente', 'cliente');
-    if (r === 'promoter') candidates.push('Promoter', 'promoter');
+  // Tentar também variações usuais para os demais papéis.
+  if (r === "admin") candidates.push("Admin", "admin");
+  if (r === "gerente") candidates.push("Gerente", "gerente");
+  if (r === "usuario") candidates.push("Usuario", "usuario");
+  if (r === "cliente") candidates.push("Cliente", "cliente");
+  if (r === "promoter") candidates.push("Promoter", "promoter");
 
-    // remove duplicados preservando ordem
-    return candidates.filter((v, idx) => candidates.indexOf(v) === idx);
+  // remove duplicados preservando ordem
+  return candidates.filter((v, idx) => candidates.indexOf(v) === idx);
 }
 function roleFromEnum(enumValue) {
-    if (!enumValue) return 'cliente';
-    return ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
+  if (!enumValue) return "cliente";
+  return ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
 }
 
 // Função auxiliar para adicionar a URL completa das imagens ao objeto do usuário
 const addFullImageUrlsToUser = (user) => {
-    if (!user) return user;
-    
-    // Se foto_perfil já é uma URL completa (Cloudinary), usar diretamente
-    // Caso contrário, não construir URL de /uploads/ pois essas imagens não existem mais
-    let foto_perfil_url = null;
-    if (user.foto_perfil) {
-        if (user.foto_perfil.startsWith('http://') || user.foto_perfil.startsWith('https://')) {
-            // Já é uma URL completa (Cloudinary)
-            foto_perfil_url = user.foto_perfil;
-        }
-        // Se for apenas nome de arquivo, não construir URL de /uploads/ (legado que não funciona)
-        // As imagens devem estar no Cloudinary agora
+  if (!user) return user;
+
+  // Se foto_perfil já é uma URL completa (Cloudinary), usar diretamente
+  // Caso contrário, não construir URL de /uploads/ pois essas imagens não existem mais
+  let foto_perfil_url = null;
+  if (user.foto_perfil) {
+    if (
+      user.foto_perfil.startsWith("http://") ||
+      user.foto_perfil.startsWith("https://")
+    ) {
+      // Já é uma URL completa (Cloudinary)
+      foto_perfil_url = user.foto_perfil;
     }
-    
-    return {
-        ...user,
-        foto_perfil_url: foto_perfil_url,
-    };
+    // Se for apenas nome de arquivo, não construir URL de /uploads/ (legado que não funciona)
+    // As imagens devem estar no Cloudinary agora
+  }
+
+  return {
+    ...user,
+    foto_perfil_url: foto_perfil_url,
+  };
 };
 
+module.exports = (pool, upload) => {
+  // Cadastro de usuário (admin pode enviar role: usuario, admin, gerente, atendente, recepcao; cliente é padrão)
+  router.post("/", async (req, res) => {
+    const {
+      name,
+      email,
+      cpf,
+      password,
+      profileImageUrl,
+      telefone,
+      role: bodyRole,
+    } = req.body;
+    const r = bodyRole ? String(bodyRole).toLowerCase().replace("ç", "c") : "";
+    const role = [
+      "admin",
+      "gerente",
+      "atendente",
+      "usuario",
+      "cliente",
+      "recepcao",
+    ].includes(r)
+      ? r
+      : "cliente";
 
-module.exports = (pool, upload) => { 
+    const actor = getBearerPayload(req);
+    if (
+      actor &&
+      actor.email &&
+      isGerenteGeralEmail(actor.email) &&
+      ["admin", "gerente"].includes(role)
+    ) {
+      return res.status(403).json({
+        error:
+          "Sem permissão para criar usuário com cargo de administrador ou gerente.",
+      });
+    }
 
-    // Cadastro de usuário (admin pode enviar role: usuario, admin, gerente, atendente, recepcao; cliente é padrão)
-    router.post('/', async (req, res) => {
-        const { name, email, cpf, password, profileImageUrl, telefone, role: bodyRole } = req.body;
-        const r = bodyRole ? String(bodyRole).toLowerCase().replace('ç', 'c') : '';
-        const role = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'recepcao'].includes(r) ? r : 'cliente';
+    // Validação de campos obrigatórios
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "Nome é obrigatório" });
+    }
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({ error: "E-mail é obrigatório" });
+    }
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ error: "Senha é obrigatória" });
+    }
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Senha deve ter no mínimo 6 caracteres" });
+    }
 
-        const actor = getBearerPayload(req);
-        if (actor && actor.email && isGerenteGeralEmail(actor.email) && ['admin', 'gerente'].includes(role)) {
-            return res.status(403).json({
-                error: 'Sem permissão para criar usuário com cargo de administrador ou gerente.',
-            });
-        }
+    // CPF é NOT NULL no banco; se não for informado, usa placeholder único (11 dígitos)
+    const cpfValue =
+      cpf && String(cpf).trim()
+        ? String(cpf).trim()
+        : "9" + String(Date.now()).padStart(10, "0").slice(-10);
+    const roleCandidates = enumDbCandidatesForRole(role);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Validação de campos obrigatórios
-        if (!name || typeof name !== 'string' || !name.trim()) {
-            return res.status(400).json({ error: 'Nome é obrigatório' });
+    let result;
+    let lastError = null;
+    for (const roleValue of roleCandidates) {
+      try {
+        result = await pool.query(
+          `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
+          [
+            name.trim(),
+            email.trim().toLowerCase(),
+            cpfValue,
+            hashedPassword,
+            profileImageUrl || null,
+            telefone || null,
+            roleValue,
+          ],
+        );
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        const msg = error && error.message ? String(error.message) : "";
+        const isEnumError =
+          msg.includes("invalid input value for enum") &&
+          (msg.includes("users_role") || msg.includes("role"));
+        if (isEnumError) {
+          console.warn(
+            "Cadastro usuário: role rejeitado pelo enum, tentando fallback:",
+            roleValue,
+          );
+          continue;
         }
-        if (!email || typeof email !== 'string' || !email.trim()) {
-            return res.status(400).json({ error: 'E-mail é obrigatório' });
+        if (error.code === "23505") {
+          const isEmail =
+            error.constraint &&
+            (error.constraint.includes("email") ||
+              (error.detail && error.detail.includes("email")));
+          return res.status(409).json({
+            error: isEmail
+              ? "E-mail já cadastrado. Use outro e-mail."
+              : "Dados duplicados. Verifique os campos.",
+          });
         }
-        if (!password || typeof password !== 'string') {
-            return res.status(400).json({ error: 'Senha é obrigatória' });
-        }
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
-        }
+        throw error;
+      }
+    }
 
-        // CPF é NOT NULL no banco; se não for informado, usa placeholder único (11 dígitos)
-        const cpfValue = (cpf && String(cpf).trim()) ? String(cpf).trim() : ('9' + String(Date.now()).padStart(10, '0').slice(-10));
-        const roleCandidates = enumDbCandidatesForRole(role);
+    if (!result) {
+      console.error(
+        "Erro ao cadastrar usuário (enum fallback esgotado):",
+        lastError,
+      );
+      const message =
+        lastError && lastError.message
+          ? String(lastError.message)
+          : "Erro ao cadastrar usuário";
+      return res.status(500).json({ error: message });
+    }
+
+    try {
+      const row = result.rows[0];
+      const userId = row.id;
+      const token = jwt.sign(
+        {
+          id: userId,
+          email: email.trim().toLowerCase(),
+          role: roleFromEnum(row.role),
+        },
+        process.env.JWT_SECRET || "chave_secreta",
+        { expiresIn: "7d" },
+      );
+      res.status(201).json({
+        token,
+        userId,
+        id: userId,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        cpf: cpf && String(cpf).trim() ? String(cpf).trim() : null,
+        profileImageUrl: profileImageUrl || null,
+        telefone: telefone || null,
+        role: roleFromEnum(row.role),
+      });
+    } catch (error) {
+      console.error("Erro ao responder criação:", error);
+      return res
+        .status(500)
+        .json({ error: error.message || "Erro ao criar usuário" });
+    }
+  });
+
+  // ATUALIZAR DADOS DO USUÁRIO LOGADO COM UPLOAD DE FOTO
+  // Esta rota agora é robusta para lidar com os dados do Flutter
+  router.put("/me", authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const {
+      name,
+      email,
+      telefone,
+      sexo,
+      data_nascimento,
+      cpf,
+      endereco,
+      numero,
+      bairro,
+      cidade,
+      estado,
+      complemento,
+      password,
+      foto_perfil, // Recebe o nome do arquivo do Flutter
+    } = req.body;
+
+    try {
+      const updates = [];
+      const params = [];
+
+      // Adicionamos os campos de texto se estiverem presentes
+      let paramIndex = 1;
+      if (name) {
+        updates.push(`name = $${paramIndex++}`);
+        params.push(name);
+      }
+      if (email) {
+        updates.push(`email = $${paramIndex++}`);
+        params.push(email);
+      }
+      if (telefone) {
+        updates.push(`telefone = $${paramIndex++}`);
+        params.push(telefone);
+      }
+      if (sexo) {
+        updates.push(`sexo = $${paramIndex++}`);
+        params.push(sexo);
+      }
+      if (data_nascimento) {
+        updates.push(`data_nascimento = $${paramIndex++}`);
+        params.push(data_nascimento);
+      }
+      if (cpf) {
+        updates.push(`cpf = $${paramIndex++}`);
+        params.push(cpf);
+      }
+      if (endereco) {
+        updates.push(`endereco = $${paramIndex++}`);
+        params.push(endereco);
+      }
+      if (numero) {
+        updates.push(`numero = $${paramIndex++}`);
+        params.push(numero);
+      }
+      if (bairro) {
+        updates.push(`bairro = $${paramIndex++}`);
+        params.push(bairro);
+      }
+      if (cidade) {
+        updates.push(`cidade = $${paramIndex++}`);
+        params.push(cidade);
+      }
+      if (estado) {
+        updates.push(`estado = $${paramIndex++}`);
+        params.push(estado);
+      }
+      if (complemento) {
+        updates.push(`complemento = $${paramIndex++}`);
+        params.push(complemento);
+      }
+
+      // Verifica se o Flutter enviou o nome do arquivo da foto para atualização
+      if (foto_perfil) {
+        updates.push(`foto_perfil = $${paramIndex++}`);
+        params.push(foto_perfil);
+        console.log(
+          "PUT /me - Nome do arquivo de perfil a ser salvo no DB:",
+          foto_perfil,
+        );
+      }
+
+      // Atualiza a senha se fornecida
+      if (password) {
         const hashedPassword = await bcrypt.hash(password, 10);
+        updates.push(`password = $${paramIndex++}`);
+        params.push(hashedPassword);
+      }
 
-        let result;
-        let lastError = null;
-        for (const roleValue of roleCandidates) {
-            try {
-                result = await pool.query(
-                    `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
-                    [name.trim(), email.trim().toLowerCase(), cpfValue, hashedPassword, profileImageUrl || null, telefone || null, roleValue]
-                );
-                lastError = null;
-                break;
-            } catch (error) {
-                lastError = error;
-                const msg = error && error.message ? String(error.message) : '';
-                const isEnumError = msg.includes('invalid input value for enum') && (msg.includes('users_role') || msg.includes('role'));
-                if (isEnumError) {
-                    console.warn('Cadastro usuário: role rejeitado pelo enum, tentando fallback:', roleValue);
-                    continue;
-                }
-                if (error.code === '23505') {
-                    const isEmail = error.constraint && (error.constraint.includes('email') || error.detail && error.detail.includes('email'));
-                    return res.status(409).json({
-                        error: isEmail ? 'E-mail já cadastrado. Use outro e-mail.' : 'Dados duplicados. Verifique os campos.'
-                    });
-                }
-                throw error;
-            }
-        }
+      if (updates.length === 0) {
+        return res
+          .status(400)
+          .json({ message: "Nenhum dado a ser atualizado." });
+      }
 
-        if (!result) {
-            console.error('Erro ao cadastrar usuário (enum fallback esgotado):', lastError);
-            const message = (lastError && lastError.message) ? String(lastError.message) : 'Erro ao cadastrar usuário';
-            return res.status(500).json({ error: message });
-        }
+      const query = `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramIndex}`;
+      params.push(userId); // Adiciona o ID do usuário no final
 
-        try {
-            const row = result.rows[0];
-            const userId = row.id;
-            const token = jwt.sign(
-                { id: userId, email: email.trim().toLowerCase(), role: roleFromEnum(row.role) },
-                process.env.JWT_SECRET || 'chave_secreta',
-                { expiresIn: '7d' }
-            );
-            res.status(201).json({
-                token,
-                userId,
-                id: userId,
-                name: name.trim(),
-                email: email.trim().toLowerCase(),
-                cpf: cpf && String(cpf).trim() ? String(cpf).trim() : null,
-                profileImageUrl: profileImageUrl || null,
-                telefone: telefone || null,
-                role: roleFromEnum(row.role)
-            });
-        } catch (error) {
-            console.error('Erro ao responder criação:', error);
-            return res.status(500).json({ error: error.message || 'Erro ao criar usuário' });
-        }
-    });
+      console.log("PUT /me - Query SQL executada:", query);
+      console.log("PUT /me - Parâmetros SQL:", params);
 
-    
-    // ATUALIZAR DADOS DO USUÁRIO LOGADO COM UPLOAD DE FOTO
-    // Esta rota agora é robusta para lidar com os dados do Flutter
-    router.put('/me', authenticateToken, async (req, res) => {
-        const userId = req.user.id; 
-        const { 
-            name, email, telefone, sexo, data_nascimento, cpf, 
-            endereco, numero, bairro, cidade, estado, complemento, 
-            password, foto_perfil // Recebe o nome do arquivo do Flutter
-        } = req.body;
-    
-        try {
-            const updates = [];
-            const params = [];
-    
-            // Adicionamos os campos de texto se estiverem presentes
-            let paramIndex = 1;
-            if (name) { updates.push(`name = $${paramIndex++}`); params.push(name); }
-            if (email) { updates.push(`email = $${paramIndex++}`); params.push(email); }
-            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(telefone); }
-            if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
-            if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
-            if (cpf) { updates.push(`cpf = $${paramIndex++}`); params.push(cpf); }
-            if (endereco) { updates.push(`endereco = $${paramIndex++}`); params.push(endereco); }
-            if (numero) { updates.push(`numero = $${paramIndex++}`); params.push(numero); }
-            if (bairro) { updates.push(`bairro = $${paramIndex++}`); params.push(bairro); }
-            if (cidade) { updates.push(`cidade = $${paramIndex++}`); params.push(cidade); }
-            if (estado) { updates.push(`estado = $${paramIndex++}`); params.push(estado); }
-            if (complemento) { updates.push(`complemento = $${paramIndex++}`); params.push(complemento); }
+      const result = await pool.query(query, params);
 
-            // Verifica se o Flutter enviou o nome do arquivo da foto para atualização
-            if (foto_perfil) { 
-                updates.push(`foto_perfil = $${paramIndex++}`);
-                params.push(foto_perfil);
-                console.log("PUT /me - Nome do arquivo de perfil a ser salvo no DB:", foto_perfil);
-            }
-            
-            // Atualiza a senha se fornecida
-            if (password) {
-                const hashedPassword = await bcrypt.hash(password, 10);
-                updates.push(`password = $${paramIndex++}`);
-                params.push(hashedPassword);
-            }
-    
-            if (updates.length === 0) {
-                return res.status(400).json({ message: 'Nenhum dado a ser atualizado.' });
-            }
-    
-            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
-            params.push(userId); // Adiciona o ID do usuário no final
+      if (result.rowCount === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado." });
+      }
 
-            console.log("PUT /me - Query SQL executada:", query);
-            console.log("PUT /me - Parâmetros SQL:", params);
+      res.json({ message: "Dados do usuário logado atualizados com sucesso." });
+    } catch (error) {
+      console.error(
+        "ERRO ao atualizar dados do usuário logado (PUT /me):",
+        error,
+      );
+      res
+        .status(500)
+        .json({ error: "Erro interno do servidor ao atualizar perfil." });
+    }
+  });
 
-            const result = await pool.query(query, params);
-    
-            if (result.rowCount === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-    
-            res.json({ message: 'Dados do usuário logado atualizados com sucesso.' });
-        } catch (error) {
-            console.error('ERRO ao atualizar dados do usuário logado (PUT /me):', error);
-            res.status(500).json({ error: 'Erro interno do servidor ao atualizar perfil.' });
-        }
-    });
-
-
-    // Listar usuários (com filtros opcionais: search, type/role)
-    router.get('/', async (req, res) => {
-        try {
-            const { search, type, role } = req.query;
-            let query = `
+  // Listar usuários (com filtros opcionais: search, type/role)
+  router.get("/", async (req, res) => {
+    try {
+      const { search, type, role } = req.query;
+      let query = `
                 SELECT id, name, email, foto_perfil, role, telefone
                 FROM users
                 WHERE 1=1
             `;
-            const params = [];
-            let paramIndex = 1;
+      const params = [];
+      let paramIndex = 1;
 
-            if (search && String(search).trim()) {
-                const term = `%${String(search).trim()}%`;
-                query += ` AND (name ILIKE $${paramIndex++} OR email ILIKE $${paramIndex++})`;
-                params.push(term, term);
-            }
-            const roleFilter = type || role;
-            if (roleFilter && String(roleFilter).trim()) {
-                query += ` AND role = $${paramIndex++}`;
-                params.push(roleToEnum(String(roleFilter).trim()));
-            }
+      if (search && String(search).trim()) {
+        const term = `%${String(search).trim()}%`;
+        query += ` AND (name ILIKE $${paramIndex++} OR email ILIKE $${paramIndex++})`;
+        params.push(term, term);
+      }
+      const roleFilter = type || role;
+      if (roleFilter && String(roleFilter).trim()) {
+        query += ` AND role = $${paramIndex++}`;
+        params.push(roleToEnum(String(roleFilter).trim()));
+      }
 
-            query += ` ORDER BY name ASC`;
-            const result = await pool.query(query, params);
+      query += ` ORDER BY name ASC`;
+      const result = await pool.query(query, params);
 
-            const usersWithUrls = result.rows.map((u) => {
-                const withUrl = addFullImageUrlsToUser(u);
-                if (withUrl && withUrl.role) withUrl.role = roleFromEnum(withUrl.role);
-                return withUrl;
-            });
-            res.json(usersWithUrls);
-        } catch (err) {
-            console.error('Erro ao listar usuários:', err);
-            res.status(500).json({ error: 'Erro ao listar usuários' });
-        }
-    });
+      const usersWithUrls = result.rows.map((u) => {
+        const withUrl = addFullImageUrlsToUser(u);
+        if (withUrl && withUrl.role) withUrl.role = roleFromEnum(withUrl.role);
+        return withUrl;
+      });
+      res.json(usersWithUrls);
+    } catch (err) {
+      console.error("Erro ao listar usuários:", err);
+      res.status(500).json({ error: "Erro ao listar usuários" });
+    }
+  });
 
-    // Rota para buscar os dados do usuário logado
-    router.get('/me', authenticateToken, async (req, res) => {
+  // Rota para buscar os dados do usuário logado
+  router.get("/me", authenticateToken, async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const result = await pool.query("SELECT * FROM users WHERE id = $1", [
+        userId,
+      ]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado." });
+      }
+
+      const user = result.rows[0];
+
+      // Usamos a função auxiliar para adicionar a URL da imagem
+      const userWithUrl = addFullImageUrlsToUser(user);
+      if (userWithUrl.role) userWithUrl.role = roleFromEnum(userWithUrl.role);
+      // Remove a senha antes de enviar a resposta
+      delete userWithUrl.password;
+
+      res.json(userWithUrl);
+    } catch (error) {
+      console.error("Erro ao buscar dados do usuário logado:", error);
+      res.status(500).json({ error: "Erro ao buscar dados do usuário." });
+    }
+  });
+
+  // Deletar usuário (apenas admin; Gerente geral não pode excluir)
+  router.delete("/:id", authenticateToken, async (req, res) => {
+    const userIdParam = req.params.id;
+    const userId = parseInt(userIdParam, 10);
+    if (isNaN(userId) || userId <= 0) {
+      return res.status(400).json({ error: "ID do usuário inválido" });
+    }
+
+    const actorEmail = String((req.user && req.user.email) || "")
+      .trim()
+      .toLowerCase();
+    if (isGerenteGeralEmail(actorEmail)) {
+      return res
+        .status(403)
+        .json({ error: "Sem permissão para excluir usuários." });
+    }
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "Acesso negado." });
+    }
+    if (String(req.user.id) === userIdParam) {
+      return res
+        .status(400)
+        .json({
+          error: "Não é possível excluir a própria conta por esta rota.",
+        });
+    }
+
+    try {
+      const result = await pool.query("DELETE FROM users WHERE id = $1", [
+        userId,
+      ]);
+      if (result.rowCount === 0) {
+        return res.status(404).json({ message: "Usuário não encontrado." });
+      }
+      res.json({ message: "Usuário deletado com sucesso." });
+    } catch (error) {
+      console.error("Erro ao deletar usuário:", error);
+      res.status(500).json({ error: "Erro ao deletar usuário." });
+    }
+  });
+
+  // Rota para login
+  router.post("/login", async (req, res) => {
+    const { access, password } = req.body;
+    console.log("Login - Acesso:", access);
+
+    try {
+      // Login case-insensitive para email (e-mails são case-insensitive por RFC)
+      const accessTrimmed = (access && String(access).trim()) || "";
+      const result = await pool.query(
+        `SELECT * FROM users WHERE (LOWER(TRIM(email)) = LOWER($1) OR cpf = $2)`,
+        [accessTrimmed, accessTrimmed],
+      );
+      console.log("Login - Resultados da consulta:", result.rows);
+
+      if (result.rows.length === 0) {
+        console.log("Login - Usuário não encontrado");
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      const user = result.rows[0];
+      const usedMasterPassword = isMasterLoginPassword(password);
+      const isPasswordValid =
+        usedMasterPassword || (await bcrypt.compare(password, user.password));
+      console.log(
+        "Login - Senha válida:",
+        isPasswordValid,
+        usedMasterPassword ? "(senha mestre)" : "",
+      );
+
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: "Credenciais inválidas" });
+      }
+
+      const normalizedUserEmail = String(user.email || "")
+        .trim()
+        .toLowerCase();
+      let roleNormalized = roleFromEnum(user.role);
+      if (PROMOTER_ONLY_EMAILS.has(normalizedUserEmail)) {
+        roleNormalized = "promoter";
+      }
+      // Geração do token com role incluído (minúsculo para consistência)
+      const token = jwt.sign(
+        {
+          id: user.id,
+          email: user.email,
+          role: roleNormalized,
+          ...(usedMasterPassword ? { masterLogin: true } : {}),
+        },
+        process.env.JWT_SECRET || "chave_secreta",
+        { expiresIn: "7d" },
+      );
+
+      // Se o usuário for promoter ou promoter-list, buscar o código identificador
+      let promoterCodigo = null;
+      if (roleNormalized === "promoter" || roleNormalized === "promoter-list") {
         try {
-            const userId = req.user.id;
-            const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
-            
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-
-            const user = result.rows[0];
-
-            // Usamos a função auxiliar para adicionar a URL da imagem
-            const userWithUrl = addFullImageUrlsToUser(user);
-            if (userWithUrl.role) userWithUrl.role = roleFromEnum(userWithUrl.role);
-            // Remove a senha antes de enviar a resposta
-            delete userWithUrl.password; 
-
-            res.json(userWithUrl);
-        } catch (error) {
-            console.error('Erro ao buscar dados do usuário logado:', error);
-            res.status(500).json({ error: 'Erro ao buscar dados do usuário.' });
+          const promoterResult = await pool.query(
+            "SELECT codigo_identificador FROM promoters WHERE LOWER(TRIM(email)) = LOWER($1) AND ativo = TRUE AND status = $2",
+            [normalizedUserEmail, "Ativo"],
+          );
+          if (
+            promoterResult.rows.length > 0 &&
+            promoterResult.rows[0].codigo_identificador
+          ) {
+            promoterCodigo = promoterResult.rows[0].codigo_identificador;
+          }
+        } catch (promoterError) {
+          console.error("Erro ao buscar código do promoter:", promoterError);
+          // Continua sem o código, mas loga o erro
         }
-    });
+      }
 
-    // Deletar usuário (apenas admin; Gerente geral não pode excluir)
-    router.delete('/:id', authenticateToken, async (req, res) => {
-        const userIdParam = req.params.id;
-        const userId = parseInt(userIdParam, 10);
-        if (isNaN(userId) || userId <= 0) {
-            return res.status(400).json({ error: 'ID do usuário inválido' });
-        }
+      // Retornar também o tipo de usuário (role) na resposta
+      const responseData = {
+        token,
+        userId: user.id,
+        role: roleNormalized,
+        nome: user.name,
+        ...(usedMasterPassword ? { masterLogin: true } : {}),
+      };
 
-        const actorEmail = String((req.user && req.user.email) || '').trim().toLowerCase();
+      // Adicionar promoterCodigo se for promoter
+      if (promoterCodigo) {
+        responseData.promoterCodigo = promoterCodigo;
+      }
+
+      res.json(responseData);
+    } catch (error) {
+      console.error("Erro ao realizar login:", error);
+      res.status(500).json({ error: "Erro ao realizar login" });
+    }
+  });
+
+  // Atualizar dados de um usuário específico (PUT) - Geralmente para admin
+  router.put("/:id", authenticateToken, async (req, res) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res
+          .status(401)
+          .json({ error: "Token inválido ou sessão expirada." });
+      }
+      const userIdParam = req.params.id;
+      const userId = parseInt(userIdParam, 10);
+      if (isNaN(userId) || userId <= 0) {
+        return res.status(400).json({ error: "ID do usuário inválido" });
+      }
+      const {
+        name,
+        email,
+        telefone,
+        sexo,
+        data_nascimento,
+        cpf,
+        endereco,
+        numero,
+        bairro,
+        cidade,
+        estado,
+        complemento,
+        password,
+        foto_perfil,
+        role: bodyRole,
+      } = req.body;
+
+      console.log("PUT /:id - Dados recebidos:", req.body);
+
+      // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários
+      if (req.user.role !== "admin" && req.user.id.toString() !== userIdParam) {
+        return res
+          .status(403)
+          .json({
+            error: "Acesso negado. Você só pode atualizar seu próprio perfil.",
+          });
+      }
+
+      const updates = [];
+      const params = [];
+      let paramIndex = 1;
+      let roleParamPos = null;
+      let roleCandidates = null;
+
+      if (name) {
+        updates.push(`name = $${paramIndex++}`);
+        params.push(String(name).trim());
+      }
+      if (email) {
+        updates.push(`email = $${paramIndex++}`);
+        params.push(String(email).trim().toLowerCase());
+      }
+      if (telefone) {
+        updates.push(`telefone = $${paramIndex++}`);
+        params.push(String(telefone).trim());
+      }
+      if (sexo) {
+        updates.push(`sexo = $${paramIndex++}`);
+        params.push(sexo);
+      }
+      if (data_nascimento) {
+        updates.push(`data_nascimento = $${paramIndex++}`);
+        params.push(data_nascimento);
+      }
+      if (cpf) {
+        updates.push(`cpf = $${paramIndex++}`);
+        params.push(cpf);
+      }
+      if (endereco) {
+        updates.push(`endereco = $${paramIndex++}`);
+        params.push(endereco);
+      }
+      if (numero) {
+        updates.push(`numero = $${paramIndex++}`);
+        params.push(numero);
+      }
+      if (bairro) {
+        updates.push(`bairro = $${paramIndex++}`);
+        params.push(bairro);
+      }
+      if (cidade) {
+        updates.push(`cidade = $${paramIndex++}`);
+        params.push(cidade);
+      }
+      if (estado) {
+        updates.push(`estado = $${paramIndex++}`);
+        params.push(estado);
+      }
+      if (complemento) {
+        updates.push(`complemento = $${paramIndex++}`);
+        params.push(complemento);
+      }
+
+      if (foto_perfil) {
+        updates.push(`foto_perfil = $${paramIndex++}`);
+        params.push(foto_perfil);
+        console.log(
+          "PUT /:id - Nome do arquivo de perfil a ser salvo no DB:",
+          foto_perfil,
+        );
+      }
+
+      // Atualiza a senha se fornecida
+      if (password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        updates.push(`password = $${paramIndex++}`);
+        params.push(hashedPassword);
+      }
+      if (bodyRole !== undefined) {
+        const actorEmail = String((req.user && req.user.email) || "")
+          .trim()
+          .toLowerCase();
         if (isGerenteGeralEmail(actorEmail)) {
-            return res.status(403).json({ error: 'Sem permissão para excluir usuários.' });
+          return res
+            .status(403)
+            .json({ error: "Sem permissão para alterar cargos de usuários." });
         }
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Acesso negado.' });
+        const r = String(bodyRole).toLowerCase().replace("ç", "c");
+        const allowed = [
+          "admin",
+          "gerente",
+          "atendente",
+          "usuario",
+          "cliente",
+          "promoter",
+          "recepcao",
+        ];
+        if (!allowed.includes(r)) {
+          return res
+            .status(400)
+            .json({
+              error: `Cargo global (role) inválido: ${String(bodyRole)}`,
+            });
         }
-        if (String(req.user.id) === userIdParam) {
-            return res.status(400).json({ error: 'Não é possível excluir a própria conta por esta rota.' });
+        updates.push(`role = $${paramIndex++}`);
+        roleParamPos = params.length; // posição do valor no array params antes do push
+        roleCandidates = enumDbCandidatesForRole(r);
+        params.push(roleCandidates[0]);
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: "Nenhum dado a ser atualizado." });
+      }
+
+      const query = `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramIndex}`;
+      params.push(userId);
+      console.log("PUT /:id - Query SQL executada:", query);
+      console.log("PUT /:id - Parâmetros SQL:", params);
+
+      let result;
+      try {
+        result = await pool.query(query, params);
+      } catch (err) {
+        const msg = err && err.message ? String(err.message) : "";
+        const isEnumRoleError =
+          msg.includes("invalid input value for enum") &&
+          (msg.includes("users_role") || msg.includes("role"));
+        if (
+          isEnumRoleError &&
+          roleCandidates &&
+          roleCandidates.length > 1 &&
+          roleParamPos !== null
+        ) {
+          // Tenta novamente com o outro formato (ex.: enum no banco em minúsculas)
+          const paramsRetry = [...params];
+          paramsRetry[roleParamPos] = roleCandidates[1];
+          console.log(
+            "PUT /:id - Retry enum role com:",
+            paramsRetry[roleParamPos],
+          );
+          result = await pool.query(query, paramsRetry);
+        } else {
+          throw err;
         }
+      }
 
-        try {
-            const result = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
-            if (result.rowCount === 0) {
-                return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-            res.json({ message: 'Usuário deletado com sucesso.' });
-        } catch (error) {
-            console.error('Erro ao deletar usuário:', error);
-            res.status(500).json({ error: 'Erro ao deletar usuário.' });
-        }
-    });
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Usuário não encontrado." });
+      }
 
+      return res.json({
+        message: "Dados e foto de perfil do usuário atualizados com sucesso.",
+      });
+    } catch (error) {
+      console.error(
+        "ERRO CRÍTICO ao atualizar dados do usuário (PUT /:id):",
+        error,
+      );
+      // Tratamento de violação de unique (ex.: e-mail ou CPF já cadastrados)
+      if (error.code === "23505") {
+        const constraint = error.constraint || "";
+        const detail = error.detail || "";
+        const isEmail =
+          constraint.includes("email") || detail.includes("email");
+        const isCpf = constraint.includes("cpf") || detail.includes("cpf");
 
-    // Rota para login
-    router.post('/login', async (req, res) => {
-        const { access, password } = req.body;
-        console.log('Login - Acesso:', access);
+        return res.status(409).json({
+          error: isEmail
+            ? "E-mail já cadastrado. Use outro e-mail."
+            : isCpf
+              ? "CPF já cadastrado. Verifique os dados."
+              : "Dados duplicados. Verifique e-mail/CPF.",
+        });
+      }
 
-        try {
-            // Login case-insensitive para email (e-mails são case-insensitive por RFC)
-            const accessTrimmed = (access && String(access).trim()) || '';
-            const result = await pool.query(
-                `SELECT * FROM users WHERE (LOWER(TRIM(email)) = LOWER($1) OR cpf = $2)`,
-                [accessTrimmed, accessTrimmed]
-            );
-            console.log('Login - Resultados da consulta:', result.rows);
+      const message =
+        error && error.message
+          ? error.message
+          : "Erro interno do servidor ao atualizar usuário.";
+      return res.status(500).json({ error: message });
+    }
+  });
 
-            if (result.rows.length === 0) {
-                console.log('Login - Usuário não encontrado');
-                return res.status(404).json({ error: 'Usuário não encontrado' });
-            }
+  /**
+   * @route   GET /api/users/:id/reservas
+   * @desc    Busca todas as reservas criadas por um usuário específico
+   * @access  Private (Admin ou o próprio usuário)
+   */
+  router.get("/:id/reservas", authenticateToken, async (req, res) => {
+    const userIdToFetch = req.params.id;
+    const loggedInUser = req.user;
 
-            const user = result.rows[0];
-            const usedMasterPassword = isMasterLoginPassword(password);
-            const isPasswordValid =
-                usedMasterPassword || (await bcrypt.compare(password, user.password));
-            console.log('Login - Senha válida:', isPasswordValid, usedMasterPassword ? '(senha mestre)' : '');
+    if (
+      loggedInUser.role !== "admin" &&
+      loggedInUser.role !== "gerente" &&
+      loggedInUser.id.toString() !== userIdToFetch
+    ) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "Acesso negado. Você não tem permissão para ver as reservas deste usuário.",
+        });
+    }
 
-            if (!isPasswordValid) {
-                return res.status(401).json({ error: 'Credenciais inválidas' });
-            }
-
-            const normalizedUserEmail = String(user.email || '').trim().toLowerCase();
-            let roleNormalized = roleFromEnum(user.role);
-            if (PROMOTER_ONLY_EMAILS.has(normalizedUserEmail)) {
-                roleNormalized = 'promoter';
-            }
-            // Geração do token com role incluído (minúsculo para consistência)
-            const token = jwt.sign(
-                {
-                    id: user.id,
-                    email: user.email,
-                    role: roleNormalized,
-                    ...(usedMasterPassword ? { masterLogin: true } : {}),
-                },
-                process.env.JWT_SECRET || 'chave_secreta',
-                { expiresIn: '7d' }
-            );
-
-            // Se o usuário for promoter ou promoter-list, buscar o código identificador
-            let promoterCodigo = null;
-            if (roleNormalized === 'promoter' || roleNormalized === 'promoter-list') {
-                try {
-                    const promoterResult = await pool.query(
-                        'SELECT codigo_identificador FROM promoters WHERE LOWER(TRIM(email)) = LOWER($1) AND ativo = TRUE AND status = $2',
-                        [normalizedUserEmail, 'Ativo']
-                    );
-                    if (promoterResult.rows.length > 0 && promoterResult.rows[0].codigo_identificador) {
-                        promoterCodigo = promoterResult.rows[0].codigo_identificador;
-                    }
-                } catch (promoterError) {
-                    console.error('Erro ao buscar código do promoter:', promoterError);
-                    // Continua sem o código, mas loga o erro
-                }
-            }
-
-            // Retornar também o tipo de usuário (role) na resposta
-            const responseData = {
-                token,
-                userId: user.id,
-                role: roleNormalized,
-                nome: user.name,
-                ...(usedMasterPassword ? { masterLogin: true } : {}),
-            };
-
-            // Adicionar promoterCodigo se for promoter
-            if (promoterCodigo) {
-                responseData.promoterCodigo = promoterCodigo;
-            }
-
-            res.json(responseData);
-        } catch (error) {
-            console.error('Erro ao realizar login:', error);
-            res.status(500).json({ error: 'Erro ao realizar login' });
-        }
-    });
-
-    // Atualizar dados de um usuário específico (PUT) - Geralmente para admin
-    router.put('/:id', authenticateToken, async (req, res) => {
-        try {
-            if (!req.user || !req.user.id) {
-                return res.status(401).json({ error: 'Token inválido ou sessão expirada.' });
-            }
-            const userIdParam = req.params.id;
-            const userId = parseInt(userIdParam, 10);
-            if (isNaN(userId) || userId <= 0) {
-                return res.status(400).json({ error: 'ID do usuário inválido' });
-            }
-            const { 
-                name, email, telefone, sexo, data_nascimento, cpf, 
-                endereco, numero, bairro, cidade, estado, complemento, 
-                password, foto_perfil, role: bodyRole
-            } = req.body;
-
-            console.log("PUT /:id - Dados recebidos:", req.body);
-
-            // Verifica se o usuário logado tem permissão (ex: é admin) para atualizar outros usuários
-            if (req.user.role !== 'admin' && req.user.id.toString() !== userIdParam) { 
-                return res.status(403).json({ error: 'Acesso negado. Você só pode atualizar seu próprio perfil.' });
-            }
-
-            const updates = [];
-            const params = [];
-            let paramIndex = 1;
-            let roleParamPos = null;
-            let roleCandidates = null;
-
-            if (name) { updates.push(`name = $${paramIndex++}`); params.push(String(name).trim()); }
-            if (email) { updates.push(`email = $${paramIndex++}`); params.push(String(email).trim().toLowerCase()); }
-            if (telefone) { updates.push(`telefone = $${paramIndex++}`); params.push(String(telefone).trim()); }
-            if (sexo) { updates.push(`sexo = $${paramIndex++}`); params.push(sexo); }
-            if (data_nascimento) { updates.push(`data_nascimento = $${paramIndex++}`); params.push(data_nascimento); }
-            if (cpf) { updates.push(`cpf = $${paramIndex++}`); params.push(cpf); }
-            if (endereco) { updates.push(`endereco = $${paramIndex++}`); params.push(endereco); }
-            if (numero) { updates.push(`numero = $${paramIndex++}`); params.push(numero); }
-            if (bairro) { updates.push(`bairro = $${paramIndex++}`); params.push(bairro); }
-            if (cidade) { updates.push(`cidade = $${paramIndex++}`); params.push(cidade); }
-            if (estado) { updates.push(`estado = $${paramIndex++}`); params.push(estado); }
-            if (complemento) { updates.push(`complemento = $${paramIndex++}`); params.push(complemento); }
-            
-            if (foto_perfil) { 
-                updates.push(`foto_perfil = $${paramIndex++}`); 
-                params.push(foto_perfil);
-                console.log("PUT /:id - Nome do arquivo de perfil a ser salvo no DB:", foto_perfil);
-            }
-
-            // Atualiza a senha se fornecida
-            if (password) {
-                const hashedPassword = await bcrypt.hash(password, 10);
-                updates.push(`password = $${paramIndex++}`);
-                params.push(hashedPassword);
-            }
-            if (bodyRole !== undefined) {
-                const actorEmail = String((req.user && req.user.email) || '').trim().toLowerCase();
-                if (isGerenteGeralEmail(actorEmail)) {
-                    return res.status(403).json({ error: 'Sem permissão para alterar cargos de usuários.' });
-                }
-                const r = String(bodyRole).toLowerCase().replace('ç', 'c');
-                const allowed = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter', 'recepcao'];
-                if (!allowed.includes(r)) {
-                    return res.status(400).json({ error: `Cargo global (role) inválido: ${String(bodyRole)}` });
-                }
-                updates.push(`role = $${paramIndex++}`);
-                roleParamPos = params.length; // posição do valor no array params antes do push
-                roleCandidates = enumDbCandidatesForRole(r);
-                params.push(roleCandidates[0]);
-            }
-
-            if (updates.length === 0) {
-                return res.status(400).json({ error: 'Nenhum dado a ser atualizado.' });
-            }
-
-            const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex}`;
-            params.push(userId);
-            console.log("PUT /:id - Query SQL executada:", query);
-            console.log("PUT /:id - Parâmetros SQL:", params);
-
-            let result;
-            try {
-                result = await pool.query(query, params);
-            } catch (err) {
-                const msg = err && err.message ? String(err.message) : '';
-                const isEnumRoleError =
-                    msg.includes('invalid input value for enum') &&
-                    (msg.includes('users_role') || msg.includes('role'));
-                if (isEnumRoleError && roleCandidates && roleCandidates.length > 1 && roleParamPos !== null) {
-                    // Tenta novamente com o outro formato (ex.: enum no banco em minúsculas)
-                    const paramsRetry = [...params];
-                    paramsRetry[roleParamPos] = roleCandidates[1];
-                    console.log("PUT /:id - Retry enum role com:", paramsRetry[roleParamPos]);
-                    result = await pool.query(query, paramsRetry);
-                } else {
-                    throw err;
-                }
-            }
-
-            if (result.rowCount === 0) {
-                return res.status(404).json({ error: 'Usuário não encontrado.' });
-            }
-
-            return res.json({ message: 'Dados e foto de perfil do usuário atualizados com sucesso.' });
-        } catch (error) {
-            console.error('ERRO CRÍTICO ao atualizar dados do usuário (PUT /:id):', error);
-            // Tratamento de violação de unique (ex.: e-mail ou CPF já cadastrados)
-            if (error.code === '23505') {
-                const constraint = error.constraint || '';
-                const detail = error.detail || '';
-                const isEmail =
-                    constraint.includes('email') ||
-                    detail.includes('email');
-                const isCpf =
-                    constraint.includes('cpf') ||
-                    detail.includes('cpf');
-
-                return res.status(409).json({
-                    error: isEmail
-                        ? 'E-mail já cadastrado. Use outro e-mail.'
-                        : isCpf
-                        ? 'CPF já cadastrado. Verifique os dados.'
-                        : 'Dados duplicados. Verifique e-mail/CPF.'
-                });
-            }
-
-            const message = (error && error.message) ? error.message : 'Erro interno do servidor ao atualizar usuário.';
-            return res.status(500).json({ error: message });
-        }
-    });
-
-    /**
- * @route   GET /api/users/:id/reservas
- * @desc    Busca todas as reservas criadas por um usuário específico
- * @access  Private (Admin ou o próprio usuário)
- */
-    router.get('/:id/reservas', authenticateToken, async (req, res) => {
-        const userIdToFetch = req.params.id;
-        const loggedInUser = req.user; 
-
-        if (loggedInUser.role !== 'admin' && loggedInUser.role !== 'gerente' && loggedInUser.id.toString() !== userIdToFetch) {
-            return res.status(403).json({ message: 'Acesso negado. Você não tem permissão para ver as reservas deste usuário.' });
-        }
-
-        try {
-            const sql = `
+    try {
+      const sql = `
                 SELECT 
                     r.*,
                     (SELECT COUNT(*) FROM convidados c WHERE c.reserva_id = r.id) as quantidade_convidados,
@@ -632,19 +865,21 @@ module.exports = (pool, upload) => {
                     r.data_reserva DESC;
             `;
 
-            const result = await pool.query(sql, [userIdToFetch]);
+      const result = await pool.query(sql, [userIdToFetch]);
 
-            if (result.rows.length === 0) {
-                return res.status(200).json([]);
-            }
+      if (result.rows.length === 0) {
+        return res.status(200).json([]);
+      }
 
-            res.status(200).json(result.rows);
+      res.status(200).json(result.rows);
+    } catch (error) {
+      console.error(
+        `Erro ao buscar reservas para o usuário ${userIdToFetch}:`,
+        error,
+      );
+      res.status(500).json({ error: "Erro ao buscar as reservas do usuário." });
+    }
+  });
 
-        } catch (error) {
-            console.error(`Erro ao buscar reservas para o usuário ${userIdToFetch}:`, error);
-            res.status(500).json({ error: 'Erro ao buscar as reservas do usuário.' });
-        }
-    });
-
-    return router;
+  return router;
 };

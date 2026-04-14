@@ -47,6 +47,47 @@ function extractContactName(payload) {
   return value?.contacts?.[0]?.profile?.name || null;
 }
 
+function extractEstablishmentToken(text) {
+  const normalizedText = String(text || '');
+  const match = normalizedText.match(/#EST[_:-]([A-Za-z0-9_-]{1,80})/i);
+  if (!match) return null;
+  const rawToken = String(match[1] || '').trim();
+  if (!rawToken) return null;
+  const cleanedText = normalizedText
+    .replace(match[0], ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return {
+    rawToken,
+    marker: match[0],
+    cleanedText,
+  };
+}
+
+async function resolveEstablishmentByToken(pool, token) {
+  if (!token) return null;
+  const numericId = Number(token);
+  if (Number.isFinite(numericId) && numericId > 0) {
+    const byId = await pool.query(
+      `SELECT id, name, slug
+       FROM places
+       WHERE id = $1
+       LIMIT 1`,
+      [numericId]
+    );
+    return byId.rows[0] || null;
+  }
+
+  const bySlug = await pool.query(
+    `SELECT id, name, slug
+     FROM places
+     WHERE LOWER(slug) = LOWER($1)
+     LIMIT 1`,
+    [String(token).trim()]
+  );
+  return bySlug.rows[0] || null;
+}
+
 function mapRowsToOpenAIHistory(rows) {
   return (rows || []).map((r) => ({
     role: r.direction === 'outbound' ? 'assistant' : 'user',
@@ -164,10 +205,10 @@ module.exports = (pool, app) => {
     }
 
     console.log('[WhatsApp webhook] payload:', JSON.stringify(payload, null, 2));
-    const messageText = extractMessageText(payload);
+    const incomingMessageText = extractMessageText(payload);
     const senderNumber = extractSenderNumber(payload);
 
-    if (!messageText) {
+    if (!incomingMessageText) {
       console.log('[WhatsApp webhook] Nenhuma mensagem de texto encontrada no payload.');
       return res.sendStatus(200);
     }
@@ -175,6 +216,27 @@ module.exports = (pool, app) => {
     if (!senderNumber) {
       console.warn('[WhatsApp webhook] Remetente ausente; não é possível responder ou persistir.');
       return res.sendStatus(200);
+    }
+
+    const establishmentToken = extractEstablishmentToken(incomingMessageText);
+    const messageText =
+      establishmentToken?.cleanedText || String(incomingMessageText || '').trim();
+
+    let linkedEstablishment = null;
+    if (establishmentToken?.rawToken) {
+      try {
+        linkedEstablishment = await resolveEstablishmentByToken(pool, establishmentToken.rawToken);
+        if (!linkedEstablishment) {
+          console.warn('[WhatsApp webhook] token de estabelecimento não encontrado:', {
+            token: establishmentToken.rawToken,
+          });
+        }
+      } catch (tokenError) {
+        console.warn('[WhatsApp webhook] falha ao resolver token de estabelecimento:', {
+          token: establishmentToken.rawToken,
+          error: tokenError.message,
+        });
+      }
     }
 
     let conversation = null;
@@ -186,6 +248,7 @@ module.exports = (pool, app) => {
       conversation = await inbox.upsertConversation(pool, {
         waId: senderNumber,
         contactName,
+        establishmentId: linkedEstablishment?.id || null,
       });
       inboundRow = await inbox.insertMessage(pool, {
         conversationId: conversation.id,
@@ -197,6 +260,7 @@ module.exports = (pool, app) => {
         await inbox.upsertContact(pool, {
           waId: senderNumber,
           contactName,
+          lastEstablishmentId: linkedEstablishment?.id || null,
         });
       } catch (contactError) {
         console.warn('[WhatsApp webhook] CRM de contatos indisponível:', contactError.message);
@@ -244,11 +308,43 @@ module.exports = (pool, app) => {
       const interpreted = await interpretMessage({
         messageHistory,
         context: {
-          establishmentsBlock: catalog.establishmentsBlock,
+          establishmentsBlock: linkedEstablishment
+            ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
+            : catalog.establishmentsBlock,
           areasBlock: catalog.areasBlock,
+          lockedEstablishmentId:
+            linkedEstablishment?.id ||
+            (Number.isFinite(Number(conversation?.establishment_id))
+              ? Number(conversation.establishment_id)
+              : null),
+          lockedEstablishmentName:
+            linkedEstablishment?.name ||
+            (conversation?.establishment_name ? String(conversation.establishment_name) : null),
         },
       });
       console.log('[WhatsApp webhook] interpretação IA:', interpreted);
+
+      const lockedEstablishmentId =
+        linkedEstablishment?.id ||
+        (Number.isFinite(Number(conversation?.establishment_id))
+          ? Number(conversation.establishment_id)
+          : null);
+      if (lockedEstablishmentId) {
+        interpreted.params = {
+          ...(interpreted.params || {}),
+          establishment_id: lockedEstablishmentId,
+          establishment_name_hint:
+            interpreted?.params?.establishment_name_hint ||
+            linkedEstablishment?.name ||
+            conversation?.establishment_name ||
+            null,
+        };
+        if (Array.isArray(interpreted.missing_fields)) {
+          interpreted.missing_fields = interpreted.missing_fields.filter(
+            (field) => field !== 'establishment_id'
+          );
+        }
+      }
 
       const interpretedEstablishmentId = extractInterpretedEstablishmentId(interpreted);
       if (interpretedEstablishmentId) {

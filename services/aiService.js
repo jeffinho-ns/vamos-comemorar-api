@@ -17,6 +17,15 @@ function buildBrainSystemPrompt(context) {
   const establishmentsBlock =
     context?.establishmentsBlock || '(carregue estabelecimentos no servidor)';
   const areasBlock = context?.areasBlock || '(carregue áreas no servidor)';
+  const lockedEstablishmentId = Number(context?.lockedEstablishmentId);
+  const hasLockedEstablishment =
+    Number.isFinite(lockedEstablishmentId) && lockedEstablishmentId > 0;
+  const lockedEstablishmentName = context?.lockedEstablishmentName
+    ? String(context.lockedEstablishmentName).trim()
+    : '';
+  const lockedEstablishmentRule = hasLockedEstablishment
+    ? `\nCONTEXTO FIXO DA CONVERSA:\n- Esta conversa já está vinculada ao estabelecimento ID ${lockedEstablishmentId}${lockedEstablishmentName ? ` (${lockedEstablishmentName})` : ''}.\n- NÃO pergunte ao cliente qual estabelecimento deseja.\n- Em qualquer ação, preencha params.establishment_id = ${lockedEstablishmentId}.\n- Se vier establishment_name_hint, mantenha coerente com o ID acima.`
+    : '';
 
   return `Você é o Host Digital do Vamos Comemorar — anfitrião de restaurantes e casas noturnas: acolhedor, elegante e caloroso. Use português do Brasil.
 
@@ -45,6 +54,7 @@ IDs canônicos operacionais (priorize estes quando houver dúvida de IDs duplica
 
 ÁREAS (use area_id exato quando possível; se o cliente descrever a área, escolha o id mais adequado):
 ${areasBlock}
+${lockedEstablishmentRule}
 
 REGRAS DE SAÍDA — responda APENAS um JSON válido (sem markdown) neste formato:
 {
@@ -235,7 +245,7 @@ function normalizeInterpretation(parsed, lastUserText) {
 /**
  * @param {object} opts
  * @param {Array<{ role: 'user'|'assistant', content: string }>} opts.messageHistory
- * @param {{ establishmentsBlock?: string, areasBlock?: string }} [opts.context]
+ * @param {{ establishmentsBlock?: string, areasBlock?: string, lockedEstablishmentId?: number|null, lockedEstablishmentName?: string|null }} [opts.context]
  */
 async function interpretMessage(opts) {
   const messageHistory = opts?.messageHistory;
