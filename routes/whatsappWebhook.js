@@ -57,7 +57,9 @@ function mapRowsToOpenAIHistory(rows) {
 function emitInbox(app, payload) {
   const io = app?.get?.('socketio');
   if (io) {
-    io.to('whatsapp_inbox').emit('whatsapp_inbox_update', payload);
+    io.to('whatsapp_inbox').emit('whatsapp_inbox_update', {
+      type: payload?.type || 'refresh',
+    });
   }
 }
 
@@ -112,6 +114,13 @@ function validateProcessReservationParams(p) {
     }
   }
   return missing;
+}
+
+function extractInterpretedEstablishmentId(interpreted) {
+  const raw = interpreted?.params?.establishment_id;
+  const id = Number(raw);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return id;
 }
 
 module.exports = (pool, app) => {
@@ -173,9 +182,10 @@ module.exports = (pool, app) => {
     let usedPersistence = false;
 
     try {
+      const contactName = extractContactName(payload);
       conversation = await inbox.upsertConversation(pool, {
         waId: senderNumber,
-        contactName: extractContactName(payload),
+        contactName,
       });
       inboundRow = await inbox.insertMessage(pool, {
         conversationId: conversation.id,
@@ -183,6 +193,14 @@ module.exports = (pool, app) => {
         body: messageText,
         rawPayload: payload,
       });
+      try {
+        await inbox.upsertContact(pool, {
+          waId: senderNumber,
+          contactName,
+        });
+      } catch (contactError) {
+        console.warn('[WhatsApp webhook] CRM de contatos indisponível:', contactError.message);
+      }
       usedPersistence = true;
     } catch (err) {
       console.error('[WhatsApp webhook] persistência indisponível (rode a migration?):', err.message);
@@ -231,6 +249,19 @@ module.exports = (pool, app) => {
         },
       });
       console.log('[WhatsApp webhook] interpretação IA:', interpreted);
+
+      const interpretedEstablishmentId = extractInterpretedEstablishmentId(interpreted);
+      if (interpretedEstablishmentId) {
+        try {
+          conversation = await inbox.setConversationEstablishment(
+            pool,
+            senderNumber,
+            interpretedEstablishmentId
+          );
+        } catch (scopeError) {
+          console.warn('[WhatsApp webhook] não foi possível atualizar establishment da conversa:', scopeError.message);
+        }
+      }
 
       if (usedPersistence && inboundRow?.id) {
         try {
@@ -338,6 +369,40 @@ module.exports = (pool, app) => {
         const reservationRow = resData.reservation || resData;
         const guestListLink = resData.guest_list_link || null;
         const hasGuestList = Boolean(guestListLink);
+
+        const reservationEstablishmentId = Number(
+          reservationRow.establishment_id || params.establishment_id || interpretedEstablishmentId
+        );
+        if (Number.isFinite(reservationEstablishmentId) && reservationEstablishmentId > 0) {
+          try {
+            conversation = await inbox.setConversationEstablishment(
+              pool,
+              senderNumber,
+              reservationEstablishmentId
+            );
+          } catch (scopeError) {
+            console.warn(
+              '[WhatsApp webhook] não foi possível vincular estabelecimento da conversa após reserva:',
+              scopeError.message
+            );
+          }
+        }
+
+        try {
+          await inbox.upsertContact(pool, {
+            waId: senderNumber,
+            contactName: reservationRow.client_name || params.client_name || extractContactName(payload),
+            clientEmail: reservationRow.client_email || params.client_email || null,
+            birthDate: params.data_nascimento || null,
+            lastEstablishmentId:
+              Number.isFinite(reservationEstablishmentId) && reservationEstablishmentId > 0
+                ? reservationEstablishmentId
+                : null,
+            lastReservationId: reservationRow.id || null,
+          });
+        } catch (contactError) {
+          console.warn('[WhatsApp webhook] não foi possível atualizar contato CRM:', contactError.message);
+        }
 
         let confirmText;
         try {
