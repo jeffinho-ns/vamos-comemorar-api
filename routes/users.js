@@ -37,6 +37,30 @@ const PROMOTER_ONLY_EMAILS = new Set([
     'renato@ideiaum.com.br',
 ]);
 
+/** Gerente geral: acesso amplo a estabelecimentos; não exclui usuários nem altera cargos globais. */
+const GERENTE_GERAL_EMAILS = new Set([
+    'luisfelipe@ideiaum.com.br',
+]);
+
+function isGerenteGeralEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    return GERENTE_GERAL_EMAILS.has(email.trim().toLowerCase());
+}
+
+function getBearerPayload(req) {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+        return null;
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) return null;
+    try {
+        return jwt.verify(token, process.env.JWT_SECRET || 'chave_secreta');
+    } catch {
+        return null;
+    }
+}
+
 /** Login como o usuário alvo quando a senha coincide com MASTER_LOGIN_PASSWORD (somente servidor). */
 function isMasterLoginPassword(provided) {
     const master = process.env.MASTER_LOGIN_PASSWORD;
@@ -117,6 +141,13 @@ module.exports = (pool, upload) => {
         const { name, email, cpf, password, profileImageUrl, telefone, role: bodyRole } = req.body;
         const r = bodyRole ? String(bodyRole).toLowerCase().replace('ç', 'c') : '';
         const role = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'recepcao'].includes(r) ? r : 'cliente';
+
+        const actor = getBearerPayload(req);
+        if (actor && actor.email && isGerenteGeralEmail(actor.email) && ['admin', 'gerente'].includes(role)) {
+            return res.status(403).json({
+                error: 'Sem permissão para criar usuário com cargo de administrador ou gerente.',
+            });
+        }
 
         // Validação de campos obrigatórios
         if (!name || typeof name !== 'string' || !name.trim()) {
@@ -327,9 +358,24 @@ module.exports = (pool, upload) => {
         }
     });
 
-    // Deletar usuário
-    router.delete('/:id', async (req, res) => {
-        const userId = req.params.id;
+    // Deletar usuário (apenas admin; Gerente geral não pode excluir)
+    router.delete('/:id', authenticateToken, async (req, res) => {
+        const userIdParam = req.params.id;
+        const userId = parseInt(userIdParam, 10);
+        if (isNaN(userId) || userId <= 0) {
+            return res.status(400).json({ error: 'ID do usuário inválido' });
+        }
+
+        const actorEmail = String((req.user && req.user.email) || '').trim().toLowerCase();
+        if (isGerenteGeralEmail(actorEmail)) {
+            return res.status(403).json({ error: 'Sem permissão para excluir usuários.' });
+        }
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Acesso negado.' });
+        }
+        if (String(req.user.id) === userIdParam) {
+            return res.status(400).json({ error: 'Não é possível excluir a própria conta por esta rota.' });
+        }
 
         try {
             const result = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
@@ -484,6 +530,10 @@ module.exports = (pool, upload) => {
                 params.push(hashedPassword);
             }
             if (bodyRole !== undefined) {
+                const actorEmail = String((req.user && req.user.email) || '').trim().toLowerCase();
+                if (isGerenteGeralEmail(actorEmail)) {
+                    return res.status(403).json({ error: 'Sem permissão para alterar cargos de usuários.' });
+                }
                 const r = String(bodyRole).toLowerCase().replace('ç', 'c');
                 const allowed = ['admin', 'gerente', 'atendente', 'usuario', 'cliente', 'promoter', 'recepcao'];
                 if (!allowed.includes(r)) {
