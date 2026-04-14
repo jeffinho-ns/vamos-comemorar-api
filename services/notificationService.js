@@ -163,15 +163,12 @@ class NotificationService {
   async sendReservationConfirmationEmail(reservation) {
     if (!this.resend) return { success: false, error: 'Serviço de e-mail não configurado.' };
     
-    const { client_name, client_email, reservation_date, reservation_time, number_of_people, area_name, establishment_name } = reservation;
+    const { client_name, client_email, reservation_date, reservation_time, number_of_people, establishment_name } = reservation;
     const isLargeReservation = number_of_people >= 16;
     
     // Formata data e horário
     const formattedDate = this.formatDateBR(reservation_date);
     const formattedTime = this.formatTime(reservation_time);
-    
-    // Usar sempre a área real do registro (area_name). Não exibir número da mesa no email.
-    const displayAreaName = area_name || null;
     
     // Obtém a URL da imagem do header baseado no estabelecimento
     const headerImageUrl = this.getEmailHeaderImage(establishment_name);
@@ -217,11 +214,6 @@ class NotificationService {
                 <div style="font-size: 24px; font-weight: bold; color: #000;">${number_of_people} ${number_of_people === 1 ? 'pessoa' : 'pessoas'}</div>
               </div>
               
-              <!-- Área reservada (apenas área; mesa não é exibida no email) -->
-              <div style="padding: 15px; background-color: #f8f9fa; border-left: 4px solid #FF6B35; border-radius: 4px;">
-                <div style="font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">📍 Área reservada</div>
-                <div style="font-size: 20px; font-weight: bold; color: #000;">${displayAreaName || 'A definir'}</div>
-              </div>
             </div>
           </div>
 
