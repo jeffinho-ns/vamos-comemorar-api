@@ -4,6 +4,49 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 
+const parseHourMinute = (value) => {
+  if (value === undefined || value === null) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  if (!/^\d{2}:\d{2}$/.test(str)) return null;
+  const [h, m] = str.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const toMoneyOrNull = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.'));
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed * 100) / 100;
+};
+
+const normalizePromoterEntradaConfig = (raw) => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const makeWindow = (source) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+    const inicio = parseHourMinute(source.inicio);
+    const fim = parseHourMinute(source.fim);
+    const seco = toMoneyOrNull(source.seco);
+    const consuma = toMoneyOrNull(source.consuma);
+    const valor = toMoneyOrNull(source.valor);
+    return { inicio, fim, seco, consuma, valor };
+  };
+
+  const config = {
+    couvert: makeWindow(raw.couvert),
+    faixa_1: makeWindow(raw.faixa_1),
+    faixa_2: makeWindow(raw.faixa_2),
+  };
+
+  const hasAnyValue = [config.couvert, config.faixa_1, config.faixa_2].some((item) =>
+    item && (item.inicio || item.fim || item.seco !== null || item.consuma !== null || item.valor !== null)
+  );
+
+  return hasAnyValue ? config : null;
+};
+
 /**
  * Função auxiliar para verificar e liberar brindes para uma guest list
  * Exportada separadamente para uso em outras rotas
@@ -309,7 +352,7 @@ module.exports = (pool) => {
    */
   router.post('/', auth, async (req, res) => {
     try {
-      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada } = req.body;
+      const { establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada, entrada_config } = req.body;
 
       if (!establishment_id || !descricao || !checkins_necessarios) {
         return res.status(400).json({ 
@@ -327,16 +370,17 @@ module.exports = (pool) => {
       const vipMLimit = typeof vip_m_limit === 'number' ? vip_m_limit : (parseInt(vip_m_limit, 10) || 0);
       const vipFLimit = typeof vip_f_limit === 'number' ? vip_f_limit : (parseInt(vip_f_limit, 10) || 0);
       const valorEntrada = typeof valor_entrada === 'number' ? valor_entrada : (parseFloat(valor_entrada) || 0);
+      const entradaConfig = normalizePromoterEntradaConfig(entrada_config);
 
       let result;
       try {
         result = await pool.query(`
-          INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          INSERT INTO gift_rules (establishment_id, evento_id, descricao, checkins_necessarios, status, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada, entrada_config)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
           RETURNING *
         `, [
           establishment_id, evento_id || null, descricao, parseInt(checkins_necessarios), status || 'ATIVA',
-          beneficiario, promoterIdValue, vipMLimit, vipFLimit, valorEntrada
+          beneficiario, promoterIdValue, vipMLimit, vipFLimit, valorEntrada, entradaConfig
         ]);
       } catch (insertErr) {
         if (insertErr.code === '42703') {
@@ -351,6 +395,7 @@ module.exports = (pool) => {
           result.rows[0].vip_m_limit = vipMLimit;
           result.rows[0].vip_f_limit = vipFLimit;
           result.rows[0].valor_entrada = valorEntrada;
+          result.rows[0].entrada_config = entradaConfig;
         } else {
           throw insertErr;
         }
@@ -383,7 +428,7 @@ module.exports = (pool) => {
   router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada } = req.body;
+      const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada, entrada_config } = req.body;
 
       const updates = [];
       const params = [];
@@ -438,6 +483,11 @@ module.exports = (pool) => {
         params.push(typeof valor_entrada === 'number' ? valor_entrada : (parseFloat(valor_entrada) || 0));
       }
 
+      if (entrada_config !== undefined) {
+        updates.push(`entrada_config = $${paramIndex++}`);
+        params.push(normalizePromoterEntradaConfig(entrada_config));
+      }
+
       if (updates.length === 0) {
         return res.status(400).json({ success: false, error: 'Nenhum campo para atualizar' });
       }
@@ -450,7 +500,49 @@ module.exports = (pool) => {
         RETURNING *
       `;
 
-      const result = await pool.query(query, params);
+      let result;
+      try {
+        result = await pool.query(query, params);
+      } catch (updateErr) {
+        // Compatibilidade com bancos sem coluna entrada_config
+        if (updateErr.code === '42703' && entrada_config !== undefined) {
+          const updatesFallback = [];
+          const paramsFallback = [];
+          let idx = 1;
+
+          if (descricao !== undefined) { updatesFallback.push(`descricao = $${idx++}`); paramsFallback.push(descricao); }
+          if (checkins_necessarios !== undefined) { updatesFallback.push(`checkins_necessarios = $${idx++}`); paramsFallback.push(parseInt(checkins_necessarios)); }
+          if (tipo_beneficiario !== undefined) { updatesFallback.push(`tipo_beneficiario = $${idx++}`); paramsFallback.push(tipo_beneficiario); }
+          if (promoter_id !== undefined) {
+            const promoterIdValue = (promoter_id && promoter_id !== 'null' && promoter_id !== '' && promoter_id !== 0)
+              ? parseInt(promoter_id)
+              : null;
+            updatesFallback.push(`promoter_id = $${idx++}`);
+            paramsFallback.push(promoterIdValue);
+          }
+          if (status !== undefined) { updatesFallback.push(`status = $${idx++}`); paramsFallback.push(status); }
+          if (evento_id !== undefined) { updatesFallback.push(`evento_id = $${idx++}`); paramsFallback.push(evento_id || null); }
+          if (vip_m_limit !== undefined) { updatesFallback.push(`vip_m_limit = $${idx++}`); paramsFallback.push(typeof vip_m_limit === 'number' ? vip_m_limit : (parseInt(vip_m_limit, 10) || 0)); }
+          if (vip_f_limit !== undefined) { updatesFallback.push(`vip_f_limit = $${idx++}`); paramsFallback.push(typeof vip_f_limit === 'number' ? vip_f_limit : (parseInt(vip_f_limit, 10) || 0)); }
+          if (valor_entrada !== undefined) { updatesFallback.push(`valor_entrada = $${idx++}`); paramsFallback.push(typeof valor_entrada === 'number' ? valor_entrada : (parseFloat(valor_entrada) || 0)); }
+
+          if (updatesFallback.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum campo para atualizar' });
+          }
+
+          paramsFallback.push(id);
+          const queryFallback = `
+            UPDATE gift_rules
+            SET ${updatesFallback.join(', ')}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $${paramsFallback.length}
+            RETURNING *
+          `;
+          result = await pool.query(queryFallback, paramsFallback);
+          if (result.rows[0]) result.rows[0].entrada_config = normalizePromoterEntradaConfig(entrada_config);
+        } else {
+          throw updateErr;
+        }
+      }
       
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Regra não encontrada' });

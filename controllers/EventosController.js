@@ -1681,11 +1681,11 @@ class EventosController {
         listasPromotersResult = { rows: [] };
       }
 
-      // 4.1. Enriquecer convidados de promoters com valor_entrada da regra de brinde (para modal de check-in)
+      // 4.1. Enriquecer convidados de promoters com regras de entrada (para modal de check-in)
       if (listasPromotersResult.rows.length > 0 && eventoInfo.establishment_id) {
         try {
           const rulesResult = await this.pool.query(`
-            SELECT id, promoter_id, COALESCE(valor_entrada, 0)::NUMERIC as valor_entrada
+            SELECT id, promoter_id, COALESCE(valor_entrada, 0)::NUMERIC as valor_entrada, entrada_config
             FROM gift_rules
             WHERE establishment_id = $1
               AND tipo_beneficiario = 'PROMOTER'
@@ -1697,19 +1697,28 @@ class EventosController {
           const byPromoter = new Map();
           const generalRules = [];
           rules.forEach((r) => {
-            if (r.promoter_id != null) byPromoter.set(Number(r.promoter_id), parseFloat(r.valor_entrada) || 0);
-            else generalRules.push(parseFloat(r.valor_entrada) || 0);
+            const normalized = {
+              valor_entrada: parseFloat(r.valor_entrada) || 0,
+              entrada_config: r.entrada_config && typeof r.entrada_config === 'object' ? r.entrada_config : null,
+            };
+            if (r.promoter_id != null) byPromoter.set(Number(r.promoter_id), normalized);
+            else generalRules.push(normalized);
           });
-          const defaultValor = generalRules.length > 0 ? generalRules[0] : 0;
+          const defaultRule = generalRules.length > 0 ? generalRules[0] : { valor_entrada: 0, entrada_config: null };
           listasPromotersResult.rows.forEach((row) => {
             const promoterId = row.promoter_id != null ? Number(row.promoter_id) : null;
-            row.valor_entrada_regra = promoterId != null && byPromoter.has(promoterId)
+            const selectedRule = promoterId != null && byPromoter.has(promoterId)
               ? byPromoter.get(promoterId)
-              : defaultValor;
+              : defaultRule;
+            row.valor_entrada_regra = selectedRule?.valor_entrada || 0;
+            row.entrada_config_regra = selectedRule?.entrada_config || null;
           });
         } catch (err) {
-          if (err.code !== '42703') console.error('Erro ao buscar valor_entrada das regras:', err.message);
-          listasPromotersResult.rows.forEach((row) => { row.valor_entrada_regra = 0; });
+          if (err.code !== '42703') console.error('Erro ao buscar regras de entrada do promoter:', err.message);
+          listasPromotersResult.rows.forEach((row) => {
+            row.valor_entrada_regra = 0;
+            row.entrada_config_regra = null;
+          });
         }
       }
 
