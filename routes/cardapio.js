@@ -182,10 +182,31 @@ module.exports = (pool) => {
             return trimmed;
         }
 
-        if (
-            trimmed.includes('firebasestorage.googleapis.com') ||
-            trimmed.includes('storage.googleapis.com')
-        ) {
+        if (trimmed.includes('firebasestorage.googleapis.com')) {
+            const objectPath = extractFilename(trimmed);
+            if (objectPath) {
+                return `${base}/public/images/${encodeURIComponent(objectPath)}`;
+            }
+            return trimmed;
+        }
+
+        if (trimmed.includes('storage.googleapis.com')) {
+            try {
+                const url = new URL(trimmed);
+                const parts = String(url.pathname || '')
+                    .split('/')
+                    .filter(Boolean);
+                if (parts.length >= 2) {
+                    const maybeBucket = parts[0];
+                    const objectPath = decodeURIComponent(parts.slice(1).join('/'));
+                    const configuredBucket = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim();
+                    if (!configuredBucket || maybeBucket === configuredBucket) {
+                        return `${base}/public/images/${encodeURIComponent(objectPath)}`;
+                    }
+                }
+            } catch (_) {
+                // Mantém URL original em caso de parse inválido.
+            }
             return trimmed;
         }
 
