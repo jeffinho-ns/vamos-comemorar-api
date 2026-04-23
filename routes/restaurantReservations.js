@@ -269,6 +269,99 @@ module.exports = (pool) => {
     return shiftA === shiftB;
   };
 
+  // Regras de bloqueio de agenda devem valer sempre, independentemente de
+  // permissões de horário (allow_outside_hours).
+  const checkReservationBlocks = async ({
+    establishmentIdNumber,
+    areaIdNumber,
+    reservationDate,
+    reservationTime,
+    numberOfPeople,
+    allowCapacityOverride = false,
+  }) => {
+    if (!reservationDate || !reservationTime || !establishmentIdNumber) {
+      return null;
+    }
+
+    const reservationDateTime = `${reservationDate}T${String(reservationTime).substring(0, 8)}`;
+
+    // 1) Bloqueios por intervalo específico.
+    const blocksResult = await pool.query(
+      `
+      SELECT *
+      FROM restaurant_reservation_blocks
+      WHERE establishment_id = $1
+        AND (area_id IS NULL OR area_id = $2)
+        AND start_datetime <= $3
+        AND end_datetime   >= $3
+      `,
+      [establishmentIdNumber, areaIdNumber || null, reservationDateTime]
+    );
+
+    let activeBlock = blocksResult.rows[0] || null;
+
+    // 2) Bloqueios recorrentes semanais.
+    if (!activeBlock) {
+      const weekday = new Date(reservationDate + 'T00:00:00').getDay();
+      const recResult = await pool.query(
+        `
+        SELECT *
+        FROM restaurant_reservation_blocks
+        WHERE establishment_id = $1
+          AND (area_id IS NULL OR area_id = $2)
+          AND recurrence_type = 'weekly'
+          AND recurrence_weekday = $3
+        `,
+        [establishmentIdNumber, areaIdNumber || null, weekday]
+      );
+      activeBlock = recResult.rows[0] || null;
+    }
+
+    if (!activeBlock) return null;
+
+    // Bloqueio total.
+    if (activeBlock.max_people_capacity == null) {
+      return {
+        blocked: true,
+        error:
+          activeBlock.reason ||
+          'Este período está bloqueado para novas reservas. Por favor, escolha outro dia/horário.',
+      };
+    }
+
+    // Bloqueio parcial por capacidade.
+    if (!allowCapacityOverride) {
+      const capResult = await pool.query(
+        `
+        SELECT COALESCE(SUM(number_of_people), 0)::int AS total_people
+        FROM restaurant_reservations
+        WHERE reservation_date = $1
+          AND establishment_id = $2
+          AND ($3::int IS NULL OR area_id = $3)
+          AND status IN (
+            'NOVA', 'CONFIRMADA', 'CHECKED_IN', 'SEATED',
+            'confirmed', 'checked-in', 'seated'
+          )
+        `,
+        [reservationDate, establishmentIdNumber, areaIdNumber || null]
+      );
+
+      const currentPeople = parseInt(capResult.rows[0].total_people, 10) || 0;
+      const incomingPeople = Number(numberOfPeople) || 0;
+
+      if (currentPeople + incomingPeople > activeBlock.max_people_capacity) {
+        return {
+          blocked: true,
+          error:
+            'Este horário está com capacidade reduzida e já atingiu o limite de pessoas permitido. ' +
+            'Por favor, escolha outro horário ou data.',
+        };
+      }
+    }
+
+    return null;
+  };
+
   /**
    * @route   GET /api/restaurant-reservations
    * @desc    Lista todas as reservas do restaurante com filtros opcionais
@@ -738,82 +831,24 @@ module.exports = (pool) => {
       const reservationPolicy = await getReservationPolicy(establishmentIdNumber);
 
       // 🔒 Verificar bloqueios de agenda (bloqueio total ou capacidade parcial)
-      if (!reservationPolicy.allow_outside_hours && reservation_date && reservation_time && establishmentIdNumber && areaIdNumber) {
-        try {
-          const reservationDateTime = `${reservation_date}T${String(reservation_time).substring(0, 8)}`;
-
-          // Bloqueios de intervalo direto
-          const blocksResult = await pool.query(
-            `
-            SELECT *
-            FROM restaurant_reservation_blocks
-            WHERE establishment_id = $1
-              AND (area_id IS NULL OR area_id = $2)
-              AND start_datetime <= $3
-              AND end_datetime   >= $3
-            `,
-            [establishmentIdNumber, areaIdNumber, reservationDateTime]
-          );
-
-          let activeBlock = blocksResult.rows[0] || null;
-
-          // Bloqueios recorrentes semanais (por dia da semana)
-          if (!activeBlock) {
-            const weekday = new Date(reservation_date + 'T00:00:00').getDay();
-            const recResult = await pool.query(
-              `
-              SELECT *
-              FROM restaurant_reservation_blocks
-              WHERE establishment_id = $1
-                AND (area_id IS NULL OR area_id = $2)
-                AND recurrence_type = 'weekly'
-                AND recurrence_weekday = $3
-              `,
-              [establishmentIdNumber, areaIdNumber, weekday]
-            );
-            activeBlock = recResult.rows[0] || null;
-          }
-
-          if (activeBlock) {
-            if (activeBlock.max_people_capacity != null && !reservationPolicy.allow_capacity_override) {
-              // Bloqueio parcial: limitar capacidade máxima de pessoas
-              const capResult = await pool.query(
-                `
-                SELECT COALESCE(SUM(number_of_people), 0)::int AS total_people
-                FROM restaurant_reservations
-                WHERE reservation_date = $1
-                  AND establishment_id = $2
-                  AND area_id = $3
-                  AND status IN ('confirmed', 'checked-in', 'seated')
-                `,
-                [reservation_date, establishmentIdNumber, areaIdNumber]
-              );
-
-              const currentPeople = parseInt(capResult.rows[0].total_people, 10) || 0;
-              const newPeople = numberOfPeople;
-
-              if (currentPeople + newPeople > activeBlock.max_people_capacity) {
-                return res.status(400).json({
-                  success: false,
-                  error:
-                    'Este horário está com capacidade reduzida e já atingiu o limite de pessoas permitido. ' +
-                    'Por favor, escolha outro horário ou data.',
-                });
-              }
-            } else if (activeBlock.max_people_capacity == null) {
-              // Bloqueio total
-              return res.status(400).json({
-                success: false,
-                error:
-                  activeBlock.reason ||
-                  'Este período está bloqueado para novas reservas. Por favor, escolha outro dia/horário.',
-              });
-            }
-          }
-        } catch (blockError) {
-          console.error('⚠️ Erro ao verificar bloqueios de agenda:', blockError);
-          // Em caso de erro na verificação, não bloquear a criação (fallback seguro)
+      try {
+        const blockResult = await checkReservationBlocks({
+          establishmentIdNumber,
+          areaIdNumber,
+          reservationDate: reservation_date,
+          reservationTime: reservation_time,
+          numberOfPeople,
+          allowCapacityOverride: reservationPolicy.allow_capacity_override,
+        });
+        if (blockResult?.blocked) {
+          return res.status(400).json({
+            success: false,
+            error: blockResult.error,
+          });
         }
+      } catch (blockError) {
+        console.error('⚠️ Erro ao verificar bloqueios de agenda:', blockError);
+        // Em caso de erro na verificação, não bloquear a criação (fallback seguro)
       }
 
       // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
@@ -1462,10 +1497,32 @@ module.exports = (pool) => {
       const existingReservation = existingReservationResult.rows[0];
       const reservationBeforeAudit = auditReservationSnapshot(existingReservation);
       
-      // Se a data ou área estão sendo alteradas, verificar se há bloqueio
+      // Se data/hora/área estão sendo alteradas, verificar bloqueios de agenda.
       const newAreaId = area_id !== undefined ? Number(area_id) : existingReservation.area_id;
       const newDate = reservation_date !== undefined ? reservation_date : existingReservation.reservation_date;
+      const newTime = reservation_time !== undefined ? reservation_time : existingReservation.reservation_time;
       const establishmentId = existingReservation.establishment_id;
+      const reservationPolicy = await getReservationPolicy(establishmentId);
+
+      try {
+        const blockResult = await checkReservationBlocks({
+          establishmentIdNumber: establishmentId,
+          areaIdNumber: newAreaId,
+          reservationDate: newDate,
+          reservationTime: newTime,
+          numberOfPeople:
+            number_of_people !== undefined ? Number(number_of_people) : Number(existingReservation.number_of_people),
+          allowCapacityOverride: reservationPolicy.allow_capacity_override,
+        });
+        if (blockResult?.blocked) {
+          return res.status(400).json({
+            success: false,
+            error: blockResult.error,
+          });
+        }
+      } catch (blockError) {
+        console.error('⚠️ Erro ao verificar bloqueios de agenda (PUT):', blockError);
+      }
       
       // Verificar se há uma reserva bloqueando toda a área para a nova data/área no mesmo estabelecimento (exceto a própria reserva sendo editada)
       if (newAreaId && newDate && establishmentId) {
