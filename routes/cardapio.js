@@ -1548,17 +1548,28 @@ module.exports = (pool) => {
             } catch (e) { /* ignorar */ }
 
             for (let i = 0; i < subcategoryNames.length; i++) {
+                const targetName = String(subcategoryNames[i] || '').trim();
+                if (!targetName) continue;
                 if (useSubcategoryOrder) {
-                    // Atualizar apenas subcategory_order; "order" do item não é alterado
+                    // Atualiza ordem e normaliza o nome (trim/case-insensitive) para evitar
+                    // "perda" de ordem quando existem variações de espaços/letras.
                     await pool.query(
-                        'UPDATE menu_items SET subcategory_order = $1 WHERE subcategory = $2 AND categoryid = $3',
-                        [i, subcategoryNames[i], categoryId]
+                        `UPDATE menu_items
+                         SET subcategory_order = $1,
+                             subcategory = $2
+                         WHERE categoryid = $3
+                           AND LOWER(TRIM(subcategory)) = LOWER(TRIM($2))`,
+                        [i, targetName, categoryId]
                     );
                 } else {
                     // Fallback antes da migration: usar "order" como antes
                     await pool.query(
-                        'UPDATE menu_items SET "order" = $1 WHERE subcategory = $2 AND categoryid = $3',
-                        [i, subcategoryNames[i], categoryId]
+                        `UPDATE menu_items
+                         SET "order" = $1,
+                             subcategory = $2
+                         WHERE categoryid = $3
+                           AND LOWER(TRIM(subcategory)) = LOWER(TRIM($2))`,
+                        [i, targetName, categoryId]
                     );
                 }
             }
