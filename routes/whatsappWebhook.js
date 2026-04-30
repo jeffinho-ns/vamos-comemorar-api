@@ -182,6 +182,10 @@ function extractInterpretedEstablishmentId(interpreted) {
 
 function parsePtBrDateFromText(text) {
   const raw = String(text || '');
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
@@ -216,6 +220,16 @@ function parsePtBrDateFromText(text) {
     ) {
       return buildFutureDate(day, month, year);
     }
+  }
+
+  // Ex.: "hoje", "amanhã", "amanha"
+  if (/\bhoje\b/i.test(normalized)) {
+    return buildFutureDate(currentDay, currentMonth, currentYear);
+  }
+  if (/\bamanha\b/i.test(normalized)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return buildFutureDate(d.getDate(), d.getMonth() + 1, d.getFullYear());
   }
 
   // Ex.: "dia 3" -> próxima ocorrência desse dia no calendário.
@@ -351,6 +365,16 @@ function looksLikeMusicQuestion(text) {
   return /m[uú]sica|programa[cç][aã]o|dj|banda|show|estilo/.test(t);
 }
 
+function looksLikeMenuQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /card[aá]pio|menu/.test(t);
+}
+
+function looksLikeParkingQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /estacionamento|valet|parar o carro/.test(t);
+}
+
 function detectEstablishmentFromText(text, establishments = []) {
   const normalized = String(text || '')
     .toLowerCase()
@@ -380,6 +404,18 @@ function parseDateFromHistory(messageHistory) {
     if (parsed?.iso) return parsed;
   }
   return null;
+}
+
+function getCardapioUrlByEstablishmentId(establishmentId) {
+  const id = Number(establishmentId);
+  const map = {
+    7: 'https://www.agilizaiapp.com.br/cardapio/highline',
+    4: 'https://www.agilizaiapp.com.br/cardapio/ohfregues',
+    8: 'https://www.agilizaiapp.com.br/cardapio/pracinha',
+    9: 'https://www.agilizaiapp.com.br/cardapio/reserva-rooftop',
+    1: 'https://www.agilizaiapp.com.br/cardapio/justino',
+  };
+  return map[id] || null;
 }
 
 module.exports = (pool, app) => {
@@ -603,6 +639,8 @@ module.exports = (pool, app) => {
       }
       const availabilityQuestion = looksLikeAvailabilityQuestion(messageText);
       const musicQuestion = looksLikeMusicQuestion(messageText);
+      const menuQuestion = looksLikeMenuQuestion(messageText);
+      const parkingQuestion = looksLikeParkingQuestion(messageText);
 
       if (usedPersistence && inboundRow?.id) {
         try {
@@ -819,6 +857,20 @@ module.exports = (pool, app) => {
           replyText =
             `Para ${displayDate} no ${estName}, a programação musical pode variar conforme evento e operação do dia.\n\nSe quiser, eu já te passo os horários disponíveis e deixo sua reserva encaminhada.`;
         }
+        if (menuQuestion) {
+          const menuUrl = getCardapioUrlByEstablishmentId(resolvedEstablishmentId);
+          if (menuUrl) {
+            replyText =
+              `Perfeito! Aqui está o cardápio: ${menuUrl}\n\nSe quiser, já te passo os melhores horários e deixo sua reserva encaminhada.`;
+          } else {
+            replyText =
+              'Claro! Eu te envio o cardápio da casa escolhida. Me confirma qual estabelecimento você quer, que já te mando e te ajudo com a reserva.';
+          }
+        }
+        if (parkingQuestion) {
+          replyText =
+            'Estacionamento pode variar por casa e por dia/evento. Se você me disser a data e o estabelecimento, já te passo a melhor orientação e deixo sua reserva encaminhada.';
+        }
         if (availabilityQuestion && resolvedEstablishmentId && parsedDate?.iso) {
           const windows = await loadOperatingWindowsForDate(
             pool,
@@ -834,6 +886,12 @@ module.exports = (pool, app) => {
             replyText =
               `No dia ${displayDate}, não temos janela de reserva disponível no sistema.\n\nSe quiser, eu te sugiro o melhor dia/horário alternativo e já encaminho sua reserva.`;
           }
+        } else if (availabilityQuestion && !parsedDate?.iso) {
+          replyText =
+            'Consigo verificar agora para você. Me fala só a data desejada (ex.: hoje, amanhã ou DD/MM) que eu já te passo os horários disponíveis e encaminho a reserva.';
+        } else if (availabilityQuestion && !resolvedEstablishmentId) {
+          replyText =
+            'Consigo verificar os horários disponíveis agora. Me confirma apenas o estabelecimento que você quer, que já te passo as opções e encaminho sua reserva.';
         }
         const sendResult = await sendMessage(senderNumber, replyText);
         console.log('[WhatsApp webhook] envio automático:', sendResult);
