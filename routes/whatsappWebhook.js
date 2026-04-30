@@ -182,21 +182,61 @@ function extractInterpretedEstablishmentId(interpreted) {
 
 function parsePtBrDateFromText(text) {
   const raw = String(text || '');
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const currentDay = today.getDate();
+
+  const buildFutureDate = (day, month, yearCandidate = null) => {
+    let year = yearCandidate;
+    if (!year) {
+      year = currentYear;
+      if (month < currentMonth || (month === currentMonth && day < currentDay)) {
+        year += 1;
+      }
+    } else if (year < 100) {
+      year += 2000;
+    }
+    const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { iso, day, month, year };
+  };
+
   const match = raw.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
-  if (!match) return null;
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  let year = match[3] ? Number(match[3]) : null;
-  if (!Number.isFinite(day) || !Number.isFinite(month) || day < 1 || day > 31 || month < 1 || month > 12) {
-    return null;
+  if (match) {
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = match[3] ? Number(match[3]) : null;
+    if (
+      Number.isFinite(day) &&
+      Number.isFinite(month) &&
+      day >= 1 &&
+      day <= 31 &&
+      month >= 1 &&
+      month <= 12
+    ) {
+      return buildFutureDate(day, month, year);
+    }
   }
-  if (!year) {
-    year = new Date().getFullYear();
-  } else if (year < 100) {
-    year += 2000;
+
+  // Ex.: "dia 3" -> próxima ocorrência desse dia no calendário.
+  const dayOnly = raw.match(/\bdia\s+(\d{1,2})\b/i);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    if (Number.isFinite(day) && day >= 1 && day <= 31) {
+      let month = currentMonth;
+      let year = currentYear;
+      if (day < currentDay) {
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+      }
+      return buildFutureDate(day, month, year);
+    }
   }
-  const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  return { iso, day, month, year };
+
+  return null;
 }
 
 async function loadDateOverride(pool, establishmentId, isoDate) {
@@ -245,6 +285,65 @@ function mergeReplyWithOverrideNotice(replyText, notice) {
   if (!base) return notice;
   if (base.toLowerCase().includes(String(notice).toLowerCase())) return base;
   return `${base}\n\n${notice}`;
+}
+
+async function loadOperatingWindowsForDate(pool, establishmentId, isoDate) {
+  if (!establishmentId || !isoDate) return [];
+  try {
+    const override = await pool.query(
+      `SELECT is_open, start_time::text, end_time::text, second_start_time::text, second_end_time::text
+         FROM restaurant_reservation_date_overrides
+        WHERE establishment_id = $1
+          AND override_date = $2
+        LIMIT 1`,
+      [establishmentId, isoDate]
+    );
+    if (override.rows.length > 0) {
+      const row = override.rows[0];
+      if (!row.is_open) return [];
+      const windows = [];
+      if (row.start_time && row.end_time) {
+        windows.push(`${String(row.start_time).slice(0, 5)}-${String(row.end_time).slice(0, 5)}`);
+      }
+      if (row.second_start_time && row.second_end_time) {
+        windows.push(
+          `${String(row.second_start_time).slice(0, 5)}-${String(row.second_end_time).slice(0, 5)}`
+        );
+      }
+      return windows;
+    }
+
+    const date = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return [];
+    const weekday = date.getDay();
+    const weekly = await pool.query(
+      `SELECT is_open, start_time::text, end_time::text, second_start_time::text, second_end_time::text
+         FROM restaurant_reservation_operating_hours
+        WHERE establishment_id = $1
+          AND weekday = $2
+        LIMIT 1`,
+      [establishmentId, weekday]
+    );
+    if (weekly.rows.length === 0 || !weekly.rows[0].is_open) return [];
+    const row = weekly.rows[0];
+    const windows = [];
+    if (row.start_time && row.end_time) {
+      windows.push(`${String(row.start_time).slice(0, 5)}-${String(row.end_time).slice(0, 5)}`);
+    }
+    if (row.second_start_time && row.second_end_time) {
+      windows.push(
+        `${String(row.second_start_time).slice(0, 5)}-${String(row.second_end_time).slice(0, 5)}`
+      );
+    }
+    return windows;
+  } catch (_e) {
+    return [];
+  }
+}
+
+function looksLikeAvailabilityQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /hor[aá]ri|que horas|dispon[ií]vel|disponibilidade/.test(t);
 }
 
 module.exports = (pool, app) => {
@@ -461,6 +560,7 @@ module.exports = (pool, app) => {
         const override = await loadDateOverride(pool, resolvedEstablishmentId, parsedDate.iso);
         dateOverrideNotice = buildOverrideNotice(override);
       }
+      const availabilityQuestion = looksLikeAvailabilityQuestion(messageText);
 
       if (usedPersistence && inboundRow?.id) {
         try {
@@ -668,6 +768,22 @@ module.exports = (pool, app) => {
           console.warn('[WhatsApp webhook] Substituída suggested_reply que prometia reserva sem salvar.');
         }
         replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
+        if (availabilityQuestion && resolvedEstablishmentId && parsedDate?.iso) {
+          const windows = await loadOperatingWindowsForDate(
+            pool,
+            resolvedEstablishmentId,
+            parsedDate.iso
+          );
+          const [year, month, day] = parsedDate.iso.split('-');
+          const displayDate = `${day}-${month}-${year}`;
+          if (windows.length > 0) {
+            replyText =
+              `No dia ${displayDate}, os horários disponíveis são: ${windows.join(' | ')}.\n\nSe quiser, já deixo sua reserva encaminhada. Me fala só o horário que prefere e quantas pessoas serão.`;
+          } else {
+            replyText =
+              `No dia ${displayDate}, não temos janela de reserva disponível no sistema.\n\nSe quiser, eu te sugiro o melhor dia/horário alternativo e já encaminho sua reserva.`;
+          }
+        }
         const sendResult = await sendMessage(senderNumber, replyText);
         console.log('[WhatsApp webhook] envio automático:', sendResult);
         await persistOutbound(replyText, interpreted.action || 'COLLECT_DATA');
