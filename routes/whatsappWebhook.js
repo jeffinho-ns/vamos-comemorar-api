@@ -346,6 +346,42 @@ function looksLikeAvailabilityQuestion(text) {
   return /hor[aá]ri|que horas|dispon[ií]vel|disponibilidade/.test(t);
 }
 
+function looksLikeMusicQuestion(text) {
+  const t = String(text || '').toLowerCase();
+  return /m[uú]sica|programa[cç][aã]o|dj|banda|show|estilo/.test(t);
+}
+
+function detectEstablishmentFromText(text, establishments = []) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!normalized) return null;
+  for (const est of establishments) {
+    const name = String(est?.name || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (!name) continue;
+    if (normalized.includes(name)) {
+      const id = Number(est.id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+  }
+  return null;
+}
+
+function parseDateFromHistory(messageHistory) {
+  const list = Array.isArray(messageHistory) ? messageHistory : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const msg = list[i];
+    if (msg?.role !== 'user') continue;
+    const parsed = parsePtBrDateFromText(msg?.content || '');
+    if (parsed?.iso) return parsed;
+  }
+  return null;
+}
+
 module.exports = (pool, app) => {
   const router = express.Router();
 
@@ -550,17 +586,23 @@ module.exports = (pool, app) => {
 
       const resolvedEstablishmentId =
         interpretedEstablishmentId ||
+        detectEstablishmentFromText(messageText, catalog.establishments || []) ||
+        detectEstablishmentFromText(
+          messageHistory.map((m) => m.content).join(' '),
+          catalog.establishments || []
+        ) ||
         linkedEstablishment?.id ||
         (Number.isFinite(Number(conversation?.establishment_id))
           ? Number(conversation.establishment_id)
           : null);
       let dateOverrideNotice = null;
-      const parsedDate = parsePtBrDateFromText(messageText);
+      const parsedDate = parsePtBrDateFromText(messageText) || parseDateFromHistory(messageHistory);
       if (resolvedEstablishmentId && parsedDate?.iso) {
         const override = await loadDateOverride(pool, resolvedEstablishmentId, parsedDate.iso);
         dateOverrideNotice = buildOverrideNotice(override);
       }
       const availabilityQuestion = looksLikeAvailabilityQuestion(messageText);
+      const musicQuestion = looksLikeMusicQuestion(messageText);
 
       if (usedPersistence && inboundRow?.id) {
         try {
@@ -768,6 +810,15 @@ module.exports = (pool, app) => {
           console.warn('[WhatsApp webhook] Substituída suggested_reply que prometia reserva sem salvar.');
         }
         replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
+        if (musicQuestion && resolvedEstablishmentId && parsedDate?.iso) {
+          const [year, month, day] = parsedDate.iso.split('-');
+          const displayDate = `${day}-${month}-${year}`;
+          const estName =
+            (catalog.establishments || []).find((e) => Number(e.id) === Number(resolvedEstablishmentId))
+              ?.name || 'a casa';
+          replyText =
+            `Para ${displayDate} no ${estName}, a programação musical pode variar conforme evento e operação do dia.\n\nSe quiser, eu já te passo os horários disponíveis e deixo sua reserva encaminhada.`;
+        }
         if (availabilityQuestion && resolvedEstablishmentId && parsedDate?.iso) {
           const windows = await loadOperatingWindowsForDate(
             pool,
