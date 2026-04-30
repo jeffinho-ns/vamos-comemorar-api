@@ -86,6 +86,11 @@ function normalizeReservationTime(t) {
   return s;
 }
 
+function weekdayLabelPt(weekday) {
+  const labels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
+  return labels[Number(weekday)] || `Dia ${weekday}`;
+}
+
 /**
  * Evita cair em IDs duplicados de estabelecimentos com o mesmo nome.
  * O painel operacional usa IDs canônicos para regras e calendário.
@@ -158,6 +163,46 @@ async function loadAiCatalog(pool) {
     console.warn('[whatsappReservationService] restaurant_areas:', e.message);
   }
 
+  let weeklyRows = [];
+  try {
+    const weeklyResult = await pool.query(
+      `SELECT establishment_id, weekday, is_open, start_time::text, end_time::text,
+              second_start_time::text, second_end_time::text
+       FROM restaurant_reservation_operating_hours
+       ORDER BY establishment_id ASC, weekday ASC`
+    );
+    weeklyRows = weeklyResult.rows || [];
+  } catch (e) {
+    console.warn('[whatsappReservationService] restaurant_reservation_operating_hours:', e.message);
+  }
+
+  let policyRows = [];
+  try {
+    const policyResult = await pool.query(
+      `SELECT establishment_id, allow_capacity_override, allow_outside_hours
+       FROM restaurant_reservation_policy
+       ORDER BY establishment_id ASC`
+    );
+    policyRows = policyResult.rows || [];
+  } catch (e) {
+    console.warn('[whatsappReservationService] restaurant_reservation_policy:', e.message);
+  }
+
+  let overrideRows = [];
+  try {
+    const overridesResult = await pool.query(
+      `SELECT establishment_id, override_date::text, is_open, start_time::text, end_time::text,
+              second_start_time::text, second_end_time::text, note
+       FROM restaurant_reservation_date_overrides
+       WHERE override_date >= CURRENT_DATE
+       ORDER BY override_date ASC, establishment_id ASC
+       LIMIT 300`
+    );
+    overrideRows = overridesResult.rows || [];
+  } catch (e) {
+    console.warn('[whatsappReservationService] restaurant_reservation_date_overrides:', e.message);
+  }
+
   const establishmentsBlock = establishments.length
     ? establishments.map((e) => `- id ${e.id}: ${e.name}`).join('\n')
     : '(nenhum estabelecimento listado)';
@@ -166,7 +211,97 @@ async function loadAiCatalog(pool) {
     ? areas.map((a) => `- id ${a.id}: ${a.name}`).join('\n')
     : '(nenhuma área listada)';
 
-  return { establishments, areas, establishmentsBlock, areasBlock };
+  const weeklyByEstablishment = new Map();
+  for (const row of weeklyRows) {
+    const establishmentId = Number(row.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) continue;
+    const list = weeklyByEstablishment.get(establishmentId) || [];
+    list.push(row);
+    weeklyByEstablishment.set(establishmentId, list);
+  }
+
+  const policyByEstablishment = new Map();
+  for (const row of policyRows) {
+    const establishmentId = Number(row.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) continue;
+    policyByEstablishment.set(establishmentId, row);
+  }
+
+  const establishmentRulesLines = establishments.map((est) => {
+    const id = Number(est.id);
+    const weekly = weeklyByEstablishment.get(id) || [];
+    const policy = policyByEstablishment.get(id);
+
+    const weeklyLine = weekly.length
+      ? weekly
+          .map((w) => {
+            if (!w.is_open) return `${weekdayLabelPt(w.weekday)}: fechado`;
+            const windows = [];
+            if (w.start_time && w.end_time) {
+              windows.push(`${String(w.start_time).slice(0, 5)}-${String(w.end_time).slice(0, 5)}`);
+            }
+            if (w.second_start_time && w.second_end_time) {
+              windows.push(
+                `${String(w.second_start_time).slice(0, 5)}-${String(w.second_end_time).slice(0, 5)}`
+              );
+            }
+            return `${weekdayLabelPt(w.weekday)}: ${windows.join(' | ') || 'aberto'}`;
+          })
+          .join('; ')
+      : 'sem horário cadastrado';
+
+    const policyLine = policy
+      ? `override_capacidade=${policy.allow_capacity_override ? 'sim' : 'não'}; override_horario=${policy.allow_outside_hours ? 'sim' : 'não'}`
+      : 'sem política específica cadastrada';
+
+    return `- id ${id} (${est.name}) | horários: ${weeklyLine} | política: ${policyLine}`;
+  });
+
+  const establishmentRulesBlock = establishmentRulesLines.length
+    ? establishmentRulesLines.join('\n')
+    : '(sem regras operacionais cadastradas)';
+
+  const overrideByEstablishment = new Map();
+  for (const row of overrideRows) {
+    const establishmentId = Number(row.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) continue;
+    const list = overrideByEstablishment.get(establishmentId) || [];
+    list.push(row);
+    overrideByEstablishment.set(establishmentId, list);
+  }
+
+  const dateOverridesLines = establishments.flatMap((est) => {
+    const id = Number(est.id);
+    const rows = overrideByEstablishment.get(id) || [];
+    return rows.map((o) => {
+      if (!o.is_open) {
+        return `- id ${id} (${est.name}) | data ${o.override_date}: FECHADO${o.note ? ` | obs: ${o.note}` : ''}`;
+      }
+      const windows = [];
+      if (o.start_time && o.end_time) {
+        windows.push(`${String(o.start_time).slice(0, 5)}-${String(o.end_time).slice(0, 5)}`);
+      }
+      if (o.second_start_time && o.second_end_time) {
+        windows.push(
+          `${String(o.second_start_time).slice(0, 5)}-${String(o.second_end_time).slice(0, 5)}`
+        );
+      }
+      return `- id ${id} (${est.name}) | data ${o.override_date}: ${windows.join(' | ') || 'aberto'}${o.note ? ` | obs: ${o.note}` : ''}`;
+    });
+  });
+
+  const dateOverridesBlock = dateOverridesLines.length
+    ? dateOverridesLines.join('\n')
+    : '(sem exceções de data cadastradas)';
+
+  return {
+    establishments,
+    areas,
+    establishmentsBlock,
+    areasBlock,
+    establishmentRulesBlock,
+    dateOverridesBlock,
+  };
 }
 
 /**

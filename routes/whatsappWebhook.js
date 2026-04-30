@@ -157,11 +157,94 @@ function validateProcessReservationParams(p) {
   return missing;
 }
 
+function applyBusinessRulesToReservationParams(params) {
+  const establishmentId = Number(params?.establishment_id);
+  const quantidade = Number(params?.quantidade_convidados);
+
+  // Pracinha do Seu Justino (ID 8): aceita até 60 no total.
+  if (establishmentId === 8 && Number.isFinite(quantidade) && quantidade > 60) {
+    return {
+      ok: false,
+      message:
+        "Na Pracinha do Seu Justino conseguimos registrar reservas para até 60 pessoas por vez. Se desejar, posso ajustar para até 60 agora ou chamar o time para um formato especial.",
+    };
+  }
+
+  return { ok: true };
+}
+
 function extractInterpretedEstablishmentId(interpreted) {
   const raw = interpreted?.params?.establishment_id;
   const id = Number(raw);
   if (!Number.isFinite(id) || id <= 0) return null;
   return id;
+}
+
+function parsePtBrDateFromText(text) {
+  const raw = String(text || '');
+  const match = raw.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  let year = match[3] ? Number(match[3]) : null;
+  if (!Number.isFinite(day) || !Number.isFinite(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+    return null;
+  }
+  if (!year) {
+    year = new Date().getFullYear();
+  } else if (year < 100) {
+    year += 2000;
+  }
+  const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { iso, day, month, year };
+}
+
+async function loadDateOverride(pool, establishmentId, isoDate) {
+  try {
+    const result = await pool.query(
+      `SELECT override_date::text, is_open, start_time::text, end_time::text, second_start_time::text, second_end_time::text, note
+         FROM restaurant_reservation_date_overrides
+        WHERE establishment_id = $1
+          AND override_date = $2
+        LIMIT 1`,
+      [establishmentId, isoDate]
+    );
+    return result.rows[0] || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function buildOverrideNotice(overrideRow) {
+  if (!overrideRow) return null;
+  const isoDate = String(overrideRow.override_date || '').slice(0, 10);
+  const [year, month, day] = isoDate.split('-');
+  const date = year && month && day ? `${day}-${month}-${year}` : isoDate;
+  if (!overrideRow.is_open) {
+    return `Para ${date}, temos exceção de agenda: a casa estará fechada.`;
+  }
+  const windows = [];
+  if (overrideRow.start_time && overrideRow.end_time) {
+    windows.push(`${String(overrideRow.start_time).slice(0, 5)}-${String(overrideRow.end_time).slice(0, 5)}`);
+  }
+  if (overrideRow.second_start_time && overrideRow.second_end_time) {
+    windows.push(
+      `${String(overrideRow.second_start_time).slice(0, 5)}-${String(overrideRow.second_end_time).slice(0, 5)}`
+    );
+  }
+  const notePart = overrideRow.note ? ` Obs: ${String(overrideRow.note)}` : '';
+  if (windows.length === 0) {
+    return `Para ${date}, temos exceção de agenda cadastrada.${notePart}`;
+  }
+  return `Para ${date}, temos horário especial: ${windows.join(' | ')}.${notePart}`;
+}
+
+function mergeReplyWithOverrideNotice(replyText, notice) {
+  const base = String(replyText || '').trim();
+  if (!notice) return base;
+  if (!base) return notice;
+  if (base.toLowerCase().includes(String(notice).toLowerCase())) return base;
+  return `${base}\n\n${notice}`;
 }
 
 module.exports = (pool, app) => {
@@ -297,7 +380,12 @@ module.exports = (pool, app) => {
       }
     }
 
-    let catalog = { establishmentsBlock: '', areasBlock: '' };
+    let catalog = {
+      establishmentsBlock: '',
+      areasBlock: '',
+      establishmentRulesBlock: '',
+      dateOverridesBlock: '',
+    };
     try {
       catalog = await loadAiCatalog(pool);
     } catch (e) {
@@ -312,6 +400,8 @@ module.exports = (pool, app) => {
             ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
             : catalog.establishmentsBlock,
           areasBlock: catalog.areasBlock,
+          establishmentRulesBlock: catalog.establishmentRulesBlock || '',
+          dateOverridesBlock: catalog.dateOverridesBlock || '',
           lockedEstablishmentId:
             linkedEstablishment?.id ||
             (Number.isFinite(Number(conversation?.establishment_id))
@@ -359,6 +449,19 @@ module.exports = (pool, app) => {
         }
       }
 
+      const resolvedEstablishmentId =
+        interpretedEstablishmentId ||
+        linkedEstablishment?.id ||
+        (Number.isFinite(Number(conversation?.establishment_id))
+          ? Number(conversation.establishment_id)
+          : null);
+      let dateOverrideNotice = null;
+      const parsedDate = parsePtBrDateFromText(messageText);
+      if (resolvedEstablishmentId && parsedDate?.iso) {
+        const override = await loadDateOverride(pool, resolvedEstablishmentId, parsedDate.iso);
+        dateOverrideNotice = buildOverrideNotice(override);
+      }
+
       if (usedPersistence && inboundRow?.id) {
         try {
           await inbox.updateInboundAiFields(pool, inboundRow.id, {
@@ -403,22 +506,36 @@ module.exports = (pool, app) => {
 
       /** Escalamento humano */
       if (interpreted.action === 'falar_com_humano' && interpreted.suggested_reply) {
-        const sendResult = await sendMessage(senderNumber, interpreted.suggested_reply);
+        const handoffReply = mergeReplyWithOverrideNotice(
+          interpreted.suggested_reply,
+          dateOverrideNotice
+        );
+        const sendResult = await sendMessage(senderNumber, handoffReply);
         console.log('[WhatsApp webhook] envio automático (handoff):', sendResult);
-        await persistOutbound(interpreted.suggested_reply, 'falar_com_humano');
+        await persistOutbound(handoffReply, 'falar_com_humano');
         return res.sendStatus(200);
       }
 
       /** Menor de idade — mensagem educada */
       if (interpreted.action === 'REFUSE_MINOR' && interpreted.suggested_reply) {
-        await sendMessage(senderNumber, interpreted.suggested_reply);
-        await persistOutbound(interpreted.suggested_reply, 'REFUSE_MINOR');
+        const minorReply = mergeReplyWithOverrideNotice(
+          interpreted.suggested_reply,
+          dateOverrideNotice
+        );
+        await sendMessage(senderNumber, minorReply);
+        await persistOutbound(minorReply, 'REFUSE_MINOR');
         return res.sendStatus(200);
       }
 
       /** Processar reserva no banco */
       if (interpreted.action === 'PROCESS_RESERVATION') {
         const params = interpreted.params || {};
+        const businessValidation = applyBusinessRulesToReservationParams(params);
+        if (!businessValidation.ok) {
+          await sendMessage(senderNumber, businessValidation.message);
+          await persistOutbound(businessValidation.message, 'COLLECT_DATA');
+          return res.sendStatus(200);
+        }
         const missing = validateProcessReservationParams(params);
 
         if (missing.length > 0) {
@@ -515,6 +632,14 @@ module.exports = (pool, app) => {
             `em ${reservationRow.reservation_date} às ${String(reservationRow.reservation_time || '').slice(0, 5)}.`;
         }
 
+        // Regra de transparência comercial para Pracinha: acima de 6, só 6 assentos garantidos.
+        const isPracinha = Number(params?.establishment_id) === 8;
+        const partySize = Number(params?.quantidade_convidados);
+        if (isPracinha && Number.isFinite(partySize) && partySize > 6) {
+          confirmText +=
+            "\n\nImportante para alinhar certinho: na Pracinha, garantimos até 6 lugares sentados na reserva; acima disso, o restante do grupo é acomodado no fluxo da casa.";
+        }
+
         await sendMessage(senderNumber, confirmText);
         await persistOutbound(confirmText, 'PROCESS_RESERVATION_CONFIRM');
 
@@ -542,6 +667,7 @@ module.exports = (pool, app) => {
             `Só pra alinhar: sua reserva ainda não foi salva aqui.${mf} Me envia o que faltar que eu fecho o cadastro na hora, combinado?`;
           console.warn('[WhatsApp webhook] Substituída suggested_reply que prometia reserva sem salvar.');
         }
+        replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
         const sendResult = await sendMessage(senderNumber, replyText);
         console.log('[WhatsApp webhook] envio automático:', sendResult);
         await persistOutbound(replyText, interpreted.action || 'COLLECT_DATA');
