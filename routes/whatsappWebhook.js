@@ -301,6 +301,29 @@ function mergeReplyWithOverrideNotice(replyText, notice) {
   return `${base}\n\n${notice}`;
 }
 
+function getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate) {
+  const id = Number(establishmentId);
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return [];
+  const weekday = date.getDay();
+
+  if (id === 9) {
+    if (weekday >= 2 && weekday <= 4) return ['18:00-22:30'];
+    if (weekday === 5 || weekday === 6) return ['12:00-16:00', '17:00-22:30'];
+    if (weekday === 0) return ['12:00-16:00', '17:00-20:30'];
+    return [];
+  }
+
+  if (id === 1 || id === 8) {
+    if (weekday >= 2 && weekday <= 4) return ['18:00-01:00'];
+    if (weekday === 5 || weekday === 6) return ['18:00-03:30'];
+    if (weekday === 0) return ['12:00-21:00'];
+    return [];
+  }
+
+  return [];
+}
+
 async function loadOperatingWindowsForDate(pool, establishmentId, isoDate) {
   if (!establishmentId || !isoDate) return [];
   try {
@@ -324,7 +347,8 @@ async function loadOperatingWindowsForDate(pool, establishmentId, isoDate) {
           `${String(row.second_start_time).slice(0, 5)}-${String(row.second_end_time).slice(0, 5)}`
         );
       }
-      return windows;
+      if (windows.length > 0) return windows;
+      return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
     }
 
     const date = new Date(`${isoDate}T00:00:00`);
@@ -338,7 +362,9 @@ async function loadOperatingWindowsForDate(pool, establishmentId, isoDate) {
         LIMIT 1`,
       [establishmentId, weekday]
     );
-    if (weekly.rows.length === 0 || !weekly.rows[0].is_open) return [];
+    if (weekly.rows.length === 0 || !weekly.rows[0].is_open) {
+      return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+    }
     const row = weekly.rows[0];
     const windows = [];
     if (row.start_time && row.end_time) {
@@ -349,9 +375,10 @@ async function loadOperatingWindowsForDate(pool, establishmentId, isoDate) {
         `${String(row.second_start_time).slice(0, 5)}-${String(row.second_end_time).slice(0, 5)}`
       );
     }
-    return windows;
+    if (windows.length > 0) return windows;
+    return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
   } catch (_e) {
-    return [];
+    return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
   }
 }
 
@@ -393,6 +420,25 @@ function detectEstablishmentFromText(text, establishments = []) {
     }
   }
   return null;
+}
+
+function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentNameRaw = '') {
+  const establishmentId = Number(establishmentIdRaw);
+  const hint = String(establishmentNameRaw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
+  if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
+  if (hint.includes('pracinha')) return 8;
+  if (hint.includes('seu justino') || hint.includes('justino')) return 1;
+  if (hint.includes('highline') || hint.includes('high line')) {
+    if (Number.isFinite(highlineEnvId) && highlineEnvId > 0) return highlineEnvId;
+    if (Number.isFinite(establishmentId) && establishmentId > 0) return establishmentId;
+  }
+  return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : null;
 }
 
 function parseDateFromHistory(messageHistory) {
@@ -631,10 +677,21 @@ module.exports = (pool, app) => {
         (Number.isFinite(Number(conversation?.establishment_id))
           ? Number(conversation.establishment_id)
           : null);
+      const resolvedEstablishmentName =
+        (catalog.establishments || []).find(
+          (e) => Number(e.id) === Number(resolvedEstablishmentId)
+        )?.name ||
+        linkedEstablishment?.name ||
+        conversation?.establishment_name ||
+        '';
+      const canonicalEstablishmentId = normalizeCanonicalEstablishmentId(
+        resolvedEstablishmentId,
+        resolvedEstablishmentName
+      );
       let dateOverrideNotice = null;
       const parsedDate = parsePtBrDateFromText(messageText) || parseDateFromHistory(messageHistory);
-      if (resolvedEstablishmentId && parsedDate?.iso) {
-        const override = await loadDateOverride(pool, resolvedEstablishmentId, parsedDate.iso);
+      if (canonicalEstablishmentId && parsedDate?.iso) {
+        const override = await loadDateOverride(pool, canonicalEstablishmentId, parsedDate.iso);
         dateOverrideNotice = buildOverrideNotice(override);
       }
       const availabilityQuestion = looksLikeAvailabilityQuestion(messageText);
@@ -848,17 +905,17 @@ module.exports = (pool, app) => {
           console.warn('[WhatsApp webhook] Substituída suggested_reply que prometia reserva sem salvar.');
         }
         replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
-        if (musicQuestion && resolvedEstablishmentId && parsedDate?.iso) {
+        if (musicQuestion && canonicalEstablishmentId && parsedDate?.iso) {
           const [year, month, day] = parsedDate.iso.split('-');
           const displayDate = `${day}-${month}-${year}`;
           const estName =
-            (catalog.establishments || []).find((e) => Number(e.id) === Number(resolvedEstablishmentId))
+            (catalog.establishments || []).find((e) => Number(e.id) === Number(canonicalEstablishmentId))
               ?.name || 'a casa';
           replyText =
             `Para ${displayDate} no ${estName}, a programação musical pode variar conforme evento e operação do dia.\n\nSe quiser, eu já te passo os horários disponíveis e deixo sua reserva encaminhada.`;
         }
         if (menuQuestion) {
-          const menuUrl = getCardapioUrlByEstablishmentId(resolvedEstablishmentId);
+          const menuUrl = getCardapioUrlByEstablishmentId(canonicalEstablishmentId);
           if (menuUrl) {
             replyText =
               `Perfeito! Aqui está o cardápio: ${menuUrl}\n\nSe quiser, já te passo os melhores horários e deixo sua reserva encaminhada.`;
@@ -871,10 +928,10 @@ module.exports = (pool, app) => {
           replyText =
             'Estacionamento pode variar por casa e por dia/evento. Se você me disser a data e o estabelecimento, já te passo a melhor orientação e deixo sua reserva encaminhada.';
         }
-        if (availabilityQuestion && resolvedEstablishmentId && parsedDate?.iso) {
+        if (availabilityQuestion && canonicalEstablishmentId && parsedDate?.iso) {
           const windows = await loadOperatingWindowsForDate(
             pool,
-            resolvedEstablishmentId,
+            canonicalEstablishmentId,
             parsedDate.iso
           );
           const [year, month, day] = parsedDate.iso.split('-');
@@ -889,7 +946,7 @@ module.exports = (pool, app) => {
         } else if (availabilityQuestion && !parsedDate?.iso) {
           replyText =
             'Consigo verificar agora para você. Me fala só a data desejada (ex.: hoje, amanhã ou DD/MM) que eu já te passo os horários disponíveis e encaminho a reserva.';
-        } else if (availabilityQuestion && !resolvedEstablishmentId) {
+        } else if (availabilityQuestion && !canonicalEstablishmentId) {
           replyText =
             'Consigo verificar os horários disponíveis agora. Me confirma apenas o estabelecimento que você quer, que já te passo as opções e encaminho sua reserva.';
         }
