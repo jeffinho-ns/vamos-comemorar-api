@@ -924,7 +924,8 @@ module.exports = (pool) => {
             menu_category_bg_color, menu_category_text_color,
             menu_subcategory_bg_color, menu_subcategory_text_color,
             mobile_sidebar_bg_color, mobile_sidebar_text_color,
-            custom_seals
+            custom_seals,
+            partner_logos
         } = req.body;
         
         try {
@@ -950,10 +951,19 @@ module.exports = (pool) => {
                     customSealsValue = custom_seals;
                 }
             }
+
+            let partnerLogosValue = '[]';
+            if (partner_logos) {
+                if (Array.isArray(partner_logos)) {
+                    partnerLogosValue = JSON.stringify(partner_logos.slice(0, 5));
+                } else if (typeof partner_logos === 'string') {
+                    partnerLogosValue = partner_logos;
+                }
+            }
             
             // ✨ Query de INSERT atualizada para incluir as novas colunas
             const result = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id',
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, menu_category_bg_color, menu_category_text_color, menu_subcategory_bg_color, menu_subcategory_text_color, mobile_sidebar_bg_color, mobile_sidebar_text_color, custom_seals, partner_logos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) RETURNING id',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -964,7 +974,8 @@ module.exports = (pool) => {
                     menu_category_bg_color || null, menu_category_text_color || null,
                     menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
                     mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
-                    customSealsValue
+                    customSealsValue,
+                    partnerLogosValue
                 ]
             );
             
@@ -1021,6 +1032,23 @@ module.exports = (pool) => {
         } else {
             normalized.custom_seals = [];
         }
+
+        const partnerLogosRaw = bar.partner_logos;
+        if (partnerLogosRaw !== undefined && partnerLogosRaw !== null && partnerLogosRaw !== '') {
+            try {
+                normalized.partner_logos =
+                    typeof partnerLogosRaw === 'string'
+                        ? JSON.parse(partnerLogosRaw)
+                        : partnerLogosRaw;
+                if (!Array.isArray(normalized.partner_logos)) {
+                    normalized.partner_logos = [];
+                }
+            } catch (e) {
+                normalized.partner_logos = [];
+            }
+        } else {
+            normalized.partner_logos = [];
+        }
         
         // Remover campos duplicados em minúsculas
         delete normalized.logourl;
@@ -1074,7 +1102,8 @@ module.exports = (pool) => {
             menu_category_bg_color, menu_category_text_color,
             menu_subcategory_bg_color, menu_subcategory_text_color,
             mobile_sidebar_bg_color, mobile_sidebar_text_color,
-            custom_seals
+            custom_seals,
+            partner_logos
         } = req.body;
         
         try {
@@ -1100,10 +1129,19 @@ module.exports = (pool) => {
                     customSealsValue = custom_seals;
                 }
             }
+
+            let partnerLogosValue = '[]';
+            if (partner_logos) {
+                if (Array.isArray(partner_logos)) {
+                    partnerLogosValue = JSON.stringify(partner_logos.slice(0, 5));
+                } else if (typeof partner_logos === 'string') {
+                    partnerLogosValue = partner_logos;
+                }
+            }
             
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18, menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20, mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22, custom_seals = $23 WHERE id = $24',
+                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18, menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20, mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22, custom_seals = $23, partner_logos = $24 WHERE id = $25',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
@@ -1115,6 +1153,7 @@ module.exports = (pool) => {
                     menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
                     mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
                     customSealsValue,
+                    partnerLogosValue,
                     id
                 ]
             );

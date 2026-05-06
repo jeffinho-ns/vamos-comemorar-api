@@ -8,7 +8,8 @@ module.exports = (pool) => {
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
             // ✨ Adicionados os novos campos
-            facebook, instagram, whatsapp 
+            facebook, instagram, whatsapp,
+            partner_logos
         } = req.body;
         
         try {
@@ -25,16 +26,26 @@ module.exports = (pool) => {
                     coverImagesValue = coverImages;
                 }
             }
+
+            let partnerLogosValue = '[]';
+            if (partner_logos) {
+                if (Array.isArray(partner_logos)) {
+                    partnerLogosValue = JSON.stringify(partner_logos.slice(0, 5));
+                } else if (typeof partner_logos === 'string') {
+                    partnerLogosValue = partner_logos;
+                }
+            }
             
             // ✨ Query de INSERT atualizada para incluir as novas colunas
             const result = await pool.query(
-                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id',
+                'INSERT INTO bars (name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, reviewsCount, latitude, longitude, amenities, popupImageUrl, facebook, instagram, whatsapp, partner_logos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
                     JSON.stringify(amenities), popupImageUrl, 
                     // ✨ Adicionados os valores dos novos campos
-                    facebook || null, instagram || null, whatsapp || null
+                    facebook || null, instagram || null, whatsapp || null,
+                    partnerLogosValue
                 ]
             );
             
@@ -78,6 +89,23 @@ module.exports = (pool) => {
             }
         } else {
             normalized.coverImages = [];
+        }
+
+        const partnerLogosRaw = bar.partner_logos;
+        if (partnerLogosRaw !== undefined && partnerLogosRaw !== null && partnerLogosRaw !== '') {
+            try {
+                normalized.partner_logos =
+                    typeof partnerLogosRaw === 'string'
+                        ? JSON.parse(partnerLogosRaw)
+                        : partnerLogosRaw;
+                if (!Array.isArray(normalized.partner_logos)) {
+                    normalized.partner_logos = [];
+                }
+            } catch (e) {
+                normalized.partner_logos = [];
+            }
+        } else {
+            normalized.partner_logos = [];
         }
         
         // Remover campos duplicados em minúsculas
@@ -125,7 +153,8 @@ module.exports = (pool) => {
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
             // ✨ Adicionados os novos campos
-            facebook, instagram, whatsapp
+            facebook, instagram, whatsapp,
+            partner_logos
         } = req.body;
         
         try {
@@ -143,15 +172,26 @@ module.exports = (pool) => {
                 }
             }
 
+            let partnerLogosValue = '[]';
+            if (partner_logos) {
+                if (Array.isArray(partner_logos)) {
+                    partnerLogosValue = JSON.stringify(partner_logos.slice(0, 5));
+                } else if (typeof partner_logos === 'string') {
+                    partnerLogosValue = partner_logos;
+                }
+            }
+
             // ✨ Query de UPDATE atualizada para incluir as novas colunas
             await pool.query(
-                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16 WHERE id = $17',
+                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16, partner_logos = $17 WHERE id = $18',
                 [
                     name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
                     address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
                     JSON.stringify(amenities), popupImageUrl, 
                     // ✨ Adicionados os valores dos novos campos
-                    facebook || null, instagram || null, whatsapp || null, id
+                    facebook || null, instagram || null, whatsapp || null,
+                    partnerLogosValue,
+                    id
                 ]
             );
             
