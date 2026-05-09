@@ -2,6 +2,32 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 
+/** Mesmas regras que `app/utils/establishmentAccessRules.ts` no frontend. */
+function normalizeDiacritics(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isHighlineOrSeuJustinoGroupName(name) {
+  if (!name) return false;
+  const n = normalizeDiacritics(name);
+  if (n.includes('sitio') && n.includes('ilha')) return false;
+  if (n.includes('high')) return true;
+  if (n.includes('seu justino')) return true;
+  if (n.includes('pracinha')) return true;
+  return false;
+}
+
+const REGIANE_RESTRICTED_EMAIL = 'regianebrunno@gmail.com';
+
+function filterEstablishmentPermissionsByEmail(email, rows) {
+  const e = String(email || '').trim().toLowerCase();
+  if (e !== REGIANE_RESTRICTED_EMAIL) return rows;
+  return rows.filter((r) => isHighlineOrSeuJustinoGroupName(r.establishment_name));
+}
+
 module.exports = (pool) => {
   /**
    * @route   GET /api/establishment-permissions
@@ -94,7 +120,7 @@ module.exports = (pool) => {
       `;
 
       const result = await pool.query(query, [userId]);
-      const rows = result.rows;
+      const rows = filterEstablishmentPermissionsByEmail(userEmail, result.rows);
 
       res.json({
         success: true,
