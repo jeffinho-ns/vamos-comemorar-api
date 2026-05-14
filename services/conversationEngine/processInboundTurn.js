@@ -230,6 +230,16 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     }
   }
 
+  if (usedPersistence && conversation?.id && conversationState?.currentStep === 'handoff') {
+    try {
+      conversationState = await stateManager.reopenFromHandoff(pool, conversation.id, {
+        lockedEstablishmentId,
+      });
+    } catch (reopenError) {
+      console.warn('[conversationEngine] falha ao reabrir sessão após handoff:', reopenError.message);
+    }
+  }
+
   if (conversationState && isTerminalStep(conversationState.currentStep)) {
     console.log('[conversationEngine] sessão em passo terminal:', conversationState.currentStep);
     return;

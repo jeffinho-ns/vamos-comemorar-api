@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const { sendMessage } = require('../services/whatsappService');
 const inbox = require('../services/whatsappInboxRepository');
+const stateManager = require('../services/stateManager/stateManager');
 
 module.exports = (pool, app) => {
   const router = express.Router();
@@ -239,6 +240,15 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
       const conv = await inbox.clearHumanTakeover(pool, waId);
+      if (existing?.id) {
+        try {
+          await stateManager.reopenFromHandoff(pool, existing.id, {
+            lockedEstablishmentId: existing.establishment_id || null,
+          });
+        } catch (stateError) {
+          console.warn('[whatsappAdmin] resume: falha ao reabrir estado da sessão:', stateError.message);
+        }
+      }
       emitInbox({ type: 'resume', conversation: conv });
       return res.json({ ok: true, conversation: conv });
     } catch (e) {

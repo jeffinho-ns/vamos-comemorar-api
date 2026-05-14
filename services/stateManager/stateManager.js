@@ -259,6 +259,32 @@ async function markHandoff(pool, conversationId, { intent = 'anti_loop_handoff' 
   });
 }
 
+async function reopenFromHandoff(pool, conversationId, options = {}) {
+  const current = await getByConversationId(pool, conversationId);
+  if (!current) {
+    throw new Error('Sessão de estado não encontrada para reopenFromHandoff.');
+  }
+
+  const snapshot = buildStateSnapshot(
+    {
+      ...current,
+      currentStep: 'greeting',
+      handoffRecommended: false,
+      retryCount: 0,
+    },
+    options
+  );
+
+  return persistState(pool, conversationId, {
+    currentStep: snapshot.currentStep,
+    missingFields: snapshot.missingFields,
+    collectedFields: snapshot.collectedFields,
+    handoffRecommended: false,
+    retryCount: 0,
+    lastIntent: null,
+  });
+}
+
 async function markCompleted(pool, conversationId) {
   return persistState(pool, conversationId, {
     currentStep: 'completed',
@@ -302,6 +328,7 @@ module.exports = {
   recordValidationFailure,
   markStepCompleted,
   markHandoff,
+  reopenFromHandoff,
   markCompleted,
   recordCommercialSignals,
   markRecoveryPending,
