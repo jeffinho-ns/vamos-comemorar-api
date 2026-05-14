@@ -1,8 +1,4 @@
-const {
-  buildDefaultWeekly,
-  formatDayWindows,
-  getDefaultWindowsForEstablishmentName,
-} = require('./operationalHours/defaultWeeklySchedule');
+const { getDefaultWindowsForEstablishmentName } = require('./operationalHours/defaultWeeklySchedule');
 
 const WEEKDAY_LABELS_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
