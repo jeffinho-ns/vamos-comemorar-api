@@ -45,3 +45,10 @@ test('looksLikeFreshReservationStart reconhece reinício de reserva', () => {
   );
   assert.equal(looksLikeFreshReservationStart('17:00'), false);
 });
+
+const { normalizeCanonicalEstablishmentId } = require('../../services/whatsappReservationService');
+
+test('normalizeCanonicalEstablishmentId mapeia o bar Reserva Rooftop para o place 9', () => {
+  assert.equal(normalizeCanonicalEstablishmentId(5), 9);
+  assert.equal(normalizeCanonicalEstablishmentId(9), 9);
+});

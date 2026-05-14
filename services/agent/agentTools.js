@@ -4,6 +4,7 @@ const {
   createReservationInternal,
   buildGuestListSecondMessage,
   ageFromIsoDate,
+  normalizeCanonicalEstablishmentId,
 } = require('../whatsappReservationService');
 const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
 
@@ -142,7 +143,7 @@ function getAgentToolDefinitions() {
 }
 
 async function consultarFaqEstabelecimento(pool, args = {}) {
-  const establishmentId = Number(args.estabelecimento_id);
+  const establishmentId = Number(normalizeCanonicalEstablishmentId(args.estabelecimento_id));
   const topicCandidates = buildFaqTopicCandidates(args.topico);
   const topic = topicCandidates[0] || null;
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !topic) {
@@ -201,7 +202,7 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
 }
 
 async function verificarDisponibilidade(pool, args = {}) {
-  const establishmentId = Number(args.estabelecimento_id);
+  const establishmentId = Number(normalizeCanonicalEstablishmentId(args.estabelecimento_id));
   const reservationDate = String(args.data || '').slice(0, 10);
   const partySize = Number(args.quantidade_pessoas);
 
@@ -251,10 +252,13 @@ async function verificarDisponibilidade(pool, args = {}) {
 }
 
 async function resolveAreaId(pool, establishmentId, areaValue) {
-  const numeric = Number(areaValue);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric;
-
   const areas = await loadActiveAreas(pool, establishmentId);
+  const numeric = Number(areaValue);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const allowed = areas.find((area) => Number(area.id) === numeric);
+    return allowed ? numeric : null;
+  }
+
   const normalized = String(areaValue || '')
     .toLowerCase()
     .normalize('NFD')
@@ -270,7 +274,7 @@ async function resolveAreaId(pool, establishmentId, areaValue) {
 }
 
 async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
-  const establishmentId = Number(args.estabelecimento_id);
+  const establishmentId = normalizeCanonicalEstablishmentId(args.estabelecimento_id);
   const reservationDate = String(args.data || '').slice(0, 10);
   const reservationTime = String(args.horario || '').trim();
   const partySize = Number(args.quantidade_pessoas);

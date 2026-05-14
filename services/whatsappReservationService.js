@@ -111,12 +111,18 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
   // - Reserva Rooftop: 9
   // - Highline: configurar via HIGHLINE_ESTABLISHMENT_ID (evita hardcode errado)
   const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
+  const knownAliases = {
+    5: 9, // bar Reserva Rooftop -> place Reserva Rooftop
+  };
   if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
   if (hint.includes('pracinha')) return 8;
   if (hint.includes('seu justino') || hint.includes('justino')) return 1;
   if (hint.includes('highline') || hint.includes('high line')) {
     if (Number.isFinite(highlineEnvId) && highlineEnvId > 0) return highlineEnvId;
     return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : establishmentIdRaw;
+  }
+  if (Number.isFinite(establishmentId) && knownAliases[establishmentId]) {
+    return knownAliases[establishmentId];
   }
 
   // Fallback por ID quando o hint não vier.
@@ -139,20 +145,6 @@ async function loadAiCatalog(pool) {
     }));
   } catch (e) {
     console.warn('[whatsappReservationService] places:', e.message);
-  }
-
-  try {
-    const bars = await pool.query(`SELECT id, name FROM bars ORDER BY name ASC`);
-    const barRows = bars.rows || [];
-    const seen = new Set(establishments.map((e) => e.id));
-    for (const r of barRows) {
-      if (!seen.has(r.id)) {
-        establishments.push({ id: r.id, name: r.name, source: 'bar' });
-        seen.add(r.id);
-      }
-    }
-  } catch (e) {
-    console.warn('[whatsappReservationService] bars:', e.message);
   }
 
   let areas = [];

@@ -6,6 +6,7 @@ const NotificationService = require('../services/notificationService');
 const authenticateToken = require('../middleware/auth');
 const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
+const { loadActiveRestaurantAreas } = require('../services/conversationEngine/helpers');
 
 module.exports = (pool) => {
   let reservationPolicyTableReady = false;
@@ -787,6 +788,25 @@ module.exports = (pool) => {
         return res.status(400).json({
           success: false,
           error: `establishment_id inválido: ${establishment_id}. Deve ser um número maior que 0.`
+        });
+      }
+
+      const placeCheck = await pool.query(
+        'SELECT id FROM places WHERE id = $1 LIMIT 1',
+        [establishmentIdNumber]
+      );
+      if (!placeCheck.rows[0]) {
+        return res.status(400).json({
+          success: false,
+          error: 'establishment_id inválido ou fora do cadastro operacional.',
+        });
+      }
+
+      const allowedAreas = await loadActiveRestaurantAreas(pool, establishmentIdNumber);
+      if (!allowedAreas.some((area) => Number(area.id) === areaIdNumber)) {
+        return res.status(400).json({
+          success: false,
+          error: 'area_id não pertence ao estabelecimento informado.',
         });
       }
       
