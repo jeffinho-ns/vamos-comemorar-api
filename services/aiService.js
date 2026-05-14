@@ -30,9 +30,18 @@ function buildBrainSystemPrompt(context) {
     context?.establishmentRulesBlock || '(sem regras operacionais carregadas)';
   const dateOverridesBlock =
     context?.dateOverridesBlock || '(sem exceções de data carregadas)';
+  const conversationStep = context?.conversationStep
+    ? String(context.conversationStep).trim()
+    : '';
+  const missingFieldsBlock = Array.isArray(context?.missingFields)
+    ? context.missingFields.join(', ')
+    : '';
+  const stateMachineRule = conversationStep
+    ? `\nMÁQUINA DE ESTADOS (backend decide o funil):\n- Passo atual: ${conversationStep}.\n- Campos pendentes: ${missingFieldsBlock || '(nenhum)'}.\n- Extraia dados da mensagem no JSON, mas não assuma etapas já confirmadas pelo sistema.`
+    : '';
 
   return `Você é a Host Digital do Agilizaiapp. Você não é uma coletora de dados: é uma concierge comercial de alto padrão, com foco em converter reservas, resolver dúvidas profundas e encantar o cliente no WhatsApp. Use português do Brasil.
-
+${stateMachineRule}
 MISSÃO COMERCIAL:
 - Entender intenção, remover objeções e conduzir até reserva concluída.
 - Ser consultiva: responder FAQ com segurança e SEMPRE puxar o próximo passo da reserva.
