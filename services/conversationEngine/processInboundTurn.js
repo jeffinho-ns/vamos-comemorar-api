@@ -36,11 +36,14 @@ const {
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
   looksLikeAreaQuestion,
+  looksLikePetQuestion,
   looksLikeRepeatedDataComplaint,
   detectEstablishmentFromText,
   looksLikeFreshReservationStart,
   resolveEstablishmentForTurn,
   buildAvailabilityReplyText,
+  buildAreaListingReplyText,
+  buildPetPolicyReplyText,
   normalizeCanonicalEstablishmentId,
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,
@@ -127,6 +130,53 @@ async function loadActiveAreas(pool, establishmentId = null) {
   query += ' ORDER BY name ASC LIMIT 120';
   const result = await pool.query(query, params);
   return result.rows || [];
+}
+
+function getEstablishmentNameFromCatalog(catalog, establishmentId) {
+  return (
+    (catalog.establishments || []).find((item) => Number(item.id) === Number(establishmentId))?.name ||
+    'a casa'
+  );
+}
+
+async function buildOperationalInfoReply(pool, { messageText, establishmentId, reservationDate, catalog }) {
+  if (!establishmentId) return null;
+
+  const establishmentName = getEstablishmentNameFromCatalog(catalog, establishmentId);
+  const blocks = [];
+
+  if (looksLikeAvailabilityQuestion(messageText) && reservationDate?.iso) {
+    const windows = await businessRulesEngine.getOperatingWindowsForDate(
+      pool,
+      establishmentId,
+      reservationDate.iso
+    );
+    const [year, month, day] = reservationDate.iso.split('-');
+    blocks.push(
+      buildAvailabilityReplyText({
+        establishmentName,
+        displayDate: `${day}-${month}-${year}`,
+        windows,
+      })
+    );
+  }
+
+  if (looksLikeAreaQuestion(messageText)) {
+    const activeAreas = await loadActiveAreas(pool, establishmentId);
+    blocks.push(
+      buildAreaListingReplyText({
+        establishmentName,
+        areaNames: activeAreas.map((area) => area.name),
+      })
+    );
+  }
+
+  if (looksLikePetQuestion(messageText)) {
+    blocks.push(buildPetPolicyReplyText({ establishmentName }));
+  }
+
+  if (blocks.length === 0) return null;
+  return blocks.join('\n\n');
 }
 
 async function applyValidatedParamsToState(pool, conversationId, interpretedParams, options) {
@@ -255,6 +305,29 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     }
   }
 
+  if (
+    usedPersistence &&
+    conversation?.id &&
+    conversationState?.currentStep === 'completed' &&
+    !isConversationSafetyBlockEnabled()
+  ) {
+    try {
+      await inbox.clearHumanTakeover(pool, waId);
+      conversationState = stateManager.buildStateSnapshot(
+        await stateManager.getByConversationId(pool, conversation.id),
+        { lockedEstablishmentId }
+      );
+      await stateManager.persistState(pool, conversation.id, {
+        currentStep: conversationState.currentStep,
+        missingFields: conversationState.missingFields,
+        handoffRecommended: false,
+        retryCount: 0,
+      });
+    } catch (reopenCompletedError) {
+      console.warn('[conversationEngine] falha ao reabrir sessão após completed:', reopenCompletedError.message);
+    }
+  }
+
   if (usedPersistence && !isConversationSafetyBlockEnabled()) {
     try {
       await inbox.clearHumanTakeover(pool, waId);
@@ -272,11 +345,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     return;
   }
 
-  if (
-    conversationState &&
-    isTerminalStep(conversationState.currentStep) &&
-    (isConversationSafetyBlockEnabled() || conversationState.currentStep !== 'handoff')
-  ) {
+  if (conversationState && isTerminalStep(conversationState.currentStep) && isConversationSafetyBlockEnabled()) {
     console.log('[conversationEngine] sessão em passo terminal:', conversationState.currentStep);
     return;
   }
@@ -530,25 +599,15 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       Number(conversationState?.collectedFields?.establishment_id) ||
       null;
 
-    if (looksLikeAvailabilityQuestion(messageText) && availabilityEstablishmentId && parsedDateForAvailability?.iso) {
-      const windows = await businessRulesEngine.getOperatingWindowsForDate(
-        pool,
-        availabilityEstablishmentId,
-        parsedDateForAvailability.iso
-      );
-      const [year, month, day] = parsedDateForAvailability.iso.split('-');
-      const displayDate = `${day}-${month}-${year}`;
-      const establishmentName =
-        (catalog.establishments || []).find(
-          (item) => Number(item.id) === Number(availabilityEstablishmentId)
-        )?.name || 'a casa';
-      const availabilityReply = buildAvailabilityReplyText({
-        establishmentName,
-        displayDate,
-        windows,
-      });
-      await outboundGateway.sendText(waId, availabilityReply);
-      await persistOutbound(availabilityReply, 'AVAILABILITY_INFO');
+    const operationalReplyEarly = await buildOperationalInfoReply(pool, {
+      messageText,
+      establishmentId: availabilityEstablishmentId,
+      reservationDate: parsedDateForAvailability,
+      catalog,
+    });
+    if (operationalReplyEarly) {
+      await outboundGateway.sendText(waId, operationalReplyEarly);
+      await persistOutbound(operationalReplyEarly, 'OPERATIONAL_INFO');
       return;
     }
 
@@ -951,7 +1010,15 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
 
     replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
 
-    if (looksLikeMenuQuestion(messageText)) {
+    const operationalReply = await buildOperationalInfoReply(pool, {
+      messageText,
+      establishmentId: canonicalEstablishmentId,
+      reservationDate: parsedDate,
+      catalog,
+    });
+    if (operationalReply) {
+      replyText = operationalReply;
+    } else if (looksLikeMenuQuestion(messageText)) {
       const menuUrl = getCardapioUrlByEstablishmentId(canonicalEstablishmentId);
       replyText = menuUrl
         ? `Perfeito! Aqui está o cardápio: ${menuUrl}\n\nSe quiser, já te passo os melhores horários e deixo sua reserva encaminhada.`
@@ -962,18 +1029,6 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       replyText = summary
         ? `Você tem razão — já anotei aqui: ${summary}. Para seguir, ainda preciso de ${pending || 'mais alguns detalhes'}.`
         : `Você tem razão — vou seguir com o que já conversamos. Me confirma só o próximo dado: ${pending || 'quantidade de pessoas'}.`;
-    } else if (looksLikeAreaQuestion(messageText) && canonicalEstablishmentId) {
-      const activeAreas = await loadActiveAreas(pool, canonicalEstablishmentId);
-      if (activeAreas.length > 0) {
-        const areaNames = activeAreas.map((area) => area.name).join(', ');
-        const establishmentName =
-          (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
-            ?.name || 'a casa';
-        replyText = `No ${establishmentName}, as áreas ativas são: ${areaNames}.\n\nMe diz qual você prefere e seguimos com a reserva.`;
-      } else {
-        replyText =
-          'Ainda não tenho a lista de áreas carregada para essa casa. Se quiser, já seguimos com a reserva e confirmo a área com você.';
-      }
     } else if (looksLikeParkingQuestion(messageText)) {
       if (canonicalEstablishmentId && parsedDate?.iso) {
         const establishmentName =
@@ -992,22 +1047,6 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
         (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
           ?.name || 'a casa';
       replyText = `Para ${displayDate} no ${establishmentName}, a programação musical pode variar conforme evento e operação do dia.\n\nSe quiser, eu já te passo os horários disponíveis e deixo sua reserva encaminhada.`;
-    } else if (looksLikeAvailabilityQuestion(messageText) && canonicalEstablishmentId && parsedDate?.iso) {
-      const windows = await businessRulesEngine.getOperatingWindowsForDate(
-        pool,
-        canonicalEstablishmentId,
-        parsedDate.iso
-      );
-      const [year, month, day] = parsedDate.iso.split('-');
-      const displayDate = `${day}-${month}-${year}`;
-      const establishmentName =
-        (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
-          ?.name || 'a casa';
-      replyText = buildAvailabilityReplyText({
-        establishmentName,
-        displayDate,
-        windows,
-      });
     } else if (looksLikeAvailabilityQuestion(messageText) && !parsedDate?.iso) {
       replyText =
         'Consigo verificar agora para você. Me fala só a data desejada (ex.: hoje, amanhã ou DD/MM) que eu já te passo os horários disponíveis e encaminho a reserva.';
@@ -1020,6 +1059,14 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     await persistOutbound(replyText, interpreted.action || 'COLLECT_DATA');
   } catch (error) {
     console.error('[conversationEngine] erro ao processar turno:', error.message);
+    try {
+      const fallback =
+        'Tive um instante por aqui. Pode repetir sua última mensagem que eu continuo sua reserva com o que faltava?';
+      await outboundGateway.sendText(waId, fallback);
+      await persistOutbound(fallback, 'ENGINE_ERROR');
+    } catch (sendError) {
+      console.warn('[conversationEngine] falha ao enviar fallback de erro:', sendError.message);
+    }
   }
 }
 

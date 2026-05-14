@@ -170,8 +170,12 @@ function mergeReplyWithOverrideNotice(replyText, notice) {
 }
 
 function looksLikeAvailabilityQuestion(text) {
-  const normalized = String(text || '').toLowerCase();
-  return /hor[aá]ri|que horas|dispon[ií]vel|disponibilidade/.test(normalized);
+  const normalized = normalizeInboundText(text);
+  const asksAboutAreaOnly =
+    /\b(areas?|ambientes?|setores?)\b/.test(normalized) &&
+    !/\bhor[aá]ri|horarios?\b/.test(normalized);
+  if (asksAboutAreaOnly) return false;
+  return /\bhor[aá]ri|horarios?\b|disponibilidade/.test(normalized);
 }
 
 function looksLikeMusicQuestion(text) {
@@ -190,11 +194,22 @@ function looksLikeParkingQuestion(text) {
 }
 
 function looksLikeAreaQuestion(text) {
-  const normalized = String(text || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  return /\bquais?\s+(areas?|ambientes?|setores?)\b|\bqual\s+(area|ambiente|setor)\b/.test(normalized);
+  const normalized = normalizeInboundText(text);
+  return (
+    /\bquais?\s+(areas?|ambientes?|setores?)\b/.test(normalized) ||
+    /\bqual\s+(area|ambiente|setor)\b/.test(normalized) ||
+    /\b(me)?\s?informa.{0,24}areas\b/.test(normalized) ||
+    /\bareas?.{0,24}dispon/.test(normalized) ||
+    /\btem\s+area/.test(normalized)
+  );
+}
+
+function looksLikePetQuestion(text) {
+  const normalized = normalizeInboundText(text);
+  return (
+    /\b(bolo|bichon|pet|cachorro|cao|cães?)\b/.test(normalized) &&
+    /\b(lev|levar|traz|pode|entra)\b/.test(normalized)
+  );
 }
 
 function looksLikeRepeatedDataComplaint(text) {
@@ -245,9 +260,21 @@ function detectEstablishmentFromText(text, establishments = []) {
 
 function looksLikeFreshReservationStart(text) {
   const normalized = normalizeInboundText(text);
-  return /\b(nova reserva|quero reservar|fazer uma reserva|outra reserva|outro estabelecimento)\b/.test(
+  return /\b(nova reserva|quero reservar|fazer uma reserva|outra reserva|outro estabelecimento|vamos tentar de novo|vamos comecar de novo)\b/.test(
     normalized
   );
+}
+
+function buildAreaListingReplyText({ establishmentName, areaNames = [] }) {
+  if (areaNames.length > 0) {
+    return `No ${establishmentName}, as áreas ativas são: ${areaNames.join(', ')}.\n\nMe diz qual você prefere e seguimos com a reserva.`;
+  }
+  return `Ainda não tenho a lista de áreas carregada para ${establishmentName}. Se quiser, já seguimos com a reserva e confirmo a área com você.`;
+}
+
+function buildPetPolicyReplyText({ establishmentName }) {
+  const place = establishmentName ? ` no ${establishmentName}` : '';
+  return `Sobre levar bichoos ou pets${place}, a política pode variar conforme a casa e o evento. Posso confirmar a orientação com a equipe e seguimos com sua reserva.`;
 }
 
 function resolveEstablishmentForTurn({
@@ -344,11 +371,14 @@ module.exports = {
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
   looksLikeAreaQuestion,
+  looksLikePetQuestion,
   looksLikeRepeatedDataComplaint,
   detectEstablishmentFromText,
   looksLikeFreshReservationStart,
   resolveEstablishmentForTurn,
   buildAvailabilityReplyText,
+  buildAreaListingReplyText,
+  buildPetPolicyReplyText,
   normalizeCanonicalEstablishmentId,
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,
