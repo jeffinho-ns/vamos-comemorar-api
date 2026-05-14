@@ -54,6 +54,29 @@ app.use((req, res, next) => {
   next();
 });
 
+const validateMetaWebhookSignature = require('./middleware/validateMetaWebhookSignature');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+
+app.use(
+  '/api/webhooks/whatsapp',
+  express.raw({ type: 'application/json', limit: '5mb' }),
+  validateMetaWebhookSignature,
+  (req, res, next) => {
+    if (req.method === 'GET') {
+      return next();
+    }
+    if (Buffer.isBuffer(req.body)) {
+      try {
+        req.body = JSON.parse(req.body.toString('utf8'));
+      } catch (_parseError) {
+        return res.status(400).send('Invalid JSON');
+      }
+    }
+    return next();
+  },
+  whatsappWebhookRoutes(pool, app)
+);
+
 app.use(express.json({ limit: '100mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '100mb' }));
 
@@ -128,7 +151,6 @@ const establishmentPermissionsRoutes = require('./routes/establishmentPermission
 const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
-const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 const whatsappAdminRoutes = require('./routes/whatsappAdmin');
 
 
@@ -201,9 +223,6 @@ app.use('/api/rooftop', rooftopConductionRoutes(pool));
 app.use('/api/relatorios', relatoriosRoutes);
 // Conteúdo público de imagens (para permitir CDN/cache sem vazar tokens de download)
 app.use('/public', publicImagesRoutes);
-// Webhook público do WhatsApp (Meta)
-app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes(pool, app));
-
 // Rotas do sistema avançado de Promoters
 const promotersAdvancedRoutes = require('./routes/promotersAdvanced');
 app.use('/api/v1/promoters', promotersAdvancedRoutes(pool));
