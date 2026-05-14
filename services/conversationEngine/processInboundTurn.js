@@ -35,6 +35,9 @@ const {
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
   detectEstablishmentFromText,
+  looksLikeFreshReservationStart,
+  resolveEstablishmentForTurn,
+  buildAvailabilityReplyText,
   normalizeCanonicalEstablishmentId,
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,
@@ -189,13 +192,8 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     body: messageText,
   });
 
-  if (usedPersistence && (await inbox.isHumanTakeoverActive(pool, waId))) {
-    console.log('[conversationEngine] Handoff humano ativo — IA não responde automaticamente.');
-    return;
-  }
-
   let conversationState = null;
-  const lockedEstablishmentId =
+  let lockedEstablishmentId =
     linkedEstablishment?.id ||
     (Number.isFinite(Number(conversation?.establishment_id)) ? Number(conversation.establishment_id) : null);
 
@@ -232,12 +230,18 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
 
   if (usedPersistence && conversation?.id && conversationState?.currentStep === 'handoff') {
     try {
+      await inbox.clearHumanTakeover(pool, waId);
       conversationState = await stateManager.reopenFromHandoff(pool, conversation.id, {
         lockedEstablishmentId,
       });
     } catch (reopenError) {
       console.warn('[conversationEngine] falha ao reabrir sessão após handoff:', reopenError.message);
     }
+  }
+
+  if (usedPersistence && (await inbox.isHumanTakeoverActive(pool, waId))) {
+    console.log('[conversationEngine] Handoff humano ativo — IA não responde automaticamente.');
+    return;
   }
 
   if (conversationState && isTerminalStep(conversationState.currentStep)) {
@@ -264,6 +268,78 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     catalog = await loadAiCatalog(pool);
   } catch (catalogError) {
     console.warn('[conversationEngine] catálogo IA:', catalogError.message);
+  }
+
+  const explicitEstablishmentInMessage = detectEstablishmentFromText(
+    messageText,
+    catalog.establishments || []
+  );
+  let activeEstablishmentId = lockedEstablishmentId;
+
+  if (usedPersistence && conversation?.id && looksLikeFreshReservationStart(messageText)) {
+    try {
+      conversationState = await stateManager.getByConversationId(pool, conversation.id);
+      conversationState = stateManager.buildStateSnapshot(
+        {
+          ...conversationState,
+          collectedFields: {},
+          completedSteps: [],
+          retryCount: 0,
+          handoffRecommended: false,
+        },
+        { lockedEstablishmentId: explicitEstablishmentInMessage ? null : lockedEstablishmentId }
+      );
+      await stateManager.persistState(pool, conversation.id, {
+        collectedFields: conversationState.collectedFields,
+        missingFields: conversationState.missingFields,
+        currentStep: conversationState.currentStep,
+        completedSteps: [],
+        retryCount: 0,
+        handoffRecommended: false,
+      });
+      activeEstablishmentId = explicitEstablishmentInMessage || linkedEstablishment?.id || null;
+    } catch (resetError) {
+      console.warn('[conversationEngine] falha ao reiniciar coleta da reserva:', resetError.message);
+    }
+  }
+
+  const resolvedEstablishmentId = resolveEstablishmentForTurn({
+    messageText,
+    messageHistory,
+    establishments: catalog.establishments || [],
+    lockedEstablishmentId: activeEstablishmentId,
+    conversationEstablishmentId: Number.isFinite(Number(conversation?.establishment_id))
+      ? Number(conversation.establishment_id)
+      : null,
+    collectedFields: conversationState?.collectedFields || {},
+  });
+
+  if (resolvedEstablishmentId && usedPersistence && conversation?.id) {
+    try {
+      const mergeOptions = explicitEstablishmentInMessage
+        ? {}
+        : { lockedEstablishmentId: activeEstablishmentId };
+      conversationState = await stateManager.mergeCollectedFields(
+        pool,
+        conversation.id,
+        { establishment_id: resolvedEstablishmentId },
+        mergeOptions
+      );
+      activeEstablishmentId = resolvedEstablishmentId;
+      if (explicitEstablishmentInMessage) {
+        conversation = await inbox.setConversationEstablishment(pool, waId, resolvedEstablishmentId);
+        lockedEstablishmentId = resolvedEstablishmentId;
+      }
+      conversationState = stateManager.buildStateSnapshot(conversationState, {
+        lockedEstablishmentId: explicitEstablishmentInMessage
+          ? resolvedEstablishmentId
+          : activeEstablishmentId,
+      });
+    } catch (mergeError) {
+      console.warn('[conversationEngine] falha ao sincronizar estabelecimento:', mergeError.message);
+    }
+  } else if (resolvedEstablishmentId) {
+    activeEstablishmentId = resolvedEstablishmentId;
   }
 
   const operationalProfile = await getProfileForPrompt(pool, waId);
@@ -388,6 +464,40 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       }
     }
 
+    const parsedDateForAvailability =
+      parsePtBrDateFromText(messageText) ||
+      parseDateFromHistory(messageHistory) ||
+      (conversationState?.collectedFields?.reservation_date
+        ? { iso: conversationState.collectedFields.reservation_date }
+        : null);
+    const availabilityEstablishmentId =
+      activeEstablishmentId ||
+      resolvedEstablishmentId ||
+      Number(conversationState?.collectedFields?.establishment_id) ||
+      null;
+
+    if (looksLikeAvailabilityQuestion(messageText) && availabilityEstablishmentId && parsedDateForAvailability?.iso) {
+      const windows = await businessRulesEngine.getOperatingWindowsForDate(
+        pool,
+        availabilityEstablishmentId,
+        parsedDateForAvailability.iso
+      );
+      const [year, month, day] = parsedDateForAvailability.iso.split('-');
+      const displayDate = `${day}-${month}-${year}`;
+      const establishmentName =
+        (catalog.establishments || []).find(
+          (item) => Number(item.id) === Number(availabilityEstablishmentId)
+        )?.name || 'a casa';
+      const availabilityReply = buildAvailabilityReplyText({
+        establishmentName,
+        displayDate,
+        windows,
+      });
+      await outboundGateway.sendText(waId, availabilityReply);
+      await persistOutbound(availabilityReply, 'AVAILABILITY_INFO');
+      return;
+    }
+
     let interpreted;
     if (!localExtraction.needsLlm && Object.keys(localExtraction.fields).length > 0) {
       interpreted = {
@@ -405,7 +515,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
             ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
             : catalog.establishmentsBlock,
           areasBlock: catalog.areasBlock,
-          lockedEstablishmentId,
+          lockedEstablishmentId: activeEstablishmentId,
           lockedEstablishmentName:
             linkedEstablishment?.name ||
             (conversation?.establishment_name ? String(conversation.establishment_name) : null),
@@ -426,10 +536,15 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       };
     }
 
-    if (lockedEstablishmentId) {
+    const shouldHonorLockedEstablishment =
+      activeEstablishmentId &&
+      !explicitEstablishmentInMessage &&
+      !detectEstablishmentFromText(messageText, catalog.establishments || []);
+
+    if (shouldHonorLockedEstablishment) {
       interpreted.params = {
         ...(interpreted.params || {}),
-        establishment_id: lockedEstablishmentId,
+        establishment_id: activeEstablishmentId,
         establishment_name_hint:
           interpreted?.params?.establishment_name_hint ||
           linkedEstablishment?.name ||
@@ -443,14 +558,23 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       }
     }
 
+    if (looksLikeAvailabilityQuestion(messageText) && interpreted?.params?.reservation_time) {
+      delete interpreted.params.reservation_time;
+    }
+
     if (usedPersistence && conversation?.id && conversationState) {
       const stepValidation = await validateFieldsForStep(
         conversationState.currentStep,
         interpreted.params || {},
         {
           pool,
-          establishmentId: lockedEstablishmentId || interpreted.params?.establishment_id,
-          reservationDate: interpreted.params?.reservation_date,
+          establishmentId:
+            activeEstablishmentId ||
+            interpreted.params?.establishment_id ||
+            conversationState.collectedFields?.establishment_id,
+          reservationDate:
+            interpreted.params?.reservation_date ||
+            conversationState.collectedFields?.reservation_date,
           collectedFields: conversationState.collectedFields,
         }
       );
@@ -592,28 +716,28 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       conversation = await inbox.setConversationEstablishment(pool, waId, interpretedEstablishmentId);
     }
 
-    const resolvedEstablishmentId =
+    const replyEstablishmentId =
+      activeEstablishmentId ||
       interpretedEstablishmentId ||
-      detectEstablishmentFromText(messageText, catalog.establishments || []) ||
-      detectEstablishmentFromText(
-        messageHistory.map((message) => message.content).join(' '),
-        catalog.establishments || []
-      ) ||
-      linkedEstablishment?.id ||
-      (Number.isFinite(Number(conversation?.establishment_id)) ? Number(conversation.establishment_id) : null);
+      resolvedEstablishmentId;
     const resolvedEstablishmentName =
-      (catalog.establishments || []).find((item) => Number(item.id) === Number(resolvedEstablishmentId))
+      (catalog.establishments || []).find((item) => Number(item.id) === Number(replyEstablishmentId))
         ?.name ||
       linkedEstablishment?.name ||
       conversation?.establishment_name ||
       '';
     const canonicalEstablishmentId = normalizeCanonicalEstablishmentId(
-      resolvedEstablishmentId,
+      replyEstablishmentId,
       resolvedEstablishmentName
     );
 
     let dateOverrideNotice = null;
-    const parsedDate = parsePtBrDateFromText(messageText) || parseDateFromHistory(messageHistory);
+    const parsedDate =
+      parsePtBrDateFromText(messageText) ||
+      parseDateFromHistory(messageHistory) ||
+      (conversationState?.collectedFields?.reservation_date
+        ? { iso: conversationState.collectedFields.reservation_date }
+        : null);
     if (canonicalEstablishmentId && parsedDate?.iso) {
       const override = await businessRulesEngine.getDateOverride(
         pool,
@@ -830,10 +954,14 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       );
       const [year, month, day] = parsedDate.iso.split('-');
       const displayDate = `${day}-${month}-${year}`;
-      replyText =
-        windows.length > 0
-          ? `No dia ${displayDate}, os horários disponíveis são: ${windows.join(' | ')}.\n\nSe quiser, já deixo sua reserva encaminhada. Me fala só o horário que prefere e quantas pessoas serão.`
-          : `No dia ${displayDate}, não temos janela de reserva disponível no sistema.\n\nSe quiser, eu te sugiro o melhor dia/horário alternativo e já encaminho sua reserva.`;
+      const establishmentName =
+        (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
+          ?.name || 'a casa';
+      replyText = buildAvailabilityReplyText({
+        establishmentName,
+        displayDate,
+        windows,
+      });
     } else if (looksLikeAvailabilityQuestion(messageText) && !parsedDate?.iso) {
       replyText =
         'Consigo verificar agora para você. Me fala só a data desejada (ex.: hoje, amanhã ou DD/MM) que eu já te passo os horários disponíveis e encaminho a reserva.';

@@ -189,24 +189,83 @@ function looksLikeParkingQuestion(text) {
   return /estacionamento|valet|parar o carro/.test(normalized);
 }
 
-function detectEstablishmentFromText(text, establishments = []) {
-  const normalized = String(text || '')
+function normalizeInboundText(text) {
+  return String(text || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+const ESTABLISHMENT_ALIAS_PATTERNS = [
+  { pattern: /\breserva\s*rooftop\b|\brooftop\b/, id: 9 },
+  { pattern: /\bpracinha\b/, id: 8 },
+  { pattern: /\bhigh[\s-]?line\b/, id: 7 },
+  { pattern: /\boh\s*fregues\b|\bfregues\b/, id: 4 },
+  { pattern: /\bseu\s*justino\b|\bjustino\b/, id: 1 },
+];
+
+function detectEstablishmentFromText(text, establishments = []) {
+  const normalized = normalizeInboundText(text);
   if (!normalized) return null;
+
+  let bestId = null;
+  let bestNameLength = 0;
   for (const establishment of establishments) {
-    const name = String(establishment?.name || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
-    if (!name) continue;
-    if (normalized.includes(name)) {
+    const name = normalizeInboundText(establishment?.name);
+    if (!name || !normalized.includes(name)) continue;
+    if (name.length > bestNameLength) {
+      bestNameLength = name.length;
       const id = Number(establishment.id);
-      if (Number.isFinite(id) && id > 0) return id;
+      if (Number.isFinite(id) && id > 0) bestId = id;
     }
   }
+  if (bestId) return bestId;
+
+  for (const alias of ESTABLISHMENT_ALIAS_PATTERNS) {
+    if (alias.pattern.test(normalized)) return alias.id;
+  }
   return null;
+}
+
+function looksLikeFreshReservationStart(text) {
+  const normalized = normalizeInboundText(text);
+  return /\b(nova reserva|quero reservar|fazer uma reserva|outra reserva|outro estabelecimento)\b/.test(
+    normalized
+  );
+}
+
+function resolveEstablishmentForTurn({
+  messageText,
+  messageHistory = [],
+  establishments = [],
+  lockedEstablishmentId = null,
+  conversationEstablishmentId = null,
+  collectedFields = {},
+}) {
+  const currentMessageId = detectEstablishmentFromText(messageText, establishments);
+  if (currentMessageId) {
+    const currentName =
+      establishments.find((item) => Number(item.id) === Number(currentMessageId))?.name || '';
+    return normalizeCanonicalEstablishmentId(currentMessageId, currentName);
+  }
+
+  const historyText = messageHistory.map((message) => message?.content || '').join(' ');
+  const historyId = detectEstablishmentFromText(historyText, establishments);
+  const fallbackId =
+    Number(collectedFields?.establishment_id) ||
+    lockedEstablishmentId ||
+    conversationEstablishmentId ||
+    historyId;
+  const fallbackName =
+    establishments.find((item) => Number(item.id) === Number(fallbackId))?.name || '';
+  return normalizeCanonicalEstablishmentId(fallbackId, fallbackName);
+}
+
+function buildAvailabilityReplyText({ establishmentName, displayDate, windows }) {
+  if (windows.length > 0) {
+    return `No dia ${displayDate}, no ${establishmentName}, os horários disponíveis são: ${windows.join(' | ')}.\n\nSe quiser, já deixo sua reserva encaminhada. Me fala só o horário que prefere e quantas pessoas serão.`;
+  }
+  return `No dia ${displayDate}, não temos janela de reserva disponível no sistema para ${establishmentName}.\n\nSe quiser, eu te sugiro o melhor dia/horário alternativo e já encaminho sua reserva.`;
 }
 
 function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentNameRaw = '') {
@@ -269,6 +328,9 @@ module.exports = {
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
   detectEstablishmentFromText,
+  looksLikeFreshReservationStart,
+  resolveEstablishmentForTurn,
+  buildAvailabilityReplyText,
   normalizeCanonicalEstablishmentId,
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test tests/integration/reservationFunnel.contract.test.js",
+    "test": "node --test tests/integration/reservationFunnel.contract.test.js tests/unit/establishmentResolution.test.js",
     "dev": "NODE_ENV=development node server.js",
     "start": "NODE_ENV=production node server.js",
     "migrate": "node run_cardapio_migration.js",
