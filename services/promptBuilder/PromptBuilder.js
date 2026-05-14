@@ -15,6 +15,7 @@ class PromptBuilder {
     const step = String(context.conversationStep || 'greeting').trim();
     const blocks = [
       this.buildBasePersona(context),
+      this.buildEmotionalToneBlock(context),
       this.buildOperationalMemoryBlock(context),
       this.buildStateBlock(context),
       this.buildStepBlock(step, context),
@@ -34,6 +35,14 @@ class PromptBuilder {
     const summary = String(context.operationalProfileSummary || '').trim();
     if (!summary) return '';
     return `MEMÓRIA OPERACIONAL DO CLIENTE:\n${summary}`;
+  }
+
+  buildEmotionalToneBlock(context) {
+    const tone = String(context.toneInstructions || '').trim();
+    const emotionalState = context.emotionalState ? `Estado emocional: ${context.emotionalState}.` : '';
+    const leadTemperature = context.leadTemperature ? `Temperatura do lead: ${context.leadTemperature}.` : '';
+    if (!tone && !emotionalState && !leadTemperature) return '';
+    return `AJUSTE DE TOM:\n${[emotionalState, leadTemperature, tone].filter(Boolean).join(' ')}`;
   }
 
   buildStateBlock(context) {

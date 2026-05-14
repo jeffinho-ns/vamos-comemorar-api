@@ -388,6 +388,9 @@ io.on('connection', (socket) => {
 });
 
 // Iniciar o servidor
+const { startConversationCommercialScheduler } = require('./workers/conversationCommercialScheduler');
+startConversationCommercialScheduler(pool, app);
+
 server.listen(PORT, config.server.host, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
     console.log(`🌐 CORS origins: ${config.server.cors.origin.join(', ')}`);

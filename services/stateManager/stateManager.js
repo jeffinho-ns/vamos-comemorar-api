@@ -45,6 +45,13 @@ function mapRow(row) {
     lastQuestion: row.last_question,
     lastIntent: row.last_intent,
     handoffRecommended: Boolean(row.handoff_recommended),
+    emotionalState: row.emotional_state || null,
+    leadTemperature: row.lead_temperature || null,
+    leadType: row.lead_type || null,
+    followupStatus: row.followup_status || 'none',
+    abandonedAt: row.abandoned_at,
+    lastFollowupAt: row.last_followup_at,
+    recoveryAttempts: Number(row.recovery_attempts) || 0,
     stateVersion: Number(row.state_version) || 1,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
@@ -75,7 +82,9 @@ async function getByConversationId(pool, conversationId) {
   const result = await pool.query(
     `SELECT id, session_id, conversation_id, wa_id, current_step, completed_steps,
             retry_count, collected_fields, missing_fields, reservation_context,
-            last_question, last_intent, handoff_recommended, state_version,
+            last_question, last_intent, handoff_recommended, emotional_state,
+            lead_temperature, lead_type, followup_status, abandoned_at,
+            last_followup_at, recovery_attempts, state_version,
             updated_at, created_at
        FROM conversation_state
       WHERE conversation_id = $1
@@ -106,7 +115,9 @@ async function ensureSession(pool, { conversationId, waId, reservationContext = 
        updated_at = NOW()
      RETURNING id, session_id, conversation_id, wa_id, current_step, completed_steps,
                retry_count, collected_fields, missing_fields, reservation_context,
-               last_question, last_intent, handoff_recommended, state_version,
+               last_question, last_intent, handoff_recommended, emotional_state,
+               lead_temperature, lead_type, followup_status, abandoned_at,
+               last_followup_at, recovery_attempts, state_version,
                updated_at, created_at`,
     [
       normalizedConversationId,
@@ -145,6 +156,13 @@ async function persistState(pool, conversationId, patch = {}) {
   if (patch.lastQuestion !== undefined) assign('last_question', patch.lastQuestion);
   if (patch.lastIntent !== undefined) assign('last_intent', patch.lastIntent);
   if (patch.handoffRecommended !== undefined) assign('handoff_recommended', patch.handoffRecommended);
+  if (patch.emotionalState !== undefined) assign('emotional_state', patch.emotionalState);
+  if (patch.leadTemperature !== undefined) assign('lead_temperature', patch.leadTemperature);
+  if (patch.leadType !== undefined) assign('lead_type', patch.leadType);
+  if (patch.followupStatus !== undefined) assign('followup_status', patch.followupStatus);
+  if (patch.abandonedAt !== undefined) assign('abandoned_at', patch.abandonedAt);
+  if (patch.lastFollowupAt !== undefined) assign('last_followup_at', patch.lastFollowupAt);
+  if (patch.recoveryAttempts !== undefined) assign('recovery_attempts', patch.recoveryAttempts);
 
   if (sets.length === 0) {
     return getByConversationId(pool, normalizedConversationId);
@@ -160,7 +178,9 @@ async function persistState(pool, conversationId, patch = {}) {
       WHERE conversation_id = $${index}
       RETURNING id, session_id, conversation_id, wa_id, current_step, completed_steps,
                 retry_count, collected_fields, missing_fields, reservation_context,
-                last_question, last_intent, handoff_recommended, state_version,
+                last_question, last_intent, handoff_recommended, emotional_state,
+                lead_temperature, lead_type, followup_status, abandoned_at,
+                last_followup_at, recovery_attempts, state_version,
                 updated_at, created_at`,
     params
   );
@@ -245,6 +265,25 @@ async function markCompleted(pool, conversationId) {
     retryCount: 0,
     handoffRecommended: false,
     missingFields: [],
+    followupStatus: 'completed',
+    abandonedAt: null,
+  });
+}
+
+async function recordCommercialSignals(pool, conversationId, signals = {}) {
+  return persistState(pool, conversationId, {
+    emotionalState: signals.emotionalState,
+    leadTemperature: signals.leadTemperature,
+    leadType: signals.leadType,
+    followupStatus: signals.followupStatus ?? 'none',
+    abandonedAt: signals.abandonedAt ?? null,
+  });
+}
+
+async function markRecoveryPending(pool, conversationId) {
+  return persistState(pool, conversationId, {
+    followupStatus: 'recovery_pending',
+    abandonedAt: new Date().toISOString(),
   });
 }
 
@@ -264,5 +303,7 @@ module.exports = {
   markStepCompleted,
   markHandoff,
   markCompleted,
+  recordCommercialSignals,
+  markRecoveryPending,
   shouldTriggerHandoff,
 };

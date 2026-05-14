@@ -12,6 +12,16 @@ const { validateFieldsForStep, validateField } = require('../../validators/stepF
 const { extractLocalFields } = require('../../nlp/localMessageExtractor');
 const { getProfileForPrompt, refreshProfileFromSources } = require('../operationalMemory/customerOperationalProfileService');
 const {
+  analyzeSentimentLead,
+  buildPromptToneInstructions,
+} = require('../sentimentEngine/sentimentLeadEngine');
+const {
+  findEstablishmentCandidates,
+  findAreaCandidates,
+  buildDisambiguationReply,
+  resolvePendingDisambiguation,
+} = require('../disambiguation/disambiguationEngine');
+const {
   extractEstablishmentToken,
   resolveEstablishmentByToken,
   mapRowsToOpenAIHistory,
@@ -72,6 +82,20 @@ function buildCollectedFieldsSummary(collectedFields = {}) {
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => `${key}=${value}`)
     .join(', ');
+}
+
+async function loadActiveAreas(pool, establishmentId = null) {
+  const params = [];
+  let query = `SELECT id, name, establishment_id
+                 FROM restaurant_areas
+                WHERE is_active = TRUE`;
+  if (establishmentId) {
+    query += ' AND establishment_id = $1';
+    params.push(establishmentId);
+  }
+  query += ' ORDER BY name ASC LIMIT 120';
+  const result = await pool.query(query, params);
+  return result.rows || [];
 }
 
 async function applyValidatedParamsToState(pool, conversationId, interpretedParams, options) {
@@ -213,6 +237,22 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
   }
 
   const operationalProfile = await getProfileForPrompt(pool, waId);
+  const sentiment = analyzeSentimentLead(messageText, conversationState || {});
+  if (usedPersistence && conversation?.id) {
+    try {
+      await stateManager.recordCommercialSignals(pool, conversation.id, {
+        emotionalState: sentiment.emotionalState,
+        leadTemperature: sentiment.leadTemperature,
+        leadType: sentiment.leadType,
+        followupStatus: 'none',
+        abandonedAt: null,
+      });
+      conversationState = await stateManager.getByConversationId(pool, conversation.id);
+    } catch (signalError) {
+      console.warn('[conversationEngine] falha ao registrar sinais comerciais:', signalError.message);
+    }
+  }
+
   const localExtraction = extractLocalFields({
     messageText,
     currentStep: conversationState?.currentStep || 'greeting',
@@ -242,6 +282,82 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
   };
 
   try {
+    const pendingDisambiguation = conversationState?.reservationContext?.pending_disambiguation;
+    if (pendingDisambiguation && usedPersistence && conversation?.id) {
+      const selected = resolvePendingDisambiguation(messageText, pendingDisambiguation);
+      if (selected) {
+        const patch =
+          pendingDisambiguation.type === 'area'
+            ? { area_id: selected.id }
+            : { establishment_id: selected.id };
+        await stateManager.mergeCollectedFields(pool, conversation.id, patch, {
+          lockedEstablishmentId,
+        });
+        const nextContext = {
+          ...(conversationState.reservationContext || {}),
+          pending_disambiguation: null,
+        };
+        await stateManager.persistState(pool, conversation.id, {
+          reservationContext: nextContext,
+        });
+        const confirmReply =
+          pendingDisambiguation.type === 'area'
+            ? `Perfeito, vamos com a área ${selected.name}.`
+            : `Perfeito, vamos com ${selected.name}.`;
+        await sendMessage(waId, confirmReply);
+        await persistOutbound(confirmReply, 'DISAMBIGUATION_RESOLVED');
+        return;
+      }
+    }
+
+    if (usedPersistence && conversation?.id && conversationState) {
+      if (conversationState.currentStep === 'establishment' && !lockedEstablishmentId) {
+        const establishmentCandidates = findEstablishmentCandidates(messageText, catalog.establishments || []);
+        if (establishmentCandidates.length > 1) {
+          const reply = buildDisambiguationReply('establishment', establishmentCandidates);
+          await stateManager.persistState(pool, conversation.id, {
+            reservationContext: {
+              ...(conversationState.reservationContext || {}),
+              pending_disambiguation: {
+                type: 'establishment',
+                candidates: establishmentCandidates,
+              },
+            },
+          });
+          await sendMessage(waId, reply);
+          await persistOutbound(reply, 'DISAMBIGUATION_ESTABLISHMENT');
+          return;
+        }
+      }
+
+      if (conversationState.currentStep === 'area') {
+        const activeAreas = await loadActiveAreas(
+          pool,
+          lockedEstablishmentId || conversationState.collectedFields?.establishment_id
+        );
+        const areaCandidates = findAreaCandidates(
+          messageText,
+          activeAreas,
+          lockedEstablishmentId || conversationState.collectedFields?.establishment_id
+        );
+        if (areaCandidates.length > 1) {
+          const reply = buildDisambiguationReply('area', areaCandidates);
+          await stateManager.persistState(pool, conversation.id, {
+            reservationContext: {
+              ...(conversationState.reservationContext || {}),
+              pending_disambiguation: {
+                type: 'area',
+                candidates: areaCandidates,
+              },
+            },
+          });
+          await sendMessage(waId, reply);
+          await persistOutbound(reply, 'DISAMBIGUATION_AREA');
+          return;
+        }
+      }
+    }
+
     let interpreted;
     if (!localExtraction.needsLlm && Object.keys(localExtraction.fields).length > 0) {
       interpreted = {
@@ -269,6 +385,9 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           collectedReservationDate: conversationState?.collectedFields?.reservation_date || null,
           operationalProfileSummary: operationalProfile.summary,
           needsAvailabilityTool: looksLikeAvailabilityQuestion(messageText),
+          emotionalState: sentiment.emotionalState,
+          leadTemperature: sentiment.leadTemperature,
+          toneInstructions: buildPromptToneInstructions(sentiment),
         },
       });
       interpreted.params = {
