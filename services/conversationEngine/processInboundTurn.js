@@ -9,6 +9,8 @@ const {
   isTerminalStep,
 } = require('../stateManager/conversationSteps');
 const { validateFieldsForStep, validateField } = require('../../validators/stepFieldValidator');
+const { extractLocalFields } = require('../../nlp/localMessageExtractor');
+const { getProfileForPrompt, refreshProfileFromSources } = require('../operationalMemory/customerOperationalProfileService');
 const {
   extractEstablishmentToken,
   resolveEstablishmentByToken,
@@ -63,6 +65,13 @@ function emitInbox(app, payload) {
 async function activateHumanTakeover(pool, waId) {
   await inbox.setHumanTakeoverHours(pool, waId, resolveAutoTakeoverHours());
   await inbox.updateConversationStatus(pool, waId, 'in_progress');
+}
+
+function buildCollectedFieldsSummary(collectedFields = {}) {
+  return Object.entries(collectedFields || {})
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ');
 }
 
 async function applyValidatedParamsToState(pool, conversationId, interpretedParams, options) {
@@ -195,8 +204,6 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
   let catalog = {
     establishmentsBlock: '',
     areasBlock: '',
-    establishmentRulesBlock: '',
-    dateOverridesBlock: '',
     establishments: [],
   };
   try {
@@ -204,6 +211,13 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
   } catch (catalogError) {
     console.warn('[conversationEngine] catálogo IA:', catalogError.message);
   }
+
+  const operationalProfile = await getProfileForPrompt(pool, waId);
+  const localExtraction = extractLocalFields({
+    messageText,
+    currentStep: conversationState?.currentStep || 'greeting',
+    collectedFields: conversationState?.collectedFields || {},
+  });
 
   const persistOutbound = async (bodyText, intentLabel) => {
     if (!usedPersistence || !conversation) return;
@@ -228,23 +242,40 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
   };
 
   try {
-    const interpreted = await interpretMessage({
-      messageHistory,
-      context: {
-        establishmentsBlock: linkedEstablishment
-          ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
-          : catalog.establishmentsBlock,
-        areasBlock: catalog.areasBlock,
-        establishmentRulesBlock: catalog.establishmentRulesBlock || '',
-        dateOverridesBlock: catalog.dateOverridesBlock || '',
-        lockedEstablishmentId,
-        lockedEstablishmentName:
-          linkedEstablishment?.name ||
-          (conversation?.establishment_name ? String(conversation.establishment_name) : null),
-        conversationStep: conversationState?.currentStep || 'greeting',
-        missingFields: conversationState?.missingFields || [],
-      },
-    });
+    let interpreted;
+    if (!localExtraction.needsLlm && Object.keys(localExtraction.fields).length > 0) {
+      interpreted = {
+        action: 'COLLECT_DATA',
+        params: localExtraction.fields,
+        missing_fields: conversationState?.missingFields || [],
+        suggested_reply: getStepPrompt(conversationState?.currentStep || 'greeting'),
+      };
+    } else {
+      interpreted = await interpretMessage({
+        pool,
+        messageHistory,
+        context: {
+          establishmentsBlock: linkedEstablishment
+            ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
+            : catalog.establishmentsBlock,
+          areasBlock: catalog.areasBlock,
+          lockedEstablishmentId,
+          lockedEstablishmentName:
+            linkedEstablishment?.name ||
+            (conversation?.establishment_name ? String(conversation.establishment_name) : null),
+          conversationStep: conversationState?.currentStep || 'greeting',
+          missingFields: conversationState?.missingFields || [],
+          collectedFieldsSummary: buildCollectedFieldsSummary(conversationState?.collectedFields),
+          collectedReservationDate: conversationState?.collectedFields?.reservation_date || null,
+          operationalProfileSummary: operationalProfile.summary,
+          needsAvailabilityTool: looksLikeAvailabilityQuestion(messageText),
+        },
+      });
+      interpreted.params = {
+        ...(localExtraction.fields || {}),
+        ...(interpreted.params || {}),
+      };
+    }
 
     if (lockedEstablishmentId) {
       interpreted.params = {
@@ -490,6 +521,11 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
             : null,
         lastReservationId: reservationRow.id || null,
       });
+      try {
+        await refreshProfileFromSources(pool, waId);
+      } catch (profileError) {
+        console.warn('[conversationEngine] falha ao atualizar perfil operacional:', profileError.message);
+      }
 
       let confirmText;
       try {
