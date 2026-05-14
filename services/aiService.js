@@ -87,6 +87,7 @@ function isFriendlyReservationOnboarding(lastUserText) {
 function shouldForceHumanIntent(lastUserText) {
   const t = normalizeUserText(lastUserText);
   if (!t) return false;
+  if (isClarificationQuestion(lastUserText)) return false;
 
   const explicitHuman =
     /\b(atendente|humano|pessoa real|falar com alguem|falar com alguém|gerente|supervisor|escala|escalar)\b/i.test(
@@ -101,6 +102,24 @@ function shouldForceHumanIntent(lastUserText) {
   );
 
   return Boolean(explicitHuman || frustration || notUnderstood);
+}
+
+function isClarificationQuestion(lastUserText) {
+  const t = normalizeUserText(lastUserText);
+  if (!t) return false;
+  return (
+    /\b(qual|quais)\s+(estabelecimento|estabelecimentos|casa|casas|area|areas|ambiente|ambientes|dados|horarios?|horários?)\b/.test(
+      t
+    ) || /\bque dados\b/.test(t)
+  );
+}
+
+function isLikelyReservationIntent(lastUserText) {
+  const t = normalizeUserText(lastUserText);
+  if (!t) return false;
+  return /\b(reserva|reservar|mesa|convidados|horario|horário|rooftop|justino|pracinha|highline|aniversario|aniversário)\b/.test(
+    t
+  );
 }
 
 function normalizeInterpretation(parsed, lastUserText) {
@@ -126,6 +145,15 @@ function normalizeInterpretation(parsed, lastUserText) {
     action = 'falar_com_humano';
   }
 
+  const params =
+    parsed && typeof parsed.params === 'object' && parsed.params !== null && !Array.isArray(parsed.params)
+      ? parsed.params
+      : {};
+
+  const missing_fields = Array.isArray(parsed?.missing_fields)
+    ? parsed.missing_fields.filter((x) => typeof x === 'string')
+    : [];
+
   /* Modelo às vezes escala em "como funciona?" — corrigir para onboarding */
   if (
     action === 'falar_com_humano' &&
@@ -136,14 +164,17 @@ function normalizeInterpretation(parsed, lastUserText) {
     action = 'COLLECT_DATA';
   }
 
-  const params =
-    parsed && typeof parsed.params === 'object' && parsed.params !== null && !Array.isArray(parsed.params)
-      ? parsed.params
-      : {};
+  if (action === 'falar_com_humano' && isClarificationQuestion(lastUserText)) {
+    action = 'COLLECT_DATA';
+  }
 
-  const missing_fields = Array.isArray(parsed?.missing_fields)
-    ? parsed.missing_fields.filter((x) => typeof x === 'string')
-    : [];
+  if (action === 'REFUSE_MINOR' && isLikelyReservationIntent(lastUserText) && !params.data_nascimento) {
+    action = 'COLLECT_DATA';
+  }
+
+  if (action === 'PROCESS_RESERVATION' && missing_fields.length > 0) {
+    action = 'COLLECT_DATA';
+  }
 
   let suggested_reply =
     typeof parsed?.suggested_reply === 'string' ? parsed.suggested_reply.trim() : '';
@@ -327,5 +358,6 @@ module.exports = {
   shouldForceHumanIntent,
   isExplicitHumanRequest,
   isFriendlyReservationOnboarding,
+  isLikelyReservationIntent,
   generateReservationConfirmationMessage,
 };

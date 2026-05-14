@@ -189,6 +189,22 @@ function looksLikeParkingQuestion(text) {
   return /estacionamento|valet|parar o carro/.test(normalized);
 }
 
+function looksLikeAreaQuestion(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bquais?\s+(areas?|ambientes?|setores?)\b|\bqual\s+(area|ambiente|setor)\b/.test(normalized);
+}
+
+function looksLikeRepeatedDataComplaint(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bja falei\b|\bja informei\b|\bja disse\b|\bja passei\b|\bja te falei\b/.test(normalized);
+}
+
 function normalizeInboundText(text) {
   return String(text || '')
     .toLowerCase()
@@ -327,6 +343,8 @@ module.exports = {
   looksLikeMusicQuestion,
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
+  looksLikeAreaQuestion,
+  looksLikeRepeatedDataComplaint,
   detectEstablishmentFromText,
   looksLikeFreshReservationStart,
   resolveEstablishmentForTurn,

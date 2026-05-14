@@ -8,7 +8,11 @@ const JSON_OUTPUT_RULES = `Responda APENAS um JSON válido:
   "suggested_reply": string
 }
 Não invente disponibilidade, preços ou regras. Use tools quando precisar consultar horários ou exceções.
-Não prometa reserva salva antes do sistema confirmar.`;
+Não prometa reserva salva antes do sistema confirmar.
+Não use REFUSE_MINOR sem data de nascimento explícita indicando menor de 18 anos.
+Não use falar_com_humano para dúvidas de esclarecimento sobre estabelecimento, área, horário ou dados.
+Não diga que a casa está fechada sem consultar checkAvailability para o estabelecimento e data corretos.
+Não pergunte novamente um dado que já consta em "Já coletado".`;
 
 class PromptBuilder {
   build(context = {}) {
@@ -50,7 +54,8 @@ class PromptBuilder {
     const collected = context.collectedFieldsSummary
       ? String(context.collectedFieldsSummary)
       : '';
-    return `ESTADO ATUAL:\n- Passo: ${context.conversationStep || 'greeting'}\n- Pendentes: ${missing || '(nenhum)'}\n- Já coletado: ${collected || '(nada confirmado)'}`;
+    const nextField = context.nextFieldLabel ? `Próximo dado necessário: ${context.nextFieldLabel}.` : '';
+    return `ESTADO ATUAL:\n- Passo: ${context.conversationStep || 'greeting'}\n- Pendentes: ${missing || '(nenhum)'}\n- Já coletado: ${collected || '(nada confirmado)'}\n${nextField}`;
   }
 
   buildStepBlock(step, context) {

@@ -1,4 +1,4 @@
-const { interpretMessage, generateReservationConfirmationMessage } = require('../aiService');
+const { interpretMessage, generateReservationConfirmationMessage, isLikelyReservationIntent } = require('../aiService');
 const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const businessRulesEngine = require('../businessRulesEngine');
@@ -7,9 +7,10 @@ const {
   formatMissingFieldsForUser,
   getStepPrompt,
   isTerminalStep,
+  FIELD_LABELS_PT,
 } = require('../stateManager/conversationSteps');
 const { validateFieldsForStep, validateField } = require('../../validators/stepFieldValidator');
-const { extractLocalFields } = require('../../nlp/localMessageExtractor');
+const { extractLocalFields, extractReservationSlotsFromMessage } = require('../../nlp/localMessageExtractor');
 const { getProfileForPrompt, refreshProfileFromSources } = require('../operationalMemory/customerOperationalProfileService');
 const {
   analyzeSentimentLead,
@@ -34,6 +35,8 @@ const {
   looksLikeMusicQuestion,
   looksLikeMenuQuestion,
   looksLikeParkingQuestion,
+  looksLikeAreaQuestion,
+  looksLikeRepeatedDataComplaint,
   detectEstablishmentFromText,
   looksLikeFreshReservationStart,
   resolveEstablishmentForTurn,
@@ -88,8 +91,20 @@ async function activateHumanTakeover(pool, waId) {
 function buildCollectedFieldsSummary(collectedFields = {}) {
   return Object.entries(collectedFields || {})
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => `${key}=${value}`)
-    .join(', ');
+    .map(([key, value]) => `${FIELD_LABELS_PT[key] || key}: ${value}`)
+    .join('; ');
+}
+
+function buildNextFieldLabel(missingFields = []) {
+  if (!Array.isArray(missingFields) || missingFields.length === 0) return null;
+  return FIELD_LABELS_PT[missingFields[0]] || missingFields[0];
+}
+
+function formatIsoDateForUser(isoDate) {
+  const raw = String(isoDate || '').slice(0, 10);
+  const [year, month, day] = raw.split('-');
+  if (!year || !month || !day) return raw;
+  return `${day}/${month}/${year}`;
 }
 
 async function trackFunnelEvent(pool, event) {
@@ -481,6 +496,28 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       }
     }
 
+    const inboundSlotFields = {
+      ...extractReservationSlotsFromMessage(messageText).fields,
+      ...(localExtraction.fields || {}),
+    };
+    if (explicitEstablishmentInMessage) {
+      inboundSlotFields.establishment_id = explicitEstablishmentInMessage;
+    }
+    if (looksLikeAvailabilityQuestion(messageText)) {
+      delete inboundSlotFields.reservation_time;
+    }
+    if (usedPersistence && conversation?.id && Object.keys(inboundSlotFields).length > 0) {
+      await applyValidatedParamsToState(pool, conversation.id, inboundSlotFields, {
+        pool,
+        lockedEstablishmentId: activeEstablishmentId,
+        collectedFields: conversationState?.collectedFields,
+      });
+      conversationState = stateManager.buildStateSnapshot(
+        await stateManager.getByConversationId(pool, conversation.id),
+        { lockedEstablishmentId: activeEstablishmentId }
+      );
+    }
+
     const parsedDateForAvailability =
       parsePtBrDateFromText(messageText) ||
       parseDateFromHistory(messageHistory) ||
@@ -540,6 +577,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           missingFields: conversationState?.missingFields || [],
           collectedFieldsSummary: buildCollectedFieldsSummary(conversationState?.collectedFields),
           collectedReservationDate: conversationState?.collectedFields?.reservation_date || null,
+          nextFieldLabel: buildNextFieldLabel(conversationState?.missingFields),
           operationalProfileSummary: operationalProfile.summary,
           needsAvailabilityTool: looksLikeAvailabilityQuestion(messageText),
           emotionalState: sentiment.emotionalState,
@@ -577,6 +615,22 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
 
     if (looksLikeAvailabilityQuestion(messageText) && interpreted?.params?.reservation_time) {
       delete interpreted.params.reservation_time;
+    }
+
+    if (usedPersistence && conversation?.id && conversationState) {
+      const paramsToPersist = { ...(interpreted.params || {}) };
+      if (looksLikeAvailabilityQuestion(messageText)) {
+        delete paramsToPersist.reservation_time;
+      }
+      await applyValidatedParamsToState(pool, conversation.id, paramsToPersist, {
+        pool,
+        lockedEstablishmentId: activeEstablishmentId,
+        collectedFields: conversationState.collectedFields,
+      });
+      conversationState = stateManager.buildStateSnapshot(
+        await stateManager.getByConversationId(pool, conversation.id),
+        { lockedEstablishmentId: activeEstablishmentId }
+      );
     }
 
     if (usedPersistence && conversation?.id && conversationState) {
@@ -664,66 +718,9 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           previousStep: conversationState.completedSteps?.[conversationState.completedSteps.length - 1] || null,
         });
       } else {
-        const mergeResult = await applyValidatedParamsToState(
-          pool,
-          conversation.id,
-          interpreted.params,
-          {
-            pool,
-            lockedEstablishmentId,
-            collectedFields: conversationState.collectedFields,
-          }
-        );
-
-        if (mergeResult.failures.length > 0) {
-          const failure = mergeResult.failures[0];
-          const failedState = await stateManager.recordValidationFailure(pool, conversation.id, {
-            message: failure.message,
-            intent: interpreted.action,
-          });
-          if (stateManager.shouldTriggerHandoff(failedState)) {
-            await trackFunnelEvent(pool, {
-              eventType: EVENT_TYPES.BOT_LOOP,
-              conversationId: conversation.id,
-              sessionId: failedState.sessionId,
-              waId,
-              establishmentId: lockedEstablishmentId,
-              step: failedState.currentStep,
-              retryCount: failedState.retryCount,
-            });
-            await activateHumanTakeover(pool, waId);
-            const handoffReply =
-              'Percebi que estamos com dificuldade em avançar por aqui. Vou chamar um atendente humano para te ajudar com a reserva, combinado?';
-            await outboundGateway.sendText(waId, handoffReply);
-            await persistOutbound(handoffReply, 'anti_loop_handoff');
-            await trackFunnelEvent(pool, {
-              eventType: EVENT_TYPES.HUMAN_HANDOFF,
-              conversationId: conversation.id,
-              sessionId: failedState.sessionId,
-              waId,
-              establishmentId: lockedEstablishmentId,
-              step: failedState.currentStep,
-              payload: { reason: 'anti_loop' },
-            });
-            return;
-          }
-          await trackFunnelEvent(pool, {
-            eventType: EVENT_TYPES.VALIDATION_FAILURE,
-            conversationId: conversation.id,
-            sessionId: failedState.sessionId,
-            waId,
-            establishmentId: lockedEstablishmentId,
-            step: failedState.currentStep,
-            payload: { code: failure.code || null },
-          });
-          await outboundGateway.sendText(waId, failure.message);
-          await persistOutbound(failure.message, 'STATE_VALIDATION_ERROR');
-          return;
-        }
-
         conversationState = stateManager.buildStateSnapshot(
           await stateManager.getByConversationId(pool, conversation.id),
-          { lockedEstablishmentId }
+          { lockedEstablishmentId: activeEstablishmentId }
         );
       }
     }
@@ -808,22 +805,26 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       }
     }
 
-    if (interpreted.action === 'REFUSE_MINOR' && interpreted.suggested_reply) {
+    if (
+      interpreted.action === 'REFUSE_MINOR' &&
+      interpreted.suggested_reply &&
+      !isLikelyReservationIntent(messageText)
+    ) {
       const minorReply = mergeReplyWithOverrideNotice(interpreted.suggested_reply, dateOverrideNotice);
       await outboundGateway.sendText(waId, minorReply);
       await persistOutbound(minorReply, 'REFUSE_MINOR');
       return;
     }
 
-  const stateParams = {
-    ...(conversationState?.collectedFields || {}),
-    ...(interpreted.params || {}),
-  };
-  const canProcessReservation =
-    interpreted.action === 'PROCESS_RESERVATION' &&
-    (!conversationState || conversationState.missingFields.length === 0);
+    const stateParams = {
+      ...(conversationState?.collectedFields || {}),
+      ...(interpreted.params || {}),
+    };
+    const canProcessReservation =
+      interpreted.action === 'PROCESS_RESERVATION' &&
+      (!conversationState || conversationState.missingFields.length === 0);
 
-  if (canProcessReservation) {
+    if (canProcessReservation) {
       const params = stateParams;
       const businessValidation = applyBusinessRulesToReservationParams(params);
       if (!businessValidation.ok) {
@@ -955,9 +956,35 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       replyText = menuUrl
         ? `Perfeito! Aqui está o cardápio: ${menuUrl}\n\nSe quiser, já te passo os melhores horários e deixo sua reserva encaminhada.`
         : 'Claro! Eu te envio o cardápio da casa escolhida. Me confirma qual estabelecimento você quer, que já te mando e te ajudo com a reserva.';
+    } else if (looksLikeRepeatedDataComplaint(messageText) && conversationState?.collectedFields) {
+      const summary = buildCollectedFieldsSummary(conversationState.collectedFields);
+      const pending = formatMissingFieldsForUser(conversationState.missingFields || []);
+      replyText = summary
+        ? `Você tem razão — já anotei aqui: ${summary}. Para seguir, ainda preciso de ${pending || 'mais alguns detalhes'}.`
+        : `Você tem razão — vou seguir com o que já conversamos. Me confirma só o próximo dado: ${pending || 'quantidade de pessoas'}.`;
+    } else if (looksLikeAreaQuestion(messageText) && canonicalEstablishmentId) {
+      const activeAreas = await loadActiveAreas(pool, canonicalEstablishmentId);
+      if (activeAreas.length > 0) {
+        const areaNames = activeAreas.map((area) => area.name).join(', ');
+        const establishmentName =
+          (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
+            ?.name || 'a casa';
+        replyText = `No ${establishmentName}, as áreas ativas são: ${areaNames}.\n\nMe diz qual você prefere e seguimos com a reserva.`;
+      } else {
+        replyText =
+          'Ainda não tenho a lista de áreas carregada para essa casa. Se quiser, já seguimos com a reserva e confirmo a área com você.';
+      }
     } else if (looksLikeParkingQuestion(messageText)) {
-      replyText =
-        'Estacionamento pode variar por casa e por dia/evento. Se você me disser a data e o estabelecimento, já te passo a melhor orientação e deixo sua reserva encaminhada.';
+      if (canonicalEstablishmentId && parsedDate?.iso) {
+        const establishmentName =
+          (catalog.establishments || []).find((item) => Number(item.id) === Number(canonicalEstablishmentId))
+            ?.name || 'a casa';
+        replyText =
+          `Sobre estacionamento no ${establishmentName} para ${formatIsoDateForUser(parsedDate.iso)}: a orientação pode variar conforme o dia e o evento. Se quiser, já confirmo com a equipe da casa e sigo com sua reserva para ${formatIsoDateForUser(parsedDate.iso)}.`;
+      } else {
+        replyText =
+          'Estacionamento pode variar por casa e por dia/evento. Se você me disser a data e o estabelecimento, já te passo a melhor orientação e deixo sua reserva encaminhada.';
+      }
     } else if (looksLikeMusicQuestion(messageText) && canonicalEstablishmentId && parsedDate?.iso) {
       const [year, month, day] = parsedDate.iso.split('-');
       const displayDate = `${day}-${month}-${year}`;

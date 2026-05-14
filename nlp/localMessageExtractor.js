@@ -2,6 +2,34 @@ const { resolveDateFromText } = require('../nlp/dateResolver');
 const { parseQuantityFromText } = require('../nlp/quantityParser');
 const { getFieldsForStep } = require('../services/stateManager/conversationSteps');
 
+function extractReservationSlotsFromMessage(messageText) {
+  const fields = {};
+  const notes = [];
+
+  const parsedDate = resolveDateFromText(messageText);
+  if (parsedDate.ok) {
+    fields.reservation_date = parsedDate.iso;
+    notes.push(`date:${parsedDate.source}`);
+  }
+
+  const parsedQuantity = parseQuantityFromText(messageText);
+  if (parsedQuantity.ok) {
+    fields.quantidade_convidados = parsedQuantity.quantity;
+    notes.push(`party_size:${parsedQuantity.source}`);
+  }
+
+  const timeMatch = String(messageText || '').match(/\b([01]?\d|2[0-3])[:h]([0-5]\d)\b/);
+  if (timeMatch) {
+    fields.reservation_time = `${String(timeMatch[1]).padStart(2, '0')}:${timeMatch[2]}`;
+    notes.push('time:regex');
+  }
+
+  return {
+    fields,
+    notes,
+  };
+}
+
 function extractLocalFields({ messageText, currentStep, collectedFields = {} }) {
   const fields = {};
   const notes = [];
@@ -66,4 +94,5 @@ function extractLocalFields({ messageText, currentStep, collectedFields = {} }) 
 
 module.exports = {
   extractLocalFields,
+  extractReservationSlotsFromMessage,
 };
