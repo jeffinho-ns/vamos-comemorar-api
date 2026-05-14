@@ -61,6 +61,8 @@ const {
   buildGuestListSecondMessage,
 } = require('../whatsappReservationService');
 const { isConversationSafetyBlockEnabled } = require('../conversationTestingMode');
+const { isAgentModeEnabled} = require('../agent/agentMode');
+const { processAgentInboundTurn } = require('./processAgentInboundTurn');
 
 function resolveAutoTakeoverHours() {
   const configured = Number(process.env.WHATSAPP_AI_AUTO_TAKEOVER_HOURS);
@@ -209,7 +211,14 @@ async function applyValidatedParamsToState(pool, conversationId, interpretedPara
   return { accepted, failures };
 }
 
-async function processInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
+async function processInboundTurn(args) {
+  if (isAgentModeEnabled()) {
+    return processAgentInboundTurn(args);
+  }
+  return processLegacyInboundTurn(args);
+}
+
+async function processLegacyInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
   const establishmentToken = extractEstablishmentToken(incomingMessageText);
   const messageText =
     establishmentToken?.cleanedText || String(incomingMessageText || '').trim();

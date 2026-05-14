@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+process.env.WHATSAPP_AGENT_MODE = 'false';
 const express = require('express');
 const http = require('http');
 const { createFunnelMemoryPool } = require('../helpers/funnelMemoryPool');

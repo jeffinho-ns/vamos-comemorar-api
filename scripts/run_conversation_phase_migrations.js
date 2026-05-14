@@ -9,6 +9,7 @@ const MIGRATIONS = [
   '2026-05-16_customer_operational_profile.sql',
   '2026-05-17_conversation_state_commercial_phase3.sql',
   '2026-05-18_conversation_metrics_lgpd_phase4.sql',
+  '2026-05-19_agent_memory_and_faq.sql',
 ];
 
 async function main() {
