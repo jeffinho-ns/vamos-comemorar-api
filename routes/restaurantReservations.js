@@ -72,6 +72,8 @@ module.exports = (pool) => {
 
   const operatingWindowsCache = new Map();
 
+  const { getDefaultWindowsForEstablishmentId } = require('../services/operationalHours/defaultWeeklySchedule');
+
   const defaultWindowsByEstablishment = (establishmentId, dateStr) => {
     if (dateStr === '2026-04-20') {
       if (Number(establishmentId) === 1) {
@@ -85,45 +87,14 @@ module.exports = (pool) => {
       }
     }
 
-    const date = new Date(`${dateStr}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return [];
-    const weekday = date.getDay();
-
-    // Reserva Rooftop
-    if (Number(establishmentId) === 9) {
-      if (weekday >= 2 && weekday <= 4) {
-        return [{ start: '18:00', end: '22:30', label: 'Terça a Quinta: 18:00–22:30' }];
-      }
-      if (weekday === 5 || weekday === 6) {
-        return [
-          { start: '12:00', end: '16:00', label: 'Almoço: 12:00–16:00' },
-          { start: '17:00', end: '22:30', label: 'Jantar: 17:00–22:30' },
-        ];
-      }
-      if (weekday === 0) {
-        return [
-          { start: '12:00', end: '16:00', label: 'Almoço: 12:00–16:00' },
-          { start: '17:00', end: '20:30', label: 'Jantar: 17:00–20:30' },
-        ];
-      }
-      return [];
-    }
-
-    // Seu Justino (1) e Pracinha (8)
-    if (Number(establishmentId) === 1 || Number(establishmentId) === 8) {
-      if (weekday >= 2 && weekday <= 4) {
-        return [{ start: '18:00', end: '01:00', label: 'Terça a Quinta: 18:00–01:00' }];
-      }
-      if (weekday === 5 || weekday === 6) {
-        return [{ start: '18:00', end: '03:30', label: 'Sexta e Sábado: 18:00–03:30' }];
-      }
-      if (weekday === 0) {
-        return [{ start: '12:00', end: '21:00', label: 'Domingo: 12:00–21:00' }];
-      }
-      return [];
-    }
-
-    return [];
+    return getDefaultWindowsForEstablishmentId(establishmentId, dateStr).map((windowText) => {
+      const [start, end] = String(windowText).split('-');
+      return {
+        start,
+        end,
+        label: `${start}–${end}`,
+      };
+    });
   };
 
   const toMinutes = (timeStr) => {

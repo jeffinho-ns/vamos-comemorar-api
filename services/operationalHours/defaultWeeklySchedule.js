@@ -2,9 +2,8 @@ function toLabel(start, end) {
   return `${start}–${end}`;
 }
 
-function buildDefaultWeekly(establishmentName = '') {
-  const lower = String(establishmentName || '').toLowerCase();
-  const days = Array.from({ length: 7 }, (_, weekday) => ({
+function createClosedWeek() {
+  return Array.from({ length: 7 }, (_, weekday) => ({
     weekday,
     is_open: false,
     start_time: null,
@@ -13,6 +12,43 @@ function buildDefaultWeekly(establishmentName = '') {
     second_end_time: null,
     label: 'Fechado',
   }));
+}
+
+function applySeuJustinoSchedule(setDay) {
+  setDay(0, '12:00', '21:00');
+  setDay(2, '18:00', '01:00');
+  setDay(3, '18:00', '01:00');
+  setDay(4, '18:00', '01:00');
+  setDay(5, '18:00', '03:30');
+  setDay(6, '12:00', '03:30');
+}
+
+function applyPracinhaSchedule(setDay) {
+  setDay(0, '12:00', '21:00');
+  setDay(2, '18:00', '01:00');
+  setDay(3, '18:00', '01:00');
+  setDay(4, '18:00', '01:00');
+  setDay(5, '18:00', '03:30');
+  setDay(6, '18:00', '03:30');
+}
+
+function applyHighlineSchedule(setDay) {
+  setDay(5, '18:00', '23:30');
+  setDay(6, '14:00', '23:30');
+}
+
+function applyRooftopSchedule(setDay) {
+  setDay(0, '12:00', '16:00', '17:00', '20:30');
+  setDay(2, '18:00', '22:30');
+  setDay(3, '18:00', '22:30');
+  setDay(4, '18:00', '22:30');
+  setDay(5, '12:00', '16:00', '17:00', '22:30');
+  setDay(6, '12:00', '16:00', '17:00', '22:30');
+}
+
+function buildDefaultWeekly(establishmentName = '') {
+  const lower = String(establishmentName || '').toLowerCase();
+  const days = createClosedWeek();
 
   const setDay = (weekday, start, end, secondStart = null, secondEnd = null) => {
     const labels = [toLabel(start, end)];
@@ -28,31 +64,26 @@ function buildDefaultWeekly(establishmentName = '') {
     };
   };
 
-  const isRooftop = lower.includes('reserva rooftop') || lower.includes('rooftop');
-  const isJustinoLike = lower.includes('seu justino') || lower.includes('pracinha');
-
-  if (isRooftop) {
-    setDay(2, '18:00', '22:30');
-    setDay(3, '18:00', '22:30');
-    setDay(4, '18:00', '22:30');
-    setDay(5, '12:00', '16:00', '17:00', '22:30');
-    setDay(6, '12:00', '16:00', '17:00', '22:30');
-    setDay(0, '12:00', '16:00', '17:00', '20:30');
+  if (lower.includes('pracinha')) {
+    applyPracinhaSchedule(setDay);
     return days;
   }
 
-  if (isJustinoLike) {
-    setDay(2, '18:00', '01:00');
-    setDay(3, '18:00', '01:00');
-    setDay(4, '18:00', '01:00');
-    setDay(5, '18:00', '03:30');
-    setDay(6, '18:00', '03:30');
-    setDay(0, '12:00', '21:00');
+  if (lower.includes('seu justino')) {
+    applySeuJustinoSchedule(setDay);
     return days;
   }
 
-  setDay(5, '18:00', '23:30');
-  setDay(6, '14:00', '23:00');
+  if (lower.includes('reserva rooftop') || lower.includes('rooftop')) {
+    applyRooftopSchedule(setDay);
+    return days;
+  }
+
+  if (lower.includes('highline') || lower.includes('high line')) {
+    applyHighlineSchedule(setDay);
+    return days;
+  }
+
   return days;
 }
 
@@ -80,8 +111,25 @@ function getDefaultWindowsForEstablishmentName(establishmentName, isoDate) {
   return formatDayWindows(day);
 }
 
+const ESTABLISHMENT_DEFAULT_NAMES = {
+  1: 'Seu Justino',
+  4: 'Oh Fregues',
+  7: 'HighLine',
+  8: 'Pracinha do Seu Justino',
+  9: 'Reserva Rooftop',
+  10: 'Sitio Ilha',
+};
+
+function getDefaultWindowsForEstablishmentId(establishmentId, isoDate) {
+  const name = ESTABLISHMENT_DEFAULT_NAMES[Number(establishmentId)];
+  if (!name) return [];
+  return getDefaultWindowsForEstablishmentName(name, isoDate);
+}
+
 module.exports = {
   buildDefaultWeekly,
   formatDayWindows,
   getDefaultWindowsForEstablishmentName,
+  getDefaultWindowsForEstablishmentId,
+  ESTABLISHMENT_DEFAULT_NAMES,
 };

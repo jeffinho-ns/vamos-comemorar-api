@@ -1,4 +1,7 @@
-const { getDefaultWindowsForEstablishmentName } = require('./operationalHours/defaultWeeklySchedule');
+const {
+  getDefaultWindowsForEstablishmentName,
+  getDefaultWindowsForEstablishmentId,
+} = require('./operationalHours/defaultWeeklySchedule');
 
 const WEEKDAY_LABELS_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
@@ -11,30 +14,7 @@ function weekdayLabelPt(weekday) {
 }
 
 function getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate) {
-  const id = Number(establishmentId);
-  const date = new Date(`${isoDate}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return [];
-  const weekday = date.getDay();
-
-  if (id === 9) {
-    if (weekday >= 2 && weekday <= 4) return ['18:00-22:30'];
-    if (weekday === 5 || weekday === 6) return ['12:00-16:00', '17:00-22:30'];
-    if (weekday === 0) return ['12:00-16:00', '17:00-20:30'];
-    return [];
-  }
-
-  if (id === 1 || id === 8) {
-    if (weekday >= 2 && weekday <= 4) return ['18:00-01:00'];
-    if (weekday === 5 || weekday === 6) return ['18:00-03:30'];
-    if (weekday === 0) return ['12:00-21:00'];
-    return [];
-  }
-
-  if (id === 7) return getDefaultWindowsForEstablishmentName('HighLine', isoDate);
-  if (id === 4) return getDefaultWindowsForEstablishmentName('Oh Fregues', isoDate);
-  if (id === 10) return getDefaultWindowsForEstablishmentName('Sitio Ilha', isoDate);
-
-  return [];
+  return getDefaultWindowsForEstablishmentId(establishmentId, isoDate);
 }
 
 async function resolveDefaultOperatingWindows(pool, establishmentId, isoDate) {
