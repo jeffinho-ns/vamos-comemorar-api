@@ -1,5 +1,5 @@
 const { interpretMessage, generateReservationConfirmationMessage } = require('../aiService');
-const { sendMessage } = require('../whatsappService');
+const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const businessRulesEngine = require('../businessRulesEngine');
 const stateManager = require('../stateManager/stateManager');
@@ -40,6 +40,10 @@ const {
   getCardapioUrlByEstablishmentId,
   applyBusinessRulesToReservationParams,
 } = require('./helpers');
+const {
+  EVENT_TYPES,
+  recordEvent,
+} = require('../metrics/conversationMetricsService');
 const {
   ageFromIsoDate,
   loadAiCatalog,
@@ -82,6 +86,14 @@ function buildCollectedFieldsSummary(collectedFields = {}) {
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => `${key}=${value}`)
     .join(', ');
+}
+
+async function trackFunnelEvent(pool, event) {
+  try {
+    await recordEvent(pool, event);
+  } catch (metricError) {
+    console.warn('[conversationEngine] métricas indisponíveis:', metricError.message);
+  }
 }
 
 async function loadActiveAreas(pool, establishmentId = null) {
@@ -205,6 +217,14 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
         collectedFields: conversationState.collectedFields,
         reservationContext: conversationState.reservationContext,
       });
+      await trackFunnelEvent(pool, {
+        eventType: EVENT_TYPES.STEP_ENTERED,
+        conversationId: conversation.id,
+        sessionId: conversationState.sessionId,
+        waId,
+        establishmentId: lockedEstablishmentId,
+        step: conversationState.currentStep,
+      });
     } catch (stateError) {
       console.warn('[conversationEngine] estado persistido indisponível:', stateError.message);
     }
@@ -304,7 +324,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           pendingDisambiguation.type === 'area'
             ? `Perfeito, vamos com a área ${selected.name}.`
             : `Perfeito, vamos com ${selected.name}.`;
-        await sendMessage(waId, confirmReply);
+        await outboundGateway.sendText(waId, confirmReply);
         await persistOutbound(confirmReply, 'DISAMBIGUATION_RESOLVED');
         return;
       }
@@ -324,7 +344,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
               },
             },
           });
-          await sendMessage(waId, reply);
+          await outboundGateway.sendText(waId, reply);
           await persistOutbound(reply, 'DISAMBIGUATION_ESTABLISHMENT');
           return;
         }
@@ -351,7 +371,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
               },
             },
           });
-          await sendMessage(waId, reply);
+          await outboundGateway.sendText(waId, reply);
           await persistOutbound(reply, 'DISAMBIGUATION_AREA');
           return;
         }
@@ -433,15 +453,43 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
         });
 
         if (stateManager.shouldTriggerHandoff(failedState)) {
+          await trackFunnelEvent(pool, {
+            eventType: EVENT_TYPES.BOT_LOOP,
+            conversationId: conversation.id,
+            sessionId: failedState.sessionId,
+            waId,
+            establishmentId: lockedEstablishmentId,
+            step: failedState.currentStep,
+            retryCount: failedState.retryCount,
+          });
           await activateHumanTakeover(pool, waId);
           const handoffReply =
             'Percebi que estamos com dificuldade em avançar por aqui. Vou chamar um atendente humano para te ajudar com a reserva, combinado?';
-          await sendMessage(waId, handoffReply);
+          await outboundGateway.sendText(waId, handoffReply);
           await persistOutbound(handoffReply, 'anti_loop_handoff');
+          await trackFunnelEvent(pool, {
+            eventType: EVENT_TYPES.HUMAN_HANDOFF,
+            conversationId: conversation.id,
+            sessionId: failedState.sessionId,
+            waId,
+            establishmentId: lockedEstablishmentId,
+            step: failedState.currentStep,
+            payload: { reason: 'anti_loop' },
+          });
           return;
         }
 
-        await sendMessage(waId, failure.message);
+        await trackFunnelEvent(pool, {
+          eventType: EVENT_TYPES.VALIDATION_FAILURE,
+          conversationId: conversation.id,
+          sessionId: failedState.sessionId,
+          waId,
+          establishmentId: lockedEstablishmentId,
+          step: failedState.currentStep,
+          payload: { code: failure.code || null },
+        });
+
+        await outboundGateway.sendText(waId, failure.message);
         await persistOutbound(failure.message, 'STATE_VALIDATION_ERROR');
         return;
       }
@@ -455,6 +503,15 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           await stateManager.getByConversationId(pool, conversation.id),
           { lockedEstablishmentId }
         );
+        await trackFunnelEvent(pool, {
+          eventType: EVENT_TYPES.STEP_ENTERED,
+          conversationId: conversation.id,
+          sessionId: conversationState.sessionId,
+          waId,
+          establishmentId: lockedEstablishmentId,
+          step: conversationState.currentStep,
+          previousStep: conversationState.completedSteps?.[conversationState.completedSteps.length - 1] || null,
+        });
       } else {
         const mergeResult = await applyValidatedParamsToState(
           pool,
@@ -474,14 +531,41 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
             intent: interpreted.action,
           });
           if (stateManager.shouldTriggerHandoff(failedState)) {
+            await trackFunnelEvent(pool, {
+              eventType: EVENT_TYPES.BOT_LOOP,
+              conversationId: conversation.id,
+              sessionId: failedState.sessionId,
+              waId,
+              establishmentId: lockedEstablishmentId,
+              step: failedState.currentStep,
+              retryCount: failedState.retryCount,
+            });
             await activateHumanTakeover(pool, waId);
             const handoffReply =
               'Percebi que estamos com dificuldade em avançar por aqui. Vou chamar um atendente humano para te ajudar com a reserva, combinado?';
-            await sendMessage(waId, handoffReply);
+            await outboundGateway.sendText(waId, handoffReply);
             await persistOutbound(handoffReply, 'anti_loop_handoff');
+            await trackFunnelEvent(pool, {
+              eventType: EVENT_TYPES.HUMAN_HANDOFF,
+              conversationId: conversation.id,
+              sessionId: failedState.sessionId,
+              waId,
+              establishmentId: lockedEstablishmentId,
+              step: failedState.currentStep,
+              payload: { reason: 'anti_loop' },
+            });
             return;
           }
-          await sendMessage(waId, failure.message);
+          await trackFunnelEvent(pool, {
+            eventType: EVENT_TYPES.VALIDATION_FAILURE,
+            conversationId: conversation.id,
+            sessionId: failedState.sessionId,
+            waId,
+            establishmentId: lockedEstablishmentId,
+            step: failedState.currentStep,
+            payload: { code: failure.code || null },
+          });
+          await outboundGateway.sendText(waId, failure.message);
           await persistOutbound(failure.message, 'STATE_VALIDATION_ERROR');
           return;
         }
@@ -557,14 +641,23 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           'Oi! Percebi que faz sentido um atendente humano te ajudar melhor agora. Só um instante — já chamo alguém da equipe por aqui pra continuar com você, combinado?',
         dateOverrideNotice
       );
-      await sendMessage(waId, handoffReply);
+      await outboundGateway.sendText(waId, handoffReply);
       await persistOutbound(handoffReply, 'falar_com_humano');
+      await trackFunnelEvent(pool, {
+        eventType: EVENT_TYPES.HUMAN_HANDOFF,
+        conversationId: conversation?.id || null,
+        sessionId: conversationState?.sessionId || null,
+        waId,
+        establishmentId: lockedEstablishmentId,
+        step: conversationState?.currentStep || null,
+        payload: { reason: 'explicit_request' },
+      });
       return;
     }
 
     if (interpreted.action === 'REFUSE_MINOR' && interpreted.suggested_reply) {
       const minorReply = mergeReplyWithOverrideNotice(interpreted.suggested_reply, dateOverrideNotice);
-      await sendMessage(waId, minorReply);
+      await outboundGateway.sendText(waId, minorReply);
       await persistOutbound(minorReply, 'REFUSE_MINOR');
       return;
     }
@@ -581,7 +674,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       const params = stateParams;
       const businessValidation = applyBusinessRulesToReservationParams(params);
       if (!businessValidation.ok) {
-        await sendMessage(waId, businessValidation.message);
+        await outboundGateway.sendText(waId, businessValidation.message);
         await persistOutbound(businessValidation.message, 'COLLECT_DATA');
         return;
       }
@@ -589,7 +682,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       const missing = validateProcessReservationParams(params);
       if (missing.length > 0) {
         const fallback = `Para registrar sua reserva no sistema, ainda preciso de: ${formatMissingFieldsForUser(missing)}. Pode me enviar?`;
-        await sendMessage(waId, fallback);
+        await outboundGateway.sendText(waId, fallback);
         await persistOutbound(fallback, 'COLLECT_DATA');
         return;
       }
@@ -598,7 +691,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       if (age !== null && age < 18) {
         const minorMsg =
           'Puxa, muito obrigado pelo contato! Para reservar conosco é necessário ter 18 anos ou mais. Se você for menor, peça para um responsável seguir por aqui, combinado?';
-        await sendMessage(waId, minorMsg);
+        await outboundGateway.sendText(waId, minorMsg);
         await persistOutbound(minorMsg, 'REFUSE_MINOR');
         return;
       }
@@ -608,7 +701,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       if (!created.success) {
         const errText =
           `Não consegui finalizar a reserva agora: ${created.error}. Podemos tentar outro horário ou outro dia? Se preferir, diga "atendente" e chamamos alguém da equipe.`;
-        await sendMessage(waId, errText);
+        await outboundGateway.sendText(waId, errText);
         await persistOutbound(errText, 'PROCESS_RESERVATION_ERROR');
         return;
       }
@@ -620,6 +713,15 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
 
       if (conversation?.id) {
         await stateManager.markCompleted(pool, conversation.id);
+        await trackFunnelEvent(pool, {
+          eventType: EVENT_TYPES.CONVERSION_COMPLETED,
+          conversationId: conversation.id,
+          sessionId: conversationState?.sessionId || null,
+          waId,
+          establishmentId: Number(params.establishment_id) || null,
+          step: 'completed',
+          previousStep: conversationState?.currentStep || null,
+        });
       }
 
       const reservationEstablishmentId = Number(
@@ -667,12 +769,12 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
           '\n\nImportante para alinhar certinho: na Pracinha, garantimos até 6 lugares sentados na reserva; acima disso, o restante do grupo é acomodado no fluxo da casa.';
       }
 
-      await sendMessage(waId, confirmText);
+      await outboundGateway.sendText(waId, confirmText);
       await persistOutbound(confirmText, 'PROCESS_RESERVATION_CONFIRM');
 
       if (hasGuestList && guestListLink) {
         const linkMsg = buildGuestListSecondMessage(guestListLink);
-        await sendMessage(waId, linkMsg);
+        await outboundGateway.sendText(waId, linkMsg);
         await persistOutbound(linkMsg, 'GUEST_LIST_LINK');
       }
       return;
@@ -730,7 +832,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
         'Consigo verificar os horários disponíveis agora. Me confirma apenas o estabelecimento que você quer, que já te passo as opções e encaminho sua reserva.';
     }
 
-    await sendMessage(waId, replyText);
+    await outboundGateway.sendText(waId, replyText);
     await persistOutbound(replyText, interpreted.action || 'COLLECT_DATA');
   } catch (error) {
     console.error('[conversationEngine] erro ao processar turno:', error.message);

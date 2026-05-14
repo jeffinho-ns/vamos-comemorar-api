@@ -1,5 +1,10 @@
 const { processRecoveryBatch } = require('../services/recoveryEngine/recoveryEngine');
 const { processFollowUpBatch } = require('../services/followUpEngine/followUpEngine');
+const { isQueueEnabled } = require('../infrastructure/queue/redisConnection');
+const {
+  enqueueCommercialRecovery,
+  enqueueCommercialFollowUp,
+} = require('../infrastructure/queue/producers');
 
 const RECOVERY_INTERVAL_MS = Number(process.env.CONVERSATION_RECOVERY_INTERVAL_MS || 15 * 60 * 1000);
 const FOLLOWUP_INTERVAL_MS = Number(process.env.CONVERSATION_FOLLOWUP_INTERVAL_MS || 30 * 60 * 1000);
@@ -13,6 +18,10 @@ async function runRecovery(pool, app) {
   if (recoveryRunning) return;
   recoveryRunning = true;
   try {
+    if (isQueueEnabled() && process.env.BULLMQ_COMMERCIAL_INLINE !== 'true') {
+      await enqueueCommercialRecovery({});
+      return;
+    }
     const result = await processRecoveryBatch(pool, app);
     if (result.sent > 0) {
       console.log('[conversationCommercialScheduler] recovery:', result);
@@ -28,6 +37,10 @@ async function runFollowUp(pool, app) {
   if (followupRunning) return;
   followupRunning = true;
   try {
+    if (isQueueEnabled() && process.env.BULLMQ_COMMERCIAL_INLINE !== 'true') {
+      await enqueueCommercialFollowUp({});
+      return;
+    }
     const result = await processFollowUpBatch(pool, app);
     if (result.preSent > 0 || result.postSent > 0) {
       console.log('[conversationCommercialScheduler] follow-up:', result);

@@ -2,6 +2,8 @@ const express = require('express');
 const { withConversationLock } = require('../services/conversationLock');
 const messageDedup = require('../services/whatsappMessageDedupRepository');
 const { processInboundTurn } = require('../services/conversationEngine/processInboundTurn');
+const { enqueueInboundTurn } = require('../infrastructure/queue/producers');
+const { isQueueEnabled } = require('../infrastructure/queue/redisConnection');
 
 function extractMessageText(payload) {
   const entry = payload?.entry?.[0];
@@ -83,6 +85,18 @@ module.exports = (pool, app) => {
     }
 
     try {
+      if (isQueueEnabled() && process.env.BULLMQ_WEBHOOK_INLINE !== 'true') {
+        const enqueueResult = await enqueueInboundTurn({
+          waId,
+          wamid,
+          payload,
+          incomingMessageText,
+        });
+        if (enqueueResult.enqueued) {
+          return res.sendStatus(200);
+        }
+      }
+
       await withConversationLock(pool, waId, async () => {
         await processInboundTurn({
           pool,

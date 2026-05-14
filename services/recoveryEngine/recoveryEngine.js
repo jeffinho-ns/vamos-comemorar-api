@@ -1,7 +1,8 @@
-const { sendMessage } = require('../whatsappService');
+const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const stateManager = require('../stateManager/stateManager');
 const { FIELD_LABELS_PT } = require('../stateManager/conversationSteps');
+const { recordEvent, EVENT_TYPES } = require('../metrics/conversationMetricsService');
 
 const RECOVERY_IDLE_MINUTES = Number(process.env.CONVERSATION_RECOVERY_IDLE_MINUTES || 45);
 const MAX_RECOVERY_ATTEMPTS = Number(process.env.CONVERSATION_MAX_RECOVERY_ATTEMPTS || 2);
@@ -71,7 +72,7 @@ async function processRecoveryBatch(pool, app) {
       if (humanActive) continue;
 
       const message = buildRecoveryMessage(row, row.establishment_name);
-      await sendMessage(row.wa_id, message);
+      await outboundGateway.sendText(row.wa_id, message);
 
       await inbox.insertMessage(pool, {
         conversationId: row.conversation_id,
@@ -80,6 +81,16 @@ async function processRecoveryBatch(pool, app) {
         intent: 'recovery_followup',
         suggestedReply: null,
         rawPayload: null,
+      });
+
+      await recordEvent(pool, {
+        eventType: EVENT_TYPES.STEP_ABANDONED,
+        conversationId: row.conversation_id,
+        sessionId: row.session_id,
+        waId: row.wa_id,
+        establishmentId: Number(row.collected_fields?.establishment_id) || null,
+        step: row.current_step,
+        payload: { source: 'recovery_engine' },
       });
 
       await stateManager.persistState(pool, row.conversation_id, {

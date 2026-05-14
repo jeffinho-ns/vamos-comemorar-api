@@ -152,6 +152,8 @@ const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
 const whatsappAdminRoutes = require('./routes/whatsappAdmin');
+const conversationMetricsRoutes = require('./routes/conversationMetrics');
+const privacyLgpdRoutes = require('./routes/privacyLgpd');
 
 
 // Usando as Rotas
@@ -201,6 +203,8 @@ app.use('/api/gift-rules', giftRulesRouter);
 app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
 // Central WhatsApp (inbox + envio manual) — autenticado
 app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
+app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
+app.use('/api/privacy/lgpd', privacyLgpdRoutes(pool));
 // Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
 app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
 // Rota de logs de ações
@@ -389,7 +393,9 @@ io.on('connection', (socket) => {
 
 // Iniciar o servidor
 const { startConversationCommercialScheduler } = require('./workers/conversationCommercialScheduler');
+const { startQueueWorkers } = require('./workers/queueWorkers');
 startConversationCommercialScheduler(pool, app);
+startQueueWorkers(pool, app);
 
 server.listen(PORT, config.server.host, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
