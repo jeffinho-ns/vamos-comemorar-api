@@ -21,7 +21,8 @@
     "check-db": "node scripts/check-remote-db.js",
     "test-cloudinary": "node scripts/test-cloudinary-service.js",
     "migrate-cloudinary": "node scripts/migrate-images-to-cloudinary.js",
-    "regenerate-cardapio-variants": "node scripts/regenerate-cardapio-image-variants.js"
+    "regenerate-cardapio-variants": "node scripts/regenerate-cardapio-image-variants.js",
+    "seed:faqs": "node scripts/seedFaqs.js"
   },
   "keywords": [],
   "author": "",

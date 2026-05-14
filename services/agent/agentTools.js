@@ -23,7 +23,34 @@ function normalizeTopic(topic) {
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_');
+}
+
+function buildFaqTopicCandidates(topic) {
+  const normalized = normalizeTopic(topic);
+  const aliases = {
+    pet: ['pet', 'pets'],
+    pets: ['pets', 'pet'],
+    musica: ['musica'],
+    cardapio: ['cardapio', 'menu'],
+    menu: ['cardapio', 'menu'],
+    crianca: ['crianca', 'criancas', 'menor', 'menores'],
+    criancas: ['crianca', 'criancas', 'menor', 'menores'],
+    horario: ['horario_funcionamento', 'horario', 'horarios', 'funcionamento'],
+    horarios: ['horario_funcionamento', 'horario', 'horarios', 'funcionamento'],
+    funcionamento: ['horario_funcionamento', 'horario', 'funcionamento'],
+    estacionamento: ['estacionamento', 'valet', 'estacionar'],
+    valet: ['estacionamento', 'valet'],
+    dress_code: ['dress_code', 'traje', 'vestimenta'],
+    aniversario: ['aniversarios', 'aniversario'],
+    aniversarios: ['aniversarios', 'aniversario'],
+    area: ['areas', 'area'],
+    areas: ['areas', 'area'],
+  };
+
+  const candidates = aliases[normalized] || [normalized];
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 async function loadActiveAreas(pool, establishmentId) {
@@ -122,32 +149,40 @@ function getAgentToolDefinitions() {
 
 async function consultarFaqEstabelecimento(pool, args = {}) {
   const establishmentId = Number(args.estabelecimento_id);
-  const topic = normalizeTopic(args.topico);
+  const topicCandidates = buildFaqTopicCandidates(args.topico);
+  const topic = topicCandidates[0] || null;
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !topic) {
     return { ok: false, error: 'estabelecimento_id e topico são obrigatórios.' };
   }
 
   let answer = null;
+  let matchedTopic = topic;
   try {
-    const result = await pool.query(
-      `SELECT answer
-         FROM establishment_faq
-        WHERE establishment_id = $1
-          AND topic = $2
-          AND is_active = TRUE
-        LIMIT 1`,
-      [establishmentId, topic]
-    );
-    answer = result.rows[0]?.answer || null;
+    for (const candidate of topicCandidates) {
+      const result = await pool.query(
+        `SELECT answer
+           FROM establishment_faq
+          WHERE establishment_id = $1
+            AND topic = $2
+            AND is_active = TRUE
+          LIMIT 1`,
+        [establishmentId, candidate]
+      );
+      if (result.rows[0]?.answer) {
+        answer = result.rows[0].answer;
+        matchedTopic = candidate;
+        break;
+      }
+    }
   } catch (_error) {
     answer = null;
   }
 
   if (!answer) {
-    answer = DEFAULT_FAQ[topic] || null;
+    answer = DEFAULT_FAQ[topic] || DEFAULT_FAQ[matchedTopic] || null;
   }
 
-  if (topic === 'cardapio') {
+  if (topic === 'cardapio' || matchedTopic === 'cardapio') {
     const cardapioUrl = getCardapioUrlByEstablishmentId(establishmentId);
     if (cardapioUrl) {
       answer = `O cardápio digital está em ${cardapioUrl}`;
@@ -158,7 +193,7 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
     return {
       ok: false,
       establishment_id: establishmentId,
-      topic,
+      topic: matchedTopic,
       error: 'Não encontrei orientação cadastrada para este tópico. Posso confirmar com a equipe da casa.',
     };
   }
@@ -166,7 +201,7 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
   return {
     ok: true,
     establishment_id: establishmentId,
-    topic,
+    topic: matchedTopic,
     answer,
   };
 }

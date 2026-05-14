@@ -93,10 +93,17 @@ module.exports = (pool, app) => {
           incomingMessageText,
         });
         if (enqueueResult.enqueued) {
+          console.log(
+            `[WhatsApp webhook] turno enfileirado waId=${waId} wamid=${wamid || 'sem-id'} job=${enqueueResult.jobId}`
+          );
           return res.sendStatus(200);
         }
+        console.warn(
+          `[WhatsApp webhook] fila indisponível; processando inline waId=${waId} wamid=${wamid || 'sem-id'} motivo=${enqueueResult.reason || 'desconhecido'}`
+        );
       }
 
+      const startedAt = Date.now();
       await withConversationLock(pool, waId, async () => {
         await processInboundTurn({
           pool,
@@ -106,6 +113,9 @@ module.exports = (pool, app) => {
           waId,
         });
       });
+      console.log(
+        `[WhatsApp webhook] turno inline concluído waId=${waId} wamid=${wamid || 'sem-id'} ms=${Date.now() - startedAt}`
+      );
     } catch (lockError) {
       console.error('[WhatsApp webhook] erro no lock/fila da conversa:', lockError.message);
     }

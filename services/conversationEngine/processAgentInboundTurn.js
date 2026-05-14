@@ -36,6 +36,11 @@ function emitInbox(app, payload) {
 }
 
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
+  const incomingText = String(incomingMessageText || '').trim();
+  if (!incomingText) {
+    return;
+  }
+
   let conversation = null;
   let inboundRow = null;
 
@@ -49,7 +54,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     inboundRow = await inbox.insertMessage(pool, {
       conversationId: conversation.id,
       direction: 'inbound',
-      body: incomingMessageText,
+      body: incomingText,
       rawPayload: payload,
     });
     await inbox.upsertContact(pool, { waId, contactName, lastEstablishmentId: null });
@@ -63,7 +68,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     wa_id: waId,
     conversation,
     message: inboundRow,
-    body: incomingMessageText,
+    body: incomingText,
   });
 
   if (await inbox.isHumanTakeoverActive(pool, waId) && isConversationSafetyBlockEnabled()) {
@@ -79,12 +84,16 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   }
 
   const memory = await getMemory(pool, conversation.id);
-  let messageHistory = [{ role: 'user', content: incomingMessageText }];
+  let messageHistory = [{ role: 'user', content: incomingText }];
   try {
     const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 24);
     messageHistory = mapRowsToOpenAIHistory(recent);
+    const lastMessage = messageHistory[messageHistory.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user' || lastMessage.content !== incomingText) {
+      messageHistory.push({ role: 'user', content: incomingText });
+    }
   } catch (_error) {
-    messageHistory = [{ role: 'user', content: incomingMessageText }];
+    messageHistory = [{ role: 'user', content: incomingText }];
   }
 
   let catalog = { establishmentsBlock: '', areasBlock: '', establishments: [] };
@@ -95,7 +104,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   }
 
   const operationalProfile = await getProfileForPrompt(pool, waId);
-  const sentiment = analyzeSentimentLead(incomingMessageText, { collectedFields: memory.workingState });
+  const sentiment = analyzeSentimentLead(incomingText, { collectedFields: memory.workingState });
 
   const persistOutbound = async (bodyText, intentLabel) => {
     const saved = await inbox.insertMessage(pool, {
@@ -136,6 +145,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     await persistMemory(pool, conversation.id, {
       workingState: agentResult.workingState,
+    }).catch((memoryError) => {
+      console.error('[agentEngine] falha ao persistir memória:', memoryError.message);
     });
 
     if (inboundRow?.id) {
@@ -149,6 +160,9 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     await persistOutbound(
       agentResult.replyText,
       agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'
+    );
+    console.log(
+      `[agentEngine] resposta enviada waId=${waId} intent=${agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'} chars=${agentResult.replyText.length} tools=${agentResult.toolTrace?.length || 0}`
     );
 
     if (agentResult.guestListLink) {
@@ -165,12 +179,13 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       }
     }
   } catch (error) {
-    console.error('[agentEngine] erro no turno do agente:', error.message);
+    console.error('[agentEngine] erro no turno do agente:', error.message, error.stack);
     const fallback =
       'Tive um instante por aqui. Pode repetir sua mensagem que eu continuo com você?';
     try {
       await outboundGateway.sendText(waId, fallback);
       await persistOutbound(fallback, 'AGENT_ERROR');
+      console.warn(`[agentEngine] fallback enviado waId=${waId}`);
     } catch (_sendError) {
       console.error('[agentEngine] falha ao enviar fallback:', _sendError.message);
     }

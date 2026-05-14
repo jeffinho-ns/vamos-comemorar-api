@@ -42,10 +42,12 @@ async function resolveEstablishmentByToken(pool, token) {
 }
 
 function mapRowsToOpenAIHistory(rows) {
-  return (rows || []).map((row) => ({
-    role: row.direction === 'outbound' ? 'assistant' : 'user',
-    content: row.body,
-  }));
+  return (rows || [])
+    .map((row) => ({
+      role: row.direction === 'outbound' ? 'assistant' : 'user',
+      content: String(row.body || '').trim(),
+    }))
+    .filter((row) => row.content);
 }
 
 function looksLikePrematureBookingPromise(text) {

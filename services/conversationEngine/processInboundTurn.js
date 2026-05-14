@@ -212,8 +212,13 @@ async function applyValidatedParamsToState(pool, conversationId, interpretedPara
 }
 
 async function processInboundTurn(args) {
-  if (isAgentModeEnabled()) {
+  if (isAgentModeEnabled() && process.env.OPENAI_API_KEY) {
     return processAgentInboundTurn(args);
+  }
+  if (isAgentModeEnabled()) {
+    console.warn(
+      '[conversationEngine] WHATSAPP_AGENT_MODE ativo sem OPENAI_API_KEY; usando fluxo legado.'
+    );
   }
   return processLegacyInboundTurn(args);
 }

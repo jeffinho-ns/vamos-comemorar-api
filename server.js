@@ -169,7 +169,7 @@ const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
 const whatsappAdminRoutes = require('./routes/whatsappAdmin');
-const conversationMetricsRoutes = require('./routes/conversationMetrics');
+const establishmentFaqsAdminRoutes = require('./routes/establishmentFaqsAdmin');
 const privacyLgpdRoutes = require('./routes/privacyLgpd');
 
 
@@ -221,6 +221,7 @@ app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
 // Central WhatsApp (inbox + envio manual) — autenticado
 app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
 app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
+app.use('/api/admin', establishmentFaqsAdminRoutes(pool));
 app.use('/api/privacy/lgpd', privacyLgpdRoutes(pool));
 // Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
 app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
