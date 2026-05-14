@@ -5,7 +5,7 @@ const {
   buildGuestListSecondMessage,
   ageFromIsoDate,
 } = require('../whatsappReservationService');
-const { getCardapioUrlByEstablishmentId } = require('../conversationEngine/helpers');
+const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
 
 const DEFAULT_FAQ = {
   estacionamento:
@@ -54,18 +54,12 @@ function buildFaqTopicCandidates(topic) {
 }
 
 async function loadActiveAreas(pool, establishmentId) {
-  const id = Number(establishmentId);
-  if (!Number.isFinite(id) || id <= 0) return [];
-  const result = await pool.query(
-    `SELECT id, name
-       FROM restaurant_areas
-      WHERE is_active = TRUE
-        AND establishment_id = $1
-      ORDER BY name ASC
-      LIMIT 120`,
-    [id]
-  );
-  return result.rows || [];
+  try {
+    return await loadActiveRestaurantAreas(pool, establishmentId);
+  } catch (error) {
+    console.warn('[agentTools] falha ao carregar áreas:', error.message);
+    return [];
+  }
 }
 
 function getAgentToolDefinitions() {

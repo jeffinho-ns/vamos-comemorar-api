@@ -359,6 +359,27 @@ function applyBusinessRulesToReservationParams(params) {
   return businessRulesEngine.validateReservationPartySize(params);
 }
 
+async function loadActiveRestaurantAreas(pool, establishmentId = null) {
+  const whereParts = ['is_active = TRUE'];
+  const id = establishmentId != null ? Number(establishmentId) : null;
+  if (id != null && Number.isFinite(id) && id > 0) {
+    if (id === 9) {
+      whereParts.push(`name ILIKE 'Reserva Rooftop - %'`);
+    } else {
+      whereParts.push(`name NOT ILIKE 'Reserva Rooftop - %'`);
+    }
+  }
+
+  const result = await pool.query(
+    `SELECT id, name
+       FROM restaurant_areas
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY name ASC
+      LIMIT 120`
+  );
+  return result.rows || [];
+}
+
 module.exports = {
   extractEstablishmentToken,
   resolveEstablishmentByToken,
@@ -385,4 +406,5 @@ module.exports = {
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,
   applyBusinessRulesToReservationParams,
+  loadActiveRestaurantAreas,
 };

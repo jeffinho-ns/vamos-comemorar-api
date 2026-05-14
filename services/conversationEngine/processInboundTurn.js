@@ -48,6 +48,7 @@ const {
   parseDateFromHistory,
   getCardapioUrlByEstablishmentId,
   applyBusinessRulesToReservationParams,
+  loadActiveRestaurantAreas,
 } = require('./helpers');
 const {
   EVENT_TYPES,
@@ -121,17 +122,12 @@ async function trackFunnelEvent(pool, event) {
 }
 
 async function loadActiveAreas(pool, establishmentId = null) {
-  const params = [];
-  let query = `SELECT id, name, establishment_id
-                 FROM restaurant_areas
-                WHERE is_active = TRUE`;
-  if (establishmentId) {
-    query += ' AND establishment_id = $1';
-    params.push(establishmentId);
+  try {
+    return await loadActiveRestaurantAreas(pool, establishmentId);
+  } catch (error) {
+    console.warn('[conversationEngine] falha ao carregar áreas:', error.message);
+    return [];
   }
-  query += ' ORDER BY name ASC LIMIT 120';
-  const result = await pool.query(query, params);
-  return result.rows || [];
 }
 
 function getEstablishmentNameFromCatalog(catalog, establishmentId) {
