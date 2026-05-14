@@ -169,6 +169,7 @@ const rooftopConductionRoutes = require('./routes/rooftopConduction');
 const relatoriosRoutes = require('./routes/relatorios')(pool);
 const publicImagesRoutes = require('./routes/publicImages');
 const whatsappAdminRoutes = require('./routes/whatsappAdmin');
+const conversationMetricsRoutes = require('./routes/conversationMetrics');
 const establishmentFaqsAdminRoutes = require('./routes/establishmentFaqsAdmin');
 const privacyLgpdRoutes = require('./routes/privacyLgpd');
 
