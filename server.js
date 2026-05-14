@@ -34,6 +34,23 @@ app.set('ftpConfig', config.ftp);
 
 const PORT = config.server.port;
 
+if (process.env.NODE_ENV === 'production') {
+  const missingWhatsAppEnv = [];
+  if (!process.env.WHATSAPP_VERIFY_TOKEN) missingWhatsAppEnv.push('WHATSAPP_VERIFY_TOKEN');
+  if (!process.env.WHATSAPP_APP_SECRET && !process.env.META_APP_SECRET) {
+    missingWhatsAppEnv.push('WHATSAPP_APP_SECRET ou META_APP_SECRET');
+  }
+  if (!process.env.WHATSAPP_ACCESS_TOKEN) missingWhatsAppEnv.push('WHATSAPP_ACCESS_TOKEN');
+  if (!process.env.WHATSAPP_PHONE_NUMBER_ID) missingWhatsAppEnv.push('WHATSAPP_PHONE_NUMBER_ID');
+  if (!process.env.OPENAI_API_KEY) missingWhatsAppEnv.push('OPENAI_API_KEY');
+  if (missingWhatsAppEnv.length > 0) {
+    console.error(
+      '[startup] WhatsApp/IA incompleto em produção. Variáveis ausentes:',
+      missingWhatsAppEnv.join(', ')
+    );
+  }
+}
+
 // Middleware
 app.use(cors(config.server.cors));
 
@@ -241,10 +258,23 @@ app.use('/api/promoter-eventos', promoterEventosRoutes(pool));
 
 // Health check para o Render
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
+  const hasAppSecret = Boolean(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET);
+  const hasVerifyToken = Boolean(process.env.WHATSAPP_VERIFY_TOKEN);
+  const hasOutboundConfig = Boolean(
+    process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
+  );
+  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+
+  res.status(200).json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    whatsapp: {
+      webhookReady: hasVerifyToken && hasAppSecret,
+      outboundReady: hasOutboundConfig,
+      aiReady: hasOpenAi,
+      queueEnabled: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
+    },
   });
 });
 
