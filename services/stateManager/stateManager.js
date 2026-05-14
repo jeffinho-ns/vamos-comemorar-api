@@ -4,6 +4,7 @@ const {
   isTerminalStep,
   getStepPrompt,
 } = require('./conversationSteps');
+const { isConversationSafetyBlockEnabled } = require('../conversationTestingMode');
 
 const MAX_STEP_RETRIES = Number(process.env.CONVERSATION_MAX_STEP_RETRIES || 3);
 
@@ -223,14 +224,16 @@ async function recordValidationFailure(pool, conversationId, { message, intent =
   }
 
   const retryCount = (Number(current.retryCount) || 0) + 1;
-  const handoffRecommended = retryCount >= MAX_STEP_RETRIES;
+  const handoffRecommended =
+    isConversationSafetyBlockEnabled() && retryCount >= MAX_STEP_RETRIES;
 
   return persistState(pool, conversationId, {
     retryCount,
     handoffRecommended,
     lastQuestion: message || current.lastQuestion || null,
     lastIntent: intent || current.lastIntent || null,
-    currentStep: handoffRecommended ? 'handoff' : current.currentStep,
+    currentStep:
+      handoffRecommended && isConversationSafetyBlockEnabled() ? 'handoff' : current.currentStep,
   });
 }
 
@@ -314,6 +317,7 @@ async function markRecoveryPending(pool, conversationId) {
 }
 
 function shouldTriggerHandoff(state) {
+  if (!isConversationSafetyBlockEnabled()) return false;
   return Number(state?.retryCount) >= MAX_STEP_RETRIES || state?.currentStep === 'handoff';
 }
 

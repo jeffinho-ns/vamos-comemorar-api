@@ -54,6 +54,7 @@ const {
   buildReservationBodyFromParams,
   buildGuestListSecondMessage,
 } = require('../whatsappReservationService');
+const { isConversationSafetyBlockEnabled } = require('../conversationTestingMode');
 
 function resolveAutoTakeoverHours() {
   const configured = Number(process.env.WHATSAPP_AI_AUTO_TAKEOVER_HOURS);
@@ -239,12 +240,28 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     }
   }
 
-  if (usedPersistence && (await inbox.isHumanTakeoverActive(pool, waId))) {
+  if (usedPersistence && !isConversationSafetyBlockEnabled()) {
+    try {
+      await inbox.clearHumanTakeover(pool, waId);
+    } catch (clearTakeoverError) {
+      console.warn('[conversationEngine] falha ao limpar takeover em modo teste:', clearTakeoverError.message);
+    }
+  }
+
+  if (
+    usedPersistence &&
+    isConversationSafetyBlockEnabled() &&
+    (await inbox.isHumanTakeoverActive(pool, waId))
+  ) {
     console.log('[conversationEngine] Handoff humano ativo — IA não responde automaticamente.');
     return;
   }
 
-  if (conversationState && isTerminalStep(conversationState.currentStep)) {
+  if (
+    conversationState &&
+    isTerminalStep(conversationState.currentStep) &&
+    (isConversationSafetyBlockEnabled() || conversationState.currentStep !== 'handoff')
+  ) {
     console.log('[conversationEngine] sessão em passo terminal:', conversationState.currentStep);
     return;
   }
@@ -764,7 +781,7 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
     });
 
     if (interpreted.action === 'falar_com_humano') {
-      if (usedPersistence) {
+      if (usedPersistence && isConversationSafetyBlockEnabled()) {
         await activateHumanTakeover(pool, waId);
         if (conversation?.id) {
           await stateManager.markHandoff(pool, conversation.id, { intent: 'falar_com_humano' });
@@ -777,16 +794,18 @@ async function processInboundTurn({ pool, app, payload, incomingMessageText, waI
       );
       await outboundGateway.sendText(waId, handoffReply);
       await persistOutbound(handoffReply, 'falar_com_humano');
-      await trackFunnelEvent(pool, {
-        eventType: EVENT_TYPES.HUMAN_HANDOFF,
-        conversationId: conversation?.id || null,
-        sessionId: conversationState?.sessionId || null,
-        waId,
-        establishmentId: lockedEstablishmentId,
-        step: conversationState?.currentStep || null,
-        payload: { reason: 'explicit_request' },
-      });
-      return;
+      if (isConversationSafetyBlockEnabled()) {
+        await trackFunnelEvent(pool, {
+          eventType: EVENT_TYPES.HUMAN_HANDOFF,
+          conversationId: conversation?.id || null,
+          sessionId: conversationState?.sessionId || null,
+          waId,
+          establishmentId: lockedEstablishmentId,
+          step: conversationState?.currentStep || null,
+          payload: { reason: 'explicit_request' },
+        });
+        return;
+      }
     }
 
     if (interpreted.action === 'REFUSE_MINOR' && interpreted.suggested_reply) {
