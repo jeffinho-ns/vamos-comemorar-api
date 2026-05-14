@@ -1,3 +1,9 @@
+const {
+  buildDefaultWeekly,
+  formatDayWindows,
+  getDefaultWindowsForEstablishmentName,
+} = require('./operationalHours/defaultWeeklySchedule');
+
 const WEEKDAY_LABELS_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 function weekdayLabelPt(weekday) {
@@ -10,7 +16,7 @@ function weekdayLabelPt(weekday) {
 
 function getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate) {
   const id = Number(establishmentId);
-  const date = new Date(`${isoDate}T00:00:00`);
+  const date = new Date(`${isoDate}T12:00:00`);
   if (Number.isNaN(date.getTime())) return [];
   const weekday = date.getDay();
 
@@ -28,7 +34,24 @@ function getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate) {
     return [];
   }
 
+  if (id === 7) return getDefaultWindowsForEstablishmentName('HighLine', isoDate);
+  if (id === 4) return getDefaultWindowsForEstablishmentName('Oh Fregues', isoDate);
+  if (id === 10) return getDefaultWindowsForEstablishmentName('Sitio Ilha', isoDate);
+
   return [];
+}
+
+async function resolveDefaultOperatingWindows(pool, establishmentId, isoDate) {
+  const byId = getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+  if (byId.length > 0) return byId;
+
+  try {
+    const result = await pool.query('SELECT name FROM places WHERE id = $1 LIMIT 1', [establishmentId]);
+    const establishmentName = result.rows[0]?.name || '';
+    return getDefaultWindowsForEstablishmentName(establishmentName, isoDate);
+  } catch (_error) {
+    return [];
+  }
 }
 
 function formatTimeWindows(row) {
@@ -79,10 +102,10 @@ async function getOperatingWindowsForDate(pool, establishmentId, isoDate) {
       if (!row.is_open) return [];
       const windows = formatTimeWindows(row);
       if (windows.length > 0) return windows;
-      return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+      return resolveDefaultOperatingWindows(pool, establishmentId, isoDate);
     }
 
-    const date = new Date(`${isoDate}T00:00:00`);
+    const date = new Date(`${isoDate}T12:00:00`);
     if (Number.isNaN(date.getTime())) return [];
     const weekday = date.getDay();
 
@@ -96,14 +119,14 @@ async function getOperatingWindowsForDate(pool, establishmentId, isoDate) {
     );
 
     if (weekly.rows.length === 0 || !weekly.rows[0].is_open) {
-      return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+      return resolveDefaultOperatingWindows(pool, establishmentId, isoDate);
     }
 
     const windows = formatTimeWindows(weekly.rows[0]);
     if (windows.length > 0) return windows;
-    return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+    return resolveDefaultOperatingWindows(pool, establishmentId, isoDate);
   } catch (_error) {
-    return getDefaultOperatingWindowsByEstablishment(establishmentId, isoDate);
+    return resolveDefaultOperatingWindows(pool, establishmentId, isoDate);
   }
 }
 
