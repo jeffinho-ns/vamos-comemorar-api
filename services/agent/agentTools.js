@@ -28,30 +28,159 @@ function normalizeTopic(topic) {
     .replace(/\s+/g, '_');
 }
 
+/** Rotas ricas (ex.: Highline). Ordem importa: primeira correspondência vence. */
+const RICH_FAQ_TOPIC_ROUTES = [
+  {
+    slug: 'dias_horarios_funcionamento',
+    keywords: ['horario', 'horarios', 'funcionamento', 'dias', 'aberto', 'fecha', 'fechado', 'fechamento'],
+    fallbacks: [
+      'dias_horarios_funcionamento',
+      'horario_funcionamento',
+      'horario',
+      'horarios',
+      'funcionamento',
+    ],
+  },
+  {
+    slug: 'valores_entrada',
+    keywords: [
+      'valores',
+      'entrada',
+      'entradas',
+      'preco',
+      'precos',
+      'vip',
+      'lista',
+      'consumacao',
+      'ingresso',
+      'ingressos',
+    ],
+    fallbacks: ['valores_entrada'],
+  },
+  {
+    slug: 'beneficios_aniversario',
+    keywords: [
+      'aniversario',
+      'aniversarios',
+      'niver',
+      'bday',
+      'comemoracao',
+      'beneficios',
+      'vantagens',
+    ],
+    fallbacks: ['beneficios_aniversario', 'aniversarios', 'aniversario'],
+  },
+  {
+    slug: 'regras_bolo',
+    keywords: ['bolo', 'doce', 'doces', 'sobremesa', 'sobremesas'],
+    fallbacks: ['regras_bolo'],
+  },
+  {
+    slug: 'redes_sociais_fotos',
+    keywords: ['fotos', 'foto', 'instagram', 'insta', 'local', 'conhecer', 'vibe'],
+    fallbacks: ['redes_sociais_fotos'],
+  },
+  {
+    slug: 'areas_mesas_camarotes_diferenca',
+    keywords: [
+      'mesa',
+      'mesas',
+      'camarote',
+      'camarotes',
+      'rooftop',
+      'area',
+      'areas',
+      'espaco',
+      'espacos',
+      'lounge',
+      'bangalo',
+    ],
+    fallbacks: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
+  },
+];
+
+const LEGACY_FAQ_ALIASES = {
+  pet: ['pet', 'pets'],
+  pets: ['pets', 'pet'],
+  musica: ['musica'],
+  cardapio: ['cardapio', 'menu'],
+  menu: ['cardapio', 'menu'],
+  crianca: ['crianca', 'criancas', 'menor', 'menores'],
+  criancas: ['crianca', 'criancas', 'menor', 'menores'],
+  horario: [
+    'dias_horarios_funcionamento',
+    'horario_funcionamento',
+    'horario',
+    'horarios',
+    'funcionamento',
+  ],
+  horarios: [
+    'dias_horarios_funcionamento',
+    'horario_funcionamento',
+    'horario',
+    'horarios',
+    'funcionamento',
+  ],
+  funcionamento: [
+    'dias_horarios_funcionamento',
+    'horario_funcionamento',
+    'horario',
+    'funcionamento',
+  ],
+  horario_funcionamento: [
+    'dias_horarios_funcionamento',
+    'horario_funcionamento',
+    'horario',
+    'funcionamento',
+  ],
+  estacionamento: ['estacionamento', 'valet', 'estacionar'],
+  valet: ['estacionamento', 'valet'],
+  dress_code: ['dress_code', 'traje', 'vestimenta'],
+  aniversario: ['beneficios_aniversario', 'aniversarios', 'aniversario'],
+  aniversarios: ['beneficios_aniversario', 'aniversarios', 'aniversario'],
+  area: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
+  areas: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
+};
+
+function topicMatchesKeyword(normalized, keyword) {
+  const token = String(keyword || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!normalized || !token) return false;
+  if (normalized === token) return true;
+  if (normalized.includes(token)) return true;
+  return normalized.split('_').some((segment) => segment === token || segment.startsWith(token));
+}
+
+function matchRichFaqSlug(normalized) {
+  if (!normalized) return null;
+  for (const route of RICH_FAQ_TOPIC_ROUTES) {
+    if (route.keywords.some((keyword) => topicMatchesKeyword(normalized, keyword))) {
+      return route.slug;
+    }
+  }
+  return null;
+}
+
+function getRichFaqCandidates(normalized) {
+  const slug = matchRichFaqSlug(normalized);
+  if (!slug) return [];
+  const route = RICH_FAQ_TOPIC_ROUTES.find((entry) => entry.slug === slug);
+  return route?.fallbacks?.length ? route.fallbacks : [slug];
+}
+
 function buildFaqTopicCandidates(topic) {
   const normalized = normalizeTopic(topic);
-  const aliases = {
-    pet: ['pet', 'pets'],
-    pets: ['pets', 'pet'],
-    musica: ['musica'],
-    cardapio: ['cardapio', 'menu'],
-    menu: ['cardapio', 'menu'],
-    crianca: ['crianca', 'criancas', 'menor', 'menores'],
-    criancas: ['crianca', 'criancas', 'menor', 'menores'],
-    horario: ['horario_funcionamento', 'horario', 'horarios', 'funcionamento'],
-    horarios: ['horario_funcionamento', 'horario', 'horarios', 'funcionamento'],
-    funcionamento: ['horario_funcionamento', 'horario', 'funcionamento'],
-    estacionamento: ['estacionamento', 'valet', 'estacionar'],
-    valet: ['estacionamento', 'valet'],
-    dress_code: ['dress_code', 'traje', 'vestimenta'],
-    aniversario: ['aniversarios', 'aniversario'],
-    aniversarios: ['aniversarios', 'aniversario'],
-    area: ['areas', 'area'],
-    areas: ['areas', 'area'],
-  };
+  if (!normalized) return [];
 
-  const candidates = aliases[normalized] || [normalized];
-  return [...new Set(candidates.filter(Boolean))];
+  const richCandidates = getRichFaqCandidates(normalized);
+  if (richCandidates.length > 0) {
+    return [...new Set(richCandidates.filter(Boolean))];
+  }
+
+  const legacyCandidates = LEGACY_FAQ_ALIASES[normalized] || [normalized];
+  return [...new Set(legacyCandidates.filter(Boolean))];
 }
 
 async function loadActiveAreas(pool, establishmentId) {
@@ -77,7 +206,8 @@ function getAgentToolDefinitions() {
             estabelecimento_id: { type: 'integer' },
             topico: {
               type: 'string',
-              description: 'Tema: estacionamento, pet, musica, cardapio, crianca ou outro.',
+              description:
+                'Tema operacional: estacionamento, pet, musica, cardapio, crianca, dias_horarios_funcionamento, valores_entrada, beneficios_aniversario, regras_bolo, redes_sociais_fotos, areas_mesas_camarotes_diferenca, ou sinônimos (horário, entrada, aniversário, bolo, instagram, camarote, etc.).',
             },
           },
           required: ['estabelecimento_id', 'topico'],
@@ -363,4 +493,7 @@ module.exports = {
   consultarFaqEstabelecimento,
   verificarDisponibilidade,
   criarPreReserva,
+  normalizeTopic,
+  buildFaqTopicCandidates,
+  matchRichFaqSlug,
 };
