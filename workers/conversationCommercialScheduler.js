@@ -58,8 +58,12 @@ function startConversationCommercialScheduler(pool, app) {
     return;
   }
 
-  runRecovery(pool, app);
-  runFollowUp(pool, app);
+  const startupDelayMs = Number(process.env.COMMERCIAL_SCHEDULER_STARTUP_DELAY_MS || 90_000);
+
+  setTimeout(() => {
+    runRecovery(pool, app);
+    runFollowUp(pool, app);
+  }, startupDelayMs);
 
   recoveryTimer = setInterval(() => runRecovery(pool, app), RECOVERY_INTERVAL_MS);
   followupTimer = setInterval(() => runFollowUp(pool, app), FOLLOWUP_INTERVAL_MS);

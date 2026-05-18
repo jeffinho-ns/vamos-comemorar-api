@@ -26,13 +26,47 @@ app.set('trust proxy', 1);
 
 app.set('socketio', io);
 
+/** Render exige porta aberta rápido; rotas pesadas carregam depois do listen. */
+const BIND_HOST = process.env.HOST || config.server.host || '0.0.0.0';
+const BIND_PORT = Number(process.env.PORT || config.server.port || 10000);
+let applicationBootComplete = false;
+
+function buildHealthPayload() {
+  const hasAppSecret = Boolean(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET);
+  const hasVerifyToken = Boolean(process.env.WHATSAPP_VERIFY_TOKEN);
+  const hasOutboundConfig = Boolean(
+    process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
+  );
+  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+
+  return {
+    status: applicationBootComplete ? 'OK' : 'starting',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    bootComplete: applicationBootComplete,
+    whatsapp: {
+      webhookReady: hasVerifyToken && hasAppSecret,
+      outboundReady: hasOutboundConfig,
+      aiReady: hasOpenAi,
+      queueEnabled: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
+    },
+  };
+}
+
+app.get('/health', (req, res) => {
+  res.status(200).json(buildHealthPayload());
+});
+
+server.listen(BIND_PORT, BIND_HOST, () => {
+  console.log(`🚀 Server is running on port ${BIND_PORT}`);
+  console.log(`🌐 Listening on ${BIND_HOST}:${BIND_PORT}`);
+});
+
 const pool = require('./config/database');
 
 // Disponibilizar pool para as rotas
 app.set('pool', pool);
 app.set('ftpConfig', config.ftp);
-
-const PORT = config.server.port;
 
 if (process.env.NODE_ENV === 'production') {
   const missingWhatsAppEnv = [];
@@ -258,28 +292,6 @@ app.use('/api/promoter', promoterPublicRoutes(pool));
 const promoterEventosRoutes = require('./routes/promoterEventos');
 app.use('/api/promoter-eventos', promoterEventosRoutes(pool));
 
-// Health check para o Render
-app.get('/health', (req, res) => {
-  const hasAppSecret = Boolean(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET);
-  const hasVerifyToken = Boolean(process.env.WHATSAPP_VERIFY_TOKEN);
-  const hasOutboundConfig = Boolean(
-    process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
-  );
-  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
-
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    whatsapp: {
-      webhookReady: hasVerifyToken && hasAppSecret,
-      outboundReady: hasOutboundConfig,
-      aiReady: hasOpenAi,
-      queueEnabled: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
-    },
-  });
-});
-
 // Endpoint de teste do Cloudinary (apenas para diagnóstico)
 app.get('/test-cloudinary', async (req, res) => {
   try {
@@ -423,13 +435,13 @@ io.on('connection', (socket) => {
   });
 });
 
-// Iniciar o servidor
+applicationBootComplete = true;
+console.log(`🌐 CORS origins: ${config.server.cors.origin.join(', ')}`);
+console.log('✅ Application boot complete');
+
 const { startConversationCommercialScheduler } = require('./workers/conversationCommercialScheduler');
 const { startQueueWorkers } = require('./workers/queueWorkers');
-startConversationCommercialScheduler(pool, app);
-startQueueWorkers(pool, app);
-
-server.listen(PORT, config.server.host, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-    console.log(`🌐 CORS origins: ${config.server.cors.origin.join(', ')}`);
+setImmediate(() => {
+  startConversationCommercialScheduler(pool, app);
+  startQueueWorkers(pool, app);
 });
