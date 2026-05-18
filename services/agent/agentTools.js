@@ -283,9 +283,10 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
   let answer = null;
   let matchedTopic = topic;
   try {
+    let bestRow = null;
     for (const candidate of topicCandidates) {
       const result = await pool.query(
-        `SELECT answer
+        `SELECT topic, answer, updated_at
            FROM establishment_faq
           WHERE establishment_id = $1
             AND topic = $2
@@ -293,11 +294,20 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
           LIMIT 1`,
         [establishmentId, candidate]
       );
-      if (result.rows[0]?.answer) {
-        answer = result.rows[0].answer;
-        matchedTopic = candidate;
-        break;
+      const row = result.rows[0];
+      if (!row?.answer) continue;
+      const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (!bestRow || updatedAt > bestRow.updatedAt) {
+        bestRow = {
+          answer: row.answer,
+          topic: row.topic || candidate,
+          updatedAt,
+        };
       }
+    }
+    if (bestRow) {
+      answer = bestRow.answer;
+      matchedTopic = bestRow.topic;
     }
   } catch (_error) {
     answer = null;

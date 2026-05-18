@@ -5,6 +5,17 @@ const {
   mergeWorkingState,
   extractWorkingStatePatchFromToolResult,
 } = require('./agentMemoryService');
+const {
+  isInformationalFaqTurn,
+  looksLikeReservationPushOnly,
+} = require('./faqTopicCanonical');
+const {
+  prefetchEstablishmentFaqs,
+  buildFaqKnowledgeBlock,
+  generateFaqGroundedReply,
+  resolveFaqTopicsForTurn,
+} = require('./faqPrefetchService');
+const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -119,6 +130,57 @@ async function finalizeAssistantReply(messages, tools, assistantMessage, toolTra
   throw new Error('Resposta vazia do agente.');
 }
 
+async function tryFaqFirstReply({
+  pool,
+  messageHistory,
+  context = {},
+  memory = {},
+}) {
+  const lastUser = [...(messageHistory || [])].reverse().find((m) => m.role === 'user');
+  const userText = String(lastUser?.content || '').trim();
+  const establishmentId = Number(context.lockedEstablishmentId);
+  if (!userText || !Number.isFinite(establishmentId) || establishmentId <= 0 || !pool) {
+    return null;
+  }
+  if (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText)) {
+    return null;
+  }
+  if (!isInformationalFaqTurn(userText)) {
+    return null;
+  }
+
+  const topicHints = resolveFaqTopicsForTurn(userText);
+  if (!topicHints.length) return null;
+
+  const faqEntries = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
+  if (!faqEntries.length) return null;
+
+  const replyText = await generateFaqGroundedReply({
+    userQuestion: userText,
+    faqEntries,
+    establishmentName: context.lockedEstablishmentName || '',
+    messageHistory,
+  });
+
+  return {
+    replyText,
+    workingState: mergeWorkingState(memory.workingState || {}, {
+      establishment_id: establishmentId,
+    }),
+    toolTrace: topicHints.map((topic) => ({
+      name: 'consultar_faq_estabelecimento',
+      result: {
+        ok: true,
+        topic,
+        answer: faqEntries.find((e) => e.topic === topic)?.answer || faqEntries[0]?.answer,
+      },
+    })),
+    preReservationResult: null,
+    guestListLink: null,
+    faqFirst: true,
+  };
+}
+
 async function runAgentTurn({
   pool,
   messageHistory,
@@ -130,8 +192,30 @@ async function runAgentTurn({
     throw new Error('messageHistory deve ser um array não vazio.');
   }
 
+  if (process.env.OPENAI_API_KEY) {
+    const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
+      (error) => {
+        console.warn('[agentService] FAQ-first indisponível:', error.message);
+        return null;
+      }
+    );
+    if (faqFirst) return faqFirst;
+  }
+
+  const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
+  const userText = String(lastUser?.content || '').trim();
+  const topicHints = resolveFaqTopicsForTurn(userText);
+  let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
+  const establishmentId = Number(context.lockedEstablishmentId);
+
+  if (!faqKnowledgeBlock && pool && establishmentId > 0 && topicHints.length) {
+    const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
+    faqKnowledgeBlock = buildFaqKnowledgeBlock(prefetched, context.lockedEstablishmentName || '');
+  }
+
   const systemPrompt = promptBuilder.build({
     ...context,
+    faqKnowledgeBlock,
     referenceDate: getReferenceDateIso(),
   });
   const messages = buildOpenAiMessages(messageHistory, systemPrompt);
@@ -188,4 +272,5 @@ module.exports = {
   runAgentTurn,
   getReferenceDateIso,
   synthesizeReplyFromToolTrace,
+  tryFaqFirstReply,
 };

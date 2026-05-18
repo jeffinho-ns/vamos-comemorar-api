@@ -16,7 +16,11 @@ const {
   analyzeSentimentLead,
   buildPromptToneInstructions,
 } = require('../sentimentEngine/sentimentLeadEngine');
-const { mapRowsToOpenAIHistory } = require('../conversationEngine/helpers');
+const {
+  mapRowsToOpenAIHistory,
+  resolveEstablishmentForTurn,
+  detectEstablishmentFromText,
+} = require('../conversationEngine/helpers');
 const { isConversationSafetyBlockEnabled} = require('../conversationTestingMode');
 
 function extractContactName(payload) {
@@ -123,6 +127,45 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     });
   };
 
+  let contactLastEstablishmentId = null;
+  try {
+    const contact = await inbox.getContactByWaId(pool, waId);
+    const raw = Number(contact?.last_establishment_id);
+    if (Number.isFinite(raw) && raw > 0) contactLastEstablishmentId = raw;
+  } catch (_error) {
+    // ignore
+  }
+
+  const conversationEstablishmentId = Number.isFinite(Number(conversation?.establishment_id))
+    ? Number(conversation.establishment_id)
+    : contactLastEstablishmentId;
+  const resolvedEstablishmentId = resolveEstablishmentForTurn({
+    messageText: incomingText,
+    messageHistory,
+    establishments: catalog.establishments || [],
+    lockedEstablishmentId: memory.workingState?.establishment_id || null,
+    conversationEstablishmentId,
+    collectedFields: memory.workingState || {},
+  });
+  const resolvedEstablishment = (catalog.establishments || []).find(
+    (item) => Number(item.id) === Number(resolvedEstablishmentId)
+  );
+  const lockedEstablishmentId =
+    resolvedEstablishmentId ||
+    detectEstablishmentFromText(incomingText, catalog.establishments || []) ||
+    Number(memory.workingState?.establishment_id) ||
+    conversationEstablishmentId ||
+    null;
+  const lockedEstablishmentName = resolvedEstablishment?.name || null;
+
+  if (lockedEstablishmentId && waId) {
+    try {
+      await inbox.setConversationEstablishment(pool, waId, lockedEstablishmentId);
+    } catch (_error) {
+      // ignore
+    }
+  }
+
   try {
     const agentResult = await runAgentTurn({
       pool,
@@ -130,6 +173,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       memory,
       context: {
         establishmentsBlock: catalog.establishmentsBlock,
+        lockedEstablishmentId,
+        lockedEstablishmentName,
         contextSummary: memory.contextSummary,
         workingStateSummary: buildSummaryFromWorkingState(memory.workingState),
         emotionalState: sentiment.emotionalState,

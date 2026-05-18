@@ -3,9 +3,11 @@ class AgentPromptBuilder {
     const blocks = [
       this.buildPersonaBlock(),
       this.buildBehaviorBlock(),
+      this.buildFaqKnowledgeBlock(context),
       this.buildRuntimeBlock(context),
       this.buildMemoryBlock(context),
       this.buildCatalogBlock(context),
+      this.buildLockedEstablishmentBlock(context),
       this.buildToolsBlock(),
     ];
     return blocks.filter(Boolean).join('\n\n');
@@ -18,12 +20,19 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
 
   buildBehaviorBlock() {
     return `DIRETRIZES DE COMPORTAMENTO:
-1. Prioridade Máxima ao Cliente: se o cliente fizer uma pergunta (cardápio, estacionamento, música, pets, áreas), responda à dúvida antes de empurrar a coleta de dados da reserva. Use consultar_faq_estabelecimento.
+1. Prioridade Máxima ao Cliente: se o cliente fizer uma pergunta (horários, entrada, aniversário, cardápio, estacionamento, música, pets, áreas), responda com os fatos da BASE DE CONHECIMENTO ou consultar_faq_estabelecimento ANTES de pedir data, horário ou quantidade de pessoas.
 2. Inteligência Emocional: adapte o tom ao cliente. Se ele estiver animado, seja enérgico; se estiver confuso ou frustrado, seja firme, claro e acolhedor.
 3. Naturalidade: não faça interrogatório. Peça no máximo um dado por vez, em conversa fluida.
-4. Autonomia com Dados: você NÃO sabe horários de cor. Você NÃO sabe a data de hoje sem consultar. SEMPRE use verificar_disponibilidade antes de sugerir horário ou confirmar disponibilidade.
-5. Desambiguação: se o cliente disser algo vago como "no sábado", pergunte com carinhoas qual sábado ele quer dizer.
-6. Registro: só chame criar_pre_reserva quando já tiver conversado naturalmente e validado tudo com o cliente.`;
+4. Horários e regras da casa: use a BASE DE CONHECIMENTO ou consultar_faq_estabelecimento para dias de funcionamento, valores de entrada e benefícios de aniversário. Use verificar_disponibilidade apenas quando o cliente quiser reservar uma data específica ou confirmar janela na agenda.
+5. Desambiguação: se o cliente disser algo vago como "no sábado", pergunte com carinho qual sábado ele quer dizer (apenas se for para reserva; se for dúvida geral, responda com a regra dos sábados da base).
+6. Registro: só chame criar_pre_reserva quando já tiver conversado naturalmente e validado tudo com o cliente.
+7. Proibido substituir fatos cadastrados por frases genéricas do tipo "atenção especial" ou "varia por dia" quando a base tiver detalhes concretos.`;
+  }
+
+  buildFaqKnowledgeBlock(context) {
+    const block = String(context.faqKnowledgeBlock || '').trim();
+    if (!block) return '';
+    return block;
   }
 
   buildRuntimeBlock(context) {
@@ -52,6 +61,13 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
   buildCatalogBlock(context) {
     if (!context.establishmentsBlock) return '';
     return `ESTABELECIMENTOS DISPONÍVEIS:\n${context.establishmentsBlock}`;
+  }
+
+  buildLockedEstablishmentBlock(context) {
+    const id = Number(context.lockedEstablishmentId);
+    if (!Number.isFinite(id) || id <= 0) return '';
+    const name = context.lockedEstablishmentName ? ` (${context.lockedEstablishmentName})` : '';
+    return `ESTABELECIMENTO EM CONTEXTO: id ${id}${name}. Use este estabelecimento_id nas ferramentas, salvo se o cliente pedir outra casa explicitamente.`;
   }
 
   buildToolsBlock() {

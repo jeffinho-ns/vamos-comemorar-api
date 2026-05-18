@@ -3,14 +3,16 @@ const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
+const { canonicalizeAdminFaqTopic } = require('../services/agent/faqTopicCanonical');
 
 function normalizeTopic(topic) {
-  return String(topic || '')
+  const raw = String(topic || '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, '_');
+  return canonicalizeAdminFaqTopic(raw);
 }
 
 function parseEstablishmentId(value) {
