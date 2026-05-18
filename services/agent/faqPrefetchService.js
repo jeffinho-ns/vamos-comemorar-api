@@ -1,6 +1,6 @@
 const OpenAI = require('openai');
 const { buildFaqTopicCandidates } = require('./agentTools');
-const { detectFaqTopicsFromUserText } = require('./faqTopicCanonical');
+const { detectFaqTopicsFromConversation } = require('./faqTopicCanonical');
 
 let openaiClient = null;
 
@@ -96,7 +96,8 @@ REGRAS OBRIGATÓRIAS:
 - Use SOMENTE os fatos da base de conhecimento abaixo. Não invente horários, preços ou benefícios.
 - Responda COMPLETAMENTE à pergunta do cliente antes de qualquer convite à reserva.
 - Não diga apenas que "há atenção especial" ou "varia por dia" se os fatos específicos estiverem na base.
-- No máximo 1 frase curta no final oferecendo ajuda com reserva, se fizer sentido.
+- Inclua TODOS os horários, valores de entrada e benefícios presentes na base — não resuma demais.
+- Só ofereça reserva no final se fizer sentido; nunca invente uma data específica (ex.: 23/05) se o cliente não pediu.
 - Máximo 2 emojis opcionais.
 
 ${faqText}`,
@@ -116,8 +117,8 @@ ${faqText}`,
   return reply;
 }
 
-function resolveFaqTopicsForTurn(userText) {
-  return detectFaqTopicsFromUserText(userText);
+function resolveFaqTopicsForTurn(userText, messageHistory = []) {
+  return detectFaqTopicsFromConversation(messageHistory, userText);
 }
 
 module.exports = {

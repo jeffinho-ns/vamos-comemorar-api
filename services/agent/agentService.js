@@ -149,10 +149,16 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const topicHints = resolveFaqTopicsForTurn(userText);
+  const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
   if (!topicHints.length) return null;
 
   const faqEntries = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
+  if (!faqEntries.length) {
+    console.warn(
+      `[agentService] FAQ-first sem registros establishment_id=${establishmentId} topics=${topicHints.join(',')}`
+    );
+    return null;
+  }
   if (!faqEntries.length) return null;
 
   const replyText = await generateFaqGroundedReply({
@@ -204,7 +210,7 @@ async function runAgentTurn({
 
   const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
   const userText = String(lastUser?.content || '').trim();
-  const topicHints = resolveFaqTopicsForTurn(userText);
+  const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
 

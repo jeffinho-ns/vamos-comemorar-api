@@ -57,7 +57,9 @@ function normalizeInboundText(text) {
 
 function looksLikeBirthdayBenefitsQuestion(text) {
   const normalized = normalizeInboundText(text);
-  return /\b(aniversari|aniversariante|niver|beneficio|beneficios|vantagem|vantagens|comemorar|festa de anivers)\b/.test(
+  return /\b(aniversari|aniversariante|niver|beneficio|beneficios|vantagem|vantagens)\b/.test(
+    normalized
+  ) || /\b(festa de anivers|reserva de anivers|comemorar (meu |o )?anivers|vou comemorar|e aniversario|e aniversário)\b/.test(
     normalized
   );
 }
@@ -69,8 +71,14 @@ function looksLikeEntryPricingQuestion(text) {
   );
 }
 
+function looksLikeSaturdayQuestion(text) {
+  const normalized = normalizeInboundText(text);
+  return /\bsabad[oa]s?\b/.test(normalized);
+}
+
 function looksLikeOperatingHoursQuestion(text) {
   const normalized = normalizeInboundText(text);
+  if (looksLikeSaturdayQuestion(text)) return true;
   if (/\bhor[aá]ri|horarios?\b|funcionamento\b/.test(normalized)) return true;
   return /\b(abre|abrem|fecha|fecham|aberto|fechado)\b/.test(normalized);
 }
@@ -92,7 +100,7 @@ function detectFaqTopicsFromUserText(text) {
   if (looksLikeOperatingHoursQuestion(text) || looksLikeMusicStyleQuestion(text)) {
     topics.push('dias_horarios_funcionamento');
   }
-  if (looksLikeEntryPricingQuestion(text)) {
+  if (looksLikeEntryPricingQuestion(text) || looksLikeSaturdayQuestion(text)) {
     topics.push('valores_entrada');
   }
   if (/\b(bolo|doces?)\b/.test(normalized) && /\b(lev|levar|traz|pode)\b/.test(normalized)) {
@@ -126,9 +134,11 @@ function isInformationalFaqTurn(text) {
 
   if (detectFaqTopicsFromUserText(text).length > 0) return true;
 
-  return /\b(como funciona|me conta|me fala|quais? sao|o que tem|informac|duvida)\b/.test(
-    normalized
-  );
+  if (/\b(como funciona|me conta|me fala|quais? sao|o que tem|informac|duvida)\b/.test(normalized)) {
+    return true;
+  }
+  if (looksLikeSaturdayQuestion(text)) return true;
+  return false;
 }
 
 function looksLikeReservationPushOnly(text) {
@@ -136,13 +146,34 @@ function looksLikeReservationPushOnly(text) {
   return /\b(reservar|fazer reserva|quero reserva|nova reserva)\b/.test(normalized);
 }
 
+/** Une tópicos detectados na mensagem atual e no histórico recente do usuário. */
+function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') {
+  const texts = [
+    String(currentText || '').trim(),
+    ...(messageHistory || [])
+      .filter((m) => m?.role === 'user')
+      .map((m) => String(m.content || '').trim())
+      .slice(-4),
+  ].filter(Boolean);
+
+  const topics = [];
+  for (const text of texts) {
+    for (const topic of detectFaqTopicsFromUserText(text)) {
+      if (!topics.includes(topic)) topics.push(topic);
+    }
+  }
+  return topics;
+}
+
 module.exports = {
   canonicalizeAdminFaqTopic,
   normalizeTopicKey,
   detectFaqTopicsFromUserText,
+  detectFaqTopicsFromConversation,
   isInformationalFaqTurn,
   looksLikeBirthdayBenefitsQuestion,
   looksLikeOperatingHoursQuestion,
+  looksLikeSaturdayQuestion,
   looksLikeEntryPricingQuestion,
   looksLikeReservationPushOnly,
 };

@@ -22,6 +22,7 @@ const {
   detectEstablishmentFromText,
 } = require('../conversationEngine/helpers');
 const { isConversationSafetyBlockEnabled} = require('../conversationTestingMode');
+const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
 
 function extractContactName(payload) {
   const entry = payload?.entry?.[0];
@@ -61,7 +62,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       body: incomingText,
       rawPayload: payload,
     });
-    await inbox.upsertContact(pool, { waId, contactName, lastEstablishmentId: null });
+    await inbox.upsertContact(pool, { waId, contactName });
   } catch (persistError) {
     console.error('[agentEngine] persistência indisponível:', persistError.message);
     return;
@@ -139,6 +140,9 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   const conversationEstablishmentId = Number.isFinite(Number(conversation?.establishment_id))
     ? Number(conversation.establishment_id)
     : contactLastEstablishmentId;
+  const historyPlainText = messageHistory.map((m) => m?.content || '').join(' ');
+  const defaultWhatsappEstablishmentId = getWhatsappDefaultEstablishmentId();
+
   const resolvedEstablishmentId = resolveEstablishmentForTurn({
     messageText: incomingText,
     messageHistory,
@@ -147,20 +151,24 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     conversationEstablishmentId,
     collectedFields: memory.workingState || {},
   });
-  const resolvedEstablishment = (catalog.establishments || []).find(
-    (item) => Number(item.id) === Number(resolvedEstablishmentId)
-  );
   const lockedEstablishmentId =
     resolvedEstablishmentId ||
     detectEstablishmentFromText(incomingText, catalog.establishments || []) ||
+    detectEstablishmentFromText(historyPlainText, catalog.establishments || []) ||
     Number(memory.workingState?.establishment_id) ||
     conversationEstablishmentId ||
+    defaultWhatsappEstablishmentId ||
     null;
-  const lockedEstablishmentName = resolvedEstablishment?.name || null;
+
+  const resolvedEstablishment = (catalog.establishments || []).find(
+    (item) => Number(item.id) === Number(lockedEstablishmentId)
+  );
+  const lockedEstablishmentName = resolvedEstablishment?.name || 'HighLine';
 
   if (lockedEstablishmentId && waId) {
     try {
       await inbox.setConversationEstablishment(pool, waId, lockedEstablishmentId);
+      await inbox.upsertContact(pool, { waId, lastEstablishmentId: lockedEstablishmentId });
     } catch (_error) {
       // ignore
     }
@@ -207,7 +215,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'
     );
     console.log(
-      `[agentEngine] resposta enviada waId=${waId} intent=${agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'} chars=${agentResult.replyText.length} tools=${agentResult.toolTrace?.length || 0}`
+      `[agentEngine] resposta enviada waId=${waId} establishment_id=${lockedEstablishmentId || 'n/a'} faqFirst=${Boolean(agentResult.faqFirst)} intent=${agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'} chars=${agentResult.replyText.length} tools=${agentResult.toolTrace?.length || 0}`
     );
 
     if (agentResult.guestListLink) {

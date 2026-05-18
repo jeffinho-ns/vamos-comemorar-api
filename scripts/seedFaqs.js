@@ -258,18 +258,33 @@ const FAQ_SEEDS = [
 const HIGHLINE_OPERATIONAL_CONTEXTS = [
   {
     topic: 'dias_horarios_funcionamento',
-    answer:
-      'O Highline funciona REGULARMENTE apenas de Sexta-feira e Sábado, abrindo às 16h e fechando às 04h (o Club interno abre à meia-noite). De Segunda a Quarta-feira, a casa é FECHADA. Se o cliente pedir reserva para seg-qua, seja muito educado, explique que a casa está descansando e sugira sexta ou sábado. Às Quintas e Domingos a casa só abre para eventos esporádicos fechados (caso o cliente peça esses dias, diga que precisaria verificar a agenda especial, mas que o ideal é focar na sexta e no sábado).',
+    answer: `Aos sábados abrimos às 16h e fechamos às 04h.
+Tocamos house, open format, brasilidades.
+Nosso club abre à meia-noite (00h).
+
+Entrada com reserva e nome na lista:
+Até as 18h: todos VIP.
+Das 18h à 00h: R$60 seco ou R$160 consome.
+Após 00h: R$80 seco ou R$200 consome.
+Sujeito a alteração.
+
+De segunda a quarta a casa está fechada. O funcionamento regular é sexta e sábado.`,
   },
   {
     topic: 'valores_entrada',
-    answer:
-      'Valores para Sexta e Sábado (sujeitos a alteração e válidos com nome na reserva): Até as 18h: Todos são VIP. Das 18h às 00h: R$ 60 (entrada seca) ou R$ 160 (consumação). Após as 00h: R$ 80 (entrada seca) ou R$ 200 (consumação). A vibe musical foca em House, Open Format e Brasilidades. Ao falar dos valores e da música, use um tom muito animado e convidativo.',
+    answer: `Entrada com reserva e nome na lista (sexta e sábado, sujeito a alteração):
+Até as 18h: todos VIP.
+Das 18h à 00h: R$60 seco ou R$160 consome.
+Após 00h: R$80 seco ou R$200 consome.`,
   },
   {
     topic: 'beneficios_aniversario',
-    answer:
-      'Vantagens para o aniversariante: Ele ganha 2 VIPs e 2 drinks G&T (para ele e um acompanhante). Vantagens por convidados presentes (não cumulativas): Com 20 convidados presentes, ganha 1 garrafa de Gin 142 ou Clericot. Com 30 convidados presentes, ganha a garrafa + 1 drink cortesia. Ao explicar isso, celebre junto com o cliente, use emojis de festa e mostre que o Highline é o melhor lugar para comemorar.',
+    answer: `Vantagens para aniversariante:
+O aniversariante ganha 2 VIPs e 2 drinks G&T (um para ele e outro para o acompanhante).
+Com 20 convidados presentes ou mais: 1 garrafa de Gin 142 ou Clericot.
+Com 30 convidados presentes: 1 garrafa de Gin 142 ou Clericot + 1 drink cortesia.
+As cortesias por quantidade de convidados não são cumulativas.
+Celebre com o cliente de forma animada ao explicar.`,
   },
   {
     topic: 'regras_bolo',

@@ -18,6 +18,21 @@ test('detectFaqTopicsFromUserText detecta horário e entrada no sábado', () => 
   assert.ok(topics.includes('valores_entrada'));
 });
 
+test('detectFaqTopicsFromUserText detecta sábado sem citar HighLine', () => {
+  const topics = detectFaqTopicsFromUserText('como funciona aos sábados?');
+  assert.ok(topics.includes('dias_horarios_funcionamento'));
+  assert.ok(topics.includes('valores_entrada'));
+});
+
+test('detectFaqTopicsFromConversation acumula tópicos do histórico', () => {
+  const { detectFaqTopicsFromConversation } = require('../../services/agent/faqTopicCanonical');
+  const topics = detectFaqTopicsFromConversation(
+    [{ role: 'user', content: 'como funciona aos sábados?' }],
+    'E a entrada, paga no sábado?'
+  );
+  assert.ok(topics.includes('valores_entrada'));
+});
+
 test('detectFaqTopicsFromUserText detecta benefícios de aniversário', () => {
   const topics = detectFaqTopicsFromUserText('Quais as vantagens para aniversariante no HighLine?');
   assert.deepEqual(topics, ['beneficios_aniversario']);
