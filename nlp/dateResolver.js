@@ -18,6 +18,31 @@ const WEEKDAY_INDEX = {
   sab: 5,
 };
 
+const WEEKDAY_LABEL_PT = {
+  0: 'domingo',
+  1: 'segunda-feira',
+  2: 'terça-feira',
+  3: 'quarta-feira',
+  4: 'quinta-feira',
+  5: 'sexta-feira',
+  6: 'sábado',
+};
+
+const MONTH_LABEL_PT = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
@@ -141,11 +166,29 @@ function resolveDateFromText(text, options = {}) {
     };
   }
 
-  const weekdayMatch = normalized.match(
-    /\b(?:na\s+)?(?:proxima|prox\.?|que vem|agora)?\s*(domingo|dom|segunda|seg|terca|ter|quarta|qua|quinta|qui|sexta|sex|sabado|sab)\b/
-  );
+  const weekdayToken =
+    '(domingo|dom|segunda|seg|terca|ter|quarta|qua|quinta|qui|sexta|sex|sabado|sab)';
+  const weekdayPatterns = [
+    new RegExp(
+      `\\b(?:para|pra|na|no|em)\\s+(?:essa|esta|nesta|proxima|prox\\.?|que vem)?\\s*${weekdayToken}\\b`,
+      'i'
+    ),
+    new RegExp(`\\b(?:essa|esta|nesta|proxima|prox\\.?|que vem)\\s+${weekdayToken}\\b`, 'i'),
+    new RegExp(
+      `\\b(?:na\\s+)?(?:proxima|prox\\.?|que vem|agora)?\\s*${weekdayToken}\\b`,
+      'i'
+    ),
+  ];
+
+  let weekdayMatch = null;
+  for (const pattern of weekdayPatterns) {
+    weekdayMatch = normalized.match(pattern);
+    if (weekdayMatch) break;
+  }
+
   if (weekdayMatch) {
-    const weekday = WEEKDAY_INDEX[weekdayMatch[1]];
+    const weekdayKey = weekdayMatch[weekdayMatch.length - 1];
+    const weekday = WEEKDAY_INDEX[weekdayKey];
     if (weekday === undefined) {
       return { ok: false, confidence: 'low', reason: 'weekday_unknown' };
     }
@@ -158,13 +201,51 @@ function resolveDateFromText(text, options = {}) {
       confidence: ambiguous ? 'medium' : 'high',
       source: 'weekday_relative',
       ambiguous,
+      needsConfirmation: true,
+      weekdayIndex: weekday,
     };
   }
 
   return { ok: false, confidence: 'none', reason: 'unparsed' };
 }
 
+function formatReservationDateLabels(iso) {
+  const match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return {
+      iso: iso || null,
+      shortDate: null,
+      weekdayWithDate: null,
+      confirmationPhrase: null,
+    };
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const noonSp = new Date(`${iso}T12:00:00-03:00`);
+  const weekdayName = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: TIME_ZONE,
+    weekday: 'long',
+  }).format(noonSp);
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  const monthName = MONTH_LABEL_PT[month - 1] || '';
+
+  return {
+    iso,
+    shortDate: `${dd}/${mm}`,
+    fullDate: `${dd}/${mm}/${year}`,
+    weekdayWithDate: `${weekdayName}, dia ${dd}/${mm}`,
+    confirmationPhrase: `${weekdayName}, dia ${dd}/${mm}/${year}`,
+    weekdayName,
+    monthName,
+  };
+}
+
 module.exports = {
   TIME_ZONE,
   resolveDateFromText,
+  formatReservationDateLabels,
+  getZonedParts,
 };

@@ -4,6 +4,7 @@ class AgentPromptBuilder {
       this.buildPersonaBlock(),
       this.buildBehaviorBlock(),
       this.buildFaqKnowledgeBlock(context),
+      this.buildReservationDateBlock(context),
       this.buildRuntimeBlock(context),
       this.buildMemoryBlock(context),
       this.buildCatalogBlock(context),
@@ -24,13 +25,20 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
 2. Inteligência Emocional: adapte o tom ao cliente. Se ele estiver animado, seja enérgico; se estiver confuso ou frustrado, seja firme, claro e acolhedor.
 3. Naturalidade: não faça interrogatório. Peça no máximo um dado por vez, em conversa fluida.
 4. Horários e regras da casa: use a BASE DE CONHECIMENTO ou consultar_faq_estabelecimento para dias de funcionamento, valores de entrada e benefícios de aniversário. Use verificar_disponibilidade apenas quando o cliente quiser reservar uma data específica ou confirmar janela na agenda.
-5. Desambiguação: se o cliente disser algo vago como "no sábado", pergunte com carinho qual sábado ele quer dizer (apenas se for para reserva; se for dúvida geral, responda com a regra dos sábados da base).
-6. Registro: só chame criar_pre_reserva quando já tiver conversado naturalmente e validado tudo com o cliente.
-7. Proibido substituir fatos cadastrados por frases genéricas do tipo "atenção especial" ou "varia por dia" quando a base tiver detalhes concretos.`;
+5. Datas relativas (sexta, essa sexta, próximo sábado): use o bloco INTERPRETAÇÃO DE DATA quando existir. Confirme o dia em formato claro (ex.: "sexta-feira, dia 23/05") ANTES de verificar_disponibilidade ou criar_pre_reserva. Nunca invente uma data que o cliente não confirmou.
+6. Registro: só chame criar_pre_reserva quando já tiver conversado naturalmente, com data confirmada pelo cliente, e validado tudo.
+7. Proibido substituir fatos cadastrados por frases genéricas do tipo "atenção especial" ou "varia por dia" quando a base tiver detalhes concretos.
+8. Emojis: evite na rotina. No máximo 1 emoji, somente em confirmação final de reserva ou mensagem festiva (ex.: aniversário confirmado). Não use emojis ao pedir data, horário, nome ou confirmação de dia.`;
   }
 
   buildFaqKnowledgeBlock(context) {
     const block = String(context.faqKnowledgeBlock || '').trim();
+    if (!block) return '';
+    return block;
+  }
+
+  buildReservationDateBlock(context) {
+    const block = String(context.reservationDateBlock || '').trim();
     if (!block) return '';
     return block;
   }
@@ -76,7 +84,7 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
 -verificar_disponibilidade(estabelecimento_id, data, quantidade_pessoas)
 -criar_pre_reserva(estabelecimento_id, cliente_dados, data, horario, area, quantidade_pessoas)
 
-Responda em português do Brasil, sem markdown, com no máximo 2 emojis opcionais.`;
+Responda em português do Brasil, sem markdown. Evite emojis; use no máximo 1 apenas em confirmação final de reserva ou celebração.`;
   }
 }
 

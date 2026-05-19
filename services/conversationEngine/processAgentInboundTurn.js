@@ -1,6 +1,8 @@
 const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
-const { runAgentTurn } = require('../agent/agentService');
+const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
+const { buildReservationDateHint } = require('../agent/reservationDateHint');
+const { mergeWorkingState } = require('../agent/agentMemoryService');
 const {
   getMemory,
   persistMemory,
@@ -174,17 +176,28 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   }
 
+  const dateHint = buildReservationDateHint({
+    userText: incomingText,
+    referenceDateIso: getReferenceDateIso(),
+    workingState: memory.workingState || {},
+  });
+  const memoryForTurn = {
+    ...memory,
+    workingState: mergeWorkingState(memory.workingState || {}, dateHint.patch || {}),
+  };
+
   try {
     const agentResult = await runAgentTurn({
       pool,
       messageHistory,
-      memory,
+      memory: memoryForTurn,
       context: {
         establishmentsBlock: catalog.establishmentsBlock,
         lockedEstablishmentId,
         lockedEstablishmentName,
         contextSummary: memory.contextSummary,
-        workingStateSummary: buildSummaryFromWorkingState(memory.workingState),
+        workingStateSummary: buildSummaryFromWorkingState(memoryForTurn.workingState),
+        reservationDateBlock: dateHint.promptBlock,
         emotionalState: sentiment.emotionalState,
         leadTemperature: sentiment.leadTemperature,
         toneInstructions: buildPromptToneInstructions(sentiment),

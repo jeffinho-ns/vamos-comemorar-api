@@ -220,12 +220,16 @@ function getAgentToolDefinitions() {
       function: {
         name: 'verificar_disponibilidade',
         description:
-          'Consulta horários e áreas disponíveis no sistema para uma data. Nunca invente horários ou disponibilidade sem chamar esta função.',
+          'Consulta horários e áreas disponíveis no sistema para uma data. Use somente após o cliente confirmar o dia (ex.: "sim, essa sexta dia 23/05"). Nunca invente horários ou disponibilidade sem chamar esta função.',
         parameters: {
           type: 'object',
           properties: {
             estabelecimento_id: { type: 'integer' },
-            data: { type: 'string', description: 'YYYY-MM-DD' },
+            data: {
+              type: 'string',
+              description:
+                'YYYY-MM-DD já confirmado com o cliente. Se ele disse apenas "sexta" ou "essa sexta", confirme o dia antes de chamar.',
+            },
             quantidade_pessoas: { type: 'integer' },
           },
           required: ['estabelecimento_id', 'data'],
@@ -238,12 +242,15 @@ function getAgentToolDefinitions() {
       function: {
         name: 'criar_pre_reserva',
         description:
-          'Registra a pré-reserva no sistema somente após coletar naturalmente os dados com o cliente.',
+          'Registra a pré-reserva no sistema somente após coletar naturalmente os dados com o cliente e confirmar a data (dia da semana + DD/MM).',
         parameters: {
           type: 'object',
           properties: {
             estabelecimento_id: { type: 'integer' },
-            data: { type: 'string', description: 'YYYY-MM-DD' },
+            data: {
+              type: 'string',
+              description: 'YYYY-MM-DD confirmado explicitamente com o cliente.',
+            },
             horario: { type: 'string', description: 'HH:mm' },
             area: { type: 'string', description: 'Nome ou id da área' },
             cliente_dados: {

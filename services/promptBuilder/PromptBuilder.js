@@ -92,7 +92,11 @@ class PromptBuilder {
   }
 
   buildDateStep(context) {
-    return `OBJETIVO DO TURNO:\n- Extrair reservation_date em YYYY-MM-DD.\n- Use America/Sao_Paulo.\n- Se o cliente perguntar disponibilidade, chame checkAvailability antes de responder.\nEstabelecimento: ${context.lockedEstablishmentId || 'ainda não definido'}.`;
+    const dateBlock = String(context.reservationDateBlock || '').trim();
+    const dateRules = dateBlock
+      ? `${dateBlock}\n`
+      : '- Se o cliente disser dia da semana relativo (sexta, essa sexta, próximo sábado), confirme o dia em DD/MM antes de seguir.\n';
+    return `OBJETIVO DO TURNO:\n- Extrair reservation_date em YYYY-MM-DD.\n- Use America/Sao_Paulo.\n${dateRules}- Se o cliente perguntar disponibilidade, chame checkAvailability antes de responder.\nEstabelecimento: ${context.lockedEstablishmentId || 'ainda não definido'}.`;
   }
 
   buildTimeStep(context) {

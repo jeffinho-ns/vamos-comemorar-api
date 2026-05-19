@@ -16,6 +16,7 @@ const {
   resolveFaqTopicsForTurn,
 } = require('./faqPrefetchService');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
+const { buildReservationDateHint } = require('./reservationDateHint');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -210,6 +211,12 @@ async function runAgentTurn({
 
   const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
   const userText = String(lastUser?.content || '').trim();
+  const referenceDateIso = getReferenceDateIso();
+  const dateHint = buildReservationDateHint({
+    userText,
+    referenceDateIso,
+    workingState: memory.workingState || {},
+  });
   const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
@@ -222,12 +229,13 @@ async function runAgentTurn({
   const systemPrompt = promptBuilder.build({
     ...context,
     faqKnowledgeBlock,
-    referenceDate: getReferenceDateIso(),
+    reservationDateBlock: dateHint.promptBlock,
+    referenceDate: referenceDateIso,
   });
   const messages = buildOpenAiMessages(messageHistory, systemPrompt);
   const tools = getAgentToolDefinitions();
 
-  let workingState = mergeWorkingState(memory.workingState || {}, {});
+  let workingState = mergeWorkingState(memory.workingState || {}, dateHint.patch || {});
   const toolTrace = [];
   let preReservationResult = null;
   let guestListLink = null;

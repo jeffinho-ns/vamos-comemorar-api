@@ -98,7 +98,7 @@ REGRAS OBRIGATÓRIAS:
 - Não diga apenas que "há atenção especial" ou "varia por dia" se os fatos específicos estiverem na base.
 - Inclua TODOS os horários, valores de entrada e benefícios presentes na base — não resuma demais.
 - Só ofereça reserva no final se fizer sentido; nunca invente uma data específica (ex.: 23/05) se o cliente não pediu.
-- Máximo 2 emojis opcionais.
+- Evite emojis; use no máximo 1 apenas se o tom for festivo (ex.: aniversário).
 
 ${faqText}`,
       },

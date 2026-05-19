@@ -34,7 +34,7 @@ Se NÃO houver lista de convidados (grupos pequenos), inclua ao final um parágr
 
 Se houver lista de convidados, NÃO coloque o link na mensagem — o link será enviado na mensagem seguinte pelo sistema.
 
-Sem markdown. Máximo 1–2 emojis opcionais.`;
+Sem markdown. Evite emojis; no máximo 1 na confirmação se fizer sentido.`;
 
 function buildTranscriptFromHistory(messageHistory) {
   const lines = (messageHistory || []).map((m) => {
