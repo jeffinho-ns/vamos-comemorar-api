@@ -178,8 +178,12 @@ module.exports = (pool) => {
         const base = String(apiBaseUrl || '').replace(/\/+$/, '');
         const prefix = `${base}/public/images/`;
 
-        if (trimmed.toLowerCase().includes('cloudinary.com')) {
-            return trimmed;
+        if (isCloudinaryUrl(trimmed)) {
+            const filename = extractFilename(trimmed);
+            if (filename) {
+                return storageMediaUrl(apiBaseUrl, expandBasenameToCardapioItemsObjectPath(filename));
+            }
+            return null;
         }
 
         if (trimmed.includes('firebasestorage.googleapis.com')) {
@@ -487,10 +491,18 @@ module.exports = (pool) => {
 
             console.log(`📊 [GALLERY] Encontrados ${itemsResult.rows.length} itens com imagens`);
 
+            const safeGalleryDirectUrl = (rawValue) => {
+                if (!rawValue || typeof rawValue !== 'string') return null;
+                const trimmed = rawValue.trim();
+                if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return null;
+                if (isCloudinaryUrl(trimmed)) return null;
+                return trimmed;
+            };
+
             itemsResult.rows.forEach(row => {
                 const rawValue = row.imageurl ? String(row.imageurl).trim() : '';
                 const filename = extractFilename(rawValue);
-                const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
+                const directUrl = safeGalleryDirectUrl(rawValue);
 
                 if (filename && filename !== 'null' && filename.trim() !== '') {
                     if (imageMap.has(filename)) {
@@ -498,16 +510,16 @@ module.exports = (pool) => {
                         const existing = imageMap.get(filename);
                         existing.usageCount = (existing.usageCount || 0) + parseInt(row.usage_count);
                         existing.firstItemId = row.first_item_id;
-                        // Se já temos uma URL direta (Firebase/Cloudinary), preservar
+                        // Se já temos uma URL direta (Firebase), preservar
                         if (!existing.url && directUrl) {
                             existing.url = directUrl;
                         }
                     } else {
-                        // Buscar URL completa na tabela cardapio_images se existir, ou usar URL direta
+                        // Buscar URL completa na tabela cardapio_images se existir, ou usar proxy/Firebase
                         let finalUrl = directUrl;
                         const cardapioImage = cardapioImagesByFilename.get(filename);
-                        // Nunca propagar URL tokenizada do Firebase; sempre usar proxy por filename.
-                        const urls = buildImageUrls(apiBaseUrl, filename);
+                        const objectPath = expandBasenameToCardapioItemsObjectPath(filename);
+                        const urls = buildImageUrls(apiBaseUrl, objectPath);
                         if (!finalUrl) finalUrl = urls.thumbUrl;
                         
                         // Adicionar nova imagem
@@ -545,18 +557,14 @@ module.exports = (pool) => {
             console.log(`📊 [GALLERY] Encontrados ${barsResult.rows.length} bares com imagens`);
 
             barsResult.rows.forEach(row => {
-                // Função helper para buscar URL na tabela cardapio_images (Firebase/Cloudinary)
-                const getCloudinaryUrl = (filename) => {
-                    if (!filename) return null;
-                    // Não usar URL armazenada (pode ser token do Firebase). Sempre proxy por filename.
-                    return buildImageUrls(apiBaseUrl, filename);
-                };
-                
+                const buildGalleryUrls = (filename) =>
+                    buildImageUrls(apiBaseUrl, expandBasenameToCardapioItemsObjectPath(filename));
+
                 // Processar logoUrl
                 if (row.logourl && row.logourl !== 'null' && row.logourl.trim() !== '') {
                     const rawValue = String(row.logourl).trim();
                     const filename = extractFilename(rawValue);
-                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
+                    const directUrl = safeGalleryDirectUrl(rawValue);
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -569,11 +577,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = directUrl || getCloudinaryUrl(filename);
+                                const urls = buildGalleryUrls(filename);
+                                existing.url = directUrl || urls.thumbUrl;
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
-                            const urls = buildImageUrls(apiBaseUrl, filename);
+                            const urls = buildGalleryUrls(filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
@@ -594,7 +603,7 @@ module.exports = (pool) => {
                 if (row.coverimageurl && row.coverimageurl !== 'null' && row.coverimageurl.trim() !== '') {
                     const rawValue = String(row.coverimageurl).trim();
                     const filename = extractFilename(rawValue);
-                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
+                    const directUrl = safeGalleryDirectUrl(rawValue);
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -607,11 +616,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = directUrl || getCloudinaryUrl(filename);
+                                const urls = buildGalleryUrls(filename);
+                                existing.url = directUrl || urls.thumbUrl;
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
-                            const urls = buildImageUrls(apiBaseUrl, filename);
+                            const urls = buildGalleryUrls(filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
@@ -632,7 +642,7 @@ module.exports = (pool) => {
                 if (row.popupimageurl && row.popupimageurl !== 'null' && row.popupimageurl.trim() !== '') {
                     const rawValue = String(row.popupimageurl).trim();
                     const filename = extractFilename(rawValue);
-                    const directUrl = (rawValue.startsWith('http://') || rawValue.startsWith('https://')) ? rawValue : null;
+                    const directUrl = safeGalleryDirectUrl(rawValue);
                     if (filename) {
                         if (imageMap.has(filename)) {
                             const existing = imageMap.get(filename);
@@ -645,11 +655,12 @@ module.exports = (pool) => {
                             });
                             // Atualizar URL se não tiver e encontrar na tabela
                             if (!existing.url) {
-                                existing.url = directUrl || getCloudinaryUrl(filename);
+                                const urls = buildGalleryUrls(filename);
+                                existing.url = directUrl || urls.thumbUrl;
                             }
                         } else {
                             const cardapioImage = cardapioImagesByFilename.get(filename);
-                            const urls = buildImageUrls(apiBaseUrl, filename);
+                            const urls = buildGalleryUrls(filename);
                             imageMap.set(filename, {
                                 imageId: cardapioImage?.id || null,
                                 filename: filename,
@@ -987,6 +998,78 @@ module.exports = (pool) => {
         }
     });
 
+    function isCloudinaryUrl(value) {
+        return String(value || '').toLowerCase().includes('cloudinary.com');
+    }
+
+    async function lookupCardapioImageUrl(filename) {
+        if (!filename) return null;
+        try {
+            const result = await pool.query(
+                `SELECT url FROM cardapio_images
+                  WHERE filename = $1 OR filename LIKE $2
+                  ORDER BY updated_at DESC NULLS LAST, id DESC
+                  LIMIT 1`,
+                [filename, `%${filename}`]
+            );
+            const url = result.rows[0]?.url;
+            if (url && !isCloudinaryUrl(url)) return url;
+        } catch (_error) {
+            // Tabela pode não existir em alguns ambientes.
+        }
+        return null;
+    }
+
+    /**
+     * Resolve referência de imagem para o cliente (Firebase/proxy).
+     * Nunca devolve URL Cloudinary (conta removida → evita 404 no admin).
+     */
+    async function resolveImageFieldForClient(apiBaseUrl, raw) {
+        if (!raw || typeof raw !== 'string') return null;
+        const trimmed = raw.trim();
+        if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return null;
+
+        if (isCloudinaryUrl(trimmed)) {
+            const filename = extractFilename(trimmed);
+            if (!filename) return null;
+            const fromTable = await lookupCardapioImageUrl(filename);
+            if (fromTable) return fromTable;
+            const objectPath = expandBasenameToCardapioItemsObjectPath(filename);
+            const urls = buildImageUrls(apiBaseUrl, objectPath);
+            return urls.mediumUrl || urls.fullUrl || urls.thumbUrl;
+        }
+
+        if (trimmed.includes('firebasestorage.googleapis.com')) {
+            return trimmed;
+        }
+
+        if (/^https?:\/\//i.test(trimmed)) {
+            return trimmed;
+        }
+
+        const objectPath = expandBasenameToCardapioItemsObjectPath(trimmed);
+        const urls = buildImageUrls(apiBaseUrl, objectPath);
+        return urls.mediumUrl || urls.fullUrl || urls.thumbUrl;
+    }
+
+    async function resolveBarImagesForClient(apiBaseUrl, bar) {
+        const normalized = normalizeBarFields(bar);
+        normalized.logoUrl = (await resolveImageFieldForClient(apiBaseUrl, normalized.logoUrl)) || null;
+        normalized.coverImageUrl =
+            (await resolveImageFieldForClient(apiBaseUrl, normalized.coverImageUrl)) || null;
+        normalized.popupImageUrl =
+            (await resolveImageFieldForClient(apiBaseUrl, normalized.popupImageUrl)) || null;
+
+        if (Array.isArray(normalized.coverImages) && normalized.coverImages.length > 0) {
+            const resolved = await Promise.all(
+                normalized.coverImages.map((url) => resolveImageFieldForClient(apiBaseUrl, url))
+            );
+            normalized.coverImages = resolved.filter(Boolean);
+        }
+
+        return normalized;
+    }
+
     // Função helper para normalizar campos do bar para camelCase
     const normalizeBarFields = (bar) => {
         const normalized = { ...bar };
@@ -1063,9 +1146,11 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/bars', async (req, res) => {
         try {
-            // ✨ Query de SELECT atualizada para buscar as novas colunas
+            const apiBaseUrl = getPublicApiBaseUrl(req);
             const result = await pool.query('SELECT * FROM bars');
-            const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
+            const barsFormatted = await Promise.all(
+                result.rows.map((bar) => resolveBarImagesForClient(apiBaseUrl, bar))
+            );
             res.json(barsFormatted);
         } catch (error) {
             console.error('Erro ao listar estabelecimentos:', error);
@@ -1076,13 +1161,14 @@ module.exports = (pool) => {
     // Rota para buscar um estabelecimento específico
     router.get('/bars/:id', async (req, res) => {
         const { id } = req.params;
+        const apiBaseUrl = getPublicApiBaseUrl(req);
         try {
             // ✨ Query de SELECT atualizada para buscar as novas colunas
             const result = await pool.query('SELECT * FROM bars WHERE id = $1', [id]);
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = normalizeBarFields(result.rows[0]);
+            const bar = await resolveBarImagesForClient(apiBaseUrl, result.rows[0]);
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
