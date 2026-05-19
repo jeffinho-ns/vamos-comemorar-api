@@ -1,31 +1,22 @@
 const TIME_ZONE = 'America/Sao_Paulo';
 
+/** Índice alinhado ao Intl (0=domingo … 6=sábado) em America/Sao_Paulo. */
 const WEEKDAY_INDEX = {
   domingo: 0,
   dom: 0,
   segunda: 1,
   seg: 1,
-  terca: 1,
-  ter: 1,
-  tercafeira: 1,
-  quarta: 2,
-  qua: 2,
-  quinta: 3,
-  qui: 3,
-  sexta: 4,
-  sex: 4,
-  sabado: 5,
-  sab: 5,
-};
-
-const WEEKDAY_LABEL_PT = {
-  0: 'domingo',
-  1: 'segunda-feira',
-  2: 'terça-feira',
-  3: 'quarta-feira',
-  4: 'quinta-feira',
-  5: 'sexta-feira',
-  6: 'sábado',
+  terca: 2,
+  ter: 2,
+  tercafeira: 2,
+  quarta: 3,
+  qua: 3,
+  quinta: 4,
+  qui: 4,
+  sexta: 5,
+  sex: 5,
+  sabado: 6,
+  sab: 6,
 };
 
 const MONTH_LABEL_PT = [
@@ -68,7 +59,7 @@ function getZonedParts(date = new Date()) {
     if (part.type === 'day') result.day = Number(part.value);
     if (part.type === 'weekday') {
       const short = String(part.value || '').slice(0, 3).toLowerCase();
-      const map = { sun: 0, mon: 1, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5 };
+      const map = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
       result.weekday = map[short] ?? 0;
     }
   }
@@ -89,9 +80,12 @@ function compareIso(leftIso, rightIso) {
   return leftIso < rightIso ? -1 : 1;
 }
 
-function nextOccurrenceOfWeekday(parts, weekday, includeToday = false) {
+function nextOccurrenceOfWeekday(parts, weekday, options = {}) {
+  const includeToday = options.includeToday === true;
+  const forceStrictlyFuture = options.forceStrictlyFuture === true;
   let delta = (weekday - parts.weekday + 7) % 7;
   if (delta === 0 && !includeToday) delta = 7;
+  if (forceStrictlyFuture && delta === 0) delta = 7;
   const target = addDaysToParts(parts, delta);
   return toIsoDate(target.year, target.month, target.day);
 }
@@ -168,14 +162,16 @@ function resolveDateFromText(text, options = {}) {
 
   const weekdayToken =
     '(domingo|dom|segunda|seg|terca|ter|quarta|qua|quinta|qui|sexta|sex|sabado|sab)';
+  const weekdayModifier = '(?:essa|esta|nesta|proxima|proximo|prox\\.?|que vem|agora)?';
   const weekdayPatterns = [
+    new RegExp(`\\b(?:proximo|proxima|prox\\.?)\\s+${weekdayToken}\\b`, 'i'),
+    new RegExp(`\\b${weekdayModifier}\\s+${weekdayToken}\\b`, 'i'),
     new RegExp(
-      `\\b(?:para|pra|na|no|em)\\s+(?:essa|esta|nesta|proxima|prox\\.?|que vem)?\\s*${weekdayToken}\\b`,
+      `\\b(?:para|pra|na|no|em)\\s+${weekdayModifier}\\s*${weekdayToken}\\b`,
       'i'
     ),
-    new RegExp(`\\b(?:essa|esta|nesta|proxima|prox\\.?|que vem)\\s+${weekdayToken}\\b`, 'i'),
     new RegExp(
-      `\\b(?:na\\s+)?(?:proxima|prox\\.?|que vem|agora)?\\s*${weekdayToken}\\b`,
+      `\\b(?:na\\s+)?(?:proxima|proximo|prox\\.?|que vem|agora)?\\s*${weekdayToken}\\b`,
       'i'
     ),
   ];
@@ -193,7 +189,12 @@ function resolveDateFromText(text, options = {}) {
       return { ok: false, confidence: 'low', reason: 'weekday_unknown' };
     }
     const includeToday = /\bagora\b/.test(normalized) || /\bhoje\b/.test(normalized);
-    const iso = nextOccurrenceOfWeekday(today, weekday, includeToday);
+    const forceStrictlyFuture =
+      /\b(proximo|proxima|prox\.?|que vem)\b/.test(normalized) && !includeToday;
+    const iso = nextOccurrenceOfWeekday(today, weekday, {
+      includeToday,
+      forceStrictlyFuture,
+    });
     const ambiguous = /\bque vem\b/.test(normalized) && compareIso(iso, todayIso) <= 7;
     return {
       ok: true,
@@ -243,9 +244,41 @@ function formatReservationDateLabels(iso) {
   };
 }
 
+function resolveDateFromConversation(userText, messageHistory = []) {
+  const direct = resolveDateFromText(userText);
+  if (direct.ok) return direct;
+
+  const history = Array.isArray(messageHistory) ? messageHistory : [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const item = history[index];
+    if (item?.role !== 'user') continue;
+    const parsed = resolveDateFromText(item.content);
+    if (parsed.ok) return parsed;
+  }
+  return { ok: false, confidence: 'none', reason: 'unparsed' };
+}
+
+function buildTodayCalendarLabels(referenceDateIso) {
+  const iso =
+    String(referenceDateIso || '').slice(0, 10) ||
+    toIsoDate(getZonedParts().year, getZonedParts().month, getZonedParts().day);
+  return formatReservationDateLabels(iso);
+}
+
+function isDateInPastComparedToReference(iso, referenceDateIso) {
+  const ref = String(referenceDateIso || '').slice(0, 10);
+  const target = String(iso || '').slice(0, 10);
+  if (!ref || !target) return false;
+  return compareIso(target, ref) < 0;
+}
+
 module.exports = {
   TIME_ZONE,
   resolveDateFromText,
+  resolveDateFromConversation,
   formatReservationDateLabels,
+  buildTodayCalendarLabels,
+  isDateInPastComparedToReference,
   getZonedParts,
+  toIsoDate,
 };

@@ -1,5 +1,14 @@
 const businessRulesEngine = require('../businessRulesEngine');
 const {
+  getZonedParts,
+  toIsoDate,
+  isDateInPastComparedToReference,
+} = require('../../nlp/dateResolver');
+const {
+  checkCapacityViaInternalApi,
+  buildAgentReservationOperatingBlock,
+} = require('./reservationOperatingContext');
+const {
   buildReservationBodyFromParams,
   createReservationInternal,
   buildGuestListSecondMessage,
@@ -220,7 +229,7 @@ function getAgentToolDefinitions() {
       function: {
         name: 'verificar_disponibilidade',
         description:
-          'Consulta horários e áreas disponíveis no sistema para uma data. Use somente após o cliente confirmar o dia (ex.: "sim, essa sexta dia 23/05"). Nunca invente horários ou disponibilidade sem chamar esta função.',
+          'Consulta agenda, capacidade e áreas no mesmo backend do painel /admin/restaurant-reservations (horários semanais, exceções, bloqueios, lotação). Use após o cliente confirmar o dia. Nunca invente vaga ou horário sem esta ferramenta.',
         parameters: {
           type: 'object',
           properties: {
@@ -231,6 +240,10 @@ function getAgentToolDefinitions() {
                 'YYYY-MM-DD já confirmado com o cliente. Se ele disse apenas "sexta" ou "essa sexta", confirme o dia antes de chamar.',
             },
             quantidade_pessoas: { type: 'integer' },
+            horario: {
+              type: 'string',
+              description: 'HH:mm opcional — refine capacidade e turno (ex.: Rooftop).',
+            },
           },
           required: ['estabelecimento_id', 'data'],
           additionalProperties: false,
@@ -348,13 +361,27 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
   };
 }
 
+function getReferenceDateIso() {
+  const today = getZonedParts();
+  return toIsoDate(today.year, today.month, today.day);
+}
+
 async function verificarDisponibilidade(pool, args = {}) {
   const establishmentId = Number(normalizeCanonicalEstablishmentId(args.estabelecimento_id));
   const reservationDate = String(args.data || '').slice(0, 10);
   const partySize = Number(args.quantidade_pessoas);
+  const reservationTime = String(args.horario || '').trim();
+  const referenceDateIso = getReferenceDateIso();
 
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !reservationDate) {
     return { ok: false, error: 'estabelecimento_id e data são obrigatórios.' };
+  }
+
+  if (isDateInPastComparedToReference(reservationDate, referenceDateIso)) {
+    return {
+      ok: false,
+      error: `A data ${reservationDate} está no passado (hoje é ${referenceDateIso}). Use a data correta no formato YYYY-MM-DD.`,
+    };
   }
 
   const override = await businessRulesEngine.getDateOverride(pool, establishmentId, reservationDate);
@@ -368,6 +395,7 @@ async function verificarDisponibilidade(pool, args = {}) {
       windows: [],
       areas: [],
       note: override.note || null,
+      fonte: 'restaurant_reservation_date_overrides',
     };
   }
 
@@ -384,17 +412,56 @@ async function verificarDisponibilidade(pool, args = {}) {
       })
     : { ok: true };
 
+  let capacity = null;
+  if (partySize > 0 || reservationTime) {
+    capacity = await checkCapacityViaInternalApi({
+      establishmentId,
+      reservationDate,
+      partySize: Number.isFinite(partySize) ? partySize : 0,
+      reservationTime: reservationTime || null,
+    });
+  }
+
+  let operatingSummary = '';
+  try {
+    operatingSummary = await buildAgentReservationOperatingBlock(
+      pool,
+      establishmentId,
+      '',
+      reservationDate
+    );
+  } catch (_error) {
+    operatingSummary = '';
+  }
+
+  const capacityData = capacity?.ok ? capacity.capacity : null;
+  const canReserveByCapacity =
+    capacityData == null ? null : capacityData.canMakeReservation !== false;
+
   return {
     ok: true,
     estabelecimento_id: establishmentId,
     reservation_date: reservationDate,
+    horario_consultado: reservationTime || null,
     quantidade_pessoas: Number.isFinite(partySize) ? partySize : null,
     is_open: windows.length > 0,
-    windows,
+    windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
     override: override || null,
     party_size_allowed: partyValidation.ok,
     party_size_message: partyValidation.ok ? null : partyValidation.message,
+    capacidade: capacityData
+      ? {
+          total: capacityData.totalCapacity,
+          ocupacao_atual: capacityData.currentPeople,
+          vagas_disponiveis: capacityData.availableCapacity,
+          pode_reservar: canReserveByCapacity,
+          lista_espera_no_horario: !!capacityData.hasWaitlist,
+          turno_rooftop: capacityData.rooftopShift || null,
+        }
+      : null,
+    painel_resumo: operatingSummary ? operatingSummary.slice(0, 2500) : null,
+    fonte: 'admin_restaurant_reservations + capacity.check',
   };
 }
 
@@ -430,6 +497,14 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
 
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !reservationDate || !reservationTime) {
     return { ok: false, error: 'Dados obrigatórios para pré-reserva.' };
+  }
+
+  const referenceDateIso = getReferenceDateIso();
+  if (isDateInPastComparedToReference(reservationDate, referenceDateIso)) {
+    return {
+      ok: false,
+      error: `A data ${reservationDate} está no passado (hoje é ${referenceDateIso}).`,
+    };
   }
 
   const areaId = await resolveAreaId(pool, establishmentId, args.area);

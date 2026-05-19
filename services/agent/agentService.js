@@ -73,6 +73,17 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           ? String(result.note).trim()
           : 'Nesse dia a casa não está aberta para reservas. Posso ver outra data para você?';
       }
+      if (result.capacidade?.pode_reservar === false) {
+        const motivos = [];
+        if (result.capacidade.lista_espera_no_horario) {
+          motivos.push('há lista de espera nesse horário');
+        }
+        if (Number(result.capacidade.vagas_disponiveis) === 0) {
+          motivos.push('a lotação para esse horário está no limite');
+        }
+        const extra = motivos.length ? ` (${motivos.join('; ')})` : '';
+        return `Para essa data e horário, no momento não consigo confirmar vaga automática${extra}. Quer outro horário ou posso te colocar na lista de espera?`;
+      }
       const windows = Array.isArray(result.windows) ? result.windows : [];
       if (windows.length > 0) {
         const labels = windows
@@ -80,7 +91,7 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           .filter(Boolean)
           .slice(0, 6);
         if (labels.length > 0) {
-          return `Para essa data, os horários disponíveis são: ${labels.join(', ')}. Qual prefere?`;
+          return `Para essa data, os horários liberados no painel são: ${labels.join(', ')}. Qual prefere?`;
         }
       }
     }
@@ -216,6 +227,7 @@ async function runAgentTurn({
     userText,
     referenceDateIso,
     workingState: memory.workingState || {},
+    messageHistory,
   });
   const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();

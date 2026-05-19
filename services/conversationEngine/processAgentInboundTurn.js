@@ -2,6 +2,7 @@ const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
 const { buildReservationDateHint } = require('../agent/reservationDateHint');
+const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
 const { mergeWorkingState } = require('../agent/agentMemoryService');
 const {
   getMemory,
@@ -180,11 +181,31 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     userText: incomingText,
     referenceDateIso: getReferenceDateIso(),
     workingState: memory.workingState || {},
+    messageHistory,
   });
   const memoryForTurn = {
     ...memory,
     workingState: mergeWorkingState(memory.workingState || {}, dateHint.patch || {}),
   };
+
+  const focusDateIso =
+    memoryForTurn.workingState?.reservation_date ||
+    memoryForTurn.workingState?.pending_reservation_date_iso ||
+    null;
+
+  let reservationOperatingBlock = '';
+  if (lockedEstablishmentId && pool) {
+    try {
+      reservationOperatingBlock = await buildAgentReservationOperatingBlock(
+        pool,
+        lockedEstablishmentId,
+        lockedEstablishmentName,
+        focusDateIso
+      );
+    } catch (error) {
+      console.warn('[agentEngine] regras operacionais indisponíveis:', error.message);
+    }
+  }
 
   try {
     const agentResult = await runAgentTurn({
@@ -193,6 +214,9 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       memory: memoryForTurn,
       context: {
         establishmentsBlock: catalog.establishmentsBlock,
+        establishmentRulesBlock: catalog.establishmentRulesBlock,
+        dateOverridesBlock: catalog.dateOverridesBlock,
+        reservationOperatingBlock,
         lockedEstablishmentId,
         lockedEstablishmentName,
         contextSummary: memory.contextSummary,

@@ -24,3 +24,25 @@ test('formatReservationDateLabels gera frase para confirmação', () => {
   assert.match(labels.weekdayWithDate, /sexta-feira, dia 19\/06/);
   assert.match(labels.confirmationPhrase, /2026/);
 });
+
+test('resolveDateFromText entende "proximo sabado"', () => {
+  const result = resolveDateFromText('quero reserva no proximo sabado');
+  assert.equal(result.ok, true);
+  assert.equal(result.source, 'weekday_relative');
+  const labels = formatReservationDateLabels(result.iso);
+  assert.match(labels.confirmationPhrase, /sábado/i);
+  assert.match(result.iso, /^202\d-/);
+});
+
+test('resolveDateFromConversation usa mensagem anterior', () => {
+  const history = [
+    { role: 'user', content: 'Quero reserva no proximo sabado' },
+    { role: 'assistant', content: 'Claro!' },
+    { role: 'user', content: 'Qual dia do mes seria?' },
+  ];
+  const { resolveDateFromConversation } = require('../../nlp/dateResolver');
+  const result = resolveDateFromConversation(history[2].content, history);
+  assert.equal(result.ok, true);
+  const labels = formatReservationDateLabels(result.iso);
+  assert.match(labels.weekdayName || labels.confirmationPhrase, /sábado/i);
+});
