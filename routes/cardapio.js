@@ -131,9 +131,13 @@ module.exports = (pool) => {
             /^([A-Z0-9]{10})((_full)|(_medium)|(_thumb))?(\.[a-z0-9]+)$/i.exec(clean);
         if (nanoidVariants) {
             const id = nanoidVariants[1];
-            const variant = nanoidVariants[3] || '_full';
+            const explicitVariant = nanoidVariants[3];
             const ext = nanoidVariants[5] || '.webp';
-            return `cardapio/items/${id}${variant}${ext}`;
+            // Sem sufixo _full/_medium/_thumb no nome: manter extensão original (ex.: .jpeg legado).
+            if (!explicitVariant) {
+                return `cardapio/items/${id}${ext}`;
+            }
+            return `cardapio/items/${id}${explicitVariant}${ext}`;
         }
 
         return `cardapio/items/${clean}`;
@@ -1047,9 +1051,22 @@ module.exports = (pool) => {
             return trimmed;
         }
 
-        const objectPath = expandBasenameToCardapioItemsObjectPath(trimmed);
-        const urls = buildImageUrls(apiBaseUrl, objectPath);
-        return urls.mediumUrl || urls.fullUrl || urls.thumbUrl;
+        const fromTable = await lookupCardapioImageUrl(trimmed);
+        if (fromTable) return fromTable;
+
+        const candidates = [
+            expandBasenameToCardapioItemsObjectPath(trimmed),
+            trimmed.includes('/') ? trimmed : null,
+            `cardapio/bars/${trimmed}`,
+        ].filter(Boolean);
+
+        const uniqueCandidates = [...new Set(candidates)];
+        for (const objectPath of uniqueCandidates) {
+            const urls = buildImageUrls(apiBaseUrl, objectPath);
+            const resolved = urls.mediumUrl || urls.fullUrl || urls.thumbUrl;
+            if (resolved) return resolved;
+        }
+        return null;
     }
 
     async function resolveBarImagesForClient(apiBaseUrl, bar) {
