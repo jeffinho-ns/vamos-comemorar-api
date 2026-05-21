@@ -232,6 +232,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     reservation_date,
     reservation_time,
     area_id,
+    table_number,
     is_birthday,
   } = params || {};
 
@@ -259,6 +260,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     reservation_time: normalizeReservationTime(reservation_time),
     number_of_people: numberOfPeople,
     area_id: aId,
+    table_number: table_number != null && String(table_number).trim() !== '' ? String(table_number).trim() : null,
     establishment_id: estId,
     // confirmed: aparece no calendário como reserva válida (check-in, ocupação) como as criadas pela equipe após confirmação
     status: 'confirmed',

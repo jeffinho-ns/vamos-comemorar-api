@@ -82,7 +82,7 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           motivos.push('a lotação para esse horário está no limite');
         }
         const extra = motivos.length ? ` (${motivos.join('; ')})` : '';
-        return `Para essa data e horário, no momento não consigo confirmar vaga automática${extra}. Quer outro horário ou posso te colocar na lista de espera?`;
+        return `Nesse horário está bem cheio${extra}. Quer tentar outro horário ou entro com você na lista de espera?`;
       }
       const windows = Array.isArray(result.windows) ? result.windows : [];
       if (windows.length > 0) {
@@ -91,14 +91,37 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           .filter(Boolean)
           .slice(0, 6);
         if (labels.length > 0) {
-          return `Para essa data, os horários liberados no painel são: ${labels.join(', ')}. Qual prefere?`;
+          return `Pra esse dia temos: ${labels.join(', ')}. Qual horário fica melhor pra você?`;
         }
       }
     }
 
     if (entry.name === 'criar_pre_reserva' && result.pre_reserva) {
       const pre = result.pre_reserva;
-      return `Pronto! Registrei sua pré-reserva para ${pre.reservation_date} às ${pre.reservation_time}.`;
+      const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
+      return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}. Qualquer coisa, é só chamar.`;
+    }
+
+    if (entry.name === 'consultar_areas_mesa_reserva' && result.ok) {
+      if (result.todas_areas_cheias) {
+        return (
+          result.mensagem_hostess ||
+          'As áreas estão lotadas nessa data. Posso te colocar na lista de espera — a Hostess te chama assim que abrir mesa.'
+        );
+      }
+      if (result.area_recomendada?.label) {
+        const alt =
+          Array.isArray(result.alternativas_com_vaga) && result.alternativas_com_vaga.length
+            ? ` Também tem vaga em: ${result.alternativas_com_vaga.join(', ')}.`
+            : '';
+        return `Pra ${result.quantidade_pessoas} pessoas, o melhor encaixe agora é ${result.area_recomendada.label}.${alt} Quer essa área?`;
+      }
+    }
+
+    if (entry.name === 'criar_lista_espera' && result.ok) {
+      const pos = result.lista_espera?.position;
+      const posBit = pos ? ` Você é o ${pos}º da fila.` : '';
+      return `${result.mensagem_hostess || 'Pronto, você já está na lista de espera.'}${posBit}`;
     }
   }
 

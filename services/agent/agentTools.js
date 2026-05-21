@@ -16,6 +16,16 @@ const {
   normalizeCanonicalEstablishmentId,
 } = require('../whatsappReservationService');
 const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
+const {
+  isHighlineEstablishment,
+  resolveHighlineSubarea,
+  consultHighlineReservationAreas,
+  findAvailableTableInSubarea,
+} = require('./highlineReservationAreas');
+const {
+  buildNotesFromReservationArgs,
+  buildNotesFromWaitlistArgs,
+} = require('./operationalNotes');
 
 const DEFAULT_FAQ = {
   estacionamento:
@@ -105,6 +115,23 @@ const RICH_FAQ_TOPIC_ROUTES = [
       'bangalo',
     ],
     fallbacks: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
+  },
+  {
+    slug: 'reserva_areas_operacional_highline',
+    keywords: [
+      'deck',
+      'hostess',
+      'lista_de_espera',
+      'lista espera',
+      'mesa_disponivel',
+      'mesas_disponiveis',
+      'qual_area',
+      'onde_sentar',
+      'subarea',
+      'bistro',
+      'vista',
+    ],
+    fallbacks: ['reserva_areas_operacional_highline'],
   },
 ];
 
@@ -216,7 +243,7 @@ function getAgentToolDefinitions() {
             topico: {
               type: 'string',
               description:
-                'Tema operacional: estacionamento, pet, musica, cardapio, crianca, dias_horarios_funcionamento, valores_entrada, beneficios_aniversario, regras_bolo, redes_sociais_fotos, areas_mesas_camarotes_diferenca, ou sinônimos (horário, entrada, aniversário, bolo, instagram, camarote, etc.).',
+                'Tema operacional: estacionamento, pet, musica, cardapio, crianca, dias_horarios_funcionamento, valores_entrada, beneficios_aniversario, regras_bolo, redes_sociais_fotos, areas_mesas_camarotes_diferenca, reserva_areas_operacional_highline (Highline: mesas do painel), ou sinônimos.',
             },
           },
           required: ['estabelecimento_id', 'topico'],
@@ -276,6 +303,11 @@ function getAgentToolDefinitions() {
               required: ['nome', 'email', 'data_nascimento'],
             },
             quantidade_pessoas: { type: 'integer' },
+            observacoes: {
+              type: 'string',
+              description:
+                'Texto para o campo notes do painel: área que o cliente pediu, pedidos especiais, alternativas oferecidas, etc.',
+            },
           },
           required: [
             'estabelecimento_id',
@@ -285,6 +317,63 @@ function getAgentToolDefinitions() {
             'area',
             'quantidade_pessoas',
           ],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'consultar_areas_mesa_reserva',
+        description:
+          'Highline: consulta mesas livres por subárea (mesma lógica dos modais Nova/Editar Reserva em /admin/restaurant-reservations) e sugere a área ideal para o tamanho do grupo. Use quando o cliente perguntar sobre áreas ou antes de criar_pre_reserva no Highline.',
+        parameters: {
+          type: 'object',
+          properties: {
+            estabelecimento_id: { type: 'integer' },
+            data: { type: 'string', description: 'YYYY-MM-DD confirmado com o cliente' },
+            quantidade_pessoas: { type: 'integer' },
+            area_preferida: {
+              type: 'string',
+              description:
+                'Opcional: label da subárea (ex.: Área Deck - Frente, Área Rooftop - Bistrô).',
+            },
+          },
+          required: ['estabelecimento_id', 'data', 'quantidade_pessoas'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'criar_lista_espera',
+        description:
+          'Registra o cliente na Lista de Espera do Sistema de Reservas (painel admin) quando todas as áreas/mesas estiverem cheias no Highline. Explique que a Equipe de Hostess alocará quando houver vaga.',
+        parameters: {
+          type: 'object',
+          properties: {
+            estabelecimento_id: { type: 'integer' },
+            data: { type: 'string', description: 'YYYY-MM-DD' },
+            horario: { type: 'string', description: 'HH:mm opcional' },
+            quantidade_pessoas: { type: 'integer' },
+            area_preferida: { type: 'string', description: 'Subárea desejada (opcional)' },
+            cliente_dados: {
+              type: 'object',
+              properties: {
+                nome: { type: 'string' },
+                email: { type: 'string' },
+                telefone: { type: 'string' },
+              },
+              required: ['nome'],
+            },
+            observacoes: {
+              type: 'string',
+              description:
+                'Notes do painel: área desejada, motivo da espera, pedidos do cliente, o que foi combinado na conversa.',
+            },
+          },
+          required: ['estabelecimento_id', 'data', 'quantidade_pessoas', 'cliente_dados'],
           additionalProperties: false,
         },
       },
@@ -438,6 +527,19 @@ async function verificarDisponibilidade(pool, args = {}) {
   const canReserveByCapacity =
     capacityData == null ? null : capacityData.canMakeReservation !== false;
 
+  let highlineAreasSnapshot = null;
+  if (isHighlineEstablishment(establishmentId) && Number.isFinite(partySize) && partySize > 0) {
+    try {
+      highlineAreasSnapshot = await consultHighlineReservationAreas(pool, {
+        estabelecimento_id: establishmentId,
+        data: reservationDate,
+        quantidade_pessoas: partySize,
+      });
+    } catch (_error) {
+      highlineAreasSnapshot = null;
+    }
+  }
+
   return {
     ok: true,
     estabelecimento_id: establishmentId,
@@ -447,6 +549,7 @@ async function verificarDisponibilidade(pool, args = {}) {
     is_open: windows.length > 0,
     windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
+    highline_subareas: highlineAreasSnapshot?.ok ? highlineAreasSnapshot : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
     party_size_message: partyValidation.ok ? null : partyValidation.message,
@@ -507,7 +610,52 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     };
   }
 
-  const areaId = await resolveAreaId(pool, establishmentId, args.area);
+  let areaId = null;
+  let tableNumber = null;
+  let areaLabel = String(args.area || '').trim();
+
+  if (isHighlineEstablishment(establishmentId)) {
+    const subarea = resolveHighlineSubarea(args.area) || resolveHighlineSubarea(areaLabel);
+    if (subarea) {
+      const slot = await findAvailableTableInSubarea(
+        pool,
+        subarea,
+        reservationDate,
+        partySize,
+        establishmentId
+      );
+      if (!slot) {
+        const snapshot = await consultHighlineReservationAreas(pool, {
+          estabelecimento_id: establishmentId,
+          data: reservationDate,
+          quantidade_pessoas: partySize,
+          area_preferida: subarea.label,
+        });
+        if (snapshot.todas_areas_cheias) {
+          return {
+            ok: false,
+            error:
+              'Todas as áreas estão sem mesa livre para esse grupo. Use criar_lista_espera e informe a Equipe de Hostess.',
+            todas_areas_cheias: true,
+          };
+        }
+        const alt = snapshot.area_recomendada?.label;
+        return {
+          ok: false,
+          error: alt
+            ? `A ${subarea.label} está cheia. Há vaga em ${alt} — confirme com o cliente ou use criar_lista_espera se recusar.`
+            : `A ${subarea.label} está cheia para essa data. Consulte consultar_areas_mesa_reserva ou lista de espera.`,
+        };
+      }
+      areaId = slot.area_id;
+      tableNumber = slot.table_number;
+      areaLabel = slot.label;
+    }
+  }
+
+  if (!areaId) {
+    areaId = await resolveAreaId(pool, establishmentId, args.area);
+  }
   if (!areaId) {
     return { ok: false, error: 'Área inválida ou não encontrada para este estabelecimento.' };
   }
@@ -528,7 +676,16 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     area_id: areaId,
   };
 
-  const body = buildReservationBodyFromParams(params, waId, { notes: 'Origem: WhatsApp (Agente IA)' });
+  const notes = buildNotesFromReservationArgs(args, {
+    area_confirmada: areaLabel,
+    mesa: tableNumber,
+  });
+
+  const body = buildReservationBodyFromParams(
+    { ...params, table_number: tableNumber },
+    waId,
+    { notes }
+  );
   const created = await createReservationInternal(body);
   if (!created.success) {
     return { ok: false, error: created.error || 'Falha ao registrar pré-reserva.' };
@@ -545,6 +702,8 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       reservation_time: reservationTime,
       quantidade_pessoas: partySize,
       area_id: areaId,
+      area_label: areaLabel || null,
+      table_number: tableNumber,
       cliente: {
         nome: cliente.nome,
         email: cliente.email,
@@ -554,6 +713,89 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     },
     guest_list_link: guestListLink,
     reservation: reservationRow,
+  };
+}
+
+async function criarListaEspera(pool, args = {}, runtimeContext = {}) {
+  const establishmentId = Number(normalizeCanonicalEstablishmentId(args.estabelecimento_id));
+  const preferredDate = String(args.data || '').slice(0, 10);
+  const partySize = Number(args.quantidade_pessoas);
+  const cliente = args.cliente_dados || {};
+  const preferredTime = String(args.horario || '').trim() || null;
+  const waId = runtimeContext.waId;
+
+  if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !preferredDate) {
+    return { ok: false, error: 'estabelecimento_id e data são obrigatórios.' };
+  }
+  if (!cliente.nome) {
+    return { ok: false, error: 'cliente_dados.nome é obrigatório.' };
+  }
+  if (!isHighlineEstablishment(establishmentId)) {
+    return {
+      ok: false,
+      error: 'criar_lista_espera via WhatsApp está configurado para o Highline.',
+    };
+  }
+
+  const subarea = args.area_preferida ? resolveHighlineSubarea(args.area_preferida) : null;
+
+  let positionQuery =
+    "SELECT COUNT(*)::int AS count FROM waitlist WHERE status = 'AGUARDANDO' AND establishment_id = $1 AND preferred_date = $2";
+  const positionParams = [establishmentId, preferredDate];
+  if (preferredTime) {
+    positionQuery += ' AND preferred_time = $3';
+    positionParams.push(preferredTime);
+  } else {
+    positionQuery += ' AND preferred_time IS NULL';
+  }
+  const positionResult = await pool.query(positionQuery, positionParams);
+  const position = (Number(positionResult.rows[0]?.count) || 0) + 1;
+  const estimatedWaitTime = (position - 1) * 15;
+
+  const notes = buildNotesFromWaitlistArgs(args, {
+    area_resolvida: subarea?.label || String(args.area_preferida || '').trim() || null,
+  });
+
+  const insertResult = await pool.query(
+    `INSERT INTO waitlist (
+       establishment_id, preferred_date, preferred_area_id, preferred_table_number,
+       client_name, client_phone, client_email, number_of_people,
+       preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'AGUARDANDO',$10,$11,$12,FALSE)
+     RETURNING id, position, preferred_date, preferred_time, status`,
+    [
+      establishmentId,
+      preferredDate,
+      subarea?.area_id || null,
+      null,
+      String(cliente.nome).trim(),
+      cliente.telefone
+        ? String(cliente.telefone).replace(/\D/g, '')
+        : waId
+          ? String(waId).replace(/\D/g, '')
+          : null,
+      cliente.email ? String(cliente.email).trim() : null,
+      Number.isFinite(partySize) && partySize > 0 ? partySize : null,
+      preferredTime,
+      position,
+      estimatedWaitTime,
+      notes,
+    ]
+  );
+
+  const row = insertResult.rows[0];
+  return {
+    ok: true,
+    lista_espera: {
+      id: row.id,
+      position: row.position,
+      preferred_date: row.preferred_date,
+      preferred_time: row.preferred_time,
+      status: row.status,
+      area_preferida: subarea?.label || null,
+    },
+    mensagem_hostess:
+      'Hoje as áreas estão lotadas, mas já coloquei você na lista de espera. Assim que liberar uma mesa, nossa Hostess te chama e te leva até ela.',
   };
 }
 
@@ -575,6 +817,12 @@ async function executeAgentToolCall(pool, toolCall, runtimeContext = {}) {
   if (toolName === 'criar_pre_reserva') {
     return criarPreReserva(pool, args, runtimeContext);
   }
+  if (toolName === 'consultar_areas_mesa_reserva') {
+    return consultHighlineReservationAreas(pool, args);
+  }
+  if (toolName === 'criar_lista_espera') {
+    return criarListaEspera(pool, args, runtimeContext);
+  }
 
   return { ok: false, error: `Tool desconhecida: ${toolName}` };
 }
@@ -585,6 +833,8 @@ module.exports = {
   consultarFaqEstabelecimento,
   verificarDisponibilidade,
   criarPreReserva,
+  criarListaEspera,
+  consultHighlineReservationAreas,
   normalizeTopic,
   buildFaqTopicCandidates,
   matchRichFaqSlug,

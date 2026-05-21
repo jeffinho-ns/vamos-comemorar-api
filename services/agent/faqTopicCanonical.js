@@ -22,6 +22,9 @@ const ADMIN_TOPIC_CANONICAL = {
   beneficios_aniversariante: 'beneficios_aniversario',
   area: 'areas_mesas_camarotes_diferenca',
   areas: 'areas_mesas_camarotes_diferenca',
+  reserva_areas: 'reserva_areas_operacional_highline',
+  areas_reserva: 'reserva_areas_operacional_highline',
+  lista_espera: 'reserva_areas_operacional_highline',
   camarote: 'areas_mesas_camarotes_diferenca',
   camarotes: 'areas_mesas_camarotes_diferenca',
   mesa: 'areas_mesas_camarotes_diferenca',
@@ -117,6 +120,13 @@ function detectFaqTopicsFromUserText(text) {
   }
   if (/\b(camarote|rooftop|bangalo|lounge)\b/.test(normalized)) {
     topics.push('areas_mesas_camarotes_diferenca');
+  }
+  if (
+    /\b(deck|lista de espera|hostess|mesa disponivel|mesas disponiveis|qual area|onde sentar|subarea)\b/.test(
+      normalized
+    )
+  ) {
+    topics.push('reserva_areas_operacional_highline');
   }
   if (/\b(instagram|fotos?|ambiente)\b/.test(normalized)) {
     topics.push('redes_sociais_fotos');
