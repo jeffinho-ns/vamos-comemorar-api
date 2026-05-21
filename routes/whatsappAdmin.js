@@ -4,6 +4,9 @@ const authorize = require('../middleware/authorize');
 const { sendMessage } = require('../services/whatsappService');
 const inbox = require('../services/whatsappInboxRepository');
 const stateManager = require('../services/stateManager/stateManager');
+const {
+  getWhatsappHighlineOnlyEstablishmentIds,
+} = require('../config/whatsappHighlineAccess');
 
 module.exports = (pool, app) => {
   const router = express.Router();
@@ -17,6 +20,10 @@ module.exports = (pool, app) => {
   }
 
   async function loadUserScope(user) {
+    const highlineOnlyIds = getWhatsappHighlineOnlyEstablishmentIds(user);
+    if (highlineOnlyIds) {
+      return { isAdmin: false, allowedEstablishmentIds: highlineOnlyIds };
+    }
     if (isAdminRole(user)) {
       return { isAdmin: true, allowedEstablishmentIds: [] };
     }
