@@ -5,6 +5,14 @@
 
 const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
 
+/** Mesas operacionais sem pacote VIP/camarote (oferta padrão). */
+const STANDARD_SUBAREA_KEYS = new Set([
+  'deck-frente',
+  'deck-esquerdo',
+  'deck-direito',
+  'bar',
+]);
+
 const HIGHLINE_SUBAREAS = [
   {
     key: 'deck-frente',
@@ -97,6 +105,22 @@ function getHighlineSubareas() {
   return HIGHLINE_SUBAREAS.map((item) => ({ ...item }));
 }
 
+function clientAskedPaidVipAreas(text) {
+  const normalized = normalizeLabel(text);
+  if (!normalized) return false;
+  return /\b(camarote|camarotes|vip|bangalo|lounge vip|area vip|consumivel|consumicao minima|pacote vip|valor do camarote|quanto.*camarote)\b/.test(
+    normalized
+  );
+}
+
+function shouldIncludeRooftopInRecommendations({ contextoCliente, areaPreferida, incluirAreasConsumiveis }) {
+  if (incluirAreasConsumiveis === true) return true;
+  if (clientAskedPaidVipAreas(contextoCliente)) return true;
+  if (areaPreferida?.key?.startsWith('roof')) return true;
+  const pref = normalizeLabel(areaPreferida?.label || '');
+  return pref.includes('rooftop');
+}
+
 function resolveHighlineSubarea(input) {
   const normalized = normalizeLabel(input);
   if (!normalized) return null;
@@ -130,39 +154,52 @@ function resolveHighlineSubarea(input) {
   return null;
 }
 
-async function loadTablesForArea(pool, areaId) {
+const HIGHLINE_AREA_IDS = [...new Set(HIGHLINE_SUBAREAS.map((s) => s.area_id))];
+
+async function loadTablesForAreas(pool, areaIds) {
+  if (!areaIds.length) return new Map();
   const result = await pool.query(
     `SELECT id, area_id, table_number, capacity, is_active
        FROM restaurant_tables
-      WHERE area_id = $1 AND is_active = TRUE
-      ORDER BY CAST(table_number AS INTEGER) ASC, table_number ASC`,
-    [areaId]
+      WHERE area_id = ANY($1::int[]) AND is_active = TRUE`,
+    [areaIds]
   );
-  return result.rows || [];
+  const byArea = new Map();
+  for (const row of result.rows || []) {
+    const areaId = Number(row.area_id);
+    if (!byArea.has(areaId)) byArea.set(areaId, []);
+    byArea.get(areaId).push(row);
+  }
+  return byArea;
 }
 
 /** Mesma regra do modal admin Highline: reserva CONFIRMADA bloqueia a mesa o dia todo. */
-async function loadConfirmedReservedTableNumbers(pool, areaId, reservationDate, establishmentId) {
+async function loadConfirmedReservedByArea(pool, reservationDate, establishmentId) {
   const result = await pool.query(
-    `SELECT table_number
+    `SELECT area_id, table_number
        FROM restaurant_reservations
       WHERE reservation_date = $1
-        AND area_id = $2
+        AND area_id = ANY($2::int[])
         AND (establishment_id = $3 OR establishment_id IS NULL)
         AND UPPER(status) = 'CONFIRMADA'`,
-    [reservationDate, areaId, establishmentId]
+    [reservationDate, HIGHLINE_AREA_IDS, establishmentId]
   );
 
-  const reserved = new Set();
+  const byArea = new Map();
+  for (const areaId of HIGHLINE_AREA_IDS) {
+    byArea.set(areaId, new Set());
+  }
   for (const row of result.rows || []) {
+    const areaId = Number(row.area_id);
+    if (!byArea.has(areaId)) byArea.set(areaId, new Set());
     const raw = String(row.table_number || '').trim();
     if (!raw) continue;
     raw.split(',').forEach((part) => {
       const num = part.trim();
-      if (num) reserved.add(num);
+      if (num) byArea.get(areaId).add(num);
     });
   }
-  return reserved;
+  return byArea;
 }
 
 function buildVirtualTables(subarea) {
@@ -203,27 +240,22 @@ function scoreSubareaForParty(subarea, hasTable, partySize) {
 
   if (hasTable) {
     if (size <= 4 && (subarea.key.startsWith('deck') || subarea.key === 'bar')) score -= 30;
-    if (size >= 6 && size <= 8 && subarea.key.startsWith('roof')) score -= 25;
-    if (size >= 7 && subarea.key === 'roof-bistro') score -= 35;
     if (size <= 3 && subarea.key === 'bar') score -= 15;
+    if (STANDARD_SUBAREA_KEYS.has(subarea.key)) score -= 10;
   }
 
   const order = HIGHLINE_SUBAREAS.findIndex((s) => s.key === subarea.key);
   return score + order * 0.01;
 }
 
-async function evaluateHighlineSubarea(pool, subarea, reservationDate, partySize, establishmentId) {
-  const dbTables = await loadTablesForArea(pool, subarea.area_id);
-  const reservedSet = await loadConfirmedReservedTableNumbers(
-    pool,
-    subarea.area_id,
-    reservationDate,
-    establishmentId
-  );
-
-  let tables = dbTables.filter((t) =>
+function evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, reservedByArea) {
+  const areaId = subarea.area_id;
+  const reservedSet = reservedByArea.get(areaId) || new Set();
+  const dbTables = (tablesByArea.get(areaId) || []).filter((t) =>
     subarea.tableNumbers.includes(String(t.table_number))
   );
+
+  let tables = dbTables;
   if (tables.length === 0) {
     tables = buildVirtualTables(subarea);
   }
@@ -248,6 +280,12 @@ async function evaluateHighlineSubarea(pool, subarea, reservationDate, partySize
   };
 }
 
+async function evaluateHighlineSubarea(pool, subarea, reservationDate, partySize, establishmentId) {
+  const tablesByArea = await loadTablesForAreas(pool, [subarea.area_id]);
+  const reservedByArea = await loadConfirmedReservedByArea(pool, reservationDate, establishmentId);
+  return evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, reservedByArea);
+}
+
 async function consultHighlineReservationAreas(pool, args = {}) {
   const establishmentId = Number(args.estabelecimento_id);
   const reservationDate = String(args.data || '').slice(0, 10);
@@ -264,14 +302,30 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     return { ok: false, error: 'Informe data (YYYY-MM-DD) confirmada com o cliente.' };
   }
 
-  const evaluations = [];
-  for (const subarea of HIGHLINE_SUBAREAS) {
-    evaluations.push(
-      await evaluateHighlineSubarea(pool, subarea, reservationDate, partySize, establishmentId)
-    );
-  }
+  const contextoCliente = String(args.contexto_cliente || '').trim();
+  const incluirRooftop = shouldIncludeRooftopInRecommendations({
+    contextoCliente,
+    areaPreferida: preferred,
+    incluirAreasConsumiveis: args.incluir_areas_consumiveis,
+  });
 
-  const withVacancy = evaluations.filter((e) => e.tem_mesa_para_grupo);
+  const [tablesByArea, reservedByArea] = await Promise.all([
+    loadTablesForAreas(pool, HIGHLINE_AREA_IDS),
+    loadConfirmedReservedByArea(pool, reservationDate, establishmentId),
+  ]);
+
+  const evaluations = HIGHLINE_SUBAREAS.map((subarea) =>
+    evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, reservedByArea)
+  );
+
+  const eligibleForRecommendation = (entry) => {
+    if (incluirRooftop) return true;
+    return STANDARD_SUBAREA_KEYS.has(entry.key);
+  };
+
+  const withVacancy = evaluations.filter(
+    (e) => e.tem_mesa_para_grupo && eligibleForRecommendation(e)
+  );
   const ranked = [...withVacancy].sort((a, b) => {
     const subA = HIGHLINE_SUBAREAS.find((s) => s.key === a.key);
     const subB = HIGHLINE_SUBAREAS.find((s) => s.key === b.key);
@@ -295,7 +349,11 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     .map((e) => e.label)
     .slice(0, 4);
 
-  const todasCheias = withVacancy.length === 0;
+  const todasCheiasOperacionais = withVacancy.length === 0;
+  const todasCheias =
+    todasCheiasOperacionais &&
+    (!incluirRooftop ||
+      evaluations.filter((e) => e.tem_mesa_para_grupo).length === 0);
 
   return {
     ok: true,
@@ -304,6 +362,11 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     quantidade_pessoas: partySize,
     fonte: 'admin/restaurant-reservations (subáreas e mesas dos modais Nova/Editar Reserva)',
     area_preferida_informada: preferred?.label || null,
+    oferta_apenas_mesas_operacionais: !incluirRooftop,
+    nota_camarotes:
+      !incluirRooftop
+        ? 'Camarotes e pacotes VIP/consumíveis: só ofereça se o cliente perguntar sobre camarotes (consultar_faq areas_mesas_camarotes_diferenca).'
+        : null,
     todas_areas_cheias: todasCheias,
     area_recomendada: recommended
       ? {
@@ -342,8 +405,10 @@ async function findAvailableTableInSubarea(pool, subarea, reservationDate, party
 module.exports = {
   HIGHLINE_ESTABLISHMENT_ID,
   HIGHLINE_SUBAREAS,
+  STANDARD_SUBAREA_KEYS,
   isHighlineEstablishment,
   getHighlineSubareas,
+  clientAskedPaidVipAreas,
   resolveHighlineSubarea,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,

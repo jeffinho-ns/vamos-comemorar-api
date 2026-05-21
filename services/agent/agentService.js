@@ -277,7 +277,7 @@ async function runAgentTurn({
 
   let assistantMessage = await requestAssistantCompletion(messages, tools, 'auto');
   let guard = 0;
-  const maxToolRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 5);
+  const maxToolRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 3);
 
   while (assistantMessage?.tool_calls?.length && pool && guard < maxToolRounds) {
     messages.push(assistantMessage);

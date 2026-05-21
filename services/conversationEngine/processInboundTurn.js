@@ -85,6 +85,7 @@ function emitInbox(app, payload) {
   if (io) {
     io.to('whatsapp_inbox').emit('whatsapp_inbox_update', {
       type: payload?.type || 'refresh',
+      wa_id: payload?.wa_id || null,
     });
   }
 }

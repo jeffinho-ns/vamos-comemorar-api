@@ -115,6 +115,7 @@ module.exports = (pool, app) => {
     const io = app?.get?.('socketio');
     if (io) {
       io.to('whatsapp_inbox').emit('whatsapp_inbox_update', {
+        wa_id: payload?.conversation?.wa_id || payload?.wa_id || null,
         type: payload?.type || 'refresh',
       });
     }

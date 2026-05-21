@@ -338,6 +338,11 @@ function getAgentToolDefinitions() {
               description:
                 'Opcional: label da subárea (ex.: Área Deck - Frente, Área Rooftop - Bistrô).',
             },
+            contexto_cliente: {
+              type: 'string',
+              description:
+                'Trecho da mensagem do cliente (para saber se perguntou camarote/VIP).',
+            },
           },
           required: ['estabelecimento_id', 'data', 'quantidade_pessoas'],
           additionalProperties: false,
@@ -527,19 +532,6 @@ async function verificarDisponibilidade(pool, args = {}) {
   const canReserveByCapacity =
     capacityData == null ? null : capacityData.canMakeReservation !== false;
 
-  let highlineAreasSnapshot = null;
-  if (isHighlineEstablishment(establishmentId) && Number.isFinite(partySize) && partySize > 0) {
-    try {
-      highlineAreasSnapshot = await consultHighlineReservationAreas(pool, {
-        estabelecimento_id: establishmentId,
-        data: reservationDate,
-        quantidade_pessoas: partySize,
-      });
-    } catch (_error) {
-      highlineAreasSnapshot = null;
-    }
-  }
-
   return {
     ok: true,
     estabelecimento_id: establishmentId,
@@ -549,7 +541,6 @@ async function verificarDisponibilidade(pool, args = {}) {
     is_open: windows.length > 0,
     windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
-    highline_subareas: highlineAreasSnapshot?.ok ? highlineAreasSnapshot : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
     party_size_message: partyValidation.ok ? null : partyValidation.message,

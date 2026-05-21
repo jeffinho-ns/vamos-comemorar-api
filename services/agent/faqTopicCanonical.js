@@ -118,7 +118,10 @@ function detectFaqTopicsFromUserText(text) {
   if (/\b(pet|cachorro|animal)\b/.test(normalized)) {
     topics.push('pet');
   }
-  if (/\b(camarote|rooftop|bangalo|lounge)\b/.test(normalized)) {
+  if (
+    /\b(camarote|camarotes|bangalo|lounge vip|area vip|pacote vip|vip consum)\b/.test(normalized) ||
+    (/\b(camarote|vip)\b/.test(normalized) && /\b(valor|preco|quanto|consum)\b/.test(normalized))
+  ) {
     topics.push('areas_mesas_camarotes_diferenca');
   }
   if (

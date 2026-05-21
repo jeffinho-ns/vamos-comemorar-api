@@ -130,6 +130,36 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
 }
 
 /**
+ * Catálogo leve para o agente WhatsApp (evita carregar 300+ overrides a cada mensagem).
+ */
+async function loadAiCatalogLight(pool) {
+  let establishments = [];
+  try {
+    const places = await pool.query(`SELECT id, name FROM places ORDER BY name ASC`);
+    establishments = (places.rows || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      source: 'place',
+    }));
+  } catch (e) {
+    console.warn('[whatsappReservationService] places:', e.message);
+  }
+
+  const establishmentsBlock = establishments.length
+    ? establishments.map((e) => `- id ${e.id}: ${e.name}`).join('\n')
+    : '(nenhum estabelecimento listado)';
+
+  return {
+    establishments,
+    areas: [],
+    establishmentsBlock,
+    areasBlock: '',
+    establishmentRulesBlock: '',
+    dateOverridesBlock: '',
+  };
+}
+
+/**
  * Catálogo de estabelecimentos e áreas para o prompt da IA.
  */
 async function loadAiCatalog(pool) {
@@ -286,6 +316,7 @@ module.exports = {
   normalizeReservationTime,
   normalizeCanonicalEstablishmentId,
   loadAiCatalog,
+  loadAiCatalogLight,
   createReservationInternal,
   buildReservationBodyFromParams,
   buildGuestListSecondMessage,

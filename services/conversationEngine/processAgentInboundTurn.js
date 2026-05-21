@@ -9,7 +9,7 @@ const {
   persistMemory,
   buildSummaryFromWorkingState,
 } = require('../agent/agentMemoryService');
-const { loadAiCatalog } = require('../whatsappReservationService');
+const { loadAiCatalogLight } = require('../whatsappReservationService');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const {
   getProfileForPrompt,
@@ -38,6 +38,7 @@ function emitInbox(app, payload) {
   if (io) {
     io.to('whatsapp_inbox').emit('whatsapp_inbox_update', {
       type: payload?.type || 'refresh',
+      wa_id: payload?.wa_id || null,
     });
   }
 }
@@ -98,7 +99,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
   let catalog = { establishmentsBlock: '', areasBlock: '', establishments: [] };
   try {
-    catalog = await loadAiCatalog(pool);
+    catalog = await loadAiCatalogLight(pool);
   } catch (_error) {
     // ignore
   }
