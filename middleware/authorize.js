@@ -1,6 +1,18 @@
 // middleware/authorize.js
 
+function normalizeRoleKey(role) {
+  return String(role || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 function authorizeRoles(...permittedRoles) {
+  const permittedNormalized = new Set(
+    permittedRoles.map((role) => normalizeRoleKey(role))
+  );
+
   return (req, res, next) => {
     const user = req.user;
 
@@ -9,11 +21,14 @@ function authorizeRoles(...permittedRoles) {
     }
 
     const userRole = user.role;
+    const userRoleNorm = normalizeRoleKey(userRole);
 
     const isPromoterListAllowed =
-      userRole === 'promoter-list' && permittedRoles.includes('promoter');
+      userRole === 'promoter-list' &&
+      (permittedRoles.includes('promoter') ||
+        permittedNormalized.has('promoter'));
 
-    if (!permittedRoles.includes(userRole) && !isPromoterListAllowed) {
+    if (!permittedNormalized.has(userRoleNorm) && !isPromoterListAllowed) {
       return res.status(403).json({ message: 'Acesso negado: permissão insuficiente' });
     }
 
