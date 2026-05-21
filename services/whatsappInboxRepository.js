@@ -52,6 +52,18 @@ async function setHumanTakeoverHours(pool, waId, hours = 24) {
   return getConversationByWaId(pool, waId);
 }
 
+/** Pausa a IA até o operador clicar em "Retornar para IA" no painel. */
+async function setHumanTakeoverUntilManualResume(pool, waId) {
+  await pool.query(
+    `UPDATE whatsapp_conversations
+     SET human_takeover_until = '2099-12-31 23:59:59+00'::timestamptz,
+         updated_at = NOW()
+     WHERE wa_id = $1`,
+    [waId]
+  );
+  return getConversationByWaId(pool, waId);
+}
+
 async function clearHumanTakeover(pool, waId) {
   await pool.query(
     `UPDATE whatsapp_conversations
@@ -769,6 +781,7 @@ module.exports = {
   getConversationByWaId,
   isHumanTakeoverActive,
   setHumanTakeoverHours,
+  setHumanTakeoverUntilManualResume,
   clearHumanTakeover,
   setConversationEstablishment,
   updateConversationStatus,

@@ -24,7 +24,6 @@ const {
   resolveEstablishmentForTurn,
   detectEstablishmentFromText,
 } = require('../conversationEngine/helpers');
-const { isConversationSafetyBlockEnabled} = require('../conversationTestingMode');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
 
 function extractContactName(payload) {
@@ -79,16 +78,9 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     body: incomingText,
   });
 
-  if (await inbox.isHumanTakeoverActive(pool, waId) && isConversationSafetyBlockEnabled()) {
+  if (await inbox.isHumanTakeoverActive(pool, waId)) {
+    console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
     return;
-  }
-
-  if (!isConversationSafetyBlockEnabled()) {
-    try {
-      await inbox.clearHumanTakeover(pool, waId);
-    } catch (_error) {
-      // ignore
-    }
   }
 
   const memory = await getMemory(pool, conversation.id);

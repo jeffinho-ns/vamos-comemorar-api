@@ -304,9 +304,13 @@ async function processLegacyInboundTurn({ pool, app, payload, incomingMessageTex
     }
   }
 
-  if (usedPersistence && conversation?.id && conversationState?.currentStep === 'handoff') {
+  if (
+    usedPersistence &&
+    conversation?.id &&
+    conversationState?.currentStep === 'handoff' &&
+    !(await inbox.isHumanTakeoverActive(pool, waId))
+  ) {
     try {
-      await inbox.clearHumanTakeover(pool, waId);
       conversationState = await stateManager.reopenFromHandoff(pool, conversation.id, {
         lockedEstablishmentId,
       });
@@ -338,20 +342,8 @@ async function processLegacyInboundTurn({ pool, app, payload, incomingMessageTex
     }
   }
 
-  if (usedPersistence && !isConversationSafetyBlockEnabled()) {
-    try {
-      await inbox.clearHumanTakeover(pool, waId);
-    } catch (clearTakeoverError) {
-      console.warn('[conversationEngine] falha ao limpar takeover em modo teste:', clearTakeoverError.message);
-    }
-  }
-
-  if (
-    usedPersistence &&
-    isConversationSafetyBlockEnabled() &&
-    (await inbox.isHumanTakeoverActive(pool, waId))
-  ) {
-    console.log('[conversationEngine] Handoff humano ativo — IA não responde automaticamente.');
+  if (usedPersistence && (await inbox.isHumanTakeoverActive(pool, waId))) {
+    console.log('[conversationEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
     return;
   }
 

@@ -211,7 +211,8 @@ module.exports = (pool, app) => {
 
   router.post('/conversations/:waId/takeover', auth, authorize(...allowedRoles), async (req, res) => {
     const { waId } = req.params;
-    const hours = Number(req.body?.hours) || 24;
+    const hours = Number(req.body?.hours);
+    const untilManualResume = req.body?.until_resume !== false;
     try {
       const scope = await loadUserScope(req.user);
       const existing = await inbox.getConversationByWaId(pool, waId);
@@ -223,12 +224,17 @@ module.exports = (pool, app) => {
       } else if (!canAccessEstablishment(scope, existing.establishment_id)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
-      const conv = await inbox.setHumanTakeoverHours(pool, waId, hours);
+      let conv = null;
+      if (untilManualResume) {
+        conv = await inbox.setHumanTakeoverUntilManualResume(pool, waId);
+      } else {
+        conv = await inbox.setHumanTakeoverHours(pool, waId, Number.isFinite(hours) && hours > 0 ? hours : 24);
+      }
       if (!conv) {
         return res.status(404).json({ message: 'Conversa não encontrada' });
       }
       emitInbox({ type: 'takeover', conversation: conv });
-      return res.json({ ok: true, conversation: conv });
+      return res.json({ ok: true, conversation: conv, ai_paused: true });
     } catch (e) {
       console.error('[whatsappAdmin] takeover:', e);
       return res.status(500).json({ message: 'Erro ao assumir conversa' });
@@ -282,6 +288,8 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
+      await inbox.setHumanTakeoverUntilManualResume(pool, waId);
+
       const sendResult = await sendMessage(waId, text);
       const saved = await inbox.insertMessage(pool, {
         conversationId: conv.id,
@@ -299,7 +307,13 @@ module.exports = (pool, app) => {
         message: saved,
       });
 
-      return res.json({ ok: true, message: saved, whatsapp: sendResult });
+      return res.json({
+        ok: true,
+        message: saved,
+        whatsapp: sendResult,
+        conversation: updatedConv,
+        ai_paused: true,
+      });
     } catch (e) {
       console.error('[whatsappAdmin] send:', e);
       return res.status(500).json({ message: e.message || 'Erro ao enviar mensagem' });
@@ -341,9 +355,10 @@ module.exports = (pool, app) => {
       if (!canAccessEstablishment(scope, existing.establishment_id)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
-      const conv = await inbox.assignConversation(pool, waId, req.user.id);
+      await inbox.assignConversation(pool, waId, req.user.id);
+      const conv = await inbox.setHumanTakeoverUntilManualResume(pool, waId);
       emitInbox({ type: 'assign', conversation: conv });
-      return res.json({ ok: true, conversation: conv });
+      return res.json({ ok: true, conversation: conv, ai_paused: true });
     } catch (e) {
       console.error('[whatsappAdmin] assign-self:', e);
       return res.status(500).json({ message: 'Erro ao assumir conversa para atendimento' });
