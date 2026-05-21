@@ -238,86 +238,99 @@ async (req, res) => {
     // Rota para listar todos os lugares
 // Rota para listar todos os lugares
 router.get('/', async (req, res) => {
+    const client = await pool.connect();
     try {
-      // Realiza as queries de forma paralela
-      const [placesResult, commoditiesResult, photosResult] = await Promise.all([
-        pool.query(`
+      // Uma conexão, queries em série (client pg não suporta paralelo na mesma conexão).
+      const placesResult = await client.query(`
           SELECT 
             id, slug, name, email, description, logo, street, number, 
             latitude, longitude, status, visible 
           FROM places
-        `),
-        pool.query(`
+        `);
+      const commoditiesResult = await client.query(`
           SELECT 
             place_id, id, icon, color, name, description 
           FROM commodities
-        `),
-        pool.query(`
+        `);
+      const photosResult = await client.query(`
           SELECT 
             place_id, id, photo, type, url 
           FROM photos
-        `)
-      ]);
-  
-      // Formata os lugares com suas commodities e fotos
-      const formattedPlaces = placesResult.rows.map(place => {
-        const placeCommodities = commoditiesResult.rows.filter(c => c.place_id === place.id);
-        const placePhotos = photosResult.rows.filter(p => p.place_id === place.id);
-  
+        `);
+
+      const commoditiesByPlace = new Map();
+      for (const row of commoditiesResult.rows) {
+        const pid = Number(row.place_id);
+        if (!commoditiesByPlace.has(pid)) commoditiesByPlace.set(pid, []);
+        commoditiesByPlace.get(pid).push(row);
+      }
+      const photosByPlace = new Map();
+      for (const row of photosResult.rows) {
+        const pid = Number(row.place_id);
+        if (!photosByPlace.has(pid)) photosByPlace.set(pid, []);
+        photosByPlace.get(pid).push(row);
+      }
+
+      const formattedPlaces = placesResult.rows.map((place) => {
+        const pid = Number(place.id);
         return {
           ...place,
-          commodities: placeCommodities,
-          photos: placePhotos
+          commodities: commoditiesByPlace.get(pid) || [],
+          photos: photosByPlace.get(pid) || [],
         };
       });
-  
+
       res.json({ data: formattedPlaces });
     } catch (error) {
       console.error('Erro ao listar locais:', error);
       res.status(500).json({ error: 'Erro ao listar locais' });
+    } finally {
+      client.release();
     }
   });
 
   
 // Rota para buscar um lugar por ID
 router.get('/:id', async (req, res) => {
+    const client = await pool.connect();
     try {
       const { id } = req.params;
-      const placeResult = await pool.query(`
+      const placeResult = await client.query(`
         SELECT 
           id, slug, name, email, description, logo, street, number, 
           latitude, longitude, status, visible 
         FROM places
         WHERE id = $1
       `, [id]);
-  
+
       if (placeResult.rows.length === 0) {
         return res.status(404).json({ error: 'Lugar não encontrado' });
       }
-  
-      // Recupera as commodities e fotos associadas a este lugar
-      const commoditiesResult = await pool.query(`
+
+      const commoditiesResult = await client.query(`
         SELECT 
           place_id, id, icon, color, name, description 
         FROM commodities
         WHERE place_id = $1
       `, [id]);
-  
-      const photosResult = await pool.query(`
+
+      const photosResult = await client.query(`
         SELECT 
           place_id, id, photo, type, url 
         FROM photos
         WHERE place_id = $1
       `, [id]);
-  
+
       res.json({
-        place: placeResult.rows[0], // Retorna o lugar com suas commodities e fotos
+        place: placeResult.rows[0],
         commodities: commoditiesResult.rows,
-        photos: photosResult.rows
+        photos: photosResult.rows,
       });
     } catch (error) {
       console.error('Erro ao buscar lugar:', error);
       res.status(500).json({ error: 'Erro ao buscar lugar' });
+    } finally {
+      client.release();
     }
   });
   

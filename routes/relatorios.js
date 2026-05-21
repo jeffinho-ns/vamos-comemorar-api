@@ -220,19 +220,19 @@ async function gerarRelatorioEvento(client, eventoId) {
 }
 
 async function gerarRelatorioPeriodo(client, establishmentId, dataInicio, dataFim) {
-  const [promotersRes, guestsRes, ownerRes, rrRes, lrRes, eventosRes] = await Promise.all([
-    client.query(
-      `SELECT lc.data_checkin::DATE as data_checkin, COUNT(*) as qtd
+  // Mesma conexão: queries em série (pg não permite paralelo no mesmo client).
+  const promotersRes = await client.query(
+    `SELECT lc.data_checkin::DATE as data_checkin, COUNT(*) as qtd
        FROM listas_convidados lc
        INNER JOIN listas l ON lc.lista_id = l.lista_id
        INNER JOIN eventos e ON l.evento_id = e.id
        WHERE e.id_place = $1 AND lc.status_checkin = 'Check-in' AND lc.data_checkin IS NOT NULL
          AND lc.data_checkin::DATE >= $2::DATE AND lc.data_checkin::DATE <= $3::DATE
        GROUP BY lc.data_checkin::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-    client.query(
-      `SELECT g.checkin_time::DATE as data_checkin, COUNT(*) as qtd
+    [establishmentId, dataInicio, dataFim],
+  );
+  const guestsRes = await client.query(
+    `SELECT g.checkin_time::DATE as data_checkin, COUNT(*) as qtd
        FROM guests g
        INNER JOIN guest_lists gl ON g.guest_list_id = gl.id
        LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
@@ -240,10 +240,10 @@ async function gerarRelatorioPeriodo(client, establishmentId, dataInicio, dataFi
        WHERE COALESCE(rr.establishment_id, lr.establishment_id) = $1 AND g.checkin_time IS NOT NULL
          AND g.checkin_time::DATE >= $2::DATE AND g.checkin_time::DATE <= $3::DATE
        GROUP BY g.checkin_time::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-    client.query(
-      `SELECT gl.owner_checkin_time::DATE as data_checkin, COUNT(*) as qtd
+    [establishmentId, dataInicio, dataFim],
+  );
+  const ownerRes = await client.query(
+    `SELECT gl.owner_checkin_time::DATE as data_checkin, COUNT(*) as qtd
        FROM guest_lists gl
        LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
        LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
@@ -251,33 +251,32 @@ async function gerarRelatorioPeriodo(client, establishmentId, dataInicio, dataFi
          AND gl.owner_checkin_time::DATE >= $2::DATE AND gl.owner_checkin_time::DATE <= $3::DATE
          AND COALESCE(rr.establishment_id, lr.establishment_id) = $1
        GROUP BY gl.owner_checkin_time::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-    client.query(
-      `SELECT checkin_time::DATE as data_checkin, COUNT(*) as qtd
+    [establishmentId, dataInicio, dataFim],
+  );
+  const rrRes = await client.query(
+    `SELECT checkin_time::DATE as data_checkin, COUNT(*) as qtd
        FROM restaurant_reservations
        WHERE establishment_id = $1 AND checked_in = TRUE AND checkin_time IS NOT NULL
          AND checkin_time::DATE >= $2::DATE AND checkin_time::DATE <= $3::DATE
        GROUP BY checkin_time::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-    client.query(
-      `SELECT checkin_time::DATE as data_checkin, COUNT(*) as qtd
+    [establishmentId, dataInicio, dataFim],
+  );
+  const lrRes = await client.query(
+    `SELECT checkin_time::DATE as data_checkin, COUNT(*) as qtd
        FROM large_reservations
        WHERE establishment_id = $1 AND checked_in = TRUE AND checkin_time IS NOT NULL
          AND checkin_time::DATE >= $2::DATE AND checkin_time::DATE <= $3::DATE
        GROUP BY checkin_time::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-    client.query(
-      `SELECT data_do_evento::DATE as data_evento, COUNT(DISTINCT id) as qtd_eventos, array_agg(DISTINCT nome_do_evento) as nomes
+    [establishmentId, dataInicio, dataFim],
+  );
+  const eventosRes = await client.query(
+    `SELECT data_do_evento::DATE as data_evento, COUNT(DISTINCT id) as qtd_eventos, array_agg(DISTINCT nome_do_evento) as nomes
        FROM eventos
        WHERE id_place = $1 AND data_do_evento IS NOT NULL
          AND data_do_evento::DATE >= $2::DATE AND data_do_evento::DATE <= $3::DATE
        GROUP BY data_do_evento::DATE`,
-      [establishmentId, dataInicio, dataFim]
-    ),
-  ]);
+    [establishmentId, dataInicio, dataFim],
+  );
 
   const mapPorDia = new Map();
   const addToDay = (dataStr, qtd, tipo) => {

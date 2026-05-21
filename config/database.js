@@ -5,27 +5,19 @@ const connectionString = process.env.DATABASE_URL || 'postgresql://agilizaidb_us
 
 const pool = new Pool({
   connectionString: connectionString,
-  max: 10, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false, // SSL para produção
+  max: 10,
+  idleTimeoutMillis: 30000,
+  // Render/Postgres remoto: 2s era curto demais e gerava 500 em rotas com queries paralelas.
+  connectionTimeoutMillis: 15000,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  // search_path no handshake (evita corrida do handler async em pool.on('connect')).
+  options:
+    '-c search_path=meu_backup_db,public -c timezone=America/Sao_Paulo',
 });
 
-// Garantir que o search_path inclua o schema real de produção
-// Observação: suas tabelas estão em 'meu_backup_db'
-pool.on('connect', async (client) => {
-  try {
-    await client.query(`SET search_path TO meu_backup_db, public`);
-    await client.query(`SET timezone = 'America/Sao_Paulo'`);
-  } catch (e) {
-    console.error('⚠️ Falha ao definir search_path/timezone:', e.message);
-  }
-});
-
-// Handle pool errors
-pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+// Erro em cliente ocioso não deve derrubar o processo (comum após redeploy do Render).
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle pool client:', err.message);
 });
 
 module.exports = pool; 
