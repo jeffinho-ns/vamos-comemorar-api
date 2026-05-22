@@ -61,3 +61,15 @@ test('synthesizeAvailabilityFromToolResult segue reserva quando aberto sem janel
   assert.match(reply, /4 pessoas/);
   assert.match(reply, /reservar/i);
 });
+
+test('synthesizeReplyFromToolTrace informa erro de criar_pre_reserva', () => {
+  const reply = synthesizeReplyFromToolTrace([
+    {
+      name: 'criar_pre_reserva',
+      result: { ok: false, error: 'Área inválida ou sem mesa disponível.' },
+    },
+  ]);
+
+  assert.match(reply, /não consegui registrar/i);
+  assert.match(reply, /Área inválida/i);
+});

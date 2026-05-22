@@ -17,6 +17,15 @@ const {
 } = require('./faqPrefetchService');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
 const { buildReservationDateHint } = require('./reservationDateHint');
+const {
+  shouldSkipFaqFirst,
+  isReservationFunnelInProgress,
+  buildReservationFunnelPromptBlock,
+  buildNextFieldQuestion,
+  parseReservationFieldsFromUserText,
+  shouldAutoRunAvailabilityCheck,
+  getReservationMissingFields,
+} = require('./reservationFunnel');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -118,6 +127,9 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
       Number.isFinite(pessoas) && pessoas > 0
         ? ` para ${pessoas} pessoa${pessoas === 1 ? '' : 's'}`
         : '';
+    if (Number.isFinite(pessoas) && pessoas >= 15) {
+      return `Para ${dateLabel}${pessoasBit} consigo seguir com você — grupos grandes a gente organiza com carinho. Me passa o horário preferido, seu nome completo e e-mail que eu registro no sistema.`;
+    }
     return `Para ${dateLabel}${pessoasBit} está tudo certo para reservar. Me diz o horário preferido${pessoasBit ? '' : ' e quantas pessoas'} que eu já deixo encaminhado.`;
   }
 
@@ -128,7 +140,21 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
   for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
     const entry = toolTrace[index];
     const result = entry?.result;
-    if (!result || result.ok === false) continue;
+    if (!result) continue;
+
+    if (entry.name === 'criar_pre_reserva') {
+      if (result.pre_reserva) {
+        const pre = result.pre_reserva;
+        const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
+        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}. Qualquer coisa, é só chamar.`;
+      }
+      if (result.ok === false && result.error) {
+        return `Ainda não consegui registrar: ${String(result.error).trim()} Me passa o que falta que eu finalizo agora.`;
+      }
+      continue;
+    }
+
+    if (result.ok === false) continue;
 
     if (entry.name === 'consultar_faq_estabelecimento' && result.answer) {
       return String(result.answer).trim();
@@ -137,12 +163,6 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
     if (entry.name === 'verificar_disponibilidade') {
       const availabilityReply = synthesizeAvailabilityFromToolResult(result);
       if (availabilityReply) return availabilityReply;
-    }
-
-    if (entry.name === 'criar_pre_reserva' && result.pre_reserva) {
-      const pre = result.pre_reserva;
-      const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
-      return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}. Qualquer coisa, é só chamar.`;
     }
 
     if (entry.name === 'consultar_areas_mesa_reserva' && result.ok) {
@@ -191,7 +211,13 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') 
   }
 }
 
-async function finalizeAssistantReply(messages, tools, assistantMessage, toolTrace) {
+async function finalizeAssistantReply(
+  messages,
+  tools,
+  assistantMessage,
+  toolTrace,
+  { funnelFallback = null } = {}
+) {
   let replyText = String(assistantMessage?.content || '').trim();
   if (replyText) return replyText;
 
@@ -213,7 +239,77 @@ async function finalizeAssistantReply(messages, tools, assistantMessage, toolTra
     }
   }
 
+  if (funnelFallback) return funnelFallback;
+
   throw new Error('Resposta vazia do agente.');
+}
+
+async function ensureAvailabilityChecked({
+  pool,
+  workingState,
+  context,
+  runtimeContext,
+  toolTrace,
+  assistantMessage,
+}) {
+  const draftReply = String(assistantMessage?.content || '').trim();
+  if (
+    !shouldAutoRunAvailabilityCheck(workingState, context, toolTrace, draftReply)
+  ) {
+    return { workingState, toolTrace, forcedReply: null };
+  }
+
+  const establishmentId = Number(
+    workingState.establishment_id || context.lockedEstablishmentId
+  );
+  const reservationDate = String(
+    workingState.reservation_date || workingState.pending_reservation_date_iso || ''
+  ).slice(0, 10);
+  const partySize = Number(workingState.quantidade_convidados);
+
+  const toolResult = await executeAgentToolCall(
+    pool,
+    {
+      id: `auto-verify-${Date.now()}`,
+      function: {
+        name: 'verificar_disponibilidade',
+        arguments: JSON.stringify({
+          estabelecimento_id: establishmentId,
+          data: reservationDate,
+          quantidade_pessoas: partySize,
+          ...(workingState.reservation_time
+            ? { horario: workingState.reservation_time }
+            : {}),
+        }),
+      },
+    },
+    runtimeContext
+  );
+
+  const nextTrace = [
+    ...toolTrace,
+    { name: 'verificar_disponibilidade', result: toolResult, auto: true },
+  ];
+  const nextState = mergeWorkingState(
+    workingState,
+    extractWorkingStatePatchFromToolResult('verificar_disponibilidade', toolResult)
+  );
+
+  let forcedReply =
+    synthesizeAvailabilityFromToolResult(toolResult) ||
+    synthesizeReplyFromToolTrace(nextTrace);
+
+  if (forcedReply && isReservationFunnelInProgress(nextState)) {
+    const missing = getReservationMissingFields(nextState);
+    if (missing.length > 0 && missing[0] !== 'reservation_date_confirm') {
+      const nextQ = buildNextFieldQuestion(nextState);
+      if (nextQ && !forcedReply.includes(nextQ.slice(0, 24))) {
+        forcedReply = `${forcedReply}\n\n${nextQ}`;
+      }
+    }
+  }
+
+  return { workingState: nextState, toolTrace: nextTrace, forcedReply };
 }
 
 async function tryFaqFirstReply({
@@ -284,16 +380,6 @@ async function runAgentTurn({
     throw new Error('messageHistory deve ser um array não vazio.');
   }
 
-  if (process.env.OPENAI_API_KEY) {
-    const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
-      (error) => {
-        console.warn('[agentService] FAQ-first indisponível:', error.message);
-        return null;
-      }
-    );
-    if (faqFirst) return faqFirst;
-  }
-
   const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
   const userText = String(lastUser?.content || '').trim();
   const referenceDateIso = getReferenceDateIso();
@@ -303,6 +389,25 @@ async function runAgentTurn({
     workingState: memory.workingState || {},
     messageHistory,
   });
+  let workingState = mergeWorkingState(
+    memory.workingState || {},
+    dateHint.patch || {},
+    parseReservationFieldsFromUserText(userText, memory.workingState || {})
+  );
+  const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
+
+  if (process.env.OPENAI_API_KEY) {
+    const skipFaq = shouldSkipFaqFirst(workingState, messageHistory, userText);
+    if (!skipFaq) {
+      const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
+        (error) => {
+          console.warn('[agentService] FAQ-first indisponível:', error.message);
+          return null;
+        }
+      );
+      if (faqFirst) return faqFirst;
+    }
+  }
   const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
@@ -312,23 +417,25 @@ async function runAgentTurn({
     faqKnowledgeBlock = buildFaqKnowledgeBlock(prefetched, context.lockedEstablishmentName || '');
   }
 
+  const reservationFunnelBlock = buildReservationFunnelPromptBlock(workingState, messageHistory);
   const systemPrompt = promptBuilder.build({
     ...context,
     faqKnowledgeBlock,
     reservationDateBlock: dateHint.promptBlock,
+    reservationFunnelBlock,
     referenceDate: referenceDateIso,
   });
   const messages = buildOpenAiMessages(messageHistory, systemPrompt);
   const tools = getAgentToolDefinitions();
 
-  let workingState = mergeWorkingState(memory.workingState || {}, dateHint.patch || {});
   const toolTrace = [];
   let preReservationResult = null;
   let guestListLink = null;
 
   let assistantMessage = await requestAssistantCompletion(messages, tools, 'auto');
   let guard = 0;
-  const maxToolRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 3);
+  const baseMaxRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 3);
+  const maxToolRounds = funnelActive ? Math.max(baseMaxRounds, 5) : baseMaxRounds;
 
   while (assistantMessage?.tool_calls?.length && pool && guard < maxToolRounds) {
     messages.push(assistantMessage);
@@ -357,12 +464,31 @@ async function runAgentTurn({
     guard += 1;
   }
 
-  const replyText = await finalizeAssistantReply(messages, tools, assistantMessage, toolTrace);
+  const ensured = await ensureAvailabilityChecked({
+    pool,
+    workingState,
+    context,
+    runtimeContext,
+    toolTrace,
+    assistantMessage,
+  }).catch((error) => {
+    console.warn('[agentService] auto verificar_disponibilidade falhou:', error.message);
+    return { workingState, toolTrace, forcedReply: null };
+  });
+  workingState = ensured.workingState;
+  const toolTraceFinal = ensured.toolTrace;
+
+  const funnelFallback = funnelActive ? buildNextFieldQuestion(workingState) : null;
+  const replyText =
+    ensured.forcedReply ||
+    (await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
+      funnelFallback,
+    }));
 
   return {
     replyText,
     workingState,
-    toolTrace,
+    toolTrace: toolTraceFinal,
     preReservationResult,
     guestListLink,
   };

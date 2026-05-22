@@ -21,6 +21,8 @@ const {
   resolveHighlineSubarea,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
+  STANDARD_SUBAREA_KEYS,
+  HIGHLINE_SUBAREAS,
 } = require('./highlineReservationAreas');
 const {
   buildNotesFromReservationArgs,
@@ -559,6 +561,35 @@ async function verificarDisponibilidade(pool, args = {}) {
   };
 }
 
+async function resolveDefaultReservationSlot(pool, establishmentId, reservationDate, partySize) {
+  if (isHighlineEstablishment(establishmentId)) {
+    const preferredKeys = ['deck-frente', 'deck-esquerdo', 'deck-direito', 'bar'];
+    for (const key of preferredKeys) {
+      if (!STANDARD_SUBAREA_KEYS.has(key)) continue;
+      const subarea = HIGHLINE_SUBAREAS.find((item) => item.key === key);
+      if (!subarea) continue;
+      const slot = await findAvailableTableInSubarea(
+        pool,
+        subarea,
+        reservationDate,
+        partySize,
+        establishmentId
+      );
+      if (slot) return slot;
+    }
+    return null;
+  }
+
+  const areas = await loadActiveAreas(pool, establishmentId);
+  if (!areas.length) return null;
+  const first = areas[0];
+  return {
+    area_id: Number(first.id),
+    label: String(first.name || '').trim() || null,
+    table_number: null,
+  };
+}
+
 async function resolveAreaId(pool, establishmentId, areaValue) {
   const areas = await loadActiveAreas(pool, establishmentId);
   const numeric = Number(areaValue);
@@ -648,7 +679,24 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     areaId = await resolveAreaId(pool, establishmentId, args.area);
   }
   if (!areaId) {
-    return { ok: false, error: 'Área inválida ou não encontrada para este estabelecimento.' };
+    const defaultSlot = await resolveDefaultReservationSlot(
+      pool,
+      establishmentId,
+      reservationDate,
+      partySize
+    );
+    if (defaultSlot?.area_id) {
+      areaId = defaultSlot.area_id;
+      tableNumber = defaultSlot.table_number || tableNumber;
+      areaLabel = defaultSlot.label || areaLabel;
+    }
+  }
+  if (!areaId) {
+    return {
+      ok: false,
+      error:
+        'Área inválida ou sem mesa disponível. Confirme a área com o cliente ou use consultar_areas_mesa_reserva / lista de espera.',
+    };
   }
 
   const age = ageFromIsoDate(cliente.data_nascimento);

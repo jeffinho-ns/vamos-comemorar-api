@@ -5,6 +5,7 @@ class AgentPromptBuilder {
       this.buildBehaviorBlock(),
       this.buildFaqKnowledgeBlock(context),
       this.buildReservationDateBlock(context),
+      this.buildReservationFunnelBlock(context),
       this.buildOperatingRulesBlock(context),
       this.buildRuntimeBlock(context),
       this.buildMemoryBlock(context),
@@ -26,7 +27,7 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
 2. Tom humanizado e curto: responda como um host de casa — frases curtas (1 a 3 parágrafos breves), calor humano, sem linguagem de robô, sem listas longas nem textão. Use "você", seja direto e gentil.
 3. Inteligência Emocional: adapte ao cliente (animado → leve; confuso → claro e acolhedor).
 4. Naturalidade: não faça interrogatório. Peça no máximo um dado por vez, em conversa fluida.
-5. Reservas e agenda: use o bloco REGRAS DO PAINEL DE RESERVAS (horários, exceções, bloqueios — mesma fonte do admin). Para dúvidas de entrada/aniversário use FAQ. Para data/horário/vaga chame verificar_disponibilidade (consulta o mesmo motor do painel /admin/restaurant-reservations). Nunca diga que há vaga sem essa ferramenta.
+5. Reservas e agenda: use o bloco REGRAS DO PAINEL DE RESERVAS (horários, exceções, bloqueios — mesma fonte do admin). Para dúvidas de entrada/aniversário use FAQ. Para data/horário/vaga chame verificar_disponibilidade (consulta o mesmo motor do painel /admin/restaurant-reservations). Nunca diga que há vaga sem essa ferramenta. PROIBIDO responder só "vou verificar" ou "um momento" — chame verificar_disponibilidade na mesma interação e já traga o resultado ao cliente.
 5b. HIGHLINE — áreas e mesas: para deck/bar/mesa no painel use consultar_faq_estabelecimento (reserva_areas_operacional_highline) e consultar_areas_mesa_reserva (data + pessoas + contexto_cliente com a frase do cliente). Sugira Deck/Bar por padrão. Camarotes, pacotes VIP e valores consumíveis (tópico areas_mesas_camarotes_diferenca) SOMENTE se o cliente perguntar sobre camarotes/VIP — nunca ofereça rooftop pago sem esse pedido. Se todas as áreas operacionais estiverem cheias, criar_lista_espera + Hostess.
 6. Datas: use SEMPRE o bloco CALENDÁRIO DO SISTEMA quando existir. A data de referência é HOJE no fuso America/Sao_Paulo — nunca use datas de 2023/2024/2025 do seu treinamento. Para "próximo sábado", "sexta", etc., cite apenas o dia calculado no bloco (ex.: 23/05/2026). Confirme com o cliente antes de verificar_disponibilidade ou criar_pre_reserva.
 7. Registro: só chame criar_pre_reserva quando já tiver conversado naturalmente, com data confirmada pelo cliente, e validado tudo.
@@ -43,6 +44,12 @@ Seu objetivo é proporcionar um atendimento humano, caloroso, impecável e intel
 
   buildReservationDateBlock(context) {
     const block = String(context.reservationDateBlock || '').trim();
+    if (!block) return '';
+    return block;
+  }
+
+  buildReservationFunnelBlock(context) {
+    const block = String(context.reservationFunnelBlock || '').trim();
     if (!block) return '';
     return block;
   }

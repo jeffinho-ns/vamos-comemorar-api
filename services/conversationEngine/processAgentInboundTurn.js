@@ -2,6 +2,10 @@ const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
 const { buildReservationDateHint } = require('../agent/reservationDateHint');
+const {
+  parseReservationFieldsFromUserText,
+  mergeContactHintsIntoWorkingState,
+} = require('../agent/reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
 const { mergeWorkingState } = require('../agent/agentMemoryService');
 const {
@@ -125,9 +129,10 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   };
 
   let contactLastEstablishmentId = null;
+  let whatsappContact = null;
   try {
-    const contact = await inbox.getContactByWaId(pool, waId);
-    const raw = Number(contact?.last_establishment_id);
+    whatsappContact = await inbox.getContactByWaId(pool, waId);
+    const raw = Number(whatsappContact?.last_establishment_id);
     if (Number.isFinite(raw) && raw > 0) contactLastEstablishmentId = raw;
   } catch (_error) {
     // ignore
@@ -176,9 +181,19 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     workingState: memory.workingState || {},
     messageHistory,
   });
+  const textFieldPatch = parseReservationFieldsFromUserText(incomingText, memory.workingState || {});
+  let workingStateForTurn = mergeContactHintsIntoWorkingState(
+    mergeWorkingState(memory.workingState || {}, dateHint.patch || {}, textFieldPatch),
+    whatsappContact || {}
+  );
+  if (lockedEstablishmentId) {
+    workingStateForTurn = mergeWorkingState(workingStateForTurn, {
+      establishment_id: lockedEstablishmentId,
+    });
+  }
   const memoryForTurn = {
     ...memory,
-    workingState: mergeWorkingState(memory.workingState || {}, dateHint.patch || {}),
+    workingState: workingStateForTurn,
   };
 
   const focusDateIso =

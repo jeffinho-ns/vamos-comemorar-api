@@ -111,6 +111,15 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
     };
   }
 
+  if (toolName === 'consultar_areas_mesa_reserva' && toolResult.area_recomendada?.area_id) {
+    return {
+      establishment_id: toolResult.estabelecimento_id,
+      reservation_date: toolResult.reservation_date,
+      quantidade_convidados: toolResult.quantidade_pessoas,
+      area_id: toolResult.area_recomendada.area_id,
+    };
+  }
+
   if (toolName === 'criar_pre_reserva' && toolResult.pre_reserva) {
     const pre = toolResult.pre_reserva;
     return {
