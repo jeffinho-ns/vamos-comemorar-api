@@ -57,6 +57,73 @@ function buildOpenAiMessages(messageHistory, systemPrompt) {
   return messages;
 }
 
+function formatReservationDateLabel(isoDate) {
+  const iso = String(isoDate || '').slice(0, 10);
+  const [year, month, day] = iso.split('-');
+  if (year && month && day) return `${day}/${month}/${year}`;
+  return 'esse dia';
+}
+
+function extractWindowLabels(windows = []) {
+  return windows
+    .map((window) => {
+      if (typeof window === 'string') return window.trim();
+      return String(window?.label || window?.start_time || window?.start || '').trim();
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function synthesizeAvailabilityFromToolResult(result = {}) {
+  if (!result || result.ok === false) return null;
+
+  const dateLabel = formatReservationDateLabel(result.reservation_date);
+  const horarioConsultado = String(result.horario_consultado || '').trim().slice(0, 5);
+
+  if (result.is_open === false) {
+    return result.note
+      ? String(result.note).trim()
+      : `Para ${dateLabel} a casa não está aberta para reservas. Posso ver outra data para você?`;
+  }
+
+  if (result.party_size_allowed === false && result.party_size_message) {
+    return String(result.party_size_message).trim();
+  }
+
+  if (result.capacidade?.pode_reservar === false) {
+    const motivos = [];
+    if (result.capacidade.lista_espera_no_horario) {
+      motivos.push('há lista de espera nesse horário');
+    }
+    if (Number(result.capacidade.vagas_disponiveis) === 0) {
+      motivos.push('a lotação para esse horário está no limite');
+    }
+    const extra = motivos.length ? ` (${motivos.join('; ')})` : '';
+    const horarioBit = horarioConsultado ? ` às ${horarioConsultado}` : '';
+    return `Para ${dateLabel}${horarioBit} está bem cheio${extra}. Quer tentar outro horário ou entro com você na lista de espera?`;
+  }
+
+  const labels = extractWindowLabels(result.windows);
+  if (labels.length > 0) {
+    return `Boa notícia — para ${dateLabel} temos horários: ${labels.join(', ')}. Qual horário fica melhor pra você?`;
+  }
+
+  if (horarioConsultado && result.capacidade?.pode_reservar === true) {
+    return `Para ${dateLabel} às ${horarioConsultado} temos vaga sim. Me confirma quantas pessoas e seu nome completo que eu registro sua pré-reserva.`;
+  }
+
+  if (result.is_open !== false && result.capacidade?.pode_reservar !== false) {
+    const pessoas = Number(result.quantidade_pessoas);
+    const pessoasBit =
+      Number.isFinite(pessoas) && pessoas > 0
+        ? ` para ${pessoas} pessoa${pessoas === 1 ? '' : 's'}`
+        : '';
+    return `Para ${dateLabel}${pessoasBit} está tudo certo para reservar. Me diz o horário preferido${pessoasBit ? '' : ' e quantas pessoas'} que eu já deixo encaminhado.`;
+  }
+
+  return null;
+}
+
 function synthesizeReplyFromToolTrace(toolTrace = []) {
   for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
     const entry = toolTrace[index];
@@ -68,32 +135,8 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
     }
 
     if (entry.name === 'verificar_disponibilidade') {
-      if (result.is_open === false) {
-        return result.note
-          ? String(result.note).trim()
-          : 'Nesse dia a casa não está aberta para reservas. Posso ver outra data para você?';
-      }
-      if (result.capacidade?.pode_reservar === false) {
-        const motivos = [];
-        if (result.capacidade.lista_espera_no_horario) {
-          motivos.push('há lista de espera nesse horário');
-        }
-        if (Number(result.capacidade.vagas_disponiveis) === 0) {
-          motivos.push('a lotação para esse horário está no limite');
-        }
-        const extra = motivos.length ? ` (${motivos.join('; ')})` : '';
-        return `Nesse horário está bem cheio${extra}. Quer tentar outro horário ou entro com você na lista de espera?`;
-      }
-      const windows = Array.isArray(result.windows) ? result.windows : [];
-      if (windows.length > 0) {
-        const labels = windows
-          .map((window) => window?.label || window?.start_time || window?.start)
-          .filter(Boolean)
-          .slice(0, 6);
-        if (labels.length > 0) {
-          return `Pra esse dia temos: ${labels.join(', ')}. Qual horário fica melhor pra você?`;
-        }
-      }
+      const availabilityReply = synthesizeAvailabilityFromToolResult(result);
+      if (availabilityReply) return availabilityReply;
     }
 
     if (entry.name === 'criar_pre_reserva' && result.pre_reserva) {
@@ -161,6 +204,14 @@ async function finalizeAssistantReply(messages, tools, assistantMessage, toolTra
 
   const synthesized = synthesizeReplyFromToolTrace(toolTrace);
   if (synthesized) return synthesized;
+
+  for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
+    if (toolTrace[index]?.name === 'verificar_disponibilidade') {
+      const availabilityReply = synthesizeAvailabilityFromToolResult(toolTrace[index]?.result);
+      if (availabilityReply) return availabilityReply;
+      break;
+    }
+  }
 
   throw new Error('Resposta vazia do agente.');
 }
@@ -321,5 +372,6 @@ module.exports = {
   runAgentTurn,
   getReferenceDateIso,
   synthesizeReplyFromToolTrace,
+  synthesizeAvailabilityFromToolResult,
   tryFaqFirstReply,
 };
