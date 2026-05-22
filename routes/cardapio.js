@@ -3,6 +3,12 @@ const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
 const { logAction } = require('../middleware/actionLogger');
 const { limiter60PerMin } = require('../middleware/rateLimiters');
+const {
+    listPauseSchedules,
+    createPauseSchedules,
+    deletePauseSchedulesForScope,
+    applySchedulesToMenuItems,
+} = require('../services/menuPauseScheduleService');
 
 module.exports = (pool) => {
     /**
@@ -1961,8 +1967,16 @@ module.exports = (pool) => {
                     isPriceOnRequest: isPriceOnRequest
                 };
             });
+
+            let schedules = [];
+            try {
+                schedules = await listPauseSchedules(pool, barId ? { barId } : {});
+            } catch (scheduleError) {
+                console.warn('⚠️ Pausas agendadas indisponíveis:', scheduleError.message);
+            }
+            const itemsWithSchedule = applySchedulesToMenuItems(itemsWithToppings, schedules);
             
-            res.json(itemsWithToppings);
+            res.json(itemsWithSchedule);
         } catch (error) {
             console.error('Erro ao listar itens:', error);
             res.status(500).json({ error: 'Erro ao listar itens.' });
@@ -2347,6 +2361,185 @@ module.exports = (pool) => {
         } catch (error) {
             console.error('Erro ao restaurar item:', error);
             res.status(500).json({ error: 'Erro ao restaurar item.', details: error.message });
+        }
+    });
+
+    // ============================================
+    // Pausa agendada por categoria (global — cardápio público + admin)
+    // ============================================
+    router.get('/pause-schedules', async (req, res) => {
+        try {
+            const barId = req.query.barId || req.query.bar_id || null;
+            const categoryId = req.query.categoryId || req.query.category_id || null;
+            const rows = await listPauseSchedules(pool, {
+                barId: barId ? Number(barId) : undefined,
+                categoryId: categoryId ? Number(categoryId) : undefined,
+            });
+            res.json(rows);
+        } catch (error) {
+            console.error('Erro ao listar pausas agendadas:', error);
+            res.status(500).json({ error: 'Erro ao listar pausas agendadas.' });
+        }
+    });
+
+    router.post('/pause-schedules', async (req, res) => {
+        try {
+            const created = await createPauseSchedules(pool, req.body);
+            res.status(201).json({ schedules: created });
+        } catch (error) {
+            console.error('Erro ao criar pausa agendada:', error);
+            res.status(400).json({ error: error.message || 'Erro ao criar pausa agendada.' });
+        }
+    });
+
+    router.delete('/pause-schedules/:id', async (req, res) => {
+        try {
+            const id = Number(req.params.id);
+            const result = await pool.query(
+                'UPDATE menu_pause_schedules SET is_enabled = FALSE, updated_at = NOW() WHERE id = $1 RETURNING id',
+                [id],
+            );
+            if (!result.rows.length) {
+                return res.status(404).json({ error: 'Regra não encontrada.' });
+            }
+            res.json({ ok: true, id });
+        } catch (error) {
+            console.error('Erro ao remover pausa agendada:', error);
+            res.status(500).json({ error: 'Erro ao remover pausa agendada.' });
+        }
+    });
+
+    router.post('/pause-schedules/apply', async (req, res) => {
+        const { mode, itemIds, windows } = req.body || {};
+        const ids = Array.isArray(itemIds) ? itemIds.map(Number).filter((n) => n > 0) : [];
+
+        if (!ids.length) {
+            return res.status(400).json({ error: 'itemIds é obrigatório.' });
+        }
+        if (mode !== 'permanent' && mode !== 'scheduled') {
+            return res.status(400).json({ error: 'mode deve ser permanent ou scheduled.' });
+        }
+
+        try {
+            const itemsResult = await pool.query(
+                `SELECT id, barid AS "barId", categoryid AS "categoryId",
+                        subcategory AS "subCategoryName", visible
+                   FROM menu_items
+                  WHERE id = ANY($1::int[]) AND deleted_at IS NULL`,
+                [ids],
+            );
+            const items = itemsResult.rows;
+            if (!items.length) {
+                return res.status(404).json({ error: 'Nenhum item encontrado.' });
+            }
+
+            const groups = new Map();
+            for (const item of items) {
+                const sub = String(item.subCategoryName || '').trim();
+                const key = `${item.barId}:${item.categoryId}:${sub.toLowerCase()}`;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        bar_id: item.barId,
+                        category_id: item.categoryId,
+                        sub_category_name: sub || null,
+                        itemIds: [],
+                    });
+                }
+                groups.get(key).itemIds.push(item.id);
+            }
+
+            if (mode === 'permanent') {
+                await pool.query(
+                    'UPDATE menu_items SET visible = 0 WHERE id = ANY($1::int[])',
+                    [ids],
+                );
+                for (const group of groups.values()) {
+                    await deletePauseSchedulesForScope(pool, {
+                        barId: group.bar_id,
+                        categoryId: group.category_id,
+                        subCategoryName: group.sub_category_name,
+                    });
+                }
+                return res.json({
+                    ok: true,
+                    mode: 'permanent',
+                    updatedItems: ids.length,
+                    message: `${ids.length} item(ns) pausado(s) imediatamente.`,
+                });
+            }
+
+            const windowList = Array.isArray(windows) ? windows : [];
+            if (!windowList.length) {
+                return res.status(400).json({ error: 'Informe ao menos um período (dias e horários).' });
+            }
+
+            const createdSchedules = [];
+            for (const group of groups.values()) {
+                await deletePauseSchedulesForScope(pool, {
+                    barId: group.bar_id,
+                    categoryId: group.category_id,
+                    subCategoryName: group.sub_category_name,
+                });
+                const created = await createPauseSchedules(pool, {
+                    bar_id: group.bar_id,
+                    category_id: group.category_id,
+                    sub_category_name: group.sub_category_name,
+                    windows: windowList,
+                });
+                createdSchedules.push(...created);
+                await pool.query(
+                    'UPDATE menu_items SET visible = 1 WHERE id = ANY($1::int[])',
+                    [group.itemIds],
+                );
+            }
+
+            return res.json({
+                ok: true,
+                mode: 'scheduled',
+                schedules: createdSchedules,
+                message: `Pausa por horário ativa em ${createdSchedules.length} regra(s). Itens somem do cardápio público nos períodos configurados.`,
+            });
+        } catch (error) {
+            console.error('Erro ao aplicar pausa:', error);
+            res.status(500).json({ error: error.message || 'Erro ao aplicar pausa.' });
+        }
+    });
+
+    router.post('/pause-schedules/clear-for-items', async (req, res) => {
+        const ids = Array.isArray(req.body?.itemIds)
+            ? req.body.itemIds.map(Number).filter((n) => n > 0)
+            : [];
+        if (!ids.length) {
+            return res.status(400).json({ error: 'itemIds é obrigatório.' });
+        }
+        try {
+            const itemsResult = await pool.query(
+                `SELECT DISTINCT barid AS "barId", categoryid AS "categoryId",
+                        subcategory AS "subCategoryName"
+                   FROM menu_items WHERE id = ANY($1::int[])`,
+                [ids],
+            );
+            let removed = 0;
+            for (const row of itemsResult.rows) {
+                removed += await deletePauseSchedulesForScope(pool, {
+                    barId: row.barId,
+                    categoryId: row.categoryId,
+                    subCategoryName: row.subCategoryName,
+                });
+            }
+            await pool.query(
+                'UPDATE menu_items SET visible = 1 WHERE id = ANY($1::int[])',
+                [ids],
+            );
+            res.json({
+                ok: true,
+                removedRules: removed,
+                activatedItems: ids.length,
+                message: 'Agenda removida e itens ativados.',
+            });
+        } catch (error) {
+            console.error('Erro ao limpar pausa agendada:', error);
+            res.status(500).json({ error: 'Erro ao limpar pausa agendada.' });
         }
     });
 
