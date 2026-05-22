@@ -1,4 +1,7 @@
-/** Acesso exclusivo ao inbox WhatsApp do HighLine (establishment_id 7 / #EST_7). */
+/**
+ * Inbox WhatsApp restrito ao HighLine (establishment_id 7) para estes e-mails.
+ * Não remove outras permissões do utilizador — só limita rotas /api/admin/whatsapp.
+ */
 const WHATSAPP_HIGHLINE_ONLY_EMAILS = new Set(['reservas@highlinebar.com.br']);
 
 const HIGHLINE_ESTABLISHMENT_ID = Number(
