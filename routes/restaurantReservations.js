@@ -1333,8 +1333,9 @@ module.exports = (pool) => {
       const isHighLine = establishmentIdNumber === 1;
       const isLargeGroup = numberOfPeople > 4;
       const isBirthdayReservation = isWeekend && isHighLine;
-      
-      if (isLargeGroup || isBirthdayReservation) {
+      const isWhatsAppOrigin = String(origin || '').toUpperCase() === 'WHATSAPP';
+
+      if (isLargeGroup || isBirthdayReservation || isWhatsAppOrigin) {
         try {
           const crypto = require('crypto');
           const token = crypto.randomBytes(24).toString('hex');

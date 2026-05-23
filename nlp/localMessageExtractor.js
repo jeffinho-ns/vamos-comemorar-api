@@ -1,6 +1,11 @@
 const { resolveDateFromText } = require('../nlp/dateResolver');
 const { parseQuantityFromText } = require('../nlp/quantityParser');
-const { getFieldsForStep } = require('../services/stateManager/conversationSteps');
+const {
+  getFieldsForStep,
+  COLLECT_BUNDLE_STEP,
+  OBSERVATIONS_STEP,
+} = require('../services/stateManager/conversationSteps');
+const { parseReservationFieldsFromUserText } = require('../services/agent/reservationFunnel');
 
 function extractReservationSlotsFromMessage(messageText) {
   const fields = {};
@@ -30,11 +35,50 @@ function extractReservationSlotsFromMessage(messageText) {
   };
 }
 
+function parseObservationsFromMessage(messageText) {
+  const text = String(messageText || '').trim();
+  if (!text) return '';
+  const normalized = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/^(nao|nao mesmo|nada|sem observacao|sem observacoes|ok|blz|beleza|nao tenho|nao tem)$/.test(normalized)) {
+    return '';
+  }
+  return text;
+}
+
 function extractLocalFields({ messageText, currentStep, collectedFields = {} }) {
   const fields = {};
   const notes = [];
   let confidence = 'none';
   let needsLlm = true;
+
+  if (currentStep === OBSERVATIONS_STEP) {
+    fields.reservation_notes = parseObservationsFromMessage(messageText);
+    return {
+      fields,
+      confidence: 'high',
+      needsLlm: false,
+      notes: ['observations:local'],
+      collectedFields,
+    };
+  }
+
+  if (currentStep === COLLECT_BUNDLE_STEP) {
+    const slotExtract = extractReservationSlotsFromMessage(messageText);
+    const patch = parseReservationFieldsFromUserText(messageText, collectedFields, []);
+    const merged = { ...slotExtract.fields, ...patch };
+    if (Object.keys(merged).length > 0) {
+      return {
+        fields: merged,
+        confidence: 'medium',
+        needsLlm: Object.keys(merged).length < 2,
+        notes: [...(slotExtract.notes || []), 'bundle:combined'],
+        collectedFields,
+      };
+    }
+  }
 
   const stepFields = getFieldsForStep(currentStep);
 

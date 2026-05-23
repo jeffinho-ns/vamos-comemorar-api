@@ -1,5 +1,11 @@
 const { parsePtBrDateFromText } = require('../conversationEngine/helpers');
 const { looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
+const {
+  buildCollectBundlePrompt,
+  BUNDLE_FIELD_ORDER,
+  OBSERVATIONS_STEP,
+  getStepPrompt,
+} = require('../stateManager/conversationSteps');
 
 const MISSING_FIELD_PROMPTS = {
   establishment_id: 'Qual casa você prefere?',
@@ -77,17 +83,20 @@ function getReservationMissingFields(workingState = {}) {
   return missing;
 }
 
-function buildNextFieldQuestion(workingState = {}) {
+function buildNextFieldQuestion(workingState = {}, options = {}) {
   const missing = getReservationMissingFields(workingState);
   if (missing.includes('reservation_date_confirm')) {
     const label = workingState.pending_reservation_date_label || workingState.pending_reservation_date_iso;
     return `Só confirmando: é para ${label}? (sim/não)`;
   }
-  const first = missing[0];
-  if (!first) {
-    return 'Perfeito — vou registrar sua reserva no sistema agora.';
+  if (missing.length === 0) {
+    return getStepPrompt(OBSERVATIONS_STEP);
   }
-  return MISSING_FIELD_PROMPTS[first] || 'Pode me enviar o próximo dado para fechar sua reserva?';
+  if (missing.length >= 2 || missing.some((key) => BUNDLE_FIELD_ORDER.includes(key))) {
+    return buildCollectBundlePrompt(workingState, options);
+  }
+  const first = missing[0];
+  return MISSING_FIELD_PROMPTS[first] || buildCollectBundlePrompt(workingState, options);
 }
 
 function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = []) {
@@ -101,8 +110,9 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   const lines = [
     'FUNIL DE RESERVA ATIVO (prioridade máxima nesta conversa):',
     '- O cliente já está cadastrando reserva. NÃO desvie para FAQ genérica nem encerre sem registrar.',
-    '- Colete no máximo UM dado por mensagem, de forma natural.',
-    '- Quando tiver estabelecimento, data confirmada, horário, pessoas, nome, e-mail e nascimento (+18), chame criar_pre_reserva.',
+    '- Peça os dados da reserva em UM bloco só (data, horário, pessoas, nome, e-mail, nascimento) — não interrogatório campo a campo.',
+    '- Depois de coletar os dados, pergunte se há observações para o painel antes de criar_pre_reserva.',
+    '- Quando tiver tudo validado (incluindo observações perguntadas), chame criar_pre_reserva.',
     '- Se já verificou disponibilidade com vaga, avance para o próximo dado faltante ou registre.',
     '- Nunca diga que a reserva está feita sem chamar criar_pre_reserva com sucesso.',
   ];
@@ -175,10 +185,12 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const patch = {};
   if (!text) return patch;
 
+  const missingForTime = getReservationMissingFields(workingState);
   const allowBareHour =
     !hasFieldValue(workingState, 'reservation_time') &&
     (assistantAskedForReservationTime(messageHistory) ||
-      getReservationMissingFields(workingState)[0] === 'reservation_time');
+      missingForTime.includes('reservation_time') ||
+      missingForTime.length >= 2);
   const time = normalizeTimeHHmm(text, { allowBareHour });
   if (time && !hasFieldValue(workingState, 'reservation_time')) {
     patch.reservation_time = time;

@@ -264,6 +264,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     area_id,
     table_number,
     is_birthday,
+    reservation_notes,
   } = params || {};
 
   const numberOfPeople = Number(quantidade_convidados);
@@ -295,7 +296,10 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     // confirmed: aparece no calendário como reserva válida (check-in, ocupação) como as criadas pela equipe após confirmação
     status: 'confirmed',
     origin: 'WHATSAPP',
-    notes: opts.notes || null,
+    notes:
+      [opts.notes, reservation_notes ? String(reservation_notes).trim() : null]
+        .filter(Boolean)
+        .join(' | ') || null,
     created_by: null,
     send_email: Boolean(client_email && String(client_email).trim()),
     send_whatsapp: false,

@@ -271,6 +271,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink);
       await outboundGateway.sendText(waId, linkMsg);
       await persistOutbound(linkMsg, 'GUEST_LIST_LINK');
+    } else if (agentResult.preReservationResult?.reservation) {
+      console.warn(`[agentEngine] pré-reserva sem guest_list_link waId=${waId}`);
     }
 
     if (agentResult.preReservationResult?.reservation) {

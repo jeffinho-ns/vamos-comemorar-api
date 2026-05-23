@@ -8,6 +8,8 @@ const {
   getStepPrompt,
   isTerminalStep,
   FIELD_LABELS_PT,
+  OBSERVATIONS_STEP,
+  OBSERVATIONS_FIELD,
 } = require('../stateManager/conversationSteps');
 const { validateFieldsForStep, validateField } = require('../../validators/stepFieldValidator');
 const { extractLocalFields, extractReservationSlotsFromMessage } = require('../../nlp/localMessageExtractor');
@@ -658,6 +660,27 @@ async function processLegacyInboundTurn({
       );
     }
 
+    if (
+      usedPersistence &&
+      conversation?.id &&
+      conversationState?.currentStep === OBSERVATIONS_STEP
+    ) {
+      const obsContext = {
+        ...(conversationState.reservationContext || {}),
+        observations_asked: true,
+      };
+      await stateManager.persistState(pool, conversation.id, {
+        reservationContext: obsContext,
+      });
+      conversationState = stateManager.buildStateSnapshot(
+        await stateManager.getByConversationId(pool, conversation.id),
+        {
+          lockedEstablishmentId: activeEstablishmentId,
+          reservationContext: obsContext,
+        }
+      );
+    }
+
     const parsedDateForAvailability =
       parsePtBrDateFromText(messageText) ||
       parseDateFromHistory(messageHistory) ||
@@ -688,7 +711,15 @@ async function processLegacyInboundTurn({
         action: 'COLLECT_DATA',
         params: localExtraction.fields,
         missing_fields: conversationState?.missingFields || [],
-        suggested_reply: getStepPrompt(conversationState?.currentStep || 'greeting'),
+        suggested_reply: getStepPrompt(
+          conversationState?.currentStep || 'greeting',
+          conversationState?.collectedFields || {},
+          {
+            establishmentName:
+              linkedEstablishment?.name || conversation?.establishment_name || '',
+            lockedEstablishmentId: activeEstablishmentId,
+          }
+        ),
       };
     } else {
       interpreted = await interpretMessage({
@@ -705,6 +736,7 @@ async function processLegacyInboundTurn({
             (conversation?.establishment_name ? String(conversation.establishment_name) : null),
           conversationStep: conversationState?.currentStep || 'greeting',
           missingFields: conversationState?.missingFields || [],
+          collectedFieldsParsed: conversationState?.collectedFields || {},
           collectedFieldsSummary: buildCollectedFieldsSummary(conversationState?.collectedFields),
           collectedReservationDate: conversationState?.collectedFields?.reservation_date || null,
           nextFieldLabel: buildNextFieldLabel(conversationState?.missingFields),
@@ -980,7 +1012,13 @@ async function processLegacyInboundTurn({
         return;
       }
 
-      const body = buildReservationBodyFromParams(params, waId, { notes: 'Origem: WhatsApp (IA)' });
+      const noteParts = ['Origem: WhatsApp (IA)'];
+      if (params.reservation_notes) {
+        noteParts.push(String(params.reservation_notes).trim());
+      }
+      const body = buildReservationBodyFromParams(params, waId, {
+        notes: noteParts.filter(Boolean).join(' | '),
+      });
       const created = await createReservationInternal(body);
       if (!created.success) {
         const errText =
@@ -1056,17 +1094,27 @@ async function processLegacyInboundTurn({
       await outboundGateway.sendText(waId, confirmText);
       await persistOutbound(confirmText, 'PROCESS_RESERVATION_CONFIRM');
 
-      if (hasGuestList && guestListLink) {
+      if (guestListLink) {
         const linkMsg = buildGuestListSecondMessage(guestListLink);
         await outboundGateway.sendText(waId, linkMsg);
         await persistOutbound(linkMsg, 'GUEST_LIST_LINK');
+      } else {
+        console.warn(
+          `[conversationEngine] reserva ${reservationRow.id || 'n/a'} sem guest_list_link waId=${waId}`
+        );
       }
       return;
     }
 
+    const establishmentNameForPrompt =
+      resolvedEstablishmentName || conversation?.establishment_name || '';
+
     let replyText =
       interpreted.suggested_reply ||
-      getStepPrompt(conversationState?.currentStep || 'greeting');
+      getStepPrompt(conversationState?.currentStep || 'greeting', conversationState?.collectedFields || {}, {
+        establishmentName: establishmentNameForPrompt,
+        lockedEstablishmentId: activeEstablishmentId,
+      });
 
     if (
       (interpreted.action === 'COLLECT_DATA' || !interpreted.action) &&

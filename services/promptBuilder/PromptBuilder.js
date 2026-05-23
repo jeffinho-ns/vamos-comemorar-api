@@ -1,4 +1,9 @@
-const { getFieldsForStep, getStepPrompt } = require('../stateManager/conversationSteps');
+const {
+  getFieldsForStep,
+  getStepPrompt,
+  COLLECT_BUNDLE_STEP,
+  OBSERVATIONS_STEP,
+} = require('../stateManager/conversationSteps');
 
 const JSON_OUTPUT_RULES = `Responda APENAS um JSON válido:
 {
@@ -62,6 +67,10 @@ class PromptBuilder {
     switch (step) {
       case 'establishment':
         return this.buildEstablishmentStep(context);
+      case COLLECT_BUNDLE_STEP:
+        return this.buildCollectBundleStep(context);
+      case OBSERVATIONS_STEP:
+        return this.buildObservationsStep(context);
       case 'date':
         return this.buildDateStep(context);
       case 'time':
@@ -80,7 +89,19 @@ class PromptBuilder {
   }
 
   buildGreetingStep() {
-    return `OBJETIVO DO TURNO:\n- Acolher e iniciar a reserva.\n- Pergunte apenas o próximo dado necessário.\n${getStepPrompt('greeting')}`;
+    return `OBJETIVO DO TURNO:\n- Acolher e iniciar a reserva.\n- Peça os dados em um único bloco (não interrogatório campo a campo).\n${getStepPrompt('greeting')}`;
+  }
+
+  buildCollectBundleStep(context) {
+    const prompt = getStepPrompt(COLLECT_BUNDLE_STEP, context.collectedFieldsParsed || {}, {
+      establishmentName: context.lockedEstablishmentName,
+      lockedEstablishmentId: context.lockedEstablishmentId,
+    });
+    return `OBJETIVO DO TURNO:\n- Extrair da mensagem do cliente todos os campos que ele enviar (data, horário, pessoas, nome, e-mail, nascimento, área).\n- Não peça um campo por vez; se faltar algo, use suggested_reply repetindo o bloco só com o que ainda falta.\n- Não use PROCESS_RESERVATION até observações serem perguntadas.\n\nMENSAGEM SUGERIDA:\n${prompt}`;
+  }
+
+  buildObservationsStep() {
+    return `OBJETIVO DO TURNO:\n- Perguntar se há observações para o painel (aniversário, preferência de mesa, etc.).\n- Se o cliente disser que não tem, grave reservation_notes vazio e avance.\n- Depois use PROCESS_RESERVATION se todos os campos obrigatórios estiverem ok.\n\n${getStepPrompt(OBSERVATIONS_STEP)}`;
   }
 
   buildEstablishmentStep(context) {

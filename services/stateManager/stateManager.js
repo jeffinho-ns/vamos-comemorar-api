@@ -66,10 +66,14 @@ function buildStateSnapshot(state, options = {}) {
     collectedFields.establishment_id = lockedEstablishmentId;
   }
 
-  const missingFields = computeMissingFields(collectedFields, options);
+  const stepOptions = {
+    ...options,
+    reservationContext: state.reservationContext || options.reservationContext || {},
+  };
+  const missingFields = computeMissingFields(collectedFields, stepOptions);
   const currentStep = isTerminalStep(state.currentStep)
     ? state.currentStep
-    : resolveCurrentStep(collectedFields, options);
+    : resolveCurrentStep(collectedFields, stepOptions);
 
   return {
     ...state,
