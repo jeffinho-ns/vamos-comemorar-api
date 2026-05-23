@@ -1,5 +1,6 @@
 const { processRecoveryBatch } = require('../services/recoveryEngine/recoveryEngine');
 const { processFollowUpBatch } = require('../services/followUpEngine/followUpEngine');
+const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
 const { isQueueEnabled } = require('../infrastructure/queue/redisConnection');
 const {
   enqueueCommercialRecovery,
@@ -8,11 +9,14 @@ const {
 
 const RECOVERY_INTERVAL_MS = Number(process.env.CONVERSATION_RECOVERY_INTERVAL_MS || 15 * 60 * 1000);
 const FOLLOWUP_INTERVAL_MS = Number(process.env.CONVERSATION_FOLLOWUP_INTERVAL_MS || 30 * 60 * 1000);
+const STUCK_INTERVAL_MS = Number(process.env.CONVERSATION_STUCK_INTERVAL_MS || 5 * 60 * 1000);
 
 let recoveryTimer = null;
 let followupTimer = null;
+let stuckTimer = null;
 let recoveryRunning = false;
 let followupRunning = false;
+let stuckRunning = false;
 
 async function runRecovery(pool, app) {
   if (recoveryRunning) return;
@@ -30,6 +34,21 @@ async function runRecovery(pool, app) {
     console.error('[conversationCommercialScheduler] erro no recovery:', error.message);
   } finally {
     recoveryRunning = false;
+  }
+}
+
+async function runStuckResolver(pool, app) {
+  if (stuckRunning) return;
+  stuckRunning = true;
+  try {
+    const result = await processStuckConversationBatch(pool, app);
+    if (result.autoCompleted > 0 || result.resumed > 0) {
+      console.log('[conversationCommercialScheduler] stuck resolver:', result);
+    }
+  } catch (error) {
+    console.error('[conversationCommercialScheduler] erro no stuck resolver:', error.message);
+  } finally {
+    stuckRunning = false;
   }
 }
 
@@ -61,13 +80,16 @@ function startConversationCommercialScheduler(pool, app) {
   const startupDelayMs = Number(process.env.COMMERCIAL_SCHEDULER_STARTUP_DELAY_MS || 90_000);
 
   setTimeout(() => {
+    runStuckResolver(pool, app);
     runRecovery(pool, app);
     runFollowUp(pool, app);
   }, startupDelayMs);
 
+  stuckTimer = setInterval(() => runStuckResolver(pool, app), STUCK_INTERVAL_MS);
   recoveryTimer = setInterval(() => runRecovery(pool, app), RECOVERY_INTERVAL_MS);
   followupTimer = setInterval(() => runFollowUp(pool, app), FOLLOWUP_INTERVAL_MS);
 
+  if (typeof stuckTimer.unref === 'function') stuckTimer.unref();
   if (typeof recoveryTimer.unref === 'function') recoveryTimer.unref();
   if (typeof followupTimer.unref === 'function') followupTimer.unref();
 

@@ -241,7 +241,7 @@ async function processInboundTurn(args) {
       messageHistory,
     });
 
-    if (useLegacyFunnel) {
+    if (useLegacyFunnel || args.proactiveResume) {
       if (conversation?.id) {
         try {
           const memory = await getMemory(pool, conversation.id);
@@ -258,7 +258,11 @@ async function processInboundTurn(args) {
           );
         }
       }
-      console.log(`[conversationEngine] funil legado de reserva waId=${waId}`);
+      if (args.proactiveResume) {
+        console.log(`[conversationEngine] retomada proativa waId=${waId}`);
+      } else {
+        console.log(`[conversationEngine] funil legado de reserva waId=${waId}`);
+      }
       return processLegacyInboundTurn(args);
     }
 
@@ -273,7 +277,14 @@ async function processInboundTurn(args) {
   return processLegacyInboundTurn(args);
 }
 
-async function processLegacyInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
+async function processLegacyInboundTurn({
+  pool,
+  app,
+  payload,
+  incomingMessageText,
+  waId,
+  proactiveResume = false,
+}) {
   const establishmentToken = extractEstablishmentToken(incomingMessageText);
   const messageText =
     establishmentToken?.cleanedText || String(incomingMessageText || '').trim();
@@ -298,12 +309,14 @@ async function processLegacyInboundTurn({ pool, app, payload, incomingMessageTex
       contactName,
       establishmentId: linkedEstablishment?.id || null,
     });
-    inboundRow = await inbox.insertMessage(pool, {
-      conversationId: conversation.id,
-      direction: 'inbound',
-      body: messageText,
-      rawPayload: payload,
-    });
+    if (!proactiveResume) {
+      inboundRow = await inbox.insertMessage(pool, {
+        conversationId: conversation.id,
+        direction: 'inbound',
+        body: messageText,
+        rawPayload: payload,
+      });
+    }
     await inbox.upsertContact(pool, {
       waId,
       contactName,
@@ -314,13 +327,15 @@ async function processLegacyInboundTurn({ pool, app, payload, incomingMessageTex
     console.error('[conversationEngine] persistência indisponível:', persistError.message);
   }
 
-  emitInbox(app, {
-    type: 'inbound',
-    wa_id: waId,
-    conversation,
-    message: inboundRow,
-    body: messageText,
-  });
+  if (!proactiveResume) {
+    emitInbox(app, {
+      type: 'inbound',
+      wa_id: waId,
+      conversation,
+      message: inboundRow,
+      body: messageText,
+    });
+  }
 
   let conversationState = null;
   let lockedEstablishmentId =

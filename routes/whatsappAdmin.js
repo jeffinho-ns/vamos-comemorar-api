@@ -4,6 +4,7 @@ const authorize = require('../middleware/authorize');
 const { sendMessage } = require('../services/whatsappService');
 const inbox = require('../services/whatsappInboxRepository');
 const stateManager = require('../services/stateManager/stateManager');
+const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
 const {
   getWhatsappHighlineOnlyEstablishmentIds,
 } = require('../config/whatsappHighlineAccess');
@@ -239,6 +240,48 @@ module.exports = (pool, app) => {
     } catch (e) {
       console.error('[whatsappAdmin] takeover:', e);
       return res.status(500).json({ message: 'Erro ao assumir conversa' });
+    }
+  });
+
+  router.post('/conversations/stuck/resolve', auth, authorize(...allowedRoles), async (req, res) => {
+    try {
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const waId = req.body?.wa_id ? String(req.body.wa_id).trim() : null;
+      const result = await processStuckConversationBatch(pool, app, {
+        force: true,
+        waId,
+      });
+      emitInbox({ type: 'stuck_resolve_batch' });
+      return res.json({ ok: true, result });
+    } catch (e) {
+      console.error('[whatsappAdmin] stuck resolve batch:', e);
+      return res.status(500).json({ message: 'Erro ao retomar conversas travadas' });
+    }
+  });
+
+  router.post('/conversations/:waId/resolve-stuck', auth, authorize(...allowedRoles), async (req, res) => {
+    const { waId } = req.params;
+    try {
+      const scope = await loadUserScope(req.user);
+      const existing = await inbox.getConversationByWaId(pool, waId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Conversa não encontrada' });
+      }
+      if (!canAccessEstablishment(scope, existing.establishment_id)) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+      const result = await processStuckConversationBatch(pool, app, {
+        force: true,
+        waId,
+      });
+      emitInbox({ type: 'stuck_resolve', wa_id: waId });
+      return res.json({ ok: true, result });
+    } catch (e) {
+      console.error('[whatsappAdmin] resolve-stuck:', e);
+      return res.status(500).json({ message: 'Erro ao retomar conversa travada' });
     }
   });
 

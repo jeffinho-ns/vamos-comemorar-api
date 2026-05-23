@@ -874,6 +874,7 @@ module.exports = {
   criarPreReserva,
   criarListaEspera,
   consultHighlineReservationAreas,
+  resolveDefaultReservationSlot,
   normalizeTopic,
   buildFaqTopicCandidates,
   matchRichFaqSlug,
