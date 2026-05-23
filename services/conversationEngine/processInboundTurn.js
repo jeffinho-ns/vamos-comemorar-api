@@ -62,8 +62,13 @@ const {
   buildGuestListSecondMessage,
 } = require('../whatsappReservationService');
 const { isConversationSafetyBlockEnabled } = require('../conversationTestingMode');
-const { isAgentModeEnabled} = require('../agent/agentMode');
+const { isAgentModeEnabled } = require('../agent/agentMode');
 const { processAgentInboundTurn } = require('./processAgentInboundTurn');
+const { getMemory } = require('../agent/agentMemoryService');
+const {
+  shouldUseLegacyReservationFunnel,
+  hydrateLegacyStateFromAgent,
+} = require('./reservationRouting');
 
 function resolveAutoTakeoverHours() {
   const configured = Number(process.env.WHATSAPP_AI_AUTO_TAKEOVER_HOURS);
@@ -209,9 +214,57 @@ async function applyValidatedParamsToState(pool, conversationId, interpretedPara
 }
 
 async function processInboundTurn(args) {
+  const { pool, waId, incomingMessageText } = args;
+
   if (isAgentModeEnabled() && process.env.OPENAI_API_KEY) {
+    let conversation = null;
+    let messageHistory = [];
+
+    try {
+      conversation = await inbox.getConversationByWaId(pool, waId);
+      if (conversation?.id) {
+        const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 24);
+        messageHistory = mapRowsToOpenAIHistory(recent);
+        const lastMessage = messageHistory[messageHistory.length - 1];
+        const incomingText = String(incomingMessageText || '').trim();
+        if (!lastMessage || lastMessage.role !== 'user' || lastMessage.content !== incomingText) {
+          messageHistory.push({ role: 'user', content: incomingText });
+        }
+      }
+    } catch (_error) {
+      // segue com roteamento conservador (legado se parecer reserva)
+    }
+
+    const useLegacyFunnel = await shouldUseLegacyReservationFunnel(pool, {
+      conversationId: conversation?.id,
+      messageText: incomingMessageText,
+      messageHistory,
+    });
+
+    if (useLegacyFunnel) {
+      if (conversation?.id) {
+        try {
+          const memory = await getMemory(pool, conversation.id);
+          await hydrateLegacyStateFromAgent(
+            pool,
+            conversation.id,
+            waId,
+            memory?.workingState || {}
+          );
+        } catch (hydrateError) {
+          console.warn(
+            '[conversationEngine] falha ao sincronizar memória do agente para legado:',
+            hydrateError.message
+          );
+        }
+      }
+      console.log(`[conversationEngine] funil legado de reserva waId=${waId}`);
+      return processLegacyInboundTurn(args);
+    }
+
     return processAgentInboundTurn(args);
   }
+
   if (isAgentModeEnabled()) {
     console.warn(
       '[conversationEngine] WHATSAPP_AGENT_MODE ativo sem OPENAI_API_KEY; usando fluxo legado.'
