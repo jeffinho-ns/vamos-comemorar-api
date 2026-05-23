@@ -25,6 +25,9 @@ const {
   parseReservationFieldsFromUserText,
   shouldAutoRunAvailabilityCheck,
   getReservationMissingFields,
+  buildAvailabilityCheckedPatch,
+  tryAdvanceFunnelFromUserMessage,
+  inferAvailabilityCheckedFromHistory,
 } = require('./reservationFunnel');
 
 let openaiClient = null;
@@ -251,10 +254,19 @@ async function ensureAvailabilityChecked({
   runtimeContext,
   toolTrace,
   assistantMessage,
+  userText = '',
+  messageHistory = [],
 }) {
   const draftReply = String(assistantMessage?.content || '').trim();
   if (
-    !shouldAutoRunAvailabilityCheck(workingState, context, toolTrace, draftReply)
+    !shouldAutoRunAvailabilityCheck(
+      workingState,
+      context,
+      toolTrace,
+      draftReply,
+      userText,
+      messageHistory
+    )
   ) {
     return { workingState, toolTrace, forcedReply: null };
   }
@@ -292,7 +304,15 @@ async function ensureAvailabilityChecked({
   ];
   const nextState = mergeWorkingState(
     workingState,
-    extractWorkingStatePatchFromToolResult('verificar_disponibilidade', toolResult)
+    extractWorkingStatePatchFromToolResult('verificar_disponibilidade', toolResult),
+    buildAvailabilityCheckedPatch(
+      mergeWorkingState(
+        workingState,
+        extractWorkingStatePatchFromToolResult('verificar_disponibilidade', toolResult)
+      ),
+      context,
+      toolResult
+    )
   );
 
   let forcedReply =
@@ -392,9 +412,21 @@ async function runAgentTurn({
   let workingState = mergeWorkingState(
     memory.workingState || {},
     dateHint.patch || {},
-    parseReservationFieldsFromUserText(userText, memory.workingState || {})
+    parseReservationFieldsFromUserText(userText, memory.workingState || {}, messageHistory)
   );
+  workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
+
+  const funnelAdvance = tryAdvanceFunnelFromUserMessage(workingState, userText, messageHistory);
+  if (funnelAdvance?.replyText) {
+    return {
+      replyText: funnelAdvance.replyText,
+      workingState: funnelAdvance.workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
 
   if (process.env.OPENAI_API_KEY) {
     const skipFaq = shouldSkipFaqFirst(workingState, messageHistory, userText);
@@ -449,6 +481,12 @@ async function runAgentTurn({
         workingState,
         extractWorkingStatePatchFromToolResult(toolCall?.function?.name, toolResult)
       );
+      if (toolCall?.function?.name === 'verificar_disponibilidade') {
+        workingState = mergeWorkingState(
+          workingState,
+          buildAvailabilityCheckedPatch(workingState, context, toolResult)
+        );
+      }
       if (toolCall?.function?.name === 'criar_pre_reserva' && toolResult?.ok) {
         preReservationResult = toolResult;
         guestListLink = toolResult.guest_list_link || null;
@@ -471,6 +509,8 @@ async function runAgentTurn({
     runtimeContext,
     toolTrace,
     assistantMessage,
+    userText,
+    messageHistory,
   }).catch((error) => {
     console.warn('[agentService] auto verificar_disponibilidade falhou:', error.message);
     return { workingState, toolTrace, forcedReply: null };

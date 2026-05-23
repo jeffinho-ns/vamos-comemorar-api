@@ -121,8 +121,29 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   return lines.join('\n');
 }
 
-function normalizeTimeHHmm(text) {
+function assistantAskedForReservationTime(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const normalized = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!normalized) return false;
+  return /\b(horario|horarios|qual hora|que horas|fica melhor|prefere as)\b/.test(normalized);
+}
+
+function normalizeTimeHHmm(text, options = {}) {
   const raw = String(text || '').trim();
+  const allowBareHour = options.allowBareHour === true;
+
+  if (allowBareHour && /^\d{1,2}$/.test(raw)) {
+    const h = Number(raw);
+    if (h >= 0 && h <= 23) {
+      return `${String(h).padStart(2, '0')}:00`;
+    }
+  }
+
   let match = raw.match(/\b(\d{1,2})\s*[:h]\s*(\d{2})\b/i);
   if (match) {
     const h = Math.min(23, Number(match[1]));
@@ -137,12 +158,28 @@ function normalizeTimeHHmm(text) {
   return null;
 }
 
-function parseReservationFieldsFromUserText(userText, workingState = {}) {
+function buildAvailabilityFingerprint(workingState = {}, context = {}) {
+  const establishmentId = Number(
+    workingState.establishment_id || context.lockedEstablishmentId
+  );
+  const reservationDate = String(
+    workingState.reservation_date || workingState.pending_reservation_date_iso || ''
+  ).slice(0, 10);
+  const partySize = Number(workingState.quantidade_convidados);
+  if (!establishmentId || !reservationDate || !partySize) return null;
+  return `${establishmentId}|${reservationDate}|${partySize}`;
+}
+
+function parseReservationFieldsFromUserText(userText, workingState = {}, messageHistory = []) {
   const text = String(userText || '').trim();
   const patch = {};
   if (!text) return patch;
 
-  const time = normalizeTimeHHmm(text);
+  const allowBareHour =
+    !hasFieldValue(workingState, 'reservation_time') &&
+    (assistantAskedForReservationTime(messageHistory) ||
+      getReservationMissingFields(workingState)[0] === 'reservation_time');
+  const time = normalizeTimeHHmm(text, { allowBareHour });
   if (time && !hasFieldValue(workingState, 'reservation_time')) {
     patch.reservation_time = time;
   }
@@ -251,12 +288,104 @@ function canAutoCheckAvailability(workingState = {}, context = {}) {
   );
 }
 
-function shouldAutoRunAvailabilityCheck(workingState, context, toolTrace = [], draftReply = '') {
+function looksLikeTimeOnlyAnswer(userText, workingState = {}, messageHistory = []) {
+  const patch = parseReservationFieldsFromUserText(userText, workingState, messageHistory);
+  return Boolean(patch.reservation_time) && String(userText || '').trim().length <= 8;
+}
+
+function shouldAutoRunAvailabilityCheck(
+  workingState,
+  context,
+  toolTrace = [],
+  draftReply = '',
+  userText = '',
+  messageHistory = []
+) {
   if (!canAutoCheckAvailability(workingState, context)) return false;
-  const ranCheck = (toolTrace || []).some((entry) => entry?.name === 'verificar_disponibilidade');
+  if (looksLikeTimeOnlyAnswer(userText, workingState, messageHistory)) return false;
+
+  const fingerprint = buildAvailabilityFingerprint(workingState, context);
+  const alreadyChecked =
+    fingerprint && String(workingState.availability_checked_for || '') === fingerprint;
+
   if (looksLikeDeferredAvailabilityCheck(draftReply)) return true;
-  if (!ranCheck && isReservationFunnelInProgress(workingState)) return true;
+  if (alreadyChecked) return false;
+
+  const ranCheckThisTurn = (toolTrace || []).some(
+    (entry) => entry?.name === 'verificar_disponibilidade'
+  );
+  if (!ranCheckThisTurn && isReservationFunnelInProgress(workingState, messageHistory)) {
+    return true;
+  }
   return false;
+}
+
+function buildAvailabilityCheckedPatch(workingState = {}, context = {}, toolResult = {}) {
+  const fingerprint = buildAvailabilityFingerprint(workingState, context);
+  if (!fingerprint || !toolResult || toolResult.ok === false) return {};
+  return { availability_checked_for: fingerprint };
+}
+
+function inferAvailabilityCheckedFromHistory(workingState = {}, messageHistory = [], context = {}) {
+  if (workingState.availability_checked_for) return workingState;
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const normalized = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!/\b(temos horarios|horarios:|qual horario fica melhor)\b/.test(normalized)) {
+    return workingState;
+  }
+  const fingerprint = buildAvailabilityFingerprint(workingState, context);
+  if (!fingerprint) return workingState;
+  return { ...workingState, availability_checked_for: fingerprint };
+}
+
+function tryAdvanceFunnelFromUserMessage(workingState = {}, userText = '', messageHistory = []) {
+  const patch = parseReservationFieldsFromUserText(userText, workingState, messageHistory);
+  if (!patch.reservation_time) return null;
+
+  const nextState = { ...workingState, ...patch };
+  const fingerprint = buildAvailabilityFingerprint(nextState, {});
+  if (!fingerprint || String(workingState.availability_checked_for || '') !== fingerprint) {
+    return null;
+  }
+
+  const timeKey = `${fingerprint}|${patch.reservation_time}`;
+  if (String(workingState.availability_time_checked_for || '') === timeKey) {
+    const missing = getReservationMissingFields(nextState);
+    if (missing.length === 0) {
+      return {
+        workingState: nextState,
+        replyText: buildNextFieldQuestion(nextState),
+      };
+    }
+    if (missing[0] === 'reservation_time') return null;
+    return {
+      workingState: nextState,
+      replyText: buildNextFieldQuestion(nextState),
+    };
+  }
+
+  const [hour, minute] = patch.reservation_time.split(':');
+  const timeLabel = minute === '00' ? `${Number(hour)}h` : patch.reservation_time;
+  const missing = getReservationMissingFields(nextState);
+  const nextPrompt =
+    missing.length > 0 && missing[0] !== 'reservation_time'
+      ? buildNextFieldQuestion(nextState)
+      : null;
+
+  return {
+    workingState: {
+      ...nextState,
+      availability_time_checked_for: timeKey,
+    },
+    replyText: nextPrompt
+      ? `Perfeito, ${timeLabel} anotado. ${nextPrompt}`
+      : `Perfeito, ${timeLabel} anotado. Vou registrar sua reserva agora.`,
+  };
 }
 
 module.exports = {
@@ -270,4 +399,9 @@ module.exports = {
   looksLikeDeferredAvailabilityCheck,
   canAutoCheckAvailability,
   shouldAutoRunAvailabilityCheck,
+  buildAvailabilityFingerprint,
+  buildAvailabilityCheckedPatch,
+  tryAdvanceFunnelFromUserMessage,
+  inferAvailabilityCheckedFromHistory,
+  assistantAskedForReservationTime,
 };

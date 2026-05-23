@@ -104,11 +104,15 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
   if (!toolResult || toolResult.ok === false) return {};
 
   if (toolName === 'verificar_disponibilidade') {
-    return {
+    const patch = {
       establishment_id: toolResult.estabelecimento_id,
       reservation_date: toolResult.reservation_date,
       quantidade_convidados: toolResult.quantidade_pessoas,
     };
+    if (toolResult.horario_consultado) {
+      patch.reservation_time = String(toolResult.horario_consultado).slice(0, 5);
+    }
+    return patch;
   }
 
   if (toolName === 'consultar_areas_mesa_reserva' && toolResult.area_recomendada?.area_id) {

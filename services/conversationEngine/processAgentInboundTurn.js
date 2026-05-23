@@ -181,7 +181,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     workingState: memory.workingState || {},
     messageHistory,
   });
-  const textFieldPatch = parseReservationFieldsFromUserText(incomingText, memory.workingState || {});
+  const textFieldPatch = parseReservationFieldsFromUserText(
+    incomingText,
+    memory.workingState || {},
+    messageHistory
+  );
   let workingStateForTurn = mergeContactHintsIntoWorkingState(
     mergeWorkingState(memory.workingState || {}, dateHint.patch || {}, textFieldPatch),
     whatsappContact || {}

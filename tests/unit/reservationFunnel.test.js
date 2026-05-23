@@ -8,6 +8,8 @@ const {
   parseReservationFieldsFromUserText,
   looksLikeDeferredAvailabilityCheck,
   shouldAutoRunAvailabilityCheck,
+  tryAdvanceFunnelFromUserMessage,
+  inferAvailabilityCheckedFromHistory,
 } = require('../../services/agent/reservationFunnel');
 
 test('isReservationFunnelInProgress quando há estabelecimento e data', () => {
@@ -62,6 +64,79 @@ test('shouldAutoRunAvailabilityCheck com data e pessoas no estado', () => {
     ),
     true
   );
+});
+
+test('parseReservationFieldsFromUserText aceita "18" após pergunta de horário', () => {
+  const history = [
+    {
+      role: 'assistant',
+      content:
+        'Boa notícia — para 23/05/2026 temos horários: 14:00-23:30. Qual horário fica melhor pra você?',
+    },
+  ];
+  const patch = parseReservationFieldsFromUserText(
+    '18',
+    { establishment_id: 7, reservation_date: '2026-05-23', quantidade_convidados: 4 },
+    history
+  );
+  assert.equal(patch.reservation_time, '18:00');
+});
+
+test('shouldAutoRunAvailabilityCheck não repete após já verificado', () => {
+  assert.equal(
+    shouldAutoRunAvailabilityCheck(
+      {
+        establishment_id: 7,
+        reservation_date: '2026-05-23',
+        quantidade_convidados: 4,
+        availability_checked_for: '7|2026-05-23|4',
+      },
+      { lockedEstablishmentId: 7 },
+      [],
+      '',
+      '18',
+      [{ role: 'assistant', content: 'Qual horário fica melhor pra você?' }]
+    ),
+    false
+  );
+});
+
+test('tryAdvanceFunnelFromUserMessage avança após horário "18"', () => {
+  const state = {
+    establishment_id: 7,
+    reservation_date: '2026-05-23',
+    quantidade_convidados: 4,
+    availability_checked_for: '7|2026-05-23|4',
+  };
+  const history = [
+    {
+      role: 'assistant',
+      content: 'Qual horário fica melhor pra você?',
+    },
+  ];
+  const advanced = tryAdvanceFunnelFromUserMessage(state, '18', history);
+  assert.match(advanced.replyText, /18h|18:00/i);
+  assert.match(advanced.replyText, /nome|e-mail|pessoas/i);
+  assert.equal(advanced.workingState.reservation_time, '18:00');
+});
+
+test('inferAvailabilityCheckedFromHistory a partir da última mensagem da IA', () => {
+  const next = inferAvailabilityCheckedFromHistory(
+    {
+      establishment_id: 7,
+      reservation_date: '2026-05-23',
+      quantidade_convidados: 4,
+    },
+    [
+      {
+        role: 'assistant',
+        content:
+          'Boa notícia — para 23/05/2026 temos horários: 14:00-23:30. Qual horário fica melhor pra você?',
+      },
+    ],
+    { lockedEstablishmentId: 7 }
+  );
+  assert.equal(next.availability_checked_for, '7|2026-05-23|4');
 });
 
 test('buildNextFieldQuestion pede próximo campo faltante', () => {
