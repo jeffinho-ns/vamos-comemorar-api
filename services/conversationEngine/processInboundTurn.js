@@ -733,6 +733,31 @@ async function processLegacyInboundTurn({
         catalog.areasBlock
       );
 
+      // Carrega knowledge base (Treinamento da IA — Regras da Casa) pro
+      // caminho legado. Sem isso, o LLM responde "Para fechar sua reserva..."
+      // pra QUALQUER pergunta porque não sabe nada sobre pets, dress code,
+      // aniversário, mesa vs camarote, etc. — e empurra formulário robótico.
+      let faqKnowledgeBlock = '';
+      try {
+        const {
+          loadAllActiveFaqsForEstablishment,
+          buildFaqKnowledgeBlock,
+        } = require('../agent/faqPrefetchService');
+        if (activeEstablishmentId) {
+          const faqEntries = await loadAllActiveFaqsForEstablishment(
+            pool,
+            activeEstablishmentId,
+            { maxChars: 8000 }
+          );
+          const establishmentNameForFaq =
+            linkedEstablishment?.name ||
+            (conversation?.establishment_name ? String(conversation.establishment_name) : '');
+          faqKnowledgeBlock = buildFaqKnowledgeBlock(faqEntries, establishmentNameForFaq);
+        }
+      } catch (faqLoadError) {
+        console.warn('[conversationEngine] falha ao carregar FAQ para prompt legado:', faqLoadError.message);
+      }
+
       interpreted = await interpretMessage({
         pool,
         messageHistory,
@@ -741,6 +766,7 @@ async function processLegacyInboundTurn({
             ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
             : catalog.establishmentsBlock,
           areasBlock: areasBlockForPrompt,
+          faqKnowledgeBlock,
           lockedEstablishmentId: activeEstablishmentId,
           lockedEstablishmentName:
             linkedEstablishment?.name ||
