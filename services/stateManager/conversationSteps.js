@@ -91,16 +91,38 @@ const BUNDLE_LINE_PT = {
   data_nascimento: '• Data de nascimento (DD/MM/AAAA — confirma +18)',
 };
 
+const OPERATIONAL_FIELDS = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
+const IDENTITY_FIELDS = ['client_name', 'client_email', 'data_nascimento'];
+
+const FIELD_PHRASE_INLINE_PT = {
+  reservation_date: 'a data (ex.: 25/05 ou próximo sábado)',
+  reservation_time: 'o horário (ex.: 20h ou 20:30)',
+  quantidade_convidados: 'quantas pessoas vão',
+  client_name: 'o nome completo do titular',
+  client_email: 'o e-mail',
+  data_nascimento: 'a data de nascimento (DD/MM/AAAA — pra confirmar +18)',
+  area_id: 'sua área preferida (se tiver; senão eu te indico a melhor)',
+};
+
 const STEP_PROMPTS_PT = {
   greeting:
-    'Oi! Que bom falar com você. Para agilizar, me envie em uma única mensagem os dados da reserva (data, horário, pessoas, nome completo, e-mail e data de nascimento). Se já souber a casa, pode incluir também.',
-  establishment: 'Em qual estabelecimento você quer reservar? Depois te mando o bloco com o restante dos dados.',
+    'Oi! Que bom falar com você. Para começar, me conta: para quando seria a reserva?',
+  establishment:
+    'Pra qual casa você quer reservar? Assim que me disser eu já te ajudo com data e horários.',
   collect_bundle: '',
   observations:
-    'Quer incluir algo nas observações da reserva? (aniversário, mesa perto do palco, restrição alimentar, comemoração especial…)\nSe não tiver nada a acrescentar, responda "não".',
+    'Quer deixar alguma observação na reserva? (ex.: aniversário, mesa mais reservada, restrição alimentar). Se não, é só dizer "não" que eu fecho aqui.',
   confirm_summary:
-    'Revisei os dados com você. Posso registrar a reserva agora com essas informações?',
+    'Revisei tudo aqui. Posso registrar a reserva agora com essas informações?',
 };
+
+function joinPhrasesPt(items = []) {
+  const list = items.filter(Boolean);
+  if (list.length === 0) return '';
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} e ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
+}
 
 function isTerminalStep(step) {
   return step === 'completed' || step === 'handoff';
@@ -172,36 +194,75 @@ function resolveCurrentStep(collectedFields, options = {}) {
   return 'confirm_summary';
 }
 
+/**
+ * Coleta progressiva e humanizada — pede no máximo 3 campos por vez:
+ *   Etapa 1: data + horário + pessoas (o trio operacional que valida vaga).
+ *   Etapa 2: nome + e-mail + nascimento (identidade do titular).
+ *   Etapa 3: observações / preferências.
+ *
+ * As frases são curtas e conversadas, sem bullet list. Quando falta só 1 campo,
+ * pergunta direto. Quando faltam 2-3, junta em uma frase só.
+ */
 function buildCollectBundlePrompt(collectedFields = {}, options = {}) {
   const missing = computeBundleMissingFields(collectedFields, options);
   if (missing.length === 0) {
     return STEP_PROMPTS_PT.observations;
   }
 
-  const house = options.establishmentName ? ` no ${options.establishmentName}` : '';
-  const lines = [
-    `Para fechar sua reserva${house}, me envie numa única mensagem:`,
-    '',
-  ];
+  const operationalMissing = OPERATIONAL_FIELDS.filter((key) => missing.includes(key));
+  const identityMissing = IDENTITY_FIELDS.filter((key) => missing.includes(key));
 
-  for (const key of BUNDLE_FIELD_ORDER) {
-    if (missing.includes(key) && BUNDLE_LINE_PT[key]) {
-      lines.push(BUNDLE_LINE_PT[key]);
+  // Etapa 1: faltam dados operacionais — pede só esse trio primeiro.
+  if (operationalMissing.length > 0) {
+    if (operationalMissing.length === OPERATIONAL_FIELDS.length) {
+      const collectedAny =
+        hasFieldValue(collectedFields, 'establishment_id') &&
+        Object.keys(collectedFields).some((key) =>
+          ['client_name', 'client_email', 'data_nascimento'].includes(key) &&
+          hasFieldValue(collectedFields, key)
+        );
+      if (collectedAny) {
+        return 'Show! Para eu já ver se tem vaga, me conta a data, o horário e quantas pessoas vão.';
+      }
+      return 'Pra eu já consultar a agenda, me passa por favor a data, o horário e quantas pessoas vão.';
     }
-  }
-  if (missing.includes('establishment_id') && BUNDLE_LINE_PT.establishment_id) {
-    lines.push(BUNDLE_LINE_PT.establishment_id);
-  }
-
-  lines.push('', 'Pode mandar tudo junto em um bloco — eu organizo por aqui.');
-
-  const already = RESERVATION_FIELDS.filter((key) => hasFieldValue(collectedFields, key));
-  if (already.length > 0) {
-    const labels = already.map((key) => FIELD_LABELS_PT[key] || key).join(', ');
-    lines.push('', `Já tenho anotado: ${labels}.`);
+    if (operationalMissing.length === 1) {
+      const onlyKey = operationalMissing[0];
+      if (onlyKey === 'reservation_date') return 'Pra quando seria a reserva?';
+      if (onlyKey === 'reservation_time') return 'E qual horário fica melhor pra você?';
+      if (onlyKey === 'quantidade_convidados') return 'Quantas pessoas vão com você?';
+    }
+    const phrases = operationalMissing.map((key) => FIELD_PHRASE_INLINE_PT[key] || key);
+    return `Pra eu acertar tudo, me confirma ${joinPhrasesPt(phrases)}?`;
   }
 
-  return lines.join('\n');
+  // Etapa 2: já tem trio operacional — pede identidade do titular.
+  if (identityMissing.length > 0) {
+    if (identityMissing.length === IDENTITY_FIELDS.length) {
+      return 'Show, vaga confirmada. Agora pra deixar a reserva no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).';
+    }
+    if (identityMissing.length === 1) {
+      const onlyKey = identityMissing[0];
+      if (onlyKey === 'client_name') return 'Me confirma seu nome completo, por favor?';
+      if (onlyKey === 'client_email') return 'E seu e-mail?';
+      if (onlyKey === 'data_nascimento')
+        return 'Por último, sua data de nascimento (DD/MM/AAAA) pra eu confirmar +18.';
+    }
+    const phrases = identityMissing.map((key) => FIELD_PHRASE_INLINE_PT[key] || key);
+    return `Falta pouco — me manda ${joinPhrasesPt(phrases)}?`;
+  }
+
+  // Casos residuais (area / estabelecimento) — perguntas curtas.
+  if (missing.includes('establishment_id')) {
+    return 'Em qual casa você quer reservar?';
+  }
+  if (missing.includes('area_id')) {
+    return 'Tem alguma área preferida (deck, bar, rooftop)? Se não, eu te indico a melhor disponível.';
+  }
+
+  // Fallback defensivo (não deveria cair aqui).
+  const phrases = missing.map((key) => FIELD_PHRASE_INLINE_PT[key] || FIELD_LABELS_PT[key] || key);
+  return `Pra fechar, ainda preciso de ${joinPhrasesPt(phrases)}.`;
 }
 
 function getFieldsForStep(step) {

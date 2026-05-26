@@ -59,7 +59,7 @@ test('synthesizeAvailabilityFromToolResult segue reserva quando aberto sem janel
 
   assert.match(reply, /24\/05\/2026/);
   assert.match(reply, /4 pessoas/);
-  assert.match(reply, /reservar/i);
+  assert.match(reply, /horário/i);
 });
 
 test('synthesizeReplyFromToolTrace informa erro de criar_pre_reserva', () => {

@@ -58,14 +58,14 @@ function extractFirstName(text) {
 }
 
 const MISSING_FIELD_PROMPTS = {
-  establishment_id: 'Qual casa você prefere?',
-  reservation_date: 'Para qual data?',
-  reservation_time: 'Qual horário?',
-  quantidade_convidados: 'Quantas pessoas?',
-  client_name: 'Qual seu nome completo?',
-  client_email: 'Qual seu e-mail?',
-  data_nascimento: 'Qual sua data de nascimento? (DD/MM/AAAA)',
-  area_id: 'Tem preferência de área? Se não, eu escolho a melhor disponível.',
+  establishment_id: 'Em qual casa você quer reservar?',
+  reservation_date: 'Pra quando seria a reserva?',
+  reservation_time: 'E qual horário fica melhor pra você?',
+  quantidade_convidados: 'Quantas pessoas vão com você?',
+  client_name: 'Me confirma seu nome completo, por favor?',
+  client_email: 'E seu e-mail?',
+  data_nascimento: 'Por último, sua data de nascimento (DD/MM/AAAA) pra eu confirmar +18.',
+  area_id: 'Tem alguma área preferida (deck, bar, rooftop)? Se não, eu te indico a melhor disponível.',
 };
 
 const RESERVATION_FIELD_ORDER = [
@@ -160,8 +160,13 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   const lines = [
     'FUNIL DE RESERVA ATIVO (prioridade máxima nesta conversa):',
     '- O cliente já está cadastrando reserva. NÃO desvie para FAQ genérica nem encerre sem registrar.',
-    '- Peça os dados da reserva em UM bloco só (data, horário, pessoas, nome, e-mail, nascimento) — não interrogatório campo a campo.',
-    '- Depois de coletar os dados, pergunte se há observações para o painel antes de criar_pre_reserva.',
+    '- Coleta em ETAPAS humanizadas (no máximo 3 campos por mensagem, NUNCA em bullet list):',
+    '   • Etapa 1 (operacional): data + horário + pessoas → depois rode verificar_disponibilidade.',
+    '   • Etapa 2 (identidade): nome completo + e-mail + data de nascimento (DD/MM/AAAA, +18).',
+    '   • Etapa 3 (opcional): área preferida / observações.',
+    '- Fale como um atendente humano: frases curtas, conversadas, em uma linha. Nada de "•" ou listas.',
+    '- Se o cliente já mandou parte dos dados, agradeça brevemente e parta para o próximo bloco que ainda falta.',
+    '- Depois de coletar identidade, pergunte se há observações antes de criar_pre_reserva.',
     '- Quando tiver tudo validado (incluindo observações perguntadas), chame criar_pre_reserva.',
     '- Se já verificou disponibilidade com vaga, avance para o próximo dado faltante ou registre.',
     '- Nunca diga que a reserva está feita sem chamar criar_pre_reserva com sucesso.',

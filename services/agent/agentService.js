@@ -99,7 +99,7 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
   if (result.is_open === false) {
     return result.note
       ? String(result.note).trim()
-      : `Para ${dateLabel} a casa não está aberta para reservas. Posso ver outra data para você?`;
+      : `Pra ${dateLabel} a casa não abre — quer que eu veja outra data pra você?`;
   }
 
   if (result.party_size_allowed === false && result.party_size_message) {
@@ -109,35 +109,38 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
   if (result.capacidade?.pode_reservar === false) {
     const motivos = [];
     if (result.capacidade.lista_espera_no_horario) {
-      motivos.push('há lista de espera nesse horário');
+      motivos.push('já tem gente na lista de espera nesse horário');
     }
     if (Number(result.capacidade.vagas_disponiveis) === 0) {
-      motivos.push('a lotação para esse horário está no limite');
+      motivos.push('a casa está quase no limite');
     }
     const extra = motivos.length ? ` (${motivos.join('; ')})` : '';
     const horarioBit = horarioConsultado ? ` às ${horarioConsultado}` : '';
-    return `Para ${dateLabel}${horarioBit} está bem cheio${extra}. Quer tentar outro horário ou entro com você na lista de espera?`;
+    return `Pra ${dateLabel}${horarioBit} está bem cheio${extra}. Quer testar outro horário ou prefere que eu te coloque na lista de espera?`;
   }
 
   const labels = extractWindowLabels(result.windows);
   if (labels.length > 0) {
-    return `Boa notícia — para ${dateLabel} temos horários: ${labels.join(', ')}. Qual horário fica melhor pra você?`;
+    return `Boa, ${dateLabel} a casa abre! Temos esses horários disponíveis: ${labels.join(', ')}. Qual fica melhor pra você?`;
   }
 
   if (horarioConsultado && result.capacidade?.pode_reservar === true) {
-    return `Para ${dateLabel} às ${horarioConsultado} temos vaga sim. Me confirma quantas pessoas e seu nome completo que eu registro sua pré-reserva.`;
+    return `Perfeito, ${dateLabel} às ${horarioConsultado} tem vaga sim. Pra eu deixar tudo no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).`;
   }
 
   if (result.is_open !== false && result.capacidade?.pode_reservar !== false) {
     const pessoas = Number(result.quantidade_pessoas);
     const pessoasBit =
       Number.isFinite(pessoas) && pessoas > 0
-        ? ` para ${pessoas} pessoa${pessoas === 1 ? '' : 's'}`
+        ? ` pra ${pessoas} pessoa${pessoas === 1 ? '' : 's'}`
         : '';
     if (Number.isFinite(pessoas) && pessoas >= 15) {
-      return `Para ${dateLabel}${pessoasBit} consigo seguir com você — grupos grandes a gente organiza com carinho. Me passa o horário preferido, seu nome completo e e-mail que eu registro no sistema.`;
+      return `Show, ${dateLabel}${pessoasBit} a gente organiza com carinho — grupos grandes a equipe acompanha de perto. Pra começar, qual horário fica melhor pra você?`;
     }
-    return `Para ${dateLabel}${pessoasBit} está tudo certo para reservar. Me diz o horário preferido${pessoasBit ? '' : ' e quantas pessoas'} que eu já deixo encaminhado.`;
+    if (pessoasBit) {
+      return `Boa, ${dateLabel}${pessoasBit} está liberado. Qual horário fica melhor pra você?`;
+    }
+    return `Boa, ${dateLabel} está aberto pra reserva. Pra eu seguir, me conta o horário e quantas pessoas vão.`;
   }
 
   return null;
