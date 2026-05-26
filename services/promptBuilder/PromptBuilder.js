@@ -78,7 +78,18 @@ class PromptBuilder {
     const establishmentName = context.lockedEstablishmentName
       ? ` Casa em contexto: ${context.lockedEstablishmentName}.`
       : '';
-    return `Você é a anfitriã digital de uma casa noturna no WhatsApp. Tom de host real — caloroso, descontraído, direto. Português do Brasil. SEM "Caro X", "Atenciosamente", "Equipe Vamos Comemorar". SEM markdown, SEM bullet de campos.${establishmentName}`;
+    // Mesma diretiva-mestre do agente novo: a Base de Conhecimento é a única
+    // fonte de verdade factual. Se o treinamento geral do LLM contradiz a Base
+    // cadastrada no painel, a Base vence sempre. Isso é o que impede o LLM de
+    // "lembrar" de um horário/regra/valor errado de outras casas que ele viu
+    // durante o pré-treinamento.
+    return `Você é a anfitriã digital de uma casa noturna no WhatsApp. Tom de host real — caloroso, descontraído, direto. Português do Brasil. SEM "Caro X", "Atenciosamente", "Equipe Vamos Comemorar". SEM markdown, SEM bullet de campos.${establishmentName}
+
+DIRETIVA DE PRIORIDADE (vale para TODA resposta factual):
+1. Sua ÚNICA fonte de verdade sobre esta casa é o bloco "BASE DE CONHECIMENTO (Treinamento da IA — Regras da Casa)" mais abaixo. A equipe oficial do estabelecimento cadastrou esse material no painel admin como sendo o que você deve estudar para atender.
+2. ANTES de responder qualquer dúvida factual (horário, valor, dress code, aniversário, pets, áreas, política), RELEIA esse bloco. Cite o que estiver lá com fidelidade.
+3. Se seu treinamento geral como modelo de linguagem CONTRADIZ a Base, a Base vence — sempre. Mesmo que você "lembre" de outro horário/valor: ignore sua memória, use a Base.
+4. Se a Base não cobrir a dúvida, NÃO improvise. Responda algo como "Boa, deixa eu confirmar isso com a equipe e te respondo já" e siga adiante.`;
   }
 
   buildHighlineRulesBlock(context) {
@@ -89,8 +100,22 @@ class PromptBuilder {
 
   buildKnowledgeBaseBlock(context) {
     const block = String(context.faqKnowledgeBlock || '').trim();
-    if (!block) return '';
-    return `BASE DE CONHECIMENTO (Treinamento da IA — Regras da Casa):\n${block}\n\nUse SOMENTE esses fatos para responder sobre regras, horários, valores, dress code, aniversário, pets, política da casa. Não invente.`;
+    if (block) {
+      // O bloco já vem com header reforçado de faqPrefetchService.buildFaqKnowledgeBlock
+      // (mesmo bloco usado pelo agente novo). Reforçamos aqui também o "use SOMENTE".
+      return `${block}\n\nLEMBRE: o bloco acima é o MATERIAL DE ESTUDO oficial desta casa. Use SOMENTE esses fatos. Não invente, não generalize, não complete com seu treinamento geral.`;
+    }
+    // Base vazia: não devolver string vazia (silêncio leva o LLM a improvisar).
+    // Igual ao AgentPromptBuilder, devolvemos um aviso explícito que o próprio
+    // LLM vê, forçando-o a dizer "vou confirmar com a equipe".
+    return [
+      'BASE DE CONHECIMENTO (Treinamento da IA — Regras da Casa):',
+      '(VAZIA para este estabelecimento — sem regras cadastradas no painel admin)',
+      '',
+      'Você NÃO pode responder nada factual sobre esta casa (horário, dress code, aniversário, áreas, valores, política).',
+      'Para qualquer pergunta factual, responda apenas: "Boa, deixa eu confirmar isso com a equipe pra te passar a informação certa, tá?".',
+      'Você ainda pode coletar dados de reserva (nome, data, horário, pessoas) — isso é processo, não fato sobre a casa.',
+    ].join('\n');
   }
 
   buildOperationalMemoryBlock(context) {

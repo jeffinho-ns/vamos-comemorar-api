@@ -1,3 +1,44 @@
+/**
+ * ============================================================================
+ * AI SERVICE — CAMINHO LEGADO (deprecated, em desativação progressiva).
+ * ============================================================================
+ *
+ * IMPORTANTE: o caminho OFICIAL hoje é o agente novo em services/agent/*.
+ * Este arquivo permanece vivo porque ainda é referenciado por 4 cenários
+ * residuais. Quando todos forem migrados, este arquivo pode ser removido.
+ *
+ * Quem ainda chama este módulo (mapa para migração futura):
+ *   1) services/conversationEngine/processInboundTurn.js (linha 834)
+ *      → SÓ quando shouldUseLegacyReservationFunnel() retorna true OU
+ *        quando args.proactiveResume === true. Com a env
+ *        WHATSAPP_LEGACY_RESERVATION_FUNNEL=false (default novo), o primeiro
+ *        caso praticamente nunca acontece. Só o caso de proactiveResume
+ *        ainda usa este caminho regularmente.
+ *
+ *   2) services/recoveryEngine/stuckConversationResolver.js (linha 20)
+ *      → Usa generateReservationConfirmationMessage para resolver conversas
+ *        travadas. Não tem prompt-builder próprio — é mensagem de fechamento.
+ *
+ *   3) workers/queueWorkers.js (linha 6,75)
+ *      → Worker BullMQ que pode processar tarefas de interpretação isoladas.
+ *        Hoje só é usado se a fila OPENAI_INTERPRET for habilitada — não é
+ *        o fluxo principal.
+ *
+ *   4) services/conversationEngine/reservationRouting.js (linha 6)
+ *      → Importa SÓ isLikelyReservationIntent (regex puro, sem chamar
+ *        OpenAI). Helper utilitário compartilhado.
+ *
+ * Mesmo sendo legado, este arquivo agora:
+ *   - Usa gpt-5.5 por padrão (mesmo modelo do agente novo).
+ *   - Injeta a Base de Conhecimento via PromptBuilder com a mesma diretiva
+ *     de primazia ("Base vence treinamento geral sempre").
+ *   - Trata Base vazia explicitamente (avisa o LLM em vez de silenciar).
+ *
+ * Risco: enquanto este arquivo existir, mudanças no prompt do agente novo
+ * precisam ser replicadas (parcialmente) aqui pra manter consistência —
+ * exatamente o que fizemos para a diretiva de primazia da Base.
+ * ============================================================================
+ */
 const OpenAI = require('openai');
 const { PromptBuilder } = require('./promptBuilder/PromptBuilder');
 const {
