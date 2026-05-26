@@ -1006,6 +1006,65 @@ async function processLegacyInboundTurn({
         return;
       }
 
+      // GUARD HARDLINE: rejeita data alucinada (>11 meses no futuro). O LLM
+      // legado tem histórico de inventar ano 2027 quando o cliente fala
+      // "próximo sábado". Sem essa barreira, ele grava reserva fantasma.
+      try {
+        const { isDateTooFarInFuture } = require('../../nlp/dateResolver');
+        const candidateDate = String(params.reservation_date || '').slice(0, 10);
+        if (candidateDate && isDateTooFarInFuture(candidateDate, null, 11)) {
+          console.warn(
+            `[conversationEngine] PROCESS_RESERVATION bloqueada: data muito no futuro (${candidateDate}) waId=${waId}`
+          );
+          const safeMsg =
+            'Pra eu não errar na data, me confirma de novo: que dia exatamente você quer reservar? Pode mandar no formato DD/MM (ex.: 29/05 ou "próximo sábado") que eu já encaminho.';
+          await outboundGateway.sendText(waId, safeMsg);
+          await persistOutbound(safeMsg, 'DATE_TOO_FAR_FUTURE');
+          if (conversation?.id) {
+            // Limpa a data inválida do estado pra forçar nova coleta limpa.
+            await stateManager.mergeCollectedFields(pool, conversation.id, {
+              reservation_date: null,
+            }).catch(() => {});
+          }
+          return;
+        }
+      } catch (dateGuardError) {
+        console.warn('[conversationEngine] date guard error:', dateGuardError.message);
+      }
+
+      // GUARD HARDLINE: bloqueia área inválida ANTES de criar reserva.
+      // Pro Highline (id=7) só aceitamos sub-áreas canônicas. Se vier
+      // "Terraço", "Área Coberta", etc., recusamos.
+      try {
+        const {
+          isHighlineEstablishment,
+          HIGHLINE_SUBAREAS,
+        } = require('../agent/highlineReservationAreas');
+        const reservationEstId = Number(params.establishment_id);
+        if (isHighlineEstablishment(reservationEstId)) {
+          const requestedArea = String(params.area_name || params.area_label || '').toLowerCase();
+          const forbiddenInArea = /(terra[cç]o|^balc[aã]o$|[áa]rea coberta|[áa]rea descoberta|[áa]rea vip(?! consum)|mezanino)/i;
+          if (requestedArea && forbiddenInArea.test(requestedArea)) {
+            console.warn(
+              `[conversationEngine] PROCESS_RESERVATION bloqueada: área proibida (${requestedArea}) waId=${waId}`
+            );
+            const labels = HIGHLINE_SUBAREAS.map((s) => s.label).join(', ');
+            const safeMsg = `Pra te confirmar a reserva no Highline, preciso de uma área válida — só temos: ${labels}. Qual dessas você prefere?`;
+            await outboundGateway.sendText(waId, safeMsg);
+            await persistOutbound(safeMsg, 'INVALID_AREA');
+            if (conversation?.id) {
+              await stateManager.mergeCollectedFields(pool, conversation.id, {
+                area_id: null,
+                area_name: null,
+              }).catch(() => {});
+            }
+            return;
+          }
+        }
+      } catch (areaGuardError) {
+        console.warn('[conversationEngine] area guard error:', areaGuardError.message);
+      }
+
       const missing = validateProcessReservationParams(params);
       if (missing.length > 0) {
         const fallback = `Para registrar sua reserva no sistema, ainda preciso de: ${formatMissingFieldsForUser(missing)}. Pode me enviar?`;
@@ -1100,6 +1159,39 @@ async function processLegacyInboundTurn({
       if (isPracinha && Number.isFinite(partySize) && partySize > 6) {
         confirmText +=
           '\n\nImportante para alinhar certinho: na Pracinha, garantimos até 6 lugares sentados na reserva; acima disso, o restante do grupo é acomodado no fluxo da casa.';
+      }
+
+      // Guard determinístico FINAL na mensagem de confirmação: o LLM pode
+      // inventar "Terraço", "Atenciosamente, Caro X", ano errado. A reserva
+      // já está gravada no banco com os dados REAIS (validados acima), então
+      // se o LLM gerar texto com nome de área proibido, sobrescrevemos por
+      // um template seguro montado a partir do registro REAL.
+      try {
+        const guardOutput = sanitizeAssistantReply(confirmText, {
+          toolTrace: [],
+          workingState: params || {},
+        });
+        if (guardOutput.blocked) {
+          console.warn(
+            `[conversationEngine] PROCESS_RESERVATION confirm guard: substituiu confirmação (reason=${guardOutput.reason}) waId=${waId}`
+          );
+          // Quando o guard bloqueia, montamos uma confirmação determinística
+          // só com os dados que VIERAM DO BANCO (reservationRow), não do LLM.
+          const r = reservationRow || {};
+          const safeDate = String(r.reservation_date || params.reservation_date || '').slice(0, 10);
+          const safeTime = String(r.reservation_time || params.reservation_time || '').slice(0, 5);
+          const safeName = (r.client_name || params.client_name || '').toString().split(' ')[0] || '';
+          confirmText = [
+            safeName ? `Fechado, ${safeName}!` : 'Fechado!',
+            `Sua reserva ficou pra ${safeDate}${safeTime ? ' às ' + safeTime : ''}.`,
+            'Qualquer coisa, é só me chamar.',
+          ].join(' ');
+        }
+      } catch (confirmGuardError) {
+        console.warn(
+          '[conversationEngine] PROCESS_RESERVATION confirm guard error:',
+          confirmGuardError.message
+        );
       }
 
       await outboundGateway.sendText(waId, confirmText);
