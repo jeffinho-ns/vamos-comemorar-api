@@ -234,9 +234,9 @@ async function loadActiveAreas(pool, establishmentId) {
 
 /**
  * Para o Highline, NUNCA expor os nomes genéricos do banco
- * (Área Coberta, Área Descoberta, Área VIP, Balcão, Terraço).
+ * (Área Coberta, Área Descoberta, Área VIP, Balcão, Terraço, Bar Central).
  * Devolve apenas o vocabulário oficial do painel /admin/restaurant-reservations:
- * Deck (Frente/Esquerdo/Direito), Bar Central e Rooftop sob pedido.
+ * Área Deck (Frente/Esquerdo/Direito), Área Bar e Área Rooftop (sob pedido).
  */
 function buildHighlineAreasSummary({ partySize = null } = {}) {
   const labels = HIGHLINE_SUBAREAS
@@ -575,7 +575,7 @@ async function verificarDisponibilidade(pool, args = {}) {
     windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
     areas_canonicas_highline: isHighlineEstablishment(establishmentId)
-      ? 'No HighLine só ofereça Deck (Frente/Esquerdo/Direito) e Bar Central. Rooftop apenas se o cliente pedir camarote/VIP. NÃO cite "Área Coberta", "Área Descoberta", "Área VIP", "Balcão" ou "Terraço".'
+      ? 'No HighLine só ofereça Área Deck (Frente/Esquerdo/Direito) e Área Bar. Área Rooftop apenas se o cliente pedir camarote/VIP/consumível. NÃO cite "Bar Central", "Área Coberta", "Área Descoberta", "Área VIP", "Balcão", "Terraço", "Mezanino" ou "Pista Interna" — esses nomes NÃO existem no Highline.'
       : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,

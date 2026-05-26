@@ -18,7 +18,7 @@
 require('dotenv').config();
 const OpenAI = require('openai');
 
-const MODEL = process.argv[2] || process.env.OPENAI_AGENT_MODEL || 'gpt-4o';
+const MODEL = process.argv[2] || process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 
 if (!process.env.OPENAI_API_KEY) {
   console.error('❌ OPENAI_API_KEY não definida. Exporte ou ponha em .env.');

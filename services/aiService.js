@@ -10,10 +10,13 @@ const {
 let openaiClient = null;
 const promptBuilder = new PromptBuilder();
 
-// gpt-4o segue instruções/tom muito melhor que gpt-4o-mini (sem alucinação
-// de ano, sem tom formal, respeita guard-rails). Override via env var
-// OPENAI_AGENT_MODEL para downgrade emergencial sem deploy.
-const AI_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-4o';
+// Modelo padrão é gpt-5.5 (flagship em maio/2026): muito superior ao gpt-4o
+// em seguir tom de voz, evitar alucinação de ano/área/nome próprio e respeitar
+// guard-rails. Override via env var OPENAI_AGENT_MODEL para downgrade
+// emergencial sem deploy (ex.: gpt-5.4-mini para reduzir custo, ou gpt-4o
+// como fallback temporário). Atenção: caminho atual usa Chat Completions —
+// para usar Responses API seria necessário refactor.
+const AI_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 function getOpenAI() {
   if (!openaiClient) {
     const key = process.env.OPENAI_API_KEY;

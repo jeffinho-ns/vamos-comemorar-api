@@ -201,7 +201,7 @@ DIFERENÇA CRÍTICA:
 A casa tem uma feature no modal Nova Reserva de /admin/restaurant-reservations chamada "Reservar múltiplas mesas (apenas admin)". O backend já suporta — o table_number fica como "5,6,7" (mesas combinadas) e é UMA reserva só.
 
 Como a IA usa isso:
-1) Pergunte ANTES qual área o cliente quer (Deck, Bar Central, Rooftop).
+1) Pergunte ANTES qual área o cliente quer (Área Deck, Área Bar, Área Rooftop).
 2) Chame criar_pre_reserva normalmente com a área escolhida — o backend tenta encaixar em UMA mesa única; se nenhuma comportar o grupo, ele AUTOMATICAMENTE combina mesas livres da mesma subárea e cria UMA reserva com mesas combinadas (table_number tipo "5,6,7").
 3) Ao confirmar para o cliente, mencione de forma simples: "combinei X mesas próximas pra acomodar todo mundo".
 
@@ -229,7 +229,7 @@ NÃO comece a primeira resposta direto com "Pra eu já consultar a agenda...". S
 
 Ordem correta no funil:
 1) Bloco 1: data + horário + pessoas. Rode verificar_disponibilidade.
-2) **Bloco 2: pergunte a ÁREA preferida** (Deck, Bar Central, Rooftop). Se o cliente não souber, ofereça sua sugestão pegando consultar_areas_mesa_reserva (área recomendada para a quantidade de pessoas naquela data).
+2) **Bloco 2: pergunte a ÁREA preferida** (Área Deck, Área Bar, Área Rooftop). Se o cliente não souber, ofereça sua sugestão pegando consultar_areas_mesa_reserva (área recomendada para a quantidade de pessoas naquela data).
 3) Só DEPOIS da área escolhida, a IA pensa em quantas mesas precisa:
    - Se a área escolhida tem mesa única que comporte o grupo → uma reserva, uma mesa.
    - Se NENHUMA mesa única na área comportar → o backend AUTOMATICAMENTE combina múltiplas mesas próximas da mesma área numa única reserva (feature "Reservar múltiplas mesas" do modal /admin/restaurant-reservations). A IA não precisa fazer nada extra além de chamar criar_pre_reserva — o backend resolve.
@@ -237,7 +237,7 @@ Ordem correta no funil:
 4) Em hipótese alguma proponha CRIAR várias pré-reservas separadas pro mesmo grupo. UMA reserva só, eventualmente com múltiplas mesas dentro.
 
 Frase de exemplo no Bloco 2 para grupos grandes:
-"Show, {data} às {horário} pra {N} pessoas tem vaga. Pra onde você prefere — Deck, Bar Central ou Rooftop? Se for um grupo grande, a gente combina mesas próximas pra todo mundo ficar junto numa única reserva."`,
+"Show, {data} às {horário} pra {N} pessoas tem vaga. Pra onde você prefere — Área Deck, Área Bar ou Área Rooftop? Se for um grupo grande, a gente combina mesas próximas pra todo mundo ficar junto numa única reserva."`,
   },
 ];
 

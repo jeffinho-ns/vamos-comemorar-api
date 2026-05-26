@@ -17,11 +17,19 @@ const LEGACY_FIELD_KEYS = [
   'data_nascimento',
 ];
 
+// Padrão agora é FALSE: a partir da migração para o caminho novo
+// (AgentPromptBuilder + agentService + tool calling), o funil legado
+// (aiService.interpretMessage com JSON mode robotizado) só deve rodar quando
+// EXPLICITAMENTE pedido — ex.: rollback emergencial via env var
+// WHATSAPP_LEGACY_RESERVATION_FUNNEL=true. Mantê-lo ligado por padrão fazia
+// toda intenção de reserva cair no caminho antigo (mais propenso a tom
+// formal, alucinação e "Bar Central" vs "Área Bar"), anulando os ajustes
+// feitos no AgentPromptBuilder.
 function isLegacyReservationFunnelEnabled() {
-  const raw = String(process.env.WHATSAPP_LEGACY_RESERVATION_FUNNEL ?? 'true')
+  const raw = String(process.env.WHATSAPP_LEGACY_RESERVATION_FUNNEL ?? 'false')
     .trim()
     .toLowerCase();
-  return !['0', 'false', 'no', 'off'].includes(raw);
+  return ['1', 'true', 'yes', 'on'].includes(raw);
 }
 
 function hasLegacyCollectedFields(collectedFields = {}) {

@@ -331,12 +331,14 @@ Para Rooftop VIP / Camarote, há sim valor de reserva consumível — explicar c
   },
   {
     topic: 'subareas_canonicas_highline',
-    answer: `REGRA HIGHLINE — só existem estas subáreas operacionais e a IA SÓ pode oferecer essas:
-  • Deck (Frente / Esquerdo / Direito)
-  • Bar Central
-  • Rooftop (Direito / Bistrô / Centro / Esquerdo / Vista)
-PROIBIDO inventar nomes como "Área Coberta", "Área Descoberta", "Área VIP genérica", "Mezanino", "Pista". Esses NÃO existem para o cliente.
-Use sempre o label exato vindo do verificar_disponibilidade / consultar_areas_mesa_reserva, que é a mesma fonte do /admin/restaurant-reservations. Se a fonte trouxer "Área Coberta" ou rótulos genéricos, NÃO repasse — filtre e descreva como Deck/Bar/Rooftop.`,
+    answer: `REGRA HIGHLINE — só existem estas subáreas operacionais e a IA SÓ pode oferecer essas (labels EXATOS, idênticos ao painel /admin/restaurant-reservations):
+  • Área Deck - Frente
+  • Área Deck - Esquerdo
+  • Área Deck - Direito
+  • Área Bar
+  • Área Rooftop - Direito / Bistrô / Centro / Esquerdo / Vista (apenas quando o cliente pedir camarote/VIP/consumível)
+PROIBIDO inventar nomes como "Bar Central", "Área Coberta", "Área Descoberta", "Área VIP genérica", "Mezanino", "Pista", "Balcão", "Terraço". Esses NÃO existem para o cliente — se a IA disser, a equipe vê algo diferente no painel e o cliente chega esperando uma área que não existe.
+Use sempre o label exato vindo do verificar_disponibilidade / consultar_areas_mesa_reserva, que é a mesma fonte do /admin/restaurant-reservations. Se a fonte trouxer "Área Coberta" ou rótulos genéricos, NÃO repasse — filtre e descreva como Área Deck / Área Bar / Área Rooftop.`,
   },
   {
     topic: 'controle_duplicidade_reservas',
