@@ -1,0 +1,33 @@
+---
+description: Diretrizes Globais do Sistema Agilizaiapp (API / Backend)
+alwaysApply: true
+---
+
+# Diretrizes Globais do Sistema Agilizaiapp — API/Backend
+
+Este repositório é o núcleo (API/Backend) do sistema de gestão, reservas, check-in inteligente e cardápio digital da Agilizaiapp. Está em **produção** atendendo Highline, Seu Justino, Xic Hop e outros estabelecimentos.
+
+## Regras de Ouro de Código
+
+1. **NUNCA crie arquivos gigantes.** Componentes/arquivos maiores que **400 linhas** devem ser obrigatoriamente refatorados em módulos menores. Se for tocar num arquivo gigante existente, faça mudanças cirúrgicas — nunca reescreva do zero.
+2. **NUNCA duplique funções auxiliares.** Sempre busque antes em `utils/`, `helpers/` e `services/` do projeto. Se a função existir com outro nome, **reaproveite** em vez de criar uma nova.
+3. **Não presuma `any` em TypeScript** (no `vamos-comemorar-next`). No JS desta API, sempre valide entrada com os `validators/` existentes antes de tocar no banco.
+4. **Modelo de IA homologado**: `gpt-5.5` (flagship maio/2026). Veja `services/agent/agentService.js` para o comentário oficial de TRAVA DE PRODUÇÃO. Não faça downgrade para `gpt-5.4` ou `gpt-4o` sem aprovação explícita — regressão de alucinação e tom robótico já foi medida em produção (commit `28f7406`).
+5. **Caminho oficial do agente conversacional**: `services/agent/*`. O `services/aiService.js` é **legado/deprecated** e só é usado em 4 cenários residuais (`proactiveResume`, workers BullMQ, `stuckConversationResolver`, helper de intent). Mudanças no agente devem ser feitas no caminho novo primeiro.
+6. **Antes de criar arquivos `.md` na raiz**, considere se é realmente documentação durável. O repo já passou por uma faxina (`_docs_arquivados/`) — não recrie o ruído.
+
+## Operação: Highline (Prioridade Máxima)
+
+- **Risco crítico**: sistema em produção. Nenhuma rota ou lógica de reserva do Highline pode falhar silenciosamente. Sempre logue com contexto (`establishment_id`, `area_id`, `reservation_id`).
+- **Tom de voz da IA (WhatsApp)**: **PROIBIDO** o uso de formulários robóticos, listas numeradas ou envio de mensagens em "bullets". A coleta de dados deve ser em **prosa, acolhedora, humana e consultiva** (estilo concierge premium). Uma pergunta por vez. Nunca despeje 4 perguntas numa mensagem só.
+- **Regras de espaço**: validar capacidade de **Camarotes**, **Áreas VIP** e **Rooftop** antes de confirmar reserva. Use `services/agent/highlineReservationAreas.js` como fonte da verdade dos nomes de área — não invente "Bar Central", "Terraço" etc.
+- **Naming**: o estabelecimento é "Highline" (uma palavra, H maiúsculo). Não chame de "High Line", "HighLine Bar", "Highline Bar", a não ser quando referenciar o email institucional `reservas@highlinebar.com.br`.
+
+## Operação: Outros Estabelecimentos
+
+- **Seu Justino, Xic Hop**: respeitar regras de permissão por `establishment_id` (ver `middleware/` e `services/agent/agentMode.js`).
+- Não vaze dados de um estabelecimento em queries/respostas de outro. Sempre filtre por `establishment_id` da sessão.
+
+## Base de Conhecimento (regra de primazia)
+
+- Quando houver conflito entre o **treinamento geral do LLM** e a **Base de Conhecimento** do estabelecimento, a **Base sempre vence**. Essa regra está implementada via `PromptBuilder` e deve ser preservada em qualquer refactor de prompt.
