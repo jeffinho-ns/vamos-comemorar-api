@@ -80,16 +80,9 @@ const FIELD_LABELS_PT = {
   reservation_notes: 'observações',
 };
 
-const BUNDLE_LINE_PT = {
-  establishment_id: '• Estabelecimento (se ainda não tiver escolhido)',
-  reservation_date: '• Data (ex.: 25/05 ou próximo sábado)',
-  reservation_time: '• Horário (ex.: 20h ou 20:30)',
-  quantidade_convidados: '• Quantidade de pessoas',
-  area_id: '• Área preferida (se tiver; senão eu escolho a melhor disponível)',
-  client_name: '• Nome completo do titular',
-  client_email: '• E-mail',
-  data_nascimento: '• Data de nascimento (DD/MM/AAAA — confirma +18)',
-};
+// (BUNDLE_LINE_PT removido em 2026-05: era uma estrutura com bullets "•" que
+// já não tinha consumidor mas continuava modelando um padrão robotizado.
+// Toda coleta agora é em frase corrida via buildCollectBundlePrompt.)
 
 const OPERATIONAL_FIELDS = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
 const IDENTITY_FIELDS = ['client_name', 'client_email', 'data_nascimento'];
@@ -106,14 +99,14 @@ const FIELD_PHRASE_INLINE_PT = {
 
 const STEP_PROMPTS_PT = {
   greeting:
-    'Oi! Que bom falar com você. Para começar, me conta: para quando seria a reserva?',
+    'Oi, tudo bem? Pra quando seria sua reserva?',
   establishment:
-    'Pra qual casa você quer reservar? Assim que me disser eu já te ajudo com data e horários.',
+    'Em qual casa você quer reservar? Assim que me disser eu já vejo data e horário pra você.',
   collect_bundle: '',
   observations:
-    'Quer deixar alguma observação na reserva? (ex.: aniversário, mesa mais reservada, restrição alimentar). Se não, é só dizer "não" que eu fecho aqui.',
+    'Quer deixar alguma observação? Tipo aniversário, alguma mesa específica ou restrição alimentar — qualquer coisa que ajude a equipe a receber você melhor. Se não, é só me dizer que tá tudo certo.',
   confirm_summary:
-    'Revisei tudo aqui. Posso registrar a reserva agora com essas informações?',
+    'Posso fechar aqui no seu nome com essas informações?',
 };
 
 function joinPhrasesPt(items = []) {
@@ -222,9 +215,9 @@ function buildCollectBundlePrompt(collectedFields = {}, options = {}) {
           hasFieldValue(collectedFields, key)
         );
       if (collectedAny) {
-        return 'Show! Para eu já ver se tem vaga, me conta a data, o horário e quantas pessoas vão.';
+        return 'Show! Pra eu já ver se tem vaga, me conta a data, o horário e quantas pessoas vão?';
       }
-      return 'Pra eu já consultar a agenda, me passa por favor a data, o horário e quantas pessoas vão.';
+      return 'Pra eu já ver vaga pra você, me conta a data, o horário e quantas pessoas vão?';
     }
     if (operationalMissing.length === 1) {
       const onlyKey = operationalMissing[0];
@@ -233,13 +226,13 @@ function buildCollectBundlePrompt(collectedFields = {}, options = {}) {
       if (onlyKey === 'quantidade_convidados') return 'Quantas pessoas vão com você?';
     }
     const phrases = operationalMissing.map((key) => FIELD_PHRASE_INLINE_PT[key] || key);
-    return `Pra eu acertar tudo, me confirma ${joinPhrasesPt(phrases)}?`;
+    return `Me conta também ${joinPhrasesPt(phrases)}?`;
   }
 
   // Etapa 2: já tem trio operacional — pede identidade do titular.
   if (identityMissing.length > 0) {
     if (identityMissing.length === IDENTITY_FIELDS.length) {
-      return 'Show, vaga confirmada. Agora pra deixar a reserva no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).';
+      return 'Boa, vaga garantida! Pra deixar tudo no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — só pra confirmar que é +18)?';
     }
     if (identityMissing.length === 1) {
       const onlyKey = identityMissing[0];

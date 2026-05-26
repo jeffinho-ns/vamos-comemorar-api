@@ -206,30 +206,31 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
     (key) => `${key}=${workingState[key]}`
   );
 
-  const lines = [
-    'FUNIL DE RESERVA ATIVO (prioridade máxima nesta conversa):',
-    '- O cliente já está cadastrando reserva. NÃO desvie para FAQ genérica nem encerre sem registrar.',
-    '- Coleta em ETAPAS humanizadas (no máximo 3 campos por mensagem, NUNCA em bullet list):',
-    '   • Etapa 1 (operacional): data + horário + pessoas → depois rode verificar_disponibilidade.',
-    '   • Etapa 2 (identidade): nome completo + e-mail + data de nascimento (DD/MM/AAAA, +18).',
-    '   • Etapa 3 (opcional): área preferida / observações.',
-    '- Fale como um atendente humano: frases curtas, conversadas, em uma linha. Nada de "•" ou listas.',
-    '- Se o cliente já mandou parte dos dados, agradeça brevemente e parta para o próximo bloco que ainda falta.',
-    '- Depois de coletar identidade, pergunte se há observações antes de criar_pre_reserva.',
-    '- Quando tiver tudo validado (incluindo observações perguntadas), chame criar_pre_reserva.',
-    '- Se já verificou disponibilidade com vaga, avance para o próximo dado faltante ou registre.',
-    '- Nunca diga que a reserva está feita sem chamar criar_pre_reserva com sucesso.',
-  ];
+  // Bloco em PROSA, não em bullets, justamente porque LLM tende a espelhar a
+  // estrutura do prompt na resposta. Mantemos um único parágrafo curto + duas
+  // linhas de estado dinâmico. O agente lê e internaliza, mas a resposta ao
+  // cliente sai conversada, sem listas.
+  const paragraph =
+    'FUNIL DE RESERVA EM ANDAMENTO. O cliente já está reservando, então sua missão neste turno é só uma: avançar a reserva. ' +
+    'Cobra os próximos dados que faltam em frase corrida (no máximo três por mensagem), ' +
+    'agradece de leve quando ele mandar parte ("Boa, anotei!"), nunca repete pergunta já respondida, ' +
+    'nunca despeja lista com "•" ou "1, 2, 3" e nunca encerra sem orientar o próximo passo. ' +
+    'A ordem natural é: bloco operacional (data, horário, pessoas) → verificar_disponibilidade → ' +
+    'área (se for Highline e o cliente não tiver indicado) → identidade (nome completo, e-mail, data de nascimento) → ' +
+    'observações ("aniversário? alguma restrição?") → criar_pre_reserva. ' +
+    'Nunca diga "reserva confirmada" antes de criar_pre_reserva retornar ok.';
+
+  const lines = [paragraph];
 
   if (collected.length) {
-    lines.push(`- Dados já conhecidos: ${collected.join('; ')}.`);
+    lines.push(`Já coletado neste cliente: ${collected.join('; ')}.`);
   }
   if (missing.length) {
-    const labels = missing.map((m) => MISSING_FIELD_PROMPTS[m] || m).join(' | ');
-    lines.push(`- Ainda falta: ${labels}`);
-    lines.push(`- Próximo passo sugerido: ${buildNextFieldQuestion(workingState)}`);
+    const labels = missing.map((m) => MISSING_FIELD_PROMPTS[m] || m).join(' / ');
+    lines.push(`Ainda falta: ${labels}`);
+    lines.push(`Sugestão de próxima fala (adapte ao seu tom, NÃO copie literal): ${buildNextFieldQuestion(workingState)}`);
   } else {
-    lines.push('- Todos os campos obrigatórios parecem preenchidos: chame criar_pre_reserva agora.');
+    lines.push('Todos os campos obrigatórios estão preenchidos: chame criar_pre_reserva agora, sem pedir nova confirmação.');
   }
 
   return lines.join('\n');
