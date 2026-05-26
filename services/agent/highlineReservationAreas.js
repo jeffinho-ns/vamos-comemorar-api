@@ -402,6 +402,88 @@ async function findAvailableTableInSubarea(pool, subarea, reservationDate, party
     : null;
 }
 
+/**
+ * Combina múltiplas mesas livres na mesma subárea quando nenhuma mesa
+ * individual comporta o grupo. Usa o mesmo formato do modal admin "Reservar
+ * múltiplas mesas" do /admin/restaurant-reservations: o table_number final
+ * é a string de mesas concatenadas por vírgula (ex.: "5,6,7").
+ *
+ * Retorna null se:
+ *   - já existe mesa única que comporta o grupo (use findAvailableTableInSubarea);
+ *   - não há mesas livres suficientes para o grupo na subárea;
+ *   - a subárea não tem mesas físicas no painel (só virtuais).
+ *
+ * Heurística: ordena mesas livres por capacidade decrescente e vai somando
+ * até comportar partySize. Limita a 6 mesas por reserva para não criar combos
+ * absurdos — acima disso é caso de handoff humano.
+ */
+async function findCombinedTablesInSubareaForGroup(
+  pool,
+  subarea,
+  reservationDate,
+  partySize,
+  establishmentId,
+  { maxTables = 6 } = {}
+) {
+  if (!subarea || !Number.isFinite(Number(partySize)) || partySize <= 0) return null;
+
+  const tablesByArea = await loadTablesForAreas(pool, [subarea.area_id]);
+  const reservedByArea = await loadConfirmedReservedByArea(
+    pool,
+    reservationDate,
+    establishmentId
+  );
+
+  const reservedSet = reservedByArea.get(subarea.area_id) || new Set();
+  let tables = (tablesByArea.get(subarea.area_id) || []).filter((t) =>
+    subarea.tableNumbers.includes(String(t.table_number))
+  );
+  if (tables.length === 0) {
+    tables = buildVirtualTables(subarea);
+  }
+
+  const livres = tables
+    .filter((t) => !reservedSet.has(String(t.table_number)))
+    .map((t) => ({
+      table_number: String(t.table_number),
+      capacity: Number(t.capacity) || subarea.defaultCapacity || 4,
+    }));
+
+  if (livres.length === 0) return null;
+
+  livres.sort((a, b) => {
+    if (b.capacity !== a.capacity) return b.capacity - a.capacity;
+    return a.table_number.localeCompare(b.table_number, undefined, { numeric: true });
+  });
+
+  if (livres[0].capacity >= partySize) return null;
+
+  const chosen = [];
+  let totalCap = 0;
+  for (const t of livres) {
+    if (chosen.length >= maxTables) break;
+    chosen.push(t);
+    totalCap += t.capacity;
+    if (totalCap >= partySize) break;
+  }
+
+  if (totalCap < partySize) return null;
+
+  chosen.sort((a, b) =>
+    a.table_number.localeCompare(b.table_number, undefined, { numeric: true })
+  );
+
+  return {
+    area_id: subarea.area_id,
+    label: subarea.label,
+    table_number: chosen.map((t) => t.table_number).join(','),
+    table_numbers: chosen.map((t) => t.table_number),
+    capacities: chosen.map((t) => t.capacity),
+    total_capacity: totalCap,
+    mesas_count: chosen.length,
+  };
+}
+
 module.exports = {
   HIGHLINE_ESTABLISHMENT_ID,
   HIGHLINE_SUBAREAS,
@@ -412,5 +494,6 @@ module.exports = {
   resolveHighlineSubarea,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
+  findCombinedTablesInSubareaForGroup,
   evaluateHighlineSubarea,
 };

@@ -21,6 +21,7 @@ const {
   resolveHighlineSubarea,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
+  findCombinedTablesInSubareaForGroup,
   STANDARD_SUBAREA_KEYS,
   HIGHLINE_SUBAREAS,
 } = require('./highlineReservationAreas');
@@ -730,6 +731,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
   let areaId = null;
   let tableNumber = null;
   let areaLabel = String(args.area || '').trim();
+  let combinedTablesInfo = null;
 
   if (isHighlineEstablishment(establishmentId)) {
     const subarea = resolveHighlineSubarea(args.area) || resolveHighlineSubarea(areaLabel);
@@ -741,32 +743,58 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
         partySize,
         establishmentId
       );
-      if (!slot) {
-        const snapshot = await consultHighlineReservationAreas(pool, {
-          estabelecimento_id: establishmentId,
-          data: reservationDate,
-          quantidade_pessoas: partySize,
-          area_preferida: subarea.label,
+      if (slot) {
+        areaId = slot.area_id;
+        tableNumber = slot.table_number;
+        areaLabel = slot.label;
+      } else {
+        // Nenhuma mesa única comporta o grupo — tenta combinar múltiplas mesas
+        // da mesma subárea (mesma feature "Reservar múltiplas mesas" do modal
+        // /admin/restaurant-reservations). É UMA reserva só com várias mesas.
+        const combo = await findCombinedTablesInSubareaForGroup(
+          pool,
+          subarea,
+          reservationDate,
+          partySize,
+          establishmentId
+        ).catch((err) => {
+          console.warn('[agentTools] falha ao combinar mesas:', err.message);
+          return null;
         });
-        if (snapshot.todas_areas_cheias) {
+
+        if (combo) {
+          areaId = combo.area_id;
+          tableNumber = combo.table_number; // ex.: "5,6,7"
+          areaLabel = combo.label;
+          combinedTablesInfo = {
+            mesas_count: combo.mesas_count,
+            table_numbers: combo.table_numbers,
+            total_capacity: combo.total_capacity,
+          };
+        } else {
+          const snapshot = await consultHighlineReservationAreas(pool, {
+            estabelecimento_id: establishmentId,
+            data: reservationDate,
+            quantidade_pessoas: partySize,
+            area_preferida: subarea.label,
+          });
+          if (snapshot.todas_areas_cheias) {
+            return {
+              ok: false,
+              error:
+                'Todas as áreas estão sem mesa livre para esse grupo. Use criar_lista_espera e informe a Equipe de Hostess.',
+              todas_areas_cheias: true,
+            };
+          }
+          const alt = snapshot.area_recomendada?.label;
           return {
             ok: false,
-            error:
-              'Todas as áreas estão sem mesa livre para esse grupo. Use criar_lista_espera e informe a Equipe de Hostess.',
-            todas_areas_cheias: true,
+            error: alt
+              ? `A ${subarea.label} está cheia (incluindo combinação de mesas). Há vaga em ${alt} — confirme com o cliente ou use criar_lista_espera se recusar.`
+              : `A ${subarea.label} está cheia para essa data (mesmo combinando mesas). Consulte consultar_areas_mesa_reserva ou lista de espera.`,
           };
         }
-        const alt = snapshot.area_recomendada?.label;
-        return {
-          ok: false,
-          error: alt
-            ? `A ${subarea.label} está cheia. Há vaga em ${alt} — confirme com o cliente ou use criar_lista_espera se recusar.`
-            : `A ${subarea.label} está cheia para essa data. Consulte consultar_areas_mesa_reserva ou lista de espera.`,
-        };
       }
-      areaId = slot.area_id;
-      tableNumber = slot.table_number;
-      areaLabel = slot.label;
     }
   }
 
@@ -816,6 +844,13 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
   });
 
   let finalNotes = notes;
+
+  if (combinedTablesInfo) {
+    const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
+    const obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única usando feature "múltiplas mesas" do painel.`;
+    finalNotes = finalNotes ? `${obsCombo} | ${finalNotes}` : obsCombo;
+  }
+
   const recentByPhone = (duplicateInfo.duplicateRecent || []).filter(
     (row) => Number(row.id) !== Number(duplicateInfo.duplicateExact?.id || 0)
   );
@@ -850,6 +885,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       area_id: areaId,
       area_label: areaLabel || null,
       table_number: tableNumber,
+      mesas_combinadas: combinedTablesInfo || null,
       cliente: {
         nome: cliente.nome,
         email: cliente.email,

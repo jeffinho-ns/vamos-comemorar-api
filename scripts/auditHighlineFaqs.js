@@ -189,18 +189,25 @@ O sistema tem um guard que detecta confirmações falsas e substitui automaticam
   },
   {
     topic: 'proibicao_multiplas_reservas_mesmo_grupo',
-    answer: `REGRA HIGHLINE — uma reserva por grupo.
+    answer: `REGRA HIGHLINE — uma reserva por grupo (mas múltiplas MESAS quando precisar).
 
-NUNCA proponha ao cliente "vou fazer 2/3/X reservas em mesas diferentes" para acomodar o mesmo grupo. Isso causa:
-- Duplicidade de reservas no painel (o sistema bloqueia e gera ALERTA ADMIN).
-- Confusão na hora da chegada (a Hostess não sabe qual é a "verdadeira").
+DIFERENÇA CRÍTICA:
+- "Múltiplas RESERVAS" para o mesmo grupo = PROIBIDO (causa duplicidade, ALERTA ADMIN no painel, confusão na chegada).
+- "Múltiplas MESAS numa única RESERVA" = PERMITIDO E RECOMENDADO para grupos grandes.
 
-A regra correta é:
-- Grupos até 15 pessoas: uma reserva única na área disponível (Deck/Bar/Rooftop).
-- Grupos 16-60 pessoas: uma reserva única; a equipe acomoda em mesas próximas (Bistrô + Lounge, ou múltiplas mesas no Deck).
-- Grupos com mais de 60 pessoas: NÃO crie reserva — transfere para atendimento humano (handoff). A produção precisa alinhar logística.
+A casa tem uma feature no modal Nova Reserva de /admin/restaurant-reservations chamada "Reservar múltiplas mesas (apenas admin)". O backend já suporta — o table_number fica como "5,6,7" (mesas combinadas) e é UMA reserva só.
 
-Use SEMPRE o campo observações da reserva para dizer "grupo de N pessoas, acomodar em mesas próximas".`,
+Como a IA usa isso:
+1) Pergunte ANTES qual área o cliente quer (Deck, Bar Central, Rooftop).
+2) Chame criar_pre_reserva normalmente com a área escolhida — o backend tenta encaixar em UMA mesa única; se nenhuma comportar o grupo, ele AUTOMATICAMENTE combina mesas livres da mesma subárea e cria UMA reserva com mesas combinadas (table_number tipo "5,6,7").
+3) Ao confirmar para o cliente, mencione de forma simples: "combinei X mesas próximas pra acomodar todo mundo".
+
+Diretrizes por tamanho de grupo:
+- Até 6 pessoas: cabe em uma mesa única (não precisa combinar).
+- 7 a 60 pessoas: avise desde o início que a casa combina mesas próximas para o grupo ficar junto numa reserva única.
+- Mais de 60 pessoas: NÃO crie reserva — handoff para atendimento humano (produção alinha logística e cobertura de equipe).
+
+Sempre registre no campo observações: "Grupo de N pessoas, X mesas combinadas em {subárea}, ficar junto na chegada".`,
   },
   {
     topic: 'eco_saudacao_cliente',
@@ -212,6 +219,22 @@ Se o cliente abrir a conversa com cumprimento ("oi", "olá", "boa noite", "boa t
 - Cliente: "Olá" → IA: "Oi! Tudo bem? Em que posso te ajudar?"
 
 NÃO comece a primeira resposta direto com "Pra eu já consultar a agenda...". Sempre ECOE o cumprimento primeiro — isso é o mínimo de cortesia no WhatsApp.`,
+  },
+  {
+    topic: 'pergunta_area_antes_de_mesa',
+    answer: `REGRA HIGHLINE — pergunte a ÁREA antes de pensar em quantidade de mesas.
+
+Ordem correta no funil:
+1) Bloco 1: data + horário + pessoas. Rode verificar_disponibilidade.
+2) **Bloco 2: pergunte a ÁREA preferida** (Deck, Bar Central, Rooftop). Se o cliente não souber, ofereça sua sugestão pegando consultar_areas_mesa_reserva (área recomendada para a quantidade de pessoas naquela data).
+3) Só DEPOIS da área escolhida, a IA pensa em quantas mesas precisa:
+   - Se a área escolhida tem mesa única que comporte o grupo → uma reserva, uma mesa.
+   - Se NENHUMA mesa única na área comportar → o backend AUTOMATICAMENTE combina múltiplas mesas próximas da mesma área numa única reserva (feature "Reservar múltiplas mesas" do modal /admin/restaurant-reservations). A IA não precisa fazer nada extra além de chamar criar_pre_reserva — o backend resolve.
+   - Se nem combinando mesas a área comportar → ofereça outra área (alternativas_com_vaga do consultar_areas_mesa_reserva).
+4) Em hipótese alguma proponha CRIAR várias pré-reservas separadas pro mesmo grupo. UMA reserva só, eventualmente com múltiplas mesas dentro.
+
+Frase de exemplo no Bloco 2 para grupos grandes:
+"Show, {data} às {horário} pra {N} pessoas tem vaga. Pra onde você prefere — Deck, Bar Central ou Rooftop? Se for um grupo grande, a gente combina mesas próximas pra todo mundo ficar junto numa única reserva."`,
   },
 ];
 

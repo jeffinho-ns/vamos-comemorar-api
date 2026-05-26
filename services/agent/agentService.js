@@ -157,7 +157,10 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
       if (result.pre_reserva) {
         const pre = result.pre_reserva;
         const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
-        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}. Qualquer coisa, é só chamar.`;
+        const comboBit = pre.mesas_combinadas
+          ? ` (combinei ${pre.mesas_combinadas.mesas_count} mesas próximas pra acomodar todo mundo, capacidade total ${pre.mesas_combinadas.total_capacity} pessoas)`
+          : '';
+        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}${comboBit}. Qualquer coisa, é só chamar.`;
       }
       if (result.duplicate === true) {
         return 'Vi aqui que você já tem uma reserva confirmada para esse mesmo dia e horário. Sua reserva está registrada — não precisa mandar outra. Se quiser ajustar algo (data, horário ou pessoas), me avise que eu já encaminho.';
@@ -451,12 +454,20 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
     return { text: safe, blocked: true, reason: 'forbidden_area_name' };
   }
 
-  if (/\b(tr[eê]s|3|duas|2|quatro|4) reservas? (na|no|para|pro)\b/i.test(text)) {
+  // Bloqueia plano de "fazer N reservas SEPARADAS" pro mesmo grupo.
+  // PERMITE "combinar/juntar N mesas em uma reserva" (feature legítima do
+  // modal /admin/restaurant-reservations "Reservar múltiplas mesas").
+  // Diferença chave: a palavra "reservas" no PLURAL (múltiplas pré-reservas)
+  // é bloqueada; "mesas" no plural é permitido.
+  if (
+    /\b(tr[eê]s|3|duas|2|quatro|4|cinco|5) reservas? (na|no|para|pro)\b/i.test(text) &&
+    !/\b(uma|1) reserva\b/i.test(text)
+  ) {
     console.warn(
       '[agentService] guard: bloqueado plano de múltiplas reservas pro mesmo grupo.'
     );
     const safe =
-      'Para grupos grandes, organizamos como UMA reserva só (a equipe acomoda em mesas próximas no Deck, Bar ou Rooftop). Quer seguir assim? Me passa o nome completo, o e-mail e a data de nascimento que eu já registro.';
+      'Para grupos maiores, eu deixo TUDO em UMA reserva só (a casa usa a feature de "múltiplas mesas" do painel pra juntar mesas próximas). Quer seguir assim? Me passa o nome completo, o e-mail e a data de nascimento que eu já registro.';
     return { text: safe, blocked: true, reason: 'multi_reservation_attempt' };
   }
 

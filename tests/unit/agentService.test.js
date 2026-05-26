@@ -165,3 +165,20 @@ test('sanitizeAssistantReply bloqueia múltiplas reservas para mesmo grupo', () 
   assert.equal(result.reason, 'multi_reservation_attempt');
   assert.match(result.text, /UMA reserva/i);
 });
+
+test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', () => {
+  const benignTexts = [
+    'Vou combinar 3 mesas próximas no Deck pra acomodar o grupo numa única reserva.',
+    'A casa pode juntar duas mesas em UMA reserva só.',
+    'Combinei 4 mesas pra você ficar todo mundo junto.',
+    'Pra essa quantidade, junto 3 mesas no Bar Central em uma reserva.',
+  ];
+  for (const text of benignTexts) {
+    const result = sanitizeAssistantReply(text, { toolTrace: [], workingState: {} });
+    assert.equal(
+      result.blocked,
+      false,
+      `não deveria bloquear "${text}" (resultado: ${result.reason || 'ok'})`
+    );
+  }
+});
