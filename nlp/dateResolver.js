@@ -272,6 +272,24 @@ function isDateInPastComparedToReference(iso, referenceDateIso) {
   return compareIso(target, ref) < 0;
 }
 
+/**
+ * Sanidade: bloqueia datas absurdas no futuro (mais de N meses adiante).
+ * Default = 12 meses. Útil para detectar alucinação de ano do LLM (ex.: 2027
+ * quando hoje é 2026).
+ */
+function isDateTooFarInFuture(iso, referenceDateIso, maxMonthsAhead = 12) {
+  const ref = String(referenceDateIso || '').slice(0, 10);
+  const target = String(iso || '').slice(0, 10);
+  if (!ref || !target) return false;
+  const [refY, refM, refD] = ref.split('-').map(Number);
+  const [tgtY, tgtM, tgtD] = target.split('-').map(Number);
+  if (!refY || !tgtY) return false;
+  const refDate = new Date(Date.UTC(refY, (refM || 1) - 1, refD || 1));
+  const limit = new Date(Date.UTC(refY, (refM || 1) - 1 + maxMonthsAhead, refD || 1));
+  const tgtDate = new Date(Date.UTC(tgtY, (tgtM || 1) - 1, tgtD || 1));
+  return tgtDate > limit;
+}
+
 module.exports = {
   TIME_ZONE,
   resolveDateFromText,
@@ -279,6 +297,7 @@ module.exports = {
   formatReservationDateLabels,
   buildTodayCalendarLabels,
   isDateInPastComparedToReference,
+  isDateTooFarInFuture,
   getZonedParts,
   toIsoDate,
 };

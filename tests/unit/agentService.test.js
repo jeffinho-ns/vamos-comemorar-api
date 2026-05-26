@@ -7,6 +7,13 @@ const {
   looksLikeFakeReservationConfirmation,
   containsForbiddenAreaName,
 } = require('../../services/agent/agentService');
+const { isDateTooFarInFuture } = require('../../nlp/dateResolver');
+
+test('isDateTooFarInFuture pega 22/05/2027 quando hoje é 25/05/2026', () => {
+  assert.equal(isDateTooFarInFuture('2027-05-22', '2026-05-25', 11), true);
+  assert.equal(isDateTooFarInFuture('2026-05-30', '2026-05-25', 11), false);
+  assert.equal(isDateTooFarInFuture('2027-01-15', '2026-05-25', 11), false);
+});
 
 test('synthesizeReplyFromToolTrace usa a última FAQ válida', () => {
   const reply = synthesizeReplyFromToolTrace([
@@ -164,6 +171,43 @@ test('sanitizeAssistantReply bloqueia múltiplas reservas para mesmo grupo', () 
   assert.equal(result.blocked, true);
   assert.equal(result.reason, 'multi_reservation_attempt');
   assert.match(result.text, /UMA reserva/i);
+});
+
+test('sanitizeAssistantReply substitui tom formal mesmo com reserva criada', () => {
+  const formalReply =
+    'Caro Jefferson, É com grande alegria que confirmamos sua reserva no HighLine. Você estará conosco no dia 22 de maio de 2027, às 21:00, na área do Terraço, para um grupo de 12 pessoas. Atenciosamente, Equipe Vamos Comemorar.';
+  const result = sanitizeAssistantReply(formalReply, {
+    toolTrace: [
+      {
+        name: 'criar_pre_reserva',
+        result: {
+          ok: true,
+          pre_reserva: {
+            reservation_date: '2026-05-30',
+            reservation_time: '21:00',
+            area_label: 'Área Deck - Frente',
+          },
+        },
+      },
+    ],
+    workingState: {},
+  });
+  assert.equal(result.blocked, true);
+  assert.ok(
+    ['formal_tone_after_reservation', 'forbidden_area_after_reservation'].includes(result.reason),
+    `motivo inesperado: ${result.reason}`
+  );
+  assert.doesNotMatch(result.text, /Caro|Atenciosamente|grande alegria|2027|Terraço/i);
+  // Texto deve usar a data REAL retornada pela tool (2026-05-30), não a alucinada (2027).
+  assert.match(result.text, /2026-05-30/);
+});
+
+test('sanitizeAssistantReply bloqueia tom formal mesmo sem outros gatilhos', () => {
+  const result = sanitizeAssistantReply(
+    'Cordialmente, A equipe do Highline agradece sua preferência.',
+    { toolTrace: [], workingState: {} }
+  );
+  assert.equal(result.blocked, true);
 });
 
 test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', () => {

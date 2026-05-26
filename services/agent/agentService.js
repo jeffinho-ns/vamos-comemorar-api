@@ -31,6 +31,7 @@ const {
   inferAvailabilityCheckedFromHistory,
   looksLikeAdEntryGreeting,
   detectOpeningGreeting,
+  detectClientCorrectingPreviousReply,
   isFirstUserMessageInConversation,
   extractFirstName,
 } = require('./reservationFunnel');
@@ -421,10 +422,35 @@ function buildSafeFollowupQuestion(workingState = {}) {
 }
 
 /**
+ * Padrões de tom formal proibido — disparam guard SEMPRE (mesmo quando a
+ * reserva foi criada com sucesso). O tom da casa é concierge de WhatsApp.
+ */
+const FORMAL_TONE_PATTERNS = [
+  /(?:^|[\s,.;!?])(caro|cara|caros|caras)\s+[A-ZÀ-Ÿ]/, // "Caro Jefferson", "Cara Maria"
+  /atenciosamente/i,
+  /cordialmente/i,
+  /equipe (do |de )?vamos comemorar/i,
+  /equipe (do |de )?highline/i,
+  /[ée] com (grande )?(satisfa[cç][aã]o|prazer|alegria)/i,
+  /agradecemos por escolher/i,
+  /experi[eê]ncia memor[aá]vel/i,
+  /estamos ansiosos/i,
+];
+
+function looksLikeFormalToneViolation(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  return FORMAL_TONE_PATTERNS.some((re) => re.test(t));
+}
+
+/**
  * Aplica guards determinísticos à resposta do LLM antes de devolver ao cliente.
+ *  - Quando há criar_pre_reserva ok, SEMPRE usa a resposta sintética dos dados
+ *    reais da reserva (ignora texto livre do LLM para evitar alucinação de
+ *    data/área/quantidade na confirmação).
  *  - Bloqueia confirmação de reserva quando criar_pre_reserva NÃO rodou ok.
+ *  - Bloqueia tom formal ("Caro X", "Atenciosamente") em qualquer caso.
  *  - Bloqueia nomes de área proibidos (Terraço, Balcão, Área Coberta, etc.).
- *  - Bloqueia tom formal ("Caro Jefferson", "Atenciosamente").
  *  - Bloqueia sugestão de múltiplas reservas pro mesmo grupo.
  */
 function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} } = {}) {
@@ -432,6 +458,32 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
   if (!text) return { text, blocked: false };
 
   const successPre = lastSuccessfulPreReserva(toolTrace);
+
+  // QUANDO HÁ RESERVA OK: usa a resposta sintetizada com os dados REAIS
+  // da reserva (não confia no texto do LLM que pode alucinar data/área/qtd).
+  // Só preserva o texto do LLM se ele NÃO tiver tom formal nem área proibida.
+  if (successPre) {
+    const hasFormalTone = looksLikeFormalToneViolation(text);
+    const hasForbiddenArea = containsForbiddenAreaName(text);
+    if (hasFormalTone || hasForbiddenArea) {
+      const synthetic = synthesizeReplyFromToolTrace(toolTrace);
+      const safe =
+        synthetic ||
+        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.';
+      console.warn(
+        `[agentService] guard: substituindo confirmação real (motivo=${
+          hasFormalTone ? 'formal_tone' : 'forbidden_area'
+        }) pela resposta sintetizada com dados reais.`
+      );
+      return {
+        text: safe,
+        blocked: true,
+        reason: hasFormalTone
+          ? 'formal_tone_after_reservation'
+          : 'forbidden_area_after_reservation',
+      };
+    }
+  }
 
   if (!successPre && looksLikeFakeReservationConfirmation(text)) {
     const safe = buildSafeFollowupQuestion(workingState);
@@ -445,20 +497,32 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
     };
   }
 
+  // Tom formal SEMPRE bloqueado, independente de ter reserva ou não.
+  if (looksLikeFormalToneViolation(text)) {
+    console.warn(
+      '[agentService] guard: detectado tom formal proibido — substituindo por resposta neutra.'
+    );
+    const safe = successPre
+      ? synthesizeReplyFromToolTrace(toolTrace) ||
+        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
+      : buildSafeFollowupQuestion(workingState);
+    return { text: safe, blocked: true, reason: 'formal_tone' };
+  }
+
   if (containsForbiddenAreaName(text)) {
     console.warn(
       '[agentService] guard: detectado nome de área proibido — substituindo por resposta segura.'
     );
-    const safe =
-      'Pra te direcionar pra área certa, deixa eu verificar a disponibilidade. Pode me confirmar a data, o horário e quantas pessoas vão?';
+    const safe = successPre
+      ? synthesizeReplyFromToolTrace(toolTrace) ||
+        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
+      : 'Pra te direcionar pra área certa, deixa eu verificar a disponibilidade. Pode me confirmar a data, o horário e quantas pessoas vão?';
     return { text: safe, blocked: true, reason: 'forbidden_area_name' };
   }
 
   // Bloqueia plano de "fazer N reservas SEPARADAS" pro mesmo grupo.
   // PERMITE "combinar/juntar N mesas em uma reserva" (feature legítima do
   // modal /admin/restaurant-reservations "Reservar múltiplas mesas").
-  // Diferença chave: a palavra "reservas" no PLURAL (múltiplas pré-reservas)
-  // é bloqueada; "mesas" no plural é permitido.
   if (
     /\b(tr[eê]s|3|duas|2|quatro|4|cinco|5) reservas? (na|no|para|pro)\b/i.test(text) &&
     !/\b(uma|1) reserva\b/i.test(text)
@@ -678,6 +742,42 @@ async function runAgentTurn({
   const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
   const userText = String(lastUser?.content || '').trim();
   const referenceDateIso = getReferenceDateIso();
+
+  // Cliente reclamou da resposta anterior (data errada, "vc errou", etc.).
+  // Responde com pedido de desculpas + pergunta direta da data correta, e
+  // reseta os flags de data confirmada no workingState pra forçar nova
+  // interpretação no próximo turno.
+  const correction = detectClientCorrectingPreviousReply(userText);
+  if (correction && memory.workingState) {
+    const ws = memory.workingState || {};
+    const todayLabel = (() => {
+      const [y, m, d] = String(referenceDateIso).split('-');
+      return `${d}/${m}/${y}`;
+    })();
+    const resetState = {
+      ...ws,
+      reservation_date: null,
+      reservation_date_confirmed: false,
+      pending_reservation_date_iso: null,
+      pending_reservation_date_label: null,
+      availability_checked_for: null,
+      availability_time_checked_for: null,
+    };
+    const msg =
+      correction.kind === 'date_error'
+        ? `Foi mal, escorreguei na data! Hoje é ${todayLabel}. Me confirma de novo, por favor — pra que dia e horário você quer a reserva?`
+        : 'Foi mal, escorreguei. Me confirma de novo qual a data e horário corretos da sua reserva, por favor?';
+    console.warn(
+      `[agentService] cliente apontou erro (kind=${correction.kind}); reset de estado de data.`
+    );
+    return {
+      replyText: msg,
+      workingState: resetState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
 
   // Primeira mensagem do cliente que é só cumprimento + intenção de reserva
   // (sem dados reais como data, horário, pessoas) — responda com tom humano,

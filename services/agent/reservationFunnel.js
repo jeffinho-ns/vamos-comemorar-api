@@ -52,6 +52,35 @@ function looksLikeAdEntryGreeting(text) {
  * para fazer a IA ECOAR a saudação na primeira resposta. Captura saudações
  * combinadas com intenção de reserva ("boa noite, me ajude com uma reserva").
  */
+/**
+ * Detecta quando o cliente está apontando erro na confirmação anterior da IA
+ * (data, ano, área, quantidade etc.). Quando isso acontece, o agente DEVE
+ * resetar o estado de confirmação e pedir desculpas antes de tentar novamente.
+ */
+function detectClientCorrectingPreviousReply(text) {
+  const normalized = normalizeForGreetingDetection(text);
+  if (!normalized) return null;
+  // Padrões: "errou", "está errado", "data errada", "não estamos em 2027",
+  // "não é esse ano", "ano errado", "veja a data", "ainda não chegou em".
+  const dateError =
+    /\b(errou|esta? errad|data errada|ano errado|nao (estamos|chegou)|ainda nao (estamos|e)|ano (errad|de) 20\d{2})\b/.test(
+      normalized
+    ) ||
+    /\bnao e (esse|esta|essa)\b/.test(normalized) ||
+    /\bdata (esta|ta|t[áa]) errada\b/.test(normalized);
+  if (dateError) {
+    return { kind: 'date_error', text };
+  }
+  const generalCorrection =
+    /\bvc errou\b|\bvoce errou\b|\bnao foi (isso|esse|essa|esses)\b|\bnao e (isso|esse|essa)\b|\bcorrige\b|\bcorrigir\b/.test(
+      normalized
+    );
+  if (generalCorrection) {
+    return { kind: 'general_correction', text };
+  }
+  return null;
+}
+
 function detectOpeningGreeting(text) {
   const normalized = normalizeForGreetingDetection(text);
   if (!normalized) return null;
@@ -493,6 +522,7 @@ module.exports = {
   assistantAskedForReservationTime,
   looksLikeAdEntryGreeting,
   detectOpeningGreeting,
+  detectClientCorrectingPreviousReply,
   isFirstUserMessageInConversation,
   extractFirstName,
 };

@@ -3,6 +3,7 @@ const {
   getZonedParts,
   toIsoDate,
   isDateInPastComparedToReference,
+  isDateTooFarInFuture,
 } = require('../../nlp/dateResolver');
 const {
   checkCapacityViaInternalApi,
@@ -498,6 +499,16 @@ async function verificarDisponibilidade(pool, args = {}) {
     };
   }
 
+  if (isDateTooFarInFuture(reservationDate, referenceDateIso, 11)) {
+    console.warn(
+      `[agentTools] verificar_disponibilidade rejeitado por data >11 meses: ${reservationDate} (hoje ${referenceDateIso})`
+    );
+    return {
+      ok: false,
+      error: `A data ${reservationDate} está muito longe (mais de 11 meses à frente de hoje ${referenceDateIso}). Confirme a data correta com o cliente — provavelmente houve erro de ano (alucinação do modelo). Use o calendário do sistema, NUNCA o seu treinamento.`,
+    };
+  }
+
   const override = await businessRulesEngine.getDateOverride(pool, establishmentId, reservationDate);
   if (override && override.is_open === false) {
     return {
@@ -725,6 +736,16 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     return {
       ok: false,
       error: `A data ${reservationDate} está no passado (hoje é ${referenceDateIso}).`,
+    };
+  }
+
+  if (isDateTooFarInFuture(reservationDate, referenceDateIso, 11)) {
+    console.warn(
+      `[agentTools] criar_pre_reserva REJEITADO por data alucinada >11 meses: ${reservationDate} (hoje ${referenceDateIso}) waId=${waId}`
+    );
+    return {
+      ok: false,
+      error: `A data ${reservationDate} está muito longe (mais de 11 meses à frente de hoje ${referenceDateIso}). Quase certamente é alucinação de ano do modelo. Reconfirma a data com o cliente usando o calendário do sistema antes de criar a reserva.`,
     };
   }
 
