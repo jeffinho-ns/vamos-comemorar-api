@@ -185,7 +185,10 @@ Se ainda faltar qualquer campo obrigatório (nome completo, e-mail, data de nasc
 Quando a ferramenta criar_pre_reserva voltar ok=true, a resposta padrão é simples:
 "Fechado! Sua reserva ficou pra {data} às {horário}{na área}. Qualquer coisa, é só chamar."
 
-O sistema tem um guard que detecta confirmações falsas e substitui automaticamente — não conte com isso, faça certo na origem.`,
+IMPORTANTE — A FONTE DE VERDADE É A FERRAMENTA:
+- Sempre que criar_pre_reserva voltar ok=true, o sistema vai DESCARTAR o texto livre que você gerar e enviar ao cliente APENAS o template oficial montado com os dados reais retornados pela tool (data, horário, área, mesas combinadas).
+- Por isso, na hora de confirmar, NUNCA invente data, ano, área, capacidade ou nome próprio. Não tente "narrar" a reserva — só repita o que a tool devolveu (ou nem escreva confirmação, deixa o sistema confirmar).
+- Quando estiver coletando dados (antes do ok=true), também não force confirmação textual — o guard detecta e substitui automaticamente.`,
   },
   {
     topic: 'proibicao_multiplas_reservas_mesmo_grupo',

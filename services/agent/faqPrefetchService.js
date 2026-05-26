@@ -142,7 +142,7 @@ async function generateFaqGroundedReply({
     .join('\n');
 
   const completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: process.env.OPENAI_AGENT_MODEL || 'gpt-4o',
     messages: [
       {
         role: 'system',

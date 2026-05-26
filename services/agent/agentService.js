@@ -209,11 +209,17 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
   return null;
 }
 
+// Modelo padrão é o gpt-4o (suporte muito superior a instruções, menos
+// alucinação de datas/nomes próprios, segue tom corretamente). É ~50x mais
+// caro que o gpt-4o-mini, mas para reservas em produção compensa de longe.
+// Pode ser sobrescrito via env var OPENAI_AGENT_MODEL (ex.: "gpt-4o-2024-11-20").
+const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-4o';
+
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {
   const payload = {
-    model: 'gpt-4o-mini',
+    model: AGENT_MODEL,
     messages,
-    temperature: 0.45,
+    temperature: 0.3,
   };
   if (tools?.length) {
     payload.tools = tools;
@@ -459,28 +465,27 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
 
   const successPre = lastSuccessfulPreReserva(toolTrace);
 
-  // QUANDO HÁ RESERVA OK: usa a resposta sintetizada com os dados REAIS
-  // da reserva (não confia no texto do LLM que pode alucinar data/área/qtd).
-  // Só preserva o texto do LLM se ele NÃO tiver tom formal nem área proibida.
+  // QUANDO HÁ RESERVA OK: SEMPRE usa a resposta sintetizada com os dados REAIS
+  // da reserva. O texto do LLM pode (e historicamente DEVE) ser descartado
+  // porque ele tende a alucinar data, ano, área, capacidade e nome próprio —
+  // mesmo quando a tool foi chamada corretamente. Só permitimos fallback ao
+  // texto do LLM se a síntese falhar.
   if (successPre) {
-    const hasFormalTone = looksLikeFormalToneViolation(text);
-    const hasForbiddenArea = containsForbiddenAreaName(text);
-    if (hasFormalTone || hasForbiddenArea) {
-      const synthetic = synthesizeReplyFromToolTrace(toolTrace);
-      const safe =
-        synthetic ||
-        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.';
-      console.warn(
-        `[agentService] guard: substituindo confirmação real (motivo=${
-          hasFormalTone ? 'formal_tone' : 'forbidden_area'
-        }) pela resposta sintetizada com dados reais.`
-      );
+    const synthetic = synthesizeReplyFromToolTrace(toolTrace);
+    if (synthetic) {
+      const llmAddedRisk =
+        looksLikeFormalToneViolation(text) || containsForbiddenAreaName(text);
+      if (llmAddedRisk) {
+        console.warn(
+          '[agentService] guard: descartando texto do LLM (risco detectado) e usando síntese determinística da reserva.'
+        );
+      }
       return {
-        text: safe,
-        blocked: true,
-        reason: hasFormalTone
-          ? 'formal_tone_after_reservation'
-          : 'forbidden_area_after_reservation',
+        text: synthetic,
+        blocked: text !== synthetic,
+        reason: llmAddedRisk
+          ? 'deterministic_confirmation_override_risky'
+          : 'deterministic_confirmation_override',
       };
     }
   }
@@ -908,7 +913,15 @@ async function runAgentTurn({
   let preReservationResult = null;
   let guestListLink = null;
 
-  let assistantMessage = await requestAssistantCompletion(messages, tools, 'auto');
+  // Quando todos os dados obrigatórios já estão no estado e ainda não houve
+  // criar_pre_reserva, forçamos diretamente a chamada da função — evita o
+  // modelo gerar texto solto antes ("Sua reserva foi confirmada!") sem chamar
+  // a tool. Caso contrário, deixa o modelo decidir (auto).
+  const initialToolChoice = reservationFunnelIsComplete(workingState)
+    ? { type: 'function', function: { name: 'criar_pre_reserva' } }
+    : 'auto';
+
+  let assistantMessage = await requestAssistantCompletion(messages, tools, initialToolChoice);
   let guard = 0;
   const baseMaxRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 3);
   const maxToolRounds = funnelActive ? Math.max(baseMaxRounds, 5) : baseMaxRounds;

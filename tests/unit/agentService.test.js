@@ -134,7 +134,9 @@ test('sanitizeAssistantReply substitui confirmação falsa por pergunta segura',
   assert.doesNotMatch(result.text, /Caro|Atenciosamente|grande satisfação/i);
 });
 
-test('sanitizeAssistantReply NÃO bloqueia quando criar_pre_reserva rodou com sucesso', () => {
+test('sanitizeAssistantReply SEMPRE prefere texto determinístico quando há reserva criada', () => {
+  // Mesmo que o LLM gere texto aparentemente "ok", descartamos pra evitar
+  // alucinação de data/ano/área/quantidade. Usamos só o que a tool retornou.
   const result = sanitizeAssistantReply(
     'Sua reserva está confirmada para 30/05 às 21:00 — qualquer coisa é só chamar.',
     {
@@ -150,7 +152,12 @@ test('sanitizeAssistantReply NÃO bloqueia quando criar_pre_reserva rodou com su
       workingState: {},
     }
   );
-  assert.equal(result.blocked, false);
+  // O texto deve vir do template determinístico (que sempre começa com "Fechado!").
+  assert.match(result.text, /^Fechado!/);
+  assert.match(result.text, /2026-05-30/);
+  assert.match(result.text, /21:00/);
+  // reason indica que foi override determinístico (sem risco extra detectado).
+  assert.equal(result.reason, 'deterministic_confirmation_override');
 });
 
 test('sanitizeAssistantReply bloqueia nome de área proibido', () => {
@@ -193,8 +200,9 @@ test('sanitizeAssistantReply substitui tom formal mesmo com reserva criada', () 
     workingState: {},
   });
   assert.equal(result.blocked, true);
-  assert.ok(
-    ['formal_tone_after_reservation', 'forbidden_area_after_reservation'].includes(result.reason),
+  assert.equal(
+    result.reason,
+    'deterministic_confirmation_override_risky',
     `motivo inesperado: ${result.reason}`
   );
   assert.doesNotMatch(result.text, /Caro|Atenciosamente|grande alegria|2027|Terraço/i);

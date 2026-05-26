@@ -9,6 +9,11 @@ const {
 /** Evita crash ao subir o servidor sem OPENAI_API_KEY; a chave só é exigida ao chamar a IA. */
 let openaiClient = null;
 const promptBuilder = new PromptBuilder();
+
+// gpt-4o segue instruções/tom muito melhor que gpt-4o-mini (sem alucinação
+// de ano, sem tom formal, respeita guard-rails). Override via env var
+// OPENAI_AGENT_MODEL para downgrade emergencial sem deploy.
+const AI_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-4o';
 function getOpenAI() {
   if (!openaiClient) {
     const key = process.env.OPENAI_API_KEY;
@@ -230,7 +235,7 @@ async function interpretMessage(opts) {
 
   if (!toolsEnabled) {
     const completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: AI_MODEL,
       response_format: { type: 'json_object' },
       messages,
       temperature: 0.3,
@@ -243,7 +248,7 @@ async function interpretMessage(opts) {
   }
 
   let completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: AI_MODEL,
     messages,
     tools,
     tool_choice: toolsEnabled ? 'auto' : undefined,
@@ -263,7 +268,7 @@ async function interpretMessage(opts) {
       });
     }
     completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: AI_MODEL,
       messages,
       tools,
       tool_choice: 'auto',
@@ -276,7 +281,7 @@ async function interpretMessage(opts) {
   if (assistantMessage?.tool_calls?.length) {
     messages.push(assistantMessage);
     completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: AI_MODEL,
       response_format: { type: 'json_object' },
       messages: [
         ...messages,
@@ -289,7 +294,7 @@ async function interpretMessage(opts) {
     });
   } else {
     completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: AI_MODEL,
       response_format: { type: 'json_object' },
       messages: [
         ...messages,
@@ -326,7 +331,7 @@ async function generateReservationConfirmationMessage(opts) {
   }
 
   const completion = await getOpenAI().chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: AI_MODEL,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: confirmationSystemPrompt },
