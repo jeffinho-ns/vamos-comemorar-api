@@ -235,14 +235,23 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
   return null;
 }
 
-// Modelo padrão é gpt-5.5 (flagship em maio/2026): segue instruções e tom de
-// voz MUITO melhor que gpt-4o, e tem queda drástica em alucinação de
-// datas/áreas/nomes — exatamente os bugs que vimos em produção (data 2027,
-// "Caro Jefferson", "Terraço", "Bar Central"). Pode ser sobrescrito via env
-// var OPENAI_AGENT_MODEL (ex.: "gpt-5.4-mini" para reduzir custo, ou
-// "gpt-4o" como fallback emergencial). Em todos os casos, o caminho usa Chat
-// Completions API + function calling — migrar para Responses API exigiria
-// refactor do round-trip de tool calls.
+// ============================================================================
+// TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para este projeto
+// é o gpt-5.5 (flagship em maio/2026). Segue instruções e tom de voz MUITO
+// melhor que gpt-4o, com queda drástica em alucinação de datas/áreas/nomes
+// — exatamente os bugs que vimos em produção (data 2027, "Caro Jefferson",
+// "Terraço", "Bar Central"). Confirmado pelo commit 28f7406.
+//
+// NÃO faça downgrade para gpt-5.4 ou gpt-4o sem aprovação explícita —
+// regressão já foi medida em produção (Highline).
+//
+// Único downgrade aceito (e só em emergência, via env, SEM deploy):
+//   OPENAI_AGENT_MODEL=gpt-5.4-mini  (variante econômica, qualidade inferior)
+//   OPENAI_AGENT_MODEL=gpt-4o        (fallback emergencial se 5.5 cair)
+//
+// Em todos os casos, o caminho usa Chat Completions API + function calling —
+// migrar para Responses API exigiria refactor do round-trip de tool calls.
+// ============================================================================
 const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {

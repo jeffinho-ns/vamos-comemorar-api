@@ -150,6 +150,7 @@ async function generateFaqGroundedReply({
     .join('\n');
 
   const completion = await getOpenAI().chat.completions.create({
+    // TRAVA DE PRODUÇÃO: modelo homologado é gpt-5.5 (ver agentService.js).
     model: process.env.OPENAI_AGENT_MODEL || 'gpt-5.5',
     messages: [
       {

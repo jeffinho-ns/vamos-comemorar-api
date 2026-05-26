@@ -18,6 +18,9 @@
 require('dotenv').config();
 const OpenAI = require('openai');
 
+// TRAVA DE PRODUÇÃO: o modelo default DESTE script reflete o modelo
+// homologado em produção (ver services/agent/agentService.js). Não alterar
+// para 5.4/4o sem aprovação.
 const MODEL = process.argv[2] || process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 
 if (!process.env.OPENAI_API_KEY) {

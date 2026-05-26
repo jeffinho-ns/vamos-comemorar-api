@@ -51,12 +51,21 @@ const {
 let openaiClient = null;
 const promptBuilder = new PromptBuilder();
 
-// Modelo padrão é gpt-5.5 (flagship em maio/2026): muito superior ao gpt-4o
-// em seguir tom de voz, evitar alucinação de ano/área/nome próprio e respeitar
-// guard-rails. Override via env var OPENAI_AGENT_MODEL para downgrade
-// emergencial sem deploy (ex.: gpt-5.4-mini para reduzir custo, ou gpt-4o
-// como fallback temporário). Atenção: caminho atual usa Chat Completions —
-// para usar Responses API seria necessário refactor.
+// ============================================================================
+// TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para este projeto
+// é o gpt-5.5 (flagship em maio/2026). Confirmado pelo commit 28f7406 que
+// resolveu alucinação de data/área/nome próprio e tom robótico no Highline.
+//
+// NÃO faça downgrade para gpt-5.4 ou gpt-4o sem aprovação explícita —
+// regressão já foi medida em produção.
+//
+// Único downgrade aceito (e só em emergência de custo, via env, SEM deploy):
+//   OPENAI_AGENT_MODEL=gpt-5.4-mini  (variante econômica, qualidade inferior)
+//   OPENAI_AGENT_MODEL=gpt-4o        (fallback de emergência se 5.5 cair)
+//
+// Atenção: caminho atual usa Chat Completions — para usar Responses API
+// seria necessário refactor.
+// ============================================================================
 const AI_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 function getOpenAI() {
   if (!openaiClient) {
