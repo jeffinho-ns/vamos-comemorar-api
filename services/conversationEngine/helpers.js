@@ -380,6 +380,40 @@ async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   return result.rows || [];
 }
 
+/**
+ * Retorna o areasBlock corrigido para um estabelecimento específico, evitando
+ * que o LLM legado liste áreas de OUTROS bares como se fossem do estabelecimento
+ * em foco. Como a tabela restaurant_areas é compartilhada (sem coluna
+ * establishment_id), o catálogo global (loadAiCatalog) mistura tudo.
+ *
+ * Para o Highline (id=7), retornamos a lista canônica vinda do código
+ * (HIGHLINE_SUBAREAS). Para outros estabelecimentos, devolvemos o fallback.
+ */
+function buildAreasBlockForEstablishment(establishmentId, fallbackAreasBlock = '') {
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) return fallbackAreasBlock;
+
+  let isHighlineEstablishment;
+  let HIGHLINE_SUBAREAS;
+  try {
+    ({
+      isHighlineEstablishment,
+      HIGHLINE_SUBAREAS,
+    } = require('../agent/highlineReservationAreas'));
+  } catch (_error) {
+    return fallbackAreasBlock;
+  }
+
+  if (isHighlineEstablishment && isHighlineEstablishment(id)) {
+    if (!Array.isArray(HIGHLINE_SUBAREAS) || HIGHLINE_SUBAREAS.length === 0) {
+      return fallbackAreasBlock;
+    }
+    const lines = HIGHLINE_SUBAREAS.map((s) => `- ${s.label} (${s.partyHint || ''})`).join('\n');
+    return `ÁREAS DO HIGHLINE (use SOMENTE estas; jamais invente outras como "Terraço", "Balcão", "Área Coberta", "Área VIP", "Área Descoberta", "Mezanino"):\n${lines}`;
+  }
+  return fallbackAreasBlock;
+}
+
 module.exports = {
   extractEstablishmentToken,
   resolveEstablishmentByToken,
@@ -407,4 +441,5 @@ module.exports = {
   getCardapioUrlByEstablishmentId,
   applyBusinessRulesToReservationParams,
   loadActiveRestaurantAreas,
+  buildAreasBlockForEstablishment,
 };

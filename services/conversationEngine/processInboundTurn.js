@@ -51,6 +51,7 @@ const {
   getCardapioUrlByEstablishmentId,
   applyBusinessRulesToReservationParams,
   loadActiveRestaurantAreas,
+  buildAreasBlockForEstablishment,
 } = require('./helpers');
 const {
   EVENT_TYPES,
@@ -66,6 +67,7 @@ const {
 const { isConversationSafetyBlockEnabled } = require('../conversationTestingMode');
 const { isAgentModeEnabled } = require('../agent/agentMode');
 const { processAgentInboundTurn } = require('./processAgentInboundTurn');
+const { sanitizeAssistantReply } = require('../agent/agentService');
 const { getMemory } = require('../agent/agentMemoryService');
 const {
   shouldUseLegacyReservationFunnel,
@@ -722,6 +724,15 @@ async function processLegacyInboundTurn({
         ),
       };
     } else {
+      // Para o Highline (e outros estabelecimentos com áreas canônicas no
+      // código), sobrescrevemos o areasBlock genérico do catálogo do banco —
+      // que mistura áreas de TODOS os bares — pela lista correta. Sem isso, o
+      // LLM legado inventa áreas alheias (ex.: "Terraço", "Área Coberta", etc.).
+      const areasBlockForPrompt = buildAreasBlockForEstablishment(
+        activeEstablishmentId,
+        catalog.areasBlock
+      );
+
       interpreted = await interpretMessage({
         pool,
         messageHistory,
@@ -729,7 +740,7 @@ async function processLegacyInboundTurn({
           establishmentsBlock: linkedEstablishment
             ? `- id ${linkedEstablishment.id}: ${linkedEstablishment.name}`
             : catalog.establishmentsBlock,
-          areasBlock: catalog.areasBlock,
+          areasBlock: areasBlockForPrompt,
           lockedEstablishmentId: activeEstablishmentId,
           lockedEstablishmentName:
             linkedEstablishment?.name ||
@@ -1172,6 +1183,26 @@ async function processLegacyInboundTurn({
     } else if (looksLikeAvailabilityQuestion(messageText) && !canonicalEstablishmentId) {
       replyText =
         'Consigo verificar os horários disponíveis agora. Me confirma apenas o estabelecimento que você quer, que já te passo as opções e encaminho sua reserva.';
+    }
+
+    // Guard determinístico de saída: bloqueia áreas inválidas (Terraço, Balcão,
+    // Área Coberta/Descoberta/VIP), tom formal ("Caro X", "Atenciosamente") e
+    // confirmações falsas mesmo quando a resposta vem do cérebro legado
+    // (aiService.interpretMessage). Esse caminho não tem toolTrace, então o
+    // guard só vai filtrar/substituir texto problemático sem tentar sintetizar.
+    try {
+      const guardOutput = sanitizeAssistantReply(replyText, {
+        toolTrace: [],
+        workingState: conversationState?.collectedFields || {},
+      });
+      if (guardOutput.blocked) {
+        console.warn(
+          `[conversationEngine] legacy guard: substituiu reply (reason=${guardOutput.reason}) waId=${waId}`
+        );
+        replyText = guardOutput.text;
+      }
+    } catch (guardError) {
+      console.warn('[conversationEngine] legacy guard error:', guardError.message);
     }
 
     await outboundGateway.sendText(waId, replyText);
