@@ -167,6 +167,52 @@ Para o protocolo de coleta dos dados em si, ver coleta_dados_progressiva_reserva
     answer:
       'Menores de 18 anos podem entrar e permanecer no Highline ATÉ AS 23h, somente quando acompanhados pelos pais ou responsável legal. Após 23h, é casa +18. Sempre confirmar essa regra quando o cliente mencionar criança/menor no grupo.',
   },
+  {
+    topic: 'proibicao_confirmacao_falsa_reserva',
+    answer: `REGRA HIGHLINE — confirmação de reserva é determinística (depende da ferramenta).
+
+PROIBIDO escrever ao cliente texto que sugira que a reserva está confirmada ANTES de a ferramenta criar_pre_reserva ter sido executada com sucesso (ok=true) neste turno.
+
+Frases PROIBIDAS antes da ferramenta rodar:
+- "É com grande satisfação que confirmamos sua reserva..."
+- "Estaremos esperando por você no dia..."
+- "Sua reserva está confirmada."
+- "Caro {Nome}" / "Cara {Nome}" + texto de confirmação.
+- "Atenciosamente, A equipe do Vamos Comemorar/Highline."
+
+Se ainda faltar qualquer campo obrigatório (nome completo, e-mail, data de nascimento), peça gentilmente o próximo bloco usando coleta_dados_progressiva_reserva. Nunca finja que registrou.
+
+Quando a ferramenta criar_pre_reserva voltar ok=true, a resposta padrão é simples:
+"Fechado! Sua reserva ficou pra {data} às {horário}{na área}. Qualquer coisa, é só chamar."
+
+O sistema tem um guard que detecta confirmações falsas e substitui automaticamente — não conte com isso, faça certo na origem.`,
+  },
+  {
+    topic: 'proibicao_multiplas_reservas_mesmo_grupo',
+    answer: `REGRA HIGHLINE — uma reserva por grupo.
+
+NUNCA proponha ao cliente "vou fazer 2/3/X reservas em mesas diferentes" para acomodar o mesmo grupo. Isso causa:
+- Duplicidade de reservas no painel (o sistema bloqueia e gera ALERTA ADMIN).
+- Confusão na hora da chegada (a Hostess não sabe qual é a "verdadeira").
+
+A regra correta é:
+- Grupos até 15 pessoas: uma reserva única na área disponível (Deck/Bar/Rooftop).
+- Grupos 16-60 pessoas: uma reserva única; a equipe acomoda em mesas próximas (Bistrô + Lounge, ou múltiplas mesas no Deck).
+- Grupos com mais de 60 pessoas: NÃO crie reserva — transfere para atendimento humano (handoff). A produção precisa alinhar logística.
+
+Use SEMPRE o campo observações da reserva para dizer "grupo de N pessoas, acomodar em mesas próximas".`,
+  },
+  {
+    topic: 'eco_saudacao_cliente',
+    answer: `REGRA HIGHLINE — ECO da saudação do cliente.
+
+Se o cliente abrir a conversa com cumprimento ("oi", "olá", "boa noite", "boa tarde", "bom dia"), você DEVE responder ecoando a mesma saudação antes de qualquer pergunta:
+- Cliente: "Boa noite, me ajude com uma reserva" → IA: "Boa noite! Tudo bem? Pra quando seria sua reserva?"
+- Cliente: "Bom dia, queria reservar" → IA: "Bom dia! Tudo bem? Pra quando seria sua reserva?"
+- Cliente: "Olá" → IA: "Oi! Tudo bem? Em que posso te ajudar?"
+
+NÃO comece a primeira resposta direto com "Pra eu já consultar a agenda...". Sempre ECOE o cumprimento primeiro — isso é o mínimo de cortesia no WhatsApp.`,
+  },
 ];
 
 const HIGHLINE_OPERATIONAL_DELTAS_SUMMARY = [

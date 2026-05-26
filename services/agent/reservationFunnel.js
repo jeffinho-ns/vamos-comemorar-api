@@ -13,25 +13,30 @@ const {
  * no Pracinha", etc. São mensagens curtas que só anunciam a intenção sem
  * dar nenhum dado real — é o lead frio que precisa ser puxado para conversa.
  */
-function looksLikeAdEntryGreeting(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return false;
-  if (raw.length > 120) return false;
-  const normalized = raw
+function normalizeForGreetingDetection(text) {
+  return String(text || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[!.?]+/g, ' ')
+    .replace(/[!.?,]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function looksLikeAdEntryGreeting(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (raw.length > 160) return false;
+  const normalized = normalizeForGreetingDetection(raw);
   if (!normalized) return false;
 
   const askingReservation =
-    /\b(quero|gostaria|preciso|posso|consigo)\b.*\b(fazer (uma )?reserva|reservar|reserva)\b/.test(
+    /\b(quero|gostaria|preciso|posso|consigo|pode|poderia|me ajude|me ajuda|ajude-me|ajuda)\b.*\b(fazer (uma )?reserva|reservar|reserva|reservas)\b/.test(
       normalized
     ) ||
-    /\bfazer (uma )?reserva\b/.test(normalized) ||
-    /\bquero (uma )?reserva\b/.test(normalized);
+    /\b(fazer|nova|uma) (uma )?reserva\b/.test(normalized) ||
+    /\bquero (uma )?reserva\b/.test(normalized) ||
+    /\breservar\b/.test(normalized);
 
   const hasNoRealData =
     !/\d/.test(normalized) &&
@@ -40,6 +45,21 @@ function looksLikeAdEntryGreeting(text) {
     );
 
   return askingReservation && hasNoRealData;
+}
+
+/**
+ * Detecta o cumprimento do cliente (oi/boa noite/bom dia/boa tarde) — usado
+ * para fazer a IA ECOAR a saudação na primeira resposta. Captura saudações
+ * combinadas com intenção de reserva ("boa noite, me ajude com uma reserva").
+ */
+function detectOpeningGreeting(text) {
+  const normalized = normalizeForGreetingDetection(text);
+  if (!normalized) return null;
+  if (/\bboa noite\b/.test(normalized)) return 'Boa noite';
+  if (/\bboa tarde\b/.test(normalized)) return 'Boa tarde';
+  if (/\bbom dia\b/.test(normalized)) return 'Bom dia';
+  if (/^(oi|ola|olá|opa|e ai|eai|hey|hi|hello)\b/.test(normalized)) return 'Oi';
+  return null;
 }
 
 function isFirstUserMessageInConversation(messageHistory = []) {
@@ -472,6 +492,7 @@ module.exports = {
   inferAvailabilityCheckedFromHistory,
   assistantAskedForReservationTime,
   looksLikeAdEntryGreeting,
+  detectOpeningGreeting,
   isFirstUserMessageInConversation,
   extractFirstName,
 };

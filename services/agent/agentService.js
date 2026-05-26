@@ -30,6 +30,7 @@ const {
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
   looksLikeAdEntryGreeting,
+  detectOpeningGreeting,
   isFirstUserMessageInConversation,
   extractFirstName,
 } = require('./reservationFunnel');
@@ -351,21 +352,138 @@ async function forceCreatePreReservaIfReady({
   };
 }
 
+/**
+ * Detecta padrões textuais de "confirmação de reserva" que o LLM às vezes
+ * inventa SEM ter chamado a tool criar_pre_reserva — gerando para o cliente
+ * a falsa impressão de que a reserva está registrada. Quando isso acontece,
+ * a resposta é substituída por uma pergunta segura pelo próximo dado faltante.
+ */
+// Observação: \b não funciona ao redor de caracteres acentuados em regex JS
+// base, então usamos limites brandos (início/fim de palavra via espaços ou
+// pontuação) onde caracteres especiais aparecem.
+const FAKE_CONFIRMATION_PATTERNS = [
+  /confirmamos sua reserva/i,
+  /reserva\s+(est[áa]\s+)?confirmada/i,
+  /estaremos esperando por voc/i,
+  /[ée] com (grande )?(satisfa[cç][aã]o|prazer)/i,
+  /(?:^|[\s,.;!?])(caro|cara|caros|caras)\s+[A-ZÀ-Ÿ]/, // "Caro Jefferson", "Cara Maria"
+  /atenciosamente/i,
+  /cordialmente/i,
+  /equipe do vamos comemorar/i,
+  /equipe do highline/i,
+  /sua mesa (est[aá]|fica|j[aá])/i,
+  /reserva (concluida|conclu[ií]da|finalizada|feita com sucesso)/i,
+];
+
+const FORBIDDEN_AREA_NAMES = [
+  /terra[cç]o/i,
+  /(?:^|[\s,.;!?(])balc[aã]o(?=$|[\s,.;!?)])/i,
+  /[áa]rea coberta/i,
+  /[áa]rea descoberta/i,
+  /[áa]rea vip(?! consum)/i, // "Área VIP" sozinha (mas permite "Área VIP consumível" se vier do FAQ de camarote)
+  /mezanino/i,
+  /pista interna/i,
+];
+
+function looksLikeFakeReservationConfirmation(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  return FAKE_CONFIRMATION_PATTERNS.some((re) => re.test(t));
+}
+
+function containsForbiddenAreaName(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  return FORBIDDEN_AREA_NAMES.some((re) => re.test(t));
+}
+
+function lastSuccessfulPreReserva(toolTrace = []) {
+  for (let i = toolTrace.length - 1; i >= 0; i -= 1) {
+    const entry = toolTrace[i];
+    if (entry?.name === 'criar_pre_reserva' && entry?.result?.ok && entry?.result?.pre_reserva) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function buildSafeFollowupQuestion(workingState = {}) {
+  try {
+    const nextQ = buildNextFieldQuestion(workingState);
+    if (nextQ) return nextQ;
+  } catch (_e) {
+    // ignore
+  }
+  return 'Pra eu deixar tudo certo no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).';
+}
+
+/**
+ * Aplica guards determinísticos à resposta do LLM antes de devolver ao cliente.
+ *  - Bloqueia confirmação de reserva quando criar_pre_reserva NÃO rodou ok.
+ *  - Bloqueia nomes de área proibidos (Terraço, Balcão, Área Coberta, etc.).
+ *  - Bloqueia tom formal ("Caro Jefferson", "Atenciosamente").
+ *  - Bloqueia sugestão de múltiplas reservas pro mesmo grupo.
+ */
+function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} } = {}) {
+  const text = String(replyText || '').trim();
+  if (!text) return { text, blocked: false };
+
+  const successPre = lastSuccessfulPreReserva(toolTrace);
+
+  if (!successPre && looksLikeFakeReservationConfirmation(text)) {
+    const safe = buildSafeFollowupQuestion(workingState);
+    console.warn(
+      '[agentService] guard: bloqueado texto de confirmação falsa de reserva (sem criar_pre_reserva ok).'
+    );
+    return {
+      text: safe,
+      blocked: true,
+      reason: 'fake_reservation_confirmation',
+    };
+  }
+
+  if (containsForbiddenAreaName(text)) {
+    console.warn(
+      '[agentService] guard: detectado nome de área proibido — substituindo por resposta segura.'
+    );
+    const safe =
+      'Pra te direcionar pra área certa, deixa eu verificar a disponibilidade. Pode me confirmar a data, o horário e quantas pessoas vão?';
+    return { text: safe, blocked: true, reason: 'forbidden_area_name' };
+  }
+
+  if (/\b(tr[eê]s|3|duas|2|quatro|4) reservas? (na|no|para|pro)\b/i.test(text)) {
+    console.warn(
+      '[agentService] guard: bloqueado plano de múltiplas reservas pro mesmo grupo.'
+    );
+    const safe =
+      'Para grupos grandes, organizamos como UMA reserva só (a equipe acomoda em mesas próximas no Deck, Bar ou Rooftop). Quer seguir assim? Me passa o nome completo, o e-mail e a data de nascimento que eu já registro.';
+    return { text: safe, blocked: true, reason: 'multi_reservation_attempt' };
+  }
+
+  return { text, blocked: false };
+}
+
 async function finalizeAssistantReply(
   messages,
   tools,
   assistantMessage,
   toolTrace,
-  { funnelFallback = null } = {}
+  { funnelFallback = null, workingState = {} } = {}
 ) {
   let replyText = String(assistantMessage?.content || '').trim();
-  if (replyText) return replyText;
+  if (replyText) {
+    const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+    return sanitized.text;
+  }
 
   if (assistantMessage?.tool_calls?.length) {
     messages.push(assistantMessage);
     const forced = await requestAssistantCompletion(messages, tools, 'none');
     replyText = String(forced?.content || '').trim();
-    if (replyText) return replyText;
+    if (replyText) {
+      const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+      return sanitized.text;
+    }
   }
 
   const synthesized = synthesizeReplyFromToolTrace(toolTrace);
@@ -550,10 +668,12 @@ async function runAgentTurn({
   const userText = String(lastUser?.content || '').trim();
   const referenceDateIso = getReferenceDateIso();
 
-  // Caso 1ª mensagem ser a frase padrão do tráfego pago / anúncio: o cliente
-  // mandou só "Olá! Quero fazer uma reserva no HighLine." (ou similar) — não
-  // ofereça textão com pedido de TODOS os dados. Responda curto, pergunte
-  // apenas "para quando" e espere a próxima mensagem.
+  // Primeira mensagem do cliente que é só cumprimento + intenção de reserva
+  // (sem dados reais como data, horário, pessoas) — responda com tom humano,
+  // ECOANDO a saudação do cliente ("boa noite"/"boa tarde"/"bom dia") e
+  // fazendo UMA pergunta só. Esse caminho cobre tanto o "Click-to-WhatsApp"
+  // padrão do tráfego pago quanto frases tipo "Boa noite, me ajude com uma
+  // nova reserva no Highline".
   if (
     isFirstUserMessageInConversation(messageHistory) &&
     looksLikeAdEntryGreeting(userText) &&
@@ -563,9 +683,19 @@ async function runAgentTurn({
     const firstName =
       extractFirstName(runtimeContext?.contactName) ||
       extractFirstName(memory.workingState?.client_name);
-    const saudacao = firstName ? `Oi, ${firstName}! Tudo bem?` : 'Oi! Tudo bem?';
+    const greeting = detectOpeningGreeting(userText);
+    let saudacao;
+    if (greeting && firstName) {
+      saudacao = `${greeting}, ${firstName}! Tudo bem?`;
+    } else if (greeting) {
+      saudacao = `${greeting}! Tudo bem?`;
+    } else if (firstName) {
+      saudacao = `Oi, ${firstName}! Tudo bem?`;
+    } else {
+      saudacao = 'Oi! Tudo bem?';
+    }
     return {
-      replyText: `${saudacao} Para quando é sua reserva?`,
+      replyText: `${saudacao} Pra quando seria sua reserva?`,
       workingState: memory.workingState || {},
       toolTrace: [],
       preReservationResult: null,
@@ -738,12 +868,19 @@ async function runAgentTurn({
   }
 
   const funnelFallback = funnelActive ? buildNextFieldQuestion(workingState) : null;
-  const replyText =
+  const candidateReply =
     forcedCreate.replyText ||
     ensured.forcedReply ||
     (await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
       funnelFallback,
+      workingState,
     }));
+
+  const sanitized = sanitizeAssistantReply(candidateReply, {
+    toolTrace: toolTraceFinal,
+    workingState,
+  });
+  const replyText = sanitized.text;
 
   return {
     replyText,
@@ -760,4 +897,7 @@ module.exports = {
   synthesizeReplyFromToolTrace,
   synthesizeAvailabilityFromToolResult,
   tryFaqFirstReply,
+  sanitizeAssistantReply,
+  looksLikeFakeReservationConfirmation,
+  containsForbiddenAreaName,
 };
