@@ -229,8 +229,13 @@ function normalizeInboundText(text) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+// IMPORTANTE: o estabelecimento "Reserva Rooftop" (id 9) é uma casa SEPARADA do
+// Highline (id 7). A regex precisa exigir a string completa "reserva rooftop"
+// para casar. Aceitar só "rooftop" sozinho sequestra conversas do Highline que
+// mencionam a Área Rooftop (sub-área do Highline) e empurra o cliente pra outro
+// estabelecimento — bug reportado em produção (caso Julia Monteiro).
 const ESTABLISHMENT_ALIAS_PATTERNS = [
-  { pattern: /\breserva\s*rooftop\b|\brooftop\b/, id: 9 },
+  { pattern: /\breserva\s*rooftop\b/, id: 9 },
   { pattern: /\bpracinha\b/, id: 8 },
   { pattern: /\bhigh[\s-]?line\b/, id: 7 },
   { pattern: /\boh\s*fregues\b|\bfregues\b/, id: 4 },
@@ -322,7 +327,9 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     .trim();
 
   const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
-  if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
+  // "Reserva Rooftop" (id 9) só pode ser resolvido pela string completa.
+  // "rooftop" sozinho pode ser a Área Rooftop do Highline (sub-área), não a casa Reserva Rooftop.
+  if (hint.includes('reserva rooftop')) return 9;
   if (hint.includes('pracinha')) return 8;
   if (hint.includes('seu justino') || hint.includes('justino')) return 1;
   if (hint.includes('highline') || hint.includes('high line')) {
