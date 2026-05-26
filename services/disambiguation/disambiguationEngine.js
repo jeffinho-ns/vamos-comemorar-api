@@ -69,9 +69,9 @@ function buildNumberedOptions(candidates = [], labelPrefix = 'Opção') {
 
 function buildDisambiguationReply(type, candidates = []) {
   if (!candidates.length) return null;
-  const noun = type === 'area' ? 'área' : 'estabelecimento';
+  const noun = type === 'area' ? 'área' : 'casa';
   const options = buildNumberedOptions(candidates);
-  return `Encontrei mais de um ${noun} parecido. Me diga o número da opção que você prefere:\n${options}`;
+  return `Achei mais de uma ${noun} que combina. Qual dessas você quer? Manda só o número:\n${options}`;
 }
 
 function parseNumericChoice(messageText, maxOptions) {

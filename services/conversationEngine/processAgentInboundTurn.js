@@ -290,7 +290,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   } catch (error) {
     console.error('[agentEngine] erro no turno do agente:', error.message, error.stack);
     const fallback =
-      'Tive um instante por aqui. Pode repetir sua mensagem que eu continuo com você?';
+      'Opa, deu um pisco aqui do meu lado. Pode repetir a sua última mensagem que eu continuo daqui?';
     try {
       await outboundGateway.sendText(waId, fallback);
       await persistOutbound(fallback, 'AGENT_ERROR');

@@ -584,8 +584,8 @@ async function processLegacyInboundTurn({
         });
         const confirmReply =
           pendingDisambiguation.type === 'area'
-            ? `Perfeito, vamos com a área ${selected.name}.`
-            : `Perfeito, vamos com ${selected.name}.`;
+            ? `Show, fechado na ${selected.name}.`
+            : `Boa, vamos lá no ${selected.name}.`;
         await outboundGateway.sendText(waId, confirmReply);
         await persistOutbound(confirmReply, 'DISAMBIGUATION_RESOLVED');
         return;
@@ -868,7 +868,7 @@ async function processLegacyInboundTurn({
           });
           await activateHumanTakeover(pool, waId);
           const handoffReply =
-            'Percebi que estamos com dificuldade em avançar por aqui. Vou chamar um atendente humano para te ajudar com a reserva, combinado?';
+            'Acho que vou pedir reforço aqui pra não te deixar dando voltas. Já chamei alguém da equipe pra finalizar sua reserva com você, beleza?';
           await outboundGateway.sendText(waId, handoffReply);
           await persistOutbound(handoffReply, 'anti_loop_handoff');
           await trackFunnelEvent(pool, {
@@ -1043,7 +1043,7 @@ async function processLegacyInboundTurn({
             `[conversationEngine] PROCESS_RESERVATION bloqueada: data muito no futuro (${candidateDate}) waId=${waId}`
           );
           const safeMsg =
-            'Pra eu não errar na data, me confirma de novo: que dia exatamente você quer reservar? Pode mandar no formato DD/MM (ex.: 29/05 ou "próximo sábado") que eu já encaminho.';
+            'Só pra eu não errar, me confirma a data de novo? Pode mandar no formato 29/05 ou tipo "esse sábado" que eu já encaixo aqui.';
           await outboundGateway.sendText(waId, safeMsg);
           await persistOutbound(safeMsg, 'DATE_TOO_FAR_FUTURE');
           if (conversation?.id) {
@@ -1075,7 +1075,7 @@ async function processLegacyInboundTurn({
               `[conversationEngine] PROCESS_RESERVATION bloqueada: área proibida (${requestedArea}) waId=${waId}`
             );
             const labels = HIGHLINE_SUBAREAS.map((s) => s.label).join(', ');
-            const safeMsg = `Pra te confirmar a reserva no Highline, preciso de uma área válida — só temos: ${labels}. Qual dessas você prefere?`;
+            const safeMsg = `Aqui no Highline a gente trabalha com essas áreas: ${labels}. Qual delas combina mais com você?`;
             await outboundGateway.sendText(waId, safeMsg);
             await persistOutbound(safeMsg, 'INVALID_AREA');
             if (conversation?.id) {
@@ -1093,7 +1093,8 @@ async function processLegacyInboundTurn({
 
       const missing = validateProcessReservationParams(params);
       if (missing.length > 0) {
-        const fallback = `Para registrar sua reserva no sistema, ainda preciso de: ${formatMissingFieldsForUser(missing)}. Pode me enviar?`;
+        const fields = formatMissingFieldsForUser(missing);
+        const fallback = `Pra eu fechar a reserva, falta só ${fields}. Pode me passar?`;
         await outboundGateway.sendText(waId, fallback);
         await persistOutbound(fallback, 'COLLECT_DATA');
         return;
@@ -1102,7 +1103,7 @@ async function processLegacyInboundTurn({
       const age = ageFromIsoDate(params.data_nascimento);
       if (age !== null && age < 18) {
         const minorMsg =
-          'Puxa, muito obrigado pelo contato! Para reservar conosco é necessário ter 18 anos ou mais. Se você for menor, peça para um responsável seguir por aqui, combinado?';
+          'Poxa, obrigada pelo contato! Mas a casa é só pra maiores de 18 — se você for menor, peça pra alguém responsável seguir por aqui que eu te ajudo a fechar a reserva, beleza?';
         await outboundGateway.sendText(waId, minorMsg);
         await persistOutbound(minorMsg, 'REFUSE_MINOR');
         return;
@@ -1118,7 +1119,7 @@ async function processLegacyInboundTurn({
       const created = await createReservationInternal(body);
       if (!created.success) {
         const errText =
-          `Não consegui finalizar a reserva agora: ${created.error}. Podemos tentar outro horário ou outro dia? Se preferir, diga "atendente" e chamamos alguém da equipe.`;
+          `Opa, deu um problema aqui pra fechar agora: ${created.error}. Quer tentar outro horário ou outra data? Se preferir falar com alguém da equipe, é só me dizer "atendente" que eu chamo.`;
         await outboundGateway.sendText(waId, errText);
         await persistOutbound(errText, 'PROCESS_RESERVATION_ERROR');
         return;
@@ -1174,17 +1175,20 @@ async function processLegacyInboundTurn({
           isBirthday: Boolean(params.is_birthday),
         });
       } catch (confirmationError) {
+        const firstName = String(reservationRow.client_name || '').trim().split(/\s+/)[0] || '';
+        const house = reservationRow.establishment_name || 'casa';
+        const dateBr = String(reservationRow.reservation_date || '').slice(0, 10);
+        const timeBr = String(reservationRow.reservation_time || '').slice(0, 5);
+        const greet = firstName ? `Fechado, ${firstName}!` : 'Fechado!';
         confirmText =
-          `Sua reserva foi registrada com sucesso, ${reservationRow.client_name || ''}! ` +
-          `Te esperamos no ${reservationRow.establishment_name || 'estabelecimento'} ` +
-          `em ${reservationRow.reservation_date} às ${String(reservationRow.reservation_time || '').slice(0, 5)}.`;
+          `${greet} Sua reserva tá confirmada na ${house} pra ${dateBr}${timeBr ? ' às ' + timeBr : ''}. Te espero aqui — qualquer coisa é só me chamar.`;
       }
 
       const isPracinha = Number(params?.establishment_id) === 8;
       const partySize = Number(params?.quantidade_convidados);
       if (isPracinha && Number.isFinite(partySize) && partySize > 6) {
         confirmText +=
-          '\n\nImportante para alinhar certinho: na Pracinha, garantimos até 6 lugares sentados na reserva; acima disso, o restante do grupo é acomodado no fluxo da casa.';
+          '\n\nSó pra deixar combinado: na Pracinha a reserva garante até 6 lugares sentados. O resto do grupo a gente acomoda no fluxo da casa, beleza?';
       }
 
       // Guard determinístico FINAL na mensagem de confirmação: o LLM pode
@@ -1209,8 +1213,8 @@ async function processLegacyInboundTurn({
           const safeName = (r.client_name || params.client_name || '').toString().split(' ')[0] || '';
           confirmText = [
             safeName ? `Fechado, ${safeName}!` : 'Fechado!',
-            `Sua reserva ficou pra ${safeDate}${safeTime ? ' às ' + safeTime : ''}.`,
-            'Qualquer coisa, é só me chamar.',
+            `Sua reserva tá confirmada pra ${safeDate}${safeTime ? ' às ' + safeTime : ''}.`,
+            'Te espero aqui — qualquer coisa é só me chamar.',
           ].join(' ');
         }
       } catch (confirmGuardError) {
@@ -1251,9 +1255,9 @@ async function processLegacyInboundTurn({
     ) {
       const missingText =
         conversationState?.missingFields?.length > 0
-          ? ` Para registrar no sistema, ainda preciso de: ${formatMissingFieldsForUser(conversationState.missingFields)}.`
-          : ' Para registrar no sistema, ainda faltam alguns dados.';
-      replyText = `Só pra alinhar: sua reserva ainda não foi salva aqui.${missingText} Me envia o que faltar que eu fecho o cadastro na hora, combinado?`;
+          ? ` Pra eu fechar aqui, falta só ${formatMissingFieldsForUser(conversationState.missingFields)}.`
+          : ' Ainda falta um detalhe pra eu fechar.';
+      replyText = `Só pra deixar claro: ainda não fechei sua reserva.${missingText} Me manda o que falta que eu já fecho na hora.`;
     }
 
     replyText = mergeReplyWithOverrideNotice(replyText, dateOverrideNotice);
@@ -1329,7 +1333,7 @@ async function processLegacyInboundTurn({
     console.error('[conversationEngine] erro ao processar turno:', error.message);
     try {
       const fallback =
-        'Tive um instante por aqui. Pode repetir sua última mensagem que eu continuo sua reserva com o que faltava?';
+        'Opa, deu um pisco aqui do meu lado. Pode repetir a sua última mensagem? Eu pego de onde paramos.';
       await outboundGateway.sendText(waId, fallback);
       await persistOutbound(fallback, 'ENGINE_ERROR');
     } catch (sendError) {

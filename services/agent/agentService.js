@@ -187,7 +187,7 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
       if (result.todas_areas_cheias) {
         return (
           result.mensagem_hostess ||
-          'As áreas estão lotadas nessa data. Posso te colocar na lista de espera — a Hostess te chama assim que abrir mesa.'
+          'Olha, tá tudo cheio nesse dia. Posso te colocar na lista de espera — assim que abrir mesa eu te chamo aqui mesmo, beleza?'
         );
       }
       if (result.area_recomendada?.label) {
@@ -195,14 +195,14 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           Array.isArray(result.alternativas_com_vaga) && result.alternativas_com_vaga.length
             ? ` Também tem vaga em: ${result.alternativas_com_vaga.join(', ')}.`
             : '';
-        return `Pra ${result.quantidade_pessoas} pessoas, o melhor encaixe agora é ${result.area_recomendada.label}.${alt} Quer essa área?`;
+        return `Pra ${result.quantidade_pessoas} pessoas, o que encaixa melhor é ${result.area_recomendada.label}.${alt} Topa essa?`;
       }
     }
 
     if (entry.name === 'criar_lista_espera' && result.ok) {
       const pos = result.lista_espera?.position;
-      const posBit = pos ? ` Você é o ${pos}º da fila.` : '';
-      return `${result.mensagem_hostess || 'Pronto, você já está na lista de espera.'}${posBit}`;
+      const posBit = pos ? ` Você ficou em ${pos}º na fila.` : '';
+      return `${result.mensagem_hostess || 'Pronto, te coloquei na lista de espera. Assim que abrir mesa eu te aviso por aqui mesmo.'}${posBit}`;
     }
   }
 

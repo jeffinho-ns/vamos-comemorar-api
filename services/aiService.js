@@ -29,17 +29,20 @@ function buildBrainSystemPrompt(context) {
   return promptBuilder.build(context);
 }
 
-const confirmationSystemPrompt = `Você é o Host Digital do Vamos Comemorar. O sistema já registrou a reserva com sucesso.
-Gere um JSON {"confirmation": "..."} onde "confirmation" é UMA mensagem calorosa, elegante e humana em português do Brasil, confirmando nome, estabelecimento, data, horário, área, quantidade de pessoas e e-mail.
-Tom: concierge comercial (acolhedor, claro e confiante), sem exagero promocional.
+const confirmationSystemPrompt = `Você é a anfitriã digital de uma casa noturna no WhatsApp. A reserva acabou de ser registrada e agora você manda a mensagem de confirmação pro cliente.
 
-REGRA OBRIGATÓRIA DE DATA: use exclusivamente o campo reservation.reservation_date (formato interno YYYY-MM-DD) do JSON de entrada. Ao exibir ao cliente, escreva no formato DD-MM-AAA ou por extenso; ao escrever por extenso (ex. "27 de abril de 20XX"), o ano DEVE ser o mesmo da string reservation_date — nunca invente ou troque o ano.
+Gere um JSON {"confirmation": "..."} onde "confirmation" é UMA mensagem curta (2 a 4 frases), no tom de quem manda WhatsApp pra um amigo — calorosa, leve, direta. Confirme nome (primeiro nome), casa, data e horário, e quantas pessoas. Pode citar a área se fizer sentido.
 
-Se NÃO houver lista de convidados (grupos pequenos), inclua ao final um parágrafo breve sobre respeito às políticas da casa (entrada, horários e uso do espaço) de forma elegante, sem ser ríspido.
+TOM:
+- Use "você". Frase tipo "Fechado, Pedro!", "Show, sua reserva ficou pra...".
+- NUNCA: "Caro X", "Prezado", "Atenciosamente", "Cordialmente", "Equipe Vamos Comemorar", "É com grande satisfação".
+- SEM markdown. Sem bullet. No máximo 1 emoji discreto (opcional, só se a vibe pedir — ex.: aniversário).
 
-Se houver lista de convidados, NÃO coloque o link na mensagem — o link será enviado na mensagem seguinte pelo sistema.
+REGRA DE DATA: use só o campo reservation.reservation_date (YYYY-MM-DD). Pra exibir, escreva DD/MM ou "29 de maio" — mas o ano (quando aparecer) DEVE bater com o do reservation_date. Jamais invente ano.
 
-Sem markdown. Evite emojis; no máximo 1 na confirmação se fizer sentido.`;
+POLÍTICA DA CASA (só quando NÃO há lista de convidados): em vez de um parágrafo formal sobre "respeito às políticas", finalize com uma frase curta e humana lembrando da entrada/horário/dress code só se for relevante. Ex.: "Lembrando que a entrada é a partir das 22h e tem dress code esporte fino — qualquer dúvida me chama.". Se não houver nada relevante a lembrar, encerre com algo natural tipo "Te espero aqui — qualquer coisa é só me chamar."
+
+LISTA DE CONVIDADOS: se hasGuestList=true, NÃO inclua link nenhum. O link sai numa mensagem separada depois.`;
 
 function buildTranscriptFromHistory(messageHistory) {
   const lines = (messageHistory || []).map((m) => {
@@ -327,7 +330,11 @@ async function interpretMessage(opts) {
 async function generateReservationConfirmationMessage(opts) {
   if (!process.env.OPENAI_API_KEY) {
     const r = opts?.reservation || {};
-    return `Reserva registrada com sucesso, ${r.client_name || ''}! Te esperamos no ${r.establishment_name || 'estabelecimento'}.`;
+    const firstName = String(r.client_name || '').trim().split(/\s+/)[0] || '';
+    const house = r.establishment_name || 'casa';
+    return firstName
+      ? `Fechado, ${firstName}! Sua reserva tá confirmada na ${house}. Te espero aqui — qualquer coisa é só me chamar.`
+      : `Fechado! Sua reserva tá confirmada na ${house}. Te espero aqui — qualquer coisa é só me chamar.`;
   }
 
   const completion = await getOpenAI().chat.completions.create({

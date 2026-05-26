@@ -217,9 +217,12 @@ async function tryAutoSubmitReservation(pool, app, row, params) {
       isBirthday: false,
     });
   } catch (_error) {
+    const firstName = String(reservationRow.client_name || '').trim().split(/\s+/)[0] || '';
+    const dateBr = String(reservationRow.reservation_date || '').slice(0, 10);
+    const timeBr = String(reservationRow.reservation_time || '').slice(0, 5);
+    const greet = firstName ? `Fechado, ${firstName}!` : 'Fechado!';
     confirmText =
-      `Sua reserva foi registrada com sucesso, ${reservationRow.client_name || ''}! ` +
-      `Te esperamos em ${reservationRow.reservation_date} às ${String(reservationRow.reservation_time || '').slice(0, 5)}.`;
+      `${greet} Sua reserva tá confirmada pra ${dateBr}${timeBr ? ' às ' + timeBr : ''}. Te espero aqui — qualquer coisa é só me chamar.`;
   }
 
   await outboundGateway.sendText(row.wa_id, confirmText);

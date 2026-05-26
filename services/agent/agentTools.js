@@ -725,9 +725,9 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       duplicate: true,
       duplicate_reservation_id: existing.id,
       error:
-        'Você já tem reserva confirmada para esse dia e horário aqui. Avise o cliente que a reserva já consta no sistema (id ' +
+        'Esse cliente já tem reserva confirmada nessa mesma data/horário (id ' +
         existing.id +
-        ') — NÃO crie outra. Se ele quiser mudar algo (data, horário, pessoas), pergunte primeiro e use a equipe humana.',
+        '). NÃO crie outra. Avise o cliente de forma natural que ele já tá com reserva e pergunte se quer mudar alguma coisa — se ele quiser alterar (data/horário/pessoas), use a equipe humana.',
     };
   }
 
@@ -998,7 +998,7 @@ async function criarListaEspera(pool, args = {}, runtimeContext = {}) {
       area_preferida: subarea?.label || null,
     },
     mensagem_hostess:
-      'Hoje as áreas estão lotadas, mas já coloquei você na lista de espera. Assim que liberar uma mesa, nossa Hostess te chama e te leva até ela.',
+      'Esse dia tá cheio, mas já te coloquei na lista de espera. Assim que liberar uma mesa, eu te aviso por aqui mesmo e a equipe te recebe na portaria.',
   };
 }
 

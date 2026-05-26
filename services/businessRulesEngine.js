@@ -114,17 +114,17 @@ function buildOverrideNotice(overrideRow) {
   const date = year && month && day ? `${day}-${month}-${year}` : isoDate;
 
   if (!overrideRow.is_open) {
-    return `Para ${date}, temos exceção de agenda: a casa estará fechada.`;
+    return `Importante: no dia ${date} a casa não vai abrir.`;
   }
 
   const windows = formatTimeWindows(overrideRow);
-  const notePart = overrideRow.note ? ` Obs: ${String(overrideRow.note)}` : '';
+  const notePart = overrideRow.note ? ` ${String(overrideRow.note)}` : '';
 
   if (windows.length === 0) {
-    return `Para ${date}, temos exceção de agenda cadastrada.${notePart}`;
+    return `Atenção, ${date} tem uma agenda diferente do normal por aqui.${notePart}`;
   }
 
-  return `Para ${date}, temos horário especial: ${windows.join(' | ')}.${notePart}`;
+  return `No dia ${date} a casa funciona em horário especial: ${windows.join(' | ')}.${notePart}`;
 }
 
 async function loadWeeklyOperatingHours(pool) {
@@ -250,7 +250,7 @@ function validateReservationPartySize(params) {
     return {
       ok: false,
       message:
-        'Na Pracinha do Seu Justino conseguimos registrar reservas para até 60 pessoas por vez. Se desejar, posso ajustar para até 60 agora ou chamar o time para um formato especial.',
+        'Pra um grupo desse tamanho na Pracinha (mais de 60), a gente trata como evento especial e precisa de um humano do time. Quer que eu chame? Ou se preferir reservar pra até 60 a gente segue agora mesmo.',
     };
   }
 

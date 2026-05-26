@@ -311,7 +311,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
  * Mensagem fixa do link de convidados (produto pediu texto específico).
  */
 function buildGuestListSecondMessage(link) {
-  return `Para facilitar sua entrada e dos seus amigos, criei este link exclusivo para você preencher a lista de convidados: ${link}`;
+  return `Aqui tá o link da sua lista de convidados — pode mandar pro pessoal já adicionar o nome (ajuda a agilizar a entrada): ${link}`;
 }
 
 module.exports = {

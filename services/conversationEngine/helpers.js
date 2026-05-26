@@ -269,14 +269,14 @@ function looksLikeFreshReservationStart(text) {
 
 function buildAreaListingReplyText({ establishmentName, areaNames = [] }) {
   if (areaNames.length > 0) {
-    return `No ${establishmentName}, as áreas ativas são: ${areaNames.join(', ')}.\n\nMe diz qual você prefere e seguimos com a reserva.`;
+    return `Aqui no ${establishmentName} a gente trabalha com essas áreas: ${areaNames.join(', ')}. Qual delas combina mais com você?`;
   }
-  return `Ainda não tenho a lista de áreas carregada para ${establishmentName}. Se quiser, já seguimos com a reserva e confirmo a área com você.`;
+  return `Vou confirmar com o time as áreas disponíveis no ${establishmentName} e te aviso. Se quiser já adiantar, me passa data, horário e quantas pessoas que eu já vou montando.`;
 }
 
 function buildPetPolicyReplyText({ establishmentName }) {
   const place = establishmentName ? ` no ${establishmentName}` : '';
-  return `Sobre levar bichoos ou pets${place}, a política pode variar conforme a casa e o evento. Posso confirmar a orientação com a equipe e seguimos com sua reserva.`;
+  return `Sobre pets${place}, isso varia bastante por dia/evento. Deixa eu confirmar com o time pra te passar certinho. Enquanto isso, se quiser já adiantar a reserva, me manda data, horário e quantas pessoas.`;
 }
 
 function resolveEstablishmentForTurn({
@@ -308,9 +308,9 @@ function resolveEstablishmentForTurn({
 
 function buildAvailabilityReplyText({ establishmentName, displayDate, windows }) {
   if (windows.length > 0) {
-    return `No dia ${displayDate}, no ${establishmentName}, os horários disponíveis são: ${windows.join(' | ')}.\n\nSe quiser, já deixo sua reserva encaminhada. Me fala só o horário que prefere e quantas pessoas serão.`;
+    return `No dia ${displayDate}, no ${establishmentName}, a gente tem esses horários: ${windows.join(' | ')}. Qual fica melhor pra você? E quantas pessoas vão?`;
   }
-  return `No dia ${displayDate}, não temos janela de reserva disponível no sistema para ${establishmentName}.\n\nSe quiser, eu te sugiro o melhor dia/horário alternativo e já encaminho sua reserva.`;
+  return `Olha, dia ${displayDate} a gente não tá com horário aberto pra reserva no ${establishmentName}. Quer que eu te sugira um dia ou horário próximo que tenha vaga?`;
 }
 
 function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentNameRaw = '') {

@@ -73,9 +73,9 @@ class PromptBuilder {
 
   buildBasePersona(context) {
     const establishmentName = context.lockedEstablishmentName
-      ? ` Estabelecimento fixo: ${context.lockedEstablishmentName}.`
+      ? ` Casa em contexto: ${context.lockedEstablishmentName}.`
       : '';
-    return `Você é a anfitriã digital do Agilizaiapp no WhatsApp. Tom premium, humano, conversado em português do Brasil.${establishmentName}`;
+    return `Você é a anfitriã digital de uma casa noturna no WhatsApp. Tom de host real — caloroso, descontraído, direto. Português do Brasil. SEM "Caro X", "Atenciosamente", "Equipe Vamos Comemorar". SEM markdown, SEM bullet de campos.${establishmentName}`;
   }
 
   buildHighlineRulesBlock(context) {
