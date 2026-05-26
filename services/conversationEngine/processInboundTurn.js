@@ -187,9 +187,82 @@ async function buildOperationalInfoReply(pool, { messageText, establishmentId, r
   return blocks.join('\n\n');
 }
 
+/**
+ * Resolve `params.area_id` quando o LLM legado retorna o NOME da área (ex.: "Rooftop",
+ * "Área Deck - Frente") em vez do ID numérico. Sem isso, o validador `area_id`
+ * dispara "Preciso de um valor numérico válido para área" — mensagem técnica que
+ * vaza pro cliente.
+ *
+ * Estratégia (em ordem):
+ *  1. Se já for número positivo, mantém.
+ *  2. Para Highline (id=7), resolve via subáreas canônicas (resolveHighlineSubarea).
+ *  3. Para outros estabelecimentos, faz match em restaurant_areas via findAreaCandidates.
+ *  4. Se não conseguir resolver, REMOVE o campo (deixa o turno seguir sem area_id
+ *     e a IA volta a perguntar) — preferível a vazar erro técnico para o cliente.
+ */
+async function normalizeAreaIdInParams(params, establishmentId, pool) {
+  if (!params || params.area_id === undefined || params.area_id === null) return;
+  const raw = params.area_id;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return;
+
+  const numericGuess = Number(raw);
+  if (Number.isFinite(numericGuess) && numericGuess > 0) {
+    params.area_id = numericGuess;
+    return;
+  }
+
+  const text = String(raw || '').trim();
+  if (!text) {
+    delete params.area_id;
+    return;
+  }
+
+  try {
+    const {
+      isHighlineEstablishment,
+      resolveHighlineSubarea,
+    } = require('../agent/highlineReservationAreas');
+    if (isHighlineEstablishment(establishmentId)) {
+      const sub = resolveHighlineSubarea(text);
+      if (sub) {
+        params.area_id = sub.area_id;
+        if (!params.area_label) params.area_label = sub.label;
+        if (!params.area_subkey) params.area_subkey = sub.key;
+        return;
+      }
+    }
+  } catch (_error) {
+    // ignora; tenta resolução genérica abaixo
+  }
+
+  try {
+    if (pool && establishmentId) {
+      const areas = await loadActiveAreas(pool, establishmentId);
+      const matched = findAreaCandidates(text, areas, establishmentId);
+      if (matched.length === 1) {
+        params.area_id = matched[0].id;
+        if (!params.area_label) params.area_label = matched[0].name;
+        return;
+      }
+    }
+  } catch (_error) {
+    // ignora
+  }
+
+  delete params.area_id;
+}
+
 async function applyValidatedParamsToState(pool, conversationId, interpretedParams, options) {
   const accepted = {};
   const failures = [];
+
+  await normalizeAreaIdInParams(
+    interpretedParams,
+    options.lockedEstablishmentId ||
+      interpretedParams?.establishment_id ||
+      options.collectedFields?.establishment_id,
+    options.pool || pool
+  );
 
   for (const [fieldName, rawValue] of Object.entries(interpretedParams || {})) {
     if (rawValue === undefined || rawValue === null || rawValue === '') continue;
@@ -833,6 +906,14 @@ async function processLegacyInboundTurn({
     }
 
     if (usedPersistence && conversation?.id && conversationState) {
+      await normalizeAreaIdInParams(
+        interpreted.params,
+        activeEstablishmentId ||
+          interpreted.params?.establishment_id ||
+          conversationState.collectedFields?.establishment_id,
+        pool
+      );
+
       const stepValidation = await validateFieldsForStep(
         conversationState.currentStep,
         interpreted.params || {},
@@ -1344,4 +1425,5 @@ async function processLegacyInboundTurn({
 
 module.exports = {
   processInboundTurn,
+  normalizeAreaIdInParams,
 };
