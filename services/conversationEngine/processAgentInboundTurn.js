@@ -242,6 +242,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       runtimeContext: {
         waId,
         conversationId: conversation.id,
+        contactName:
+          whatsappContact?.contact_name ||
+          conversation?.contact_name ||
+          extractContactName(payload) ||
+          null,
       },
     });
 

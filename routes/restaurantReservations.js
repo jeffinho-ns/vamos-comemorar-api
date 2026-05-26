@@ -17,9 +17,13 @@ module.exports = (pool) => {
         establishment_id INT PRIMARY KEY,
         allow_capacity_override BOOLEAN NOT NULL DEFAULT FALSE,
         allow_outside_hours BOOLEAN NOT NULL DEFAULT FALSE,
+        max_daily_people INT NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+    await pool.query(
+      'ALTER TABLE restaurant_reservation_policy ADD COLUMN IF NOT EXISTS max_daily_people INT NULL;'
+    );
     reservationPolicyTableReady = true;
   };
 
@@ -27,21 +31,33 @@ module.exports = (pool) => {
     await ensureReservationPolicyTable();
     try {
       const result = await pool.query(
-        `SELECT allow_capacity_override, allow_outside_hours
+        `SELECT allow_capacity_override, allow_outside_hours, max_daily_people
          FROM restaurant_reservation_policy
          WHERE establishment_id = $1`,
         [establishmentId]
       );
       if (!result.rows[0]) {
-        return { allow_capacity_override: false, allow_outside_hours: false };
+        return {
+          allow_capacity_override: false,
+          allow_outside_hours: false,
+          max_daily_people: null,
+        };
       }
+      const rawMax = result.rows[0].max_daily_people;
+      const max =
+        rawMax === null || rawMax === undefined ? null : Math.max(0, Number(rawMax) || 0);
       return {
         allow_capacity_override: !!result.rows[0].allow_capacity_override,
         allow_outside_hours: !!result.rows[0].allow_outside_hours,
+        max_daily_people: max && max > 0 ? max : null,
       };
     } catch (e) {
       console.error('⚠️ getReservationPolicy:', e);
-      return { allow_capacity_override: false, allow_outside_hours: false };
+      return {
+        allow_capacity_override: false,
+        allow_outside_hours: false,
+        max_daily_people: null,
+      };
     }
   };
 
@@ -459,6 +475,17 @@ module.exports = (pool) => {
 
       if (totalCapacity === 0) {
         totalCapacity = 99999;
+      }
+
+      // Override: limite diário de pessoas configurado por estabelecimento
+      // (politica restaurant_reservation_policy.max_daily_people). Quando
+      // definido (>0), passa a ser o teto real do dia para esse estabelecimento.
+      if (
+        capacityPolicy.max_daily_people &&
+        Number.isFinite(capacityPolicy.max_daily_people) &&
+        capacityPolicy.max_daily_people > 0
+      ) {
+        totalCapacity = capacityPolicy.max_daily_people;
       }
 
       // Contar pessoas das reservas ativas para a data (valores numéricos seguros)

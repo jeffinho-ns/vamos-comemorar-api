@@ -230,6 +230,23 @@ async function loadActiveAreas(pool, establishmentId) {
   }
 }
 
+/**
+ * Para o Highline, NUNCA expor os nomes genéricos do banco
+ * (Área Coberta, Área Descoberta, Área VIP, Balcão, Terraço).
+ * Devolve apenas o vocabulário oficial do painel /admin/restaurant-reservations:
+ * Deck (Frente/Esquerdo/Direito), Bar Central e Rooftop sob pedido.
+ */
+function buildHighlineAreasSummary({ partySize = null } = {}) {
+  const labels = HIGHLINE_SUBAREAS
+    .filter((sub) => STANDARD_SUBAREA_KEYS.has(sub.key))
+    .map((sub) => ({ id: sub.area_id, name: sub.label }));
+  labels.push({
+    id: null,
+    name: 'Rooftop (mesa em pacote/camarote — somente sob pedido do cliente)',
+  });
+  return labels;
+}
+
 function getAgentToolDefinitions() {
   return [
     {
@@ -500,7 +517,9 @@ async function verificarDisponibilidade(pool, args = {}) {
     establishmentId,
     reservationDate
   );
-  const areas = await loadActiveAreas(pool, establishmentId);
+  const areas = isHighlineEstablishment(establishmentId)
+    ? buildHighlineAreasSummary({ partySize })
+    : await loadActiveAreas(pool, establishmentId);
   const partyValidation = Number.isFinite(partySize)
     ? businessRulesEngine.validateReservationPartySize({
         establishment_id: establishmentId,
@@ -543,6 +562,9 @@ async function verificarDisponibilidade(pool, args = {}) {
     is_open: windows.length > 0,
     windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
+    areas_canonicas_highline: isHighlineEstablishment(establishmentId)
+      ? 'No HighLine só ofereça Deck (Frente/Esquerdo/Direito) e Bar Central. Rooftop apenas se o cliente pedir camarote/VIP. NÃO cite "Área Coberta", "Área Descoberta", "Área VIP", "Balcão" ou "Terraço".'
+      : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
     party_size_message: partyValidation.ok ? null : partyValidation.message,
@@ -612,6 +634,51 @@ async function resolveAreaId(pool, establishmentId, areaValue) {
   return match ? Number(match.id) : null;
 }
 
+/**
+ * Detecta se já existe reserva ativa do mesmo telefone (waId) no mesmo
+ * estabelecimento. Evita o caso "Carlos LL — 10 reservas idênticas para o
+ * mesmo cliente". Diferencia dois cenários:
+ *   - duplicateExact: mesma data + mesmo horário → bloqueia recriação.
+ *   - duplicateRecent: outras reservas confirmadas nas últimas 24h →
+ *     permite registrar, mas marca observação para o admin investigar.
+ */
+async function detectReservationDuplicates(pool, { establishmentId, waId, reservationDate, reservationTime }) {
+  const phone = String(waId || '').replace(/\D/g, '');
+  if (!phone) {
+    return { duplicateExact: null, duplicateRecent: [] };
+  }
+
+  const exactResult = await pool.query(
+    `SELECT id, reservation_date, reservation_time, status, created_at, number_of_people
+       FROM restaurant_reservations
+      WHERE establishment_id = $1
+        AND regexp_replace(COALESCE(client_phone, ''), '\\D', '', 'g') = $2
+        AND reservation_date = $3
+        AND LEFT(COALESCE(reservation_time::text, ''), 5) = LEFT($4, 5)
+        AND UPPER(COALESCE(status, '')) NOT IN ('CANCELLED','CANCELED','CANCELADA','NO_SHOW','NO-SHOW')
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [Number(establishmentId), phone, reservationDate, String(reservationTime || '').slice(0, 5)]
+  );
+
+  const recentResult = await pool.query(
+    `SELECT id, reservation_date, reservation_time, status, created_at
+       FROM restaurant_reservations
+      WHERE establishment_id = $1
+        AND regexp_replace(COALESCE(client_phone, ''), '\\D', '', 'g') = $2
+        AND created_at >= NOW() - INTERVAL '24 hours'
+        AND UPPER(COALESCE(status, '')) NOT IN ('CANCELLED','CANCELED','CANCELADA','NO_SHOW','NO-SHOW')
+      ORDER BY created_at DESC
+      LIMIT 5`,
+    [Number(establishmentId), phone]
+  );
+
+  return {
+    duplicateExact: exactResult.rows[0] || null,
+    duplicateRecent: recentResult.rows || [],
+  };
+}
+
 async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
   const establishmentId = normalizeCanonicalEstablishmentId(args.estabelecimento_id);
   const reservationDate = String(args.data || '').slice(0, 10);
@@ -622,6 +689,34 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
 
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !reservationDate || !reservationTime) {
     return { ok: false, error: 'Dados obrigatórios para pré-reserva.' };
+  }
+
+  let duplicateInfo = { duplicateExact: null, duplicateRecent: [] };
+  try {
+    duplicateInfo = await detectReservationDuplicates(pool, {
+      establishmentId,
+      waId,
+      reservationDate,
+      reservationTime,
+    });
+  } catch (dupError) {
+    console.warn('[agentTools] falha ao checar duplicidade de reserva:', dupError.message);
+  }
+
+  if (duplicateInfo.duplicateExact) {
+    const existing = duplicateInfo.duplicateExact;
+    console.warn(
+      `[agentTools] reserva duplicada bloqueada waId=${waId} establishment_id=${establishmentId} existing_id=${existing.id}`
+    );
+    return {
+      ok: false,
+      duplicate: true,
+      duplicate_reservation_id: existing.id,
+      error:
+        'Você já tem reserva confirmada para esse dia e horário aqui. Avise o cliente que a reserva já consta no sistema (id ' +
+        existing.id +
+        ') — NÃO crie outra. Se ele quiser mudar algo (data, horário, pessoas), pergunte primeiro e use a equipe humana.',
+    };
   }
 
   const referenceDateIso = getReferenceDateIso();
@@ -720,10 +815,22 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     mesa: tableNumber,
   });
 
+  let finalNotes = notes;
+  const recentByPhone = (duplicateInfo.duplicateRecent || []).filter(
+    (row) => Number(row.id) !== Number(duplicateInfo.duplicateExact?.id || 0)
+  );
+  if (recentByPhone.length >= 2) {
+    const alerta = `ALERTA ADMIN: este telefone já criou ${recentByPhone.length + 1} reservas no estabelecimento nas últimas 24h (possível duplicação/loop da IA). Verificar antes de confirmar.`;
+    finalNotes = finalNotes ? `${finalNotes} | ${alerta}` : alerta;
+    console.warn(
+      `[agentTools] ALERTA reservas em sequência waId=${waId} establishment_id=${establishmentId} recent_count=${recentByPhone.length + 1}`
+    );
+  }
+
   const body = buildReservationBodyFromParams(
     { ...params, table_number: tableNumber },
     waId,
-    { notes }
+    { notes: finalNotes }
   );
   const created = await createReservationInternal(body);
   if (!created.success) {

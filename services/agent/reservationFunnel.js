@@ -7,6 +7,56 @@ const {
   getStepPrompt,
 } = require('../stateManager/conversationSteps');
 
+/**
+ * Detecta a mensagem padronizada gerada por anúncio/tráfego pago.
+ * Ex.: "Olá! Quero fazer uma reserva no HighLine.", "Quero fazer uma reserva
+ * no Pracinha", etc. São mensagens curtas que só anunciam a intenção sem
+ * dar nenhum dado real — é o lead frio que precisa ser puxado para conversa.
+ */
+function looksLikeAdEntryGreeting(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (raw.length > 120) return false;
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[!.?]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+
+  const askingReservation =
+    /\b(quero|gostaria|preciso|posso|consigo)\b.*\b(fazer (uma )?reserva|reservar|reserva)\b/.test(
+      normalized
+    ) ||
+    /\bfazer (uma )?reserva\b/.test(normalized) ||
+    /\bquero (uma )?reserva\b/.test(normalized);
+
+  const hasNoRealData =
+    !/\d/.test(normalized) &&
+    !/\b(hoje|amanha|amanhã|sexta|sabado|sábado|domingo|segunda|terca|terça|quarta|quinta|aniversario|aniversário|niver|jantar|almoco|almoço|brunch)\b/.test(
+      normalized
+    );
+
+  return askingReservation && hasNoRealData;
+}
+
+function isFirstUserMessageInConversation(messageHistory = []) {
+  const userTurns = (messageHistory || []).filter((msg) => msg?.role === 'user');
+  return userTurns.length <= 1;
+}
+
+function extractFirstName(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const first = raw.split(/\s+/)[0] || '';
+  if (!first) return '';
+  if (first.length < 2 || first.length > 20) return '';
+  if (!/^[a-zA-ZÀ-ÿ'.-]+$/.test(first)) return '';
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
 const MISSING_FIELD_PROMPTS = {
   establishment_id: 'Qual casa você prefere?',
   reservation_date: 'Para qual data?',
@@ -416,4 +466,7 @@ module.exports = {
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
   assistantAskedForReservationTime,
+  looksLikeAdEntryGreeting,
+  isFirstUserMessageInConversation,
+  extractFirstName,
 };

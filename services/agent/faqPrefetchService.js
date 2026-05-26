@@ -57,11 +57,67 @@ async function prefetchEstablishmentFaqs(pool, establishmentId, topicHints = [])
   return entries;
 }
 
+/**
+ * Carrega TODAS as regras ativas cadastradas em "Treinamento da IA (Regras da
+ * Casa)" para um estabelecimento. Diferente de prefetchEstablishmentFaqs, este
+ * não filtra por tópicos detectados — devolve a base inteira para ser injetada
+ * no prompt em cada turno (a IA deve enxergar sempre a verdade oficial).
+ *
+ * Aplica um teto de tamanho para não estourar a janela de contexto da OpenAI;
+ * quando estoura, mantém os tópicos mais recentemente atualizados primeiro.
+ */
+async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxChars = 8000 } = {}) {
+  const establishment = Number(establishmentId);
+  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+
+  let rows = [];
+  try {
+    const result = await pool.query(
+      `SELECT topic, answer, updated_at
+         FROM establishment_faq
+        WHERE establishment_id = $1
+          AND is_active = TRUE
+          AND COALESCE(TRIM(answer), '') <> ''
+        ORDER BY updated_at DESC NULLS LAST, topic ASC`,
+      [establishment]
+    );
+    rows = result.rows || [];
+  } catch (error) {
+    console.warn('[faqPrefetchService] falha ao carregar base completa:', error.message);
+    return [];
+  }
+
+  const entries = [];
+  let totalChars = 0;
+  for (const row of rows) {
+    const topic = String(row.topic || '').trim();
+    const answer = String(row.answer || '').trim();
+    if (!topic || !answer) continue;
+    const piece = `### ${topic}\n${answer}`;
+    if (totalChars + piece.length > maxChars && entries.length > 0) {
+      break;
+    }
+    entries.push({
+      topic,
+      answer,
+      updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+    });
+    totalChars += piece.length + 2;
+  }
+
+  return entries;
+}
+
 function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   if (!entries.length) return '';
-  const header = establishmentName
-    ? `BASE DE CONHECIMENTO OFICIAL — ${establishmentName} (obrigatório usar estes fatos):`
-    : 'BASE DE CONHECIMENTO OFICIAL (obrigatório usar estes fatos):';
+  const houseLabel = establishmentName ? ` da ${establishmentName}` : '';
+  const header = [
+    `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel.toUpperCase()} (fonte ÚNICA de verdade — você foi treinada nestes fatos):`,
+    '- Releia este bloco ANTES de responder qualquer dúvida factual do cliente (horário, valor, aniversário, áreas, bolo, dress code, política da casa).',
+    '- NUNCA contradiga, generalize ou invente fora do que está aqui. Se a base não cobrir o tópico, diga "vou confirmar com a equipe" — nunca improvise valores, horários ou regras.',
+    '- Cite valores, horários e benefícios EXATAMENTE como estão escritos abaixo. Não resuma "varia por dia" se houver detalhes concretos.',
+    '- Estas regras valem inclusive durante o funil de reserva: se o cliente perguntar algo, responda com a base ANTES de seguir coletando dados.',
+  ].join('\n');
   const body = entries
     .map((entry) => `### ${entry.topic}\n${entry.answer}`)
     .join('\n\n');
@@ -123,6 +179,7 @@ function resolveFaqTopicsForTurn(userText, messageHistory = []) {
 
 module.exports = {
   prefetchEstablishmentFaqs,
+  loadAllActiveFaqsForEstablishment,
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
   resolveFaqTopicsForTurn,

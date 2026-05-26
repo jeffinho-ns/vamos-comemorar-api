@@ -46,9 +46,13 @@ module.exports = (pool) => {
         establishment_id INT PRIMARY KEY,
         allow_capacity_override BOOLEAN NOT NULL DEFAULT FALSE,
         allow_outside_hours BOOLEAN NOT NULL DEFAULT FALSE,
+        max_daily_people INT NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+    await pool.query(
+      'ALTER TABLE restaurant_reservation_policy ADD COLUMN IF NOT EXISTS max_daily_people INT NULL;'
+    );
   };
 
   router.get('/', async (req, res) => {
@@ -82,15 +86,21 @@ module.exports = (pool) => {
       );
 
       const policyResult = await pool.query(
-        `SELECT allow_capacity_override, allow_outside_hours
+        `SELECT allow_capacity_override, allow_outside_hours, max_daily_people
            FROM restaurant_reservation_policy
           WHERE establishment_id = $1`,
         [establishmentId]
       );
       const policyRow = policyResult.rows[0];
+      const rawMaxDaily = policyRow?.max_daily_people;
+      const maxDaily =
+        rawMaxDaily === null || rawMaxDaily === undefined
+          ? null
+          : Math.max(0, Number(rawMaxDaily) || 0);
       const policy = {
         allow_capacity_override: !!policyRow?.allow_capacity_override,
         allow_outside_hours: !!policyRow?.allow_outside_hours,
+        max_daily_people: maxDaily && maxDaily > 0 ? maxDaily : null,
       };
 
       const byWeekday = new Map(weeklyResult.rows.map((r) => [Number(r.weekday), r]));
@@ -223,21 +233,29 @@ module.exports = (pool) => {
       const allow_capacity_override = !!req.body?.allow_capacity_override;
       const allow_outside_hours = !!req.body?.allow_outside_hours;
 
+      const rawMaxDaily = req.body?.max_daily_people;
+      let max_daily_people = null;
+      if (rawMaxDaily !== undefined && rawMaxDaily !== null && rawMaxDaily !== '') {
+        const parsed = Math.max(0, Math.floor(Number(rawMaxDaily) || 0));
+        max_daily_people = parsed > 0 ? parsed : null;
+      }
+
       await pool.query(
         `INSERT INTO restaurant_reservation_policy
-           (establishment_id, allow_capacity_override, allow_outside_hours, updated_at)
-         VALUES ($1, $2, $3, NOW())
+           (establishment_id, allow_capacity_override, allow_outside_hours, max_daily_people, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
          ON CONFLICT (establishment_id)
          DO UPDATE SET
            allow_capacity_override = EXCLUDED.allow_capacity_override,
            allow_outside_hours = EXCLUDED.allow_outside_hours,
+           max_daily_people = EXCLUDED.max_daily_people,
            updated_at = NOW()`,
-        [establishmentId, allow_capacity_override, allow_outside_hours]
+        [establishmentId, allow_capacity_override, allow_outside_hours, max_daily_people]
       );
 
       return res.json({
         success: true,
-        policy: { allow_capacity_override, allow_outside_hours },
+        policy: { allow_capacity_override, allow_outside_hours, max_daily_people },
       });
     } catch (error) {
       console.error('❌ Erro ao salvar política de reservas:', error);
