@@ -112,9 +112,12 @@ test('containsForbiddenAreaName bloqueia rótulos inválidos no HighLine', () =>
   assert.equal(containsForbiddenAreaName('na área do Terraço'), true);
   assert.equal(containsForbiddenAreaName('Área Coberta tem vaga'), true);
   assert.equal(containsForbiddenAreaName('confirmo no Balcão'), true);
+  // "Bar Central" não existe no Highline — label oficial é "Área Bar".
+  // Manter o nome divergente confundia cliente e equipe; agora é bloqueado.
+  assert.equal(containsForbiddenAreaName('Bar Central tem mesas'), true);
   assert.equal(containsForbiddenAreaName('te indico o Deck Frente'), false);
   assert.equal(containsForbiddenAreaName('Rooftop Esquerdo livre'), false);
-  assert.equal(containsForbiddenAreaName('Bar Central tem mesas'), false);
+  assert.equal(containsForbiddenAreaName('te indico a Área Bar pra essa quantidade'), false);
 });
 
 test('sanitizeAssistantReply substitui confirmação falsa por pergunta segura', () => {
@@ -223,7 +226,7 @@ test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', 
     'Vou combinar 3 mesas próximas no Deck pra acomodar o grupo numa única reserva.',
     'A casa pode juntar duas mesas em UMA reserva só.',
     'Combinei 4 mesas pra você ficar todo mundo junto.',
-    'Pra essa quantidade, junto 3 mesas no Bar Central em uma reserva.',
+    'Pra essa quantidade, junto 3 mesas na Área Bar em uma reserva.',
   ];
   for (const text of benignTexts) {
     const result = sanitizeAssistantReply(text, { toolTrace: [], workingState: {} });

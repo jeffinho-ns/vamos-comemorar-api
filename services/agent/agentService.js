@@ -148,6 +148,28 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
   return null;
 }
 
+// Pequenas variações de fechamento para não soar como bot quando a mesma
+// confirmação acontece muitas vezes ao dia. Seleção é DETERMINÍSTICA com base
+// em um seed (geralmente data+hora da reserva) — dentro do mesmo turno a
+// frase é estável (importante para os guards e para reprodutibilidade em
+// testes), mas entre clientes diferentes varia naturalmente.
+const RESERVATION_CLOSING_VARIANTS = [
+  'Qualquer coisa, é só chamar.',
+  'Te espero aqui — qualquer coisa me chama.',
+  'Qualquer dúvida, me dá um toque por aqui.',
+];
+
+function pickVariant(variants, seed) {
+  if (!Array.isArray(variants) || variants.length === 0) return '';
+  const text = String(seed || '');
+  if (!text) return variants[0];
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return variants[Math.abs(hash) % variants.length];
+}
+
 function synthesizeReplyFromToolTrace(toolTrace = []) {
   for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
     const entry = toolTrace[index];
@@ -161,10 +183,14 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
         const comboBit = pre.mesas_combinadas
           ? ` (combinei ${pre.mesas_combinadas.mesas_count} mesas próximas pra acomodar todo mundo, capacidade total ${pre.mesas_combinadas.total_capacity} pessoas)`
           : '';
-        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}${comboBit}. Qualquer coisa, é só chamar.`;
+        const closing = pickVariant(
+          RESERVATION_CLOSING_VARIANTS,
+          `${pre.reservation_date || ''}-${pre.reservation_time || ''}-${pre.reservation_id || ''}`
+        );
+        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}${comboBit}. ${closing}`;
       }
       if (result.duplicate === true) {
-        return 'Vi aqui que você já tem uma reserva confirmada para esse mesmo dia e horário. Sua reserva está registrada — não precisa mandar outra. Se quiser ajustar algo (data, horário ou pessoas), me avise que eu já encaminho.';
+        return 'Opa, vi aqui que você já tem reserva pra esse mesmo dia e horário — não precisa mandar outra. Se quiser ajustar algo (data, horário ou número de pessoas), é só me chamar por aqui que eu peço pra equipe acertar.';
       }
       if (result.ok === false && result.error) {
         return `Ainda não consegui registrar: ${String(result.error).trim()} Me passa o que falta que eu finalizo agora.`;
@@ -209,11 +235,15 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
   return null;
 }
 
-// Modelo padrão é o gpt-4o (suporte muito superior a instruções, menos
-// alucinação de datas/nomes próprios, segue tom corretamente). É ~50x mais
-// caro que o gpt-4o-mini, mas para reservas em produção compensa de longe.
-// Pode ser sobrescrito via env var OPENAI_AGENT_MODEL (ex.: "gpt-4o-2024-11-20").
-const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-4o';
+// Modelo padrão é gpt-5.5 (flagship em maio/2026): segue instruções e tom de
+// voz MUITO melhor que gpt-4o, e tem queda drástica em alucinação de
+// datas/áreas/nomes — exatamente os bugs que vimos em produção (data 2027,
+// "Caro Jefferson", "Terraço", "Bar Central"). Pode ser sobrescrito via env
+// var OPENAI_AGENT_MODEL (ex.: "gpt-5.4-mini" para reduzir custo, ou
+// "gpt-4o" como fallback emergencial). Em todos os casos, o caminho usa Chat
+// Completions API + function calling — migrar para Responses API exigiria
+// refactor do round-trip de tool calls.
+const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {
   const payload = {
@@ -393,6 +423,11 @@ const FORBIDDEN_AREA_NAMES = [
   /[áa]rea vip(?! consum)/i, // "Área VIP" sozinha (mas permite "Área VIP consumível" se vier do FAQ de camarote)
   /mezanino/i,
   /pista interna/i,
+  // "Bar Central" não existe no Highline — o label oficial é "Área Bar".
+  // Cliente que ouve "Bar Central" recebe um nome divergente do painel da
+  // equipe, gerando confusão. Bloqueio determinístico aqui força o agent a
+  // sempre devolver a pergunta de coleta correta com vocabulário oficial.
+  /\bbar\s+central\b/i,
 ];
 
 function looksLikeFakeReservationConfirmation(text) {
@@ -880,8 +915,15 @@ async function runAgentTurn({
         );
       }
       if (!faqKnowledgeBlock) {
+        // Risco operacional alto: sem base, a IA não tem "material de estudo"
+        // oficial pra falar com o cliente. O AgentPromptBuilder vai injetar
+        // um aviso forte no system prompt impedindo a IA de inventar, mas
+        // logamos aqui pro time perceber e popular o painel.
+        const houseLabel = context.lockedEstablishmentName
+          ? ` "${context.lockedEstablishmentName}"`
+          : '';
         console.warn(
-          `[agentService] sem base de conhecimento ativa para establishment_id=${establishmentId} (cadastre em Treinamento da IA → Regras da Casa).`
+          `[agentService] AVISO CRÍTICO — sem base de conhecimento ativa para o estabelecimento${houseLabel} (id=${establishmentId}). Cadastre as regras em Treinamento da IA → Regras da Casa no painel admin para que a IA tenha o que estudar antes de responder.`
         );
       }
     } catch (faqError) {
