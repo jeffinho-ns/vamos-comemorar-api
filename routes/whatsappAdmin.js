@@ -203,8 +203,13 @@ module.exports = (pool, app) => {
       if (!canAccessEstablishment(scope, conv.establishment_id)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
-      const messages = await inbox.listMessages(pool, conv.id, 300);
-      return res.json({ conversation: conv, messages });
+      const requestedLimit = Number(req.query?.limit);
+      const limit =
+        Number.isFinite(requestedLimit) && requestedLimit > 0 && requestedLimit <= 2000
+          ? Math.floor(requestedLimit)
+          : 500;
+      const messages = await inbox.listMessages(pool, conv.id, limit);
+      return res.json({ conversation: conv, messages, limit });
     } catch (e) {
       console.error('[whatsappAdmin] list messages:', e);
       return res.status(500).json({ message: 'Erro ao listar mensagens' });

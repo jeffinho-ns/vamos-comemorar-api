@@ -228,24 +228,32 @@ async function listConversations(pool, options = {}) {
        SELECT body, created_at, direction
        FROM whatsapp_messages m
        WHERE m.conversation_id = c.id
-       ORDER BY m.created_at DESC
+       ORDER BY m.created_at DESC, m.id DESC
        LIMIT 1
      ) lm ON true
      ${whereClause}
-     ORDER BY c.updated_at DESC
+     ORDER BY GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
+              c.id DESC
      LIMIT $${idx}`,
     params
   );
   return r.rows;
 }
 
-async function listMessages(pool, conversationId, limit = 200) {
+async function listMessages(pool, conversationId, limit = 500) {
+  // CRÍTICO: pega as N mensagens MAIS RECENTES (DESC) e devolve em ordem cronológica (ASC).
+  // Antes era ORDER BY created_at ASC LIMIT 300, o que retornava as mais ANTIGAS
+  // — mensagens novas sumiam quando a conversa passava de 300 trocas.
   const r = await pool.query(
     `SELECT id, direction, body, intent, suggested_reply, created_at
-     FROM whatsapp_messages
-     WHERE conversation_id = $1
-     ORDER BY created_at ASC
-     LIMIT $2`,
+       FROM (
+         SELECT id, direction, body, intent, suggested_reply, created_at
+           FROM whatsapp_messages
+          WHERE conversation_id = $1
+          ORDER BY created_at DESC, id DESC
+          LIMIT $2
+       ) recentes
+      ORDER BY created_at ASC, id ASC`,
     [conversationId, limit]
   );
   return r.rows;
