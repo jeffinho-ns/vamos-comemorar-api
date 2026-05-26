@@ -10,16 +10,29 @@ const ADMIN_TOPIC_CANONICAL = {
   horario_funcionamento: 'dias_horarios_funcionamento',
   horario_de_funcionamento: 'dias_horarios_funcionamento',
   dias_horarios: 'dias_horarios_funcionamento',
+  como_que_funciona_aos_sabados: 'dias_horarios_funcionamento',
+  sabados: 'dias_horarios_funcionamento',
+  qual_e_a_data_da_comemoracao: 'dias_horarios_funcionamento',
+
   entrada: 'valores_entrada',
   entradas: 'valores_entrada',
   preco: 'valores_entrada',
   precos: 'valores_entrada',
   valores: 'valores_entrada',
+  cover: 'valores_entrada',
+  ingresso: 'valores_entrada',
+  ingressos: 'valores_entrada',
+
+  consumo: 'consumacao',
+  consumacao: 'consumacao',
+
   aniversario: 'beneficios_aniversario',
   aniversarios: 'beneficios_aniversario',
   niver: 'beneficios_aniversario',
   vantagens_aniversariante: 'beneficios_aniversario',
   beneficios_aniversariante: 'beneficios_aniversario',
+  vai_ser_alguma_comemoracao: 'beneficios_aniversario',
+
   area: 'areas_mesas_camarotes_diferenca',
   areas: 'areas_mesas_camarotes_diferenca',
   reserva_areas: 'reserva_areas_operacional_highline',
@@ -29,11 +42,63 @@ const ADMIN_TOPIC_CANONICAL = {
   camarotes: 'areas_mesas_camarotes_diferenca',
   mesa: 'areas_mesas_camarotes_diferenca',
   mesas: 'areas_mesas_camarotes_diferenca',
+  subareas: 'subareas_canonicas_highline',
+  subarea: 'subareas_canonicas_highline',
+  deck: 'subareas_canonicas_highline',
+  rooftop: 'subareas_canonicas_highline',
+
+  pet: 'pet',
   pets: 'pet',
+  cachorro: 'pet',
+  animal: 'pet',
+  animais: 'pet',
+
   bolo: 'regras_bolo',
+  bolos: 'regras_bolo',
   instagram: 'redes_sociais_fotos',
   fotos: 'redes_sociais_fotos',
+  redes_sociais: 'redes_sociais_fotos',
   menu: 'cardapio',
+  cardapios: 'cardapio',
+
+  // Comportamento / tom — todas as variações apontam para tom_atendimento_humano
+  tom: 'tom_atendimento_humano',
+  tom_de_voz: 'tom_atendimento_humano',
+  tom_de_voz_e_atendimento: 'tom_atendimento_humano',
+  estilo_atendimento: 'tom_atendimento_humano',
+  emoji: 'tom_atendimento_humano',
+  emojis: 'tom_atendimento_humano',
+
+  // Coleta de dados — todas as variações apontam para o protocolo progressivo.
+  coleta_dados: 'coleta_dados_progressiva_reserva',
+  coletar_dados: 'coleta_dados_progressiva_reserva',
+  solicitacao_de_dados: 'coleta_dados_progressiva_reserva',
+  solicitacao_de_dados_de_reserva: 'coleta_dados_progressiva_reserva',
+  template_reserva: 'coleta_dados_progressiva_reserva',
+  campos_reserva: 'coleta_dados_progressiva_reserva',
+
+  // Horário de corte para segurar mesa
+  horario_corte: 'horario_corte_chegada_reserva',
+  qual_horario_pretendem_chegar_na_casa: 'horario_corte_chegada_reserva',
+  horario_chegada: 'horario_corte_chegada_reserva',
+  corte_reserva: 'horario_corte_chegada_reserva',
+
+  // Internos
+  sao_quantos_convidados: 'coleta_dados_progressiva_reserva',
+  quantidade_convidados: 'coleta_dados_progressiva_reserva',
+
+  // Capacidade
+  capacidade: 'capacidade_diaria_highline',
+  lotacao: 'capacidade_diaria_highline',
+
+  // Valor x caução
+  caucao: 'valor_entrada_vs_caucao',
+  taxa_reserva: 'valor_entrada_vs_caucao',
+
+  // Duplicidade
+  duplicidade: 'controle_duplicidade_reservas',
+  duplicada: 'controle_duplicidade_reservas',
+  duplicadas: 'controle_duplicidade_reservas',
 };
 
 function normalizeTopicKey(topic) {

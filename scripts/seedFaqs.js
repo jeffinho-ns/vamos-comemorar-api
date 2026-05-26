@@ -155,52 +155,14 @@ const FAQ_SEEDS = [
     answer:
       'O Rooftop possui áreas com ambientes distintos. Posso listar as opções ativas e ajudar a escolher a melhor experiência.',
   },
-  {
-    establishment_id: 7,
-    topic: 'estacionamento',
-    answer:
-      'A orientação de estacionamento pode variar conforme o dia e o evento. Posso confirmar com a equipe do HighLine no dia da reserva.',
-  },
-  {
-    establishment_id: 7,
-    topic: 'pets',
-    answer:
-      'A política de pets pode variar conforme a casa e o evento. Posso confirmar a orientação com a equipe no dia da reserva.',
-  },
-  {
-    establishment_id: 7,
-    topic: 'musica',
-    answer:
-      'A programação musical pode variar conforme evento e operação do dia. Posso alinhar o estilo do dia quando você confirmar a data.',
-  },
+  // Para o HighLine, NÃO usamos seeds genéricos como nas outras casas.
+  // Todo o conteúdo oficial está em HIGHLINE_OPERATIONAL_CONTEXTS (mais abaixo)
+  // e foi consolidado pela auditoria (ver scripts/auditHighlineFaqs.js).
+  // Mantemos apenas o cardápio aqui porque depende da URL gerada dinamicamente.
   {
     establishment_id: 7,
     topic: 'cardapio',
     answer: `O cardápio digital está em ${CARDAPIO_BY_ID[7]}`,
-  },
-  {
-    establishment_id: 7,
-    topic: 'horario_funcionamento',
-    answer:
-      'O HighLine funciona com janelas de horário que variam por dia da semana. Para reservas, consulte a disponibilidade da data desejada.',
-  },
-  {
-    establishment_id: 7,
-    topic: 'dress_code',
-    answer:
-      'O dress code é casual elegante. Se precisar de detalhes, evitamos chinelas e bermudasrasgadas.',
-  },
-  {
-    establishment_id: 7,
-    topic: 'aniversarios',
-    answer:
-      'Comemoramosaniversários com atenção especial. Me conte a data, o horário e quantas pessoas para orientar a melhor experiência.',
-  },
-  {
-    establishment_id: 7,
-    topic: 'areas',
-    answer:
-      'O HighLine possui áreas com ambientes distintos. Posso listar as opções ativas e ajudar a escolhera melhor experiência.',
   },
   {
     establishment_id: 4,
