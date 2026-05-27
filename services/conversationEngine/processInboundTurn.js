@@ -12,6 +12,8 @@ const {
   OBSERVATIONS_FIELD,
 } = require('../stateManager/conversationSteps');
 const { validateFieldsForStep, validateField } = require('../../validators/stepFieldValidator');
+const { sanitizeInterpretedParams } = require('./interpretedParamsSanitizer');
+const { humanizeFailure } = require('./validationFailureHumanizer');
 const { extractLocalFields, extractReservationSlotsFromMessage } = require('../../nlp/localMessageExtractor');
 const { getProfileForPrompt, refreshProfileFromSources } = require('../operationalMemory/customerOperationalProfileService');
 const {
@@ -889,6 +891,29 @@ async function processLegacyInboundTurn({
       delete interpreted.params.reservation_time;
     }
 
+    // P0-B/C: sanitiza params alucinados do LLM ANTES de validar. Trata
+    // data_nascimento extraída de "30/05 20h" (gera UNDERAGE falso),
+    // client_name copiado da pergunta do cliente, e troca silenciosa de
+    // establishment_id (Highline → Reserva Rooftop sem cliente pedir).
+    if (interpreted && interpreted.params) {
+      const establishmentMentionedNow = detectEstablishmentFromText(
+        messageText,
+        catalog.establishments || []
+      );
+      const sanitization = sanitizeInterpretedParams(interpreted.params, {
+        userMessage: messageText,
+        lockedEstablishmentId: activeEstablishmentId,
+        establishmentMentionedInMessage: Boolean(establishmentMentionedNow),
+      });
+      if (sanitization.dropped.length > 0) {
+        console.warn(
+          '[conversationEngine] params sanitizados pelo guard pré-validação:',
+          JSON.stringify({ waId, dropped: sanitization.dropped })
+        );
+      }
+      interpreted.params = sanitization.cleaned;
+    }
+
     if (usedPersistence && conversation?.id && conversationState) {
       const paramsToPersist = { ...(interpreted.params || {}) };
       if (looksLikeAvailabilityQuestion(messageText)) {
@@ -974,9 +999,24 @@ async function processLegacyInboundTurn({
           payload: { code: failure.code || null },
         });
 
-        await outboundGateway.sendText(waId, failure.message);
-        await persistOutbound(failure.message, 'STATE_VALIDATION_ERROR');
-        return;
+        // P0-A: NUNCA mande a `failure.message` técnica direto pro cliente.
+        // O humanizer decide se converte numa frase natural ou se ignora
+        // o erro (alucinação do LLM, ex.: UNDERAGE de uma data de reserva
+        // curta como "30/05 20h").
+        const humanized = humanizeFailure(failure, { userMessage: messageText });
+        if (humanized.skip) {
+          console.warn(
+            '[conversationEngine] validation failure ignorada (provável alucinação LLM):',
+            JSON.stringify({ waId, code: failure.code, fieldName: failure.fieldName })
+          );
+          // Não retorna aqui — deixa o turno continuar pra que o LLM dê
+          // uma resposta natural (suggested_reply) ao cliente em vez de
+          // travar a conversa.
+        } else {
+          await outboundGateway.sendText(waId, humanized.message);
+          await persistOutbound(humanized.message, 'COLLECT_DATA');
+          return;
+        }
       }
 
       if (Object.keys(stepValidation.accepted).length > 0) {
@@ -1007,7 +1047,30 @@ async function processLegacyInboundTurn({
 
     const interpretedEstablishmentId = extractInterpretedEstablishmentId(interpreted);
     if (interpretedEstablishmentId) {
-      conversation = await inbox.setConversationEstablishment(pool, waId, interpretedEstablishmentId);
+      // P0-C: só permite trocar a casa da conversa se o cliente realmente
+      // mencionou a nova casa nesse turno. Sem isso, o LLM trocava silenciosamente
+      // Highline (7) → Reserva Rooftop (9) quando o cliente falava só "Rooftop"
+      // (sub-área do Highline) — bug do Luan e da Julia.
+      const currentLockedId =
+        activeEstablishmentId ||
+        Number(conversation?.establishment_id) ||
+        null;
+      const explicitlyMentionedNow = detectEstablishmentFromText(
+        messageText,
+        catalog.establishments || []
+      );
+      const allowSwitch =
+        !currentLockedId ||
+        Number(currentLockedId) === Number(interpretedEstablishmentId) ||
+        Number(explicitlyMentionedNow) === Number(interpretedEstablishmentId);
+      if (allowSwitch) {
+        conversation = await inbox.setConversationEstablishment(pool, waId, interpretedEstablishmentId);
+      } else {
+        console.warn(
+          '[conversationEngine] troca silenciosa de establishment_id bloqueada:',
+          JSON.stringify({ waId, from: currentLockedId, to: interpretedEstablishmentId, userMessage: messageText.slice(0, 80) })
+        );
+      }
     }
 
     const replyEstablishmentId =

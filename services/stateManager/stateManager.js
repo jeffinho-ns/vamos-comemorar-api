@@ -193,15 +193,58 @@ async function persistState(pool, conversationId, patch = {}) {
   return mapRow(result.rows[0]);
 }
 
+// Whitelist de chaves canônicas que podem ser gravadas em collected_fields.
+// O LLM tem mania de retornar chaves em PT/EN-alternativo (e-mail, horário,
+// customer_name, party_size, birth_date, área preferida…), que viram lixo
+// no banco e confundem o `missing_fields`. Aceitamos apenas os campos
+// abaixo; outros são descartados na merge.
+const COLLECTED_FIELDS_WHITELIST = new Set([
+  'establishment_id',
+  'reservation_date',
+  'reservation_time',
+  'quantidade_convidados',
+  'area_id',
+  'area_label',
+  'area_subkey',
+  'area_display_name',
+  'area_name',
+  'client_name',
+  'client_email',
+  'data_nascimento',
+  'reservation_notes',
+  'reservation_date_confirmed',
+  'reservation_id',
+  'is_birthday',
+  'notes',
+  'observations_asked',
+]);
+
+function pickCanonicalFields(input = {}) {
+  const out = {};
+  const droppedKeys = [];
+  for (const [k, v] of Object.entries(input || {})) {
+    if (COLLECTED_FIELDS_WHITELIST.has(k)) out[k] = v;
+    else if (v !== undefined && v !== null && v !== '') droppedKeys.push(k);
+  }
+  if (droppedKeys.length > 0) {
+    console.warn(
+      '[stateManager] chaves não-canônicas descartadas em collected_fields:',
+      JSON.stringify(droppedKeys)
+    );
+  }
+  return out;
+}
+
 async function mergeCollectedFields(pool, conversationId, partialFields, options = {}) {
   const current = await getByConversationId(pool, conversationId);
   if (!current) {
     throw new Error('Sessão de estado não encontrada para mergeCollectedFields.');
   }
 
+  const filteredPartial = pickCanonicalFields(partialFields || {});
   const merged = {
     ...(current.collectedFields || {}),
-    ...(partialFields || {}),
+    ...filteredPartial,
   };
 
   const snapshot = buildStateSnapshot(

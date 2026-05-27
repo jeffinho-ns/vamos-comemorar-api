@@ -14,6 +14,31 @@ function hasPartialSlots(collectedFields = {}) {
   });
 }
 
+// P1-G: heurística simples pra detectar que o cliente desistiu da reserva
+// na conversa recente. Quando isso é detectado, NÃO mandamos recovery_followup
+// — seria spam (bug da Luiza, que já tinha respondido "Não obrigada").
+const GIVEUP_PATTERNS = [
+  /\bn[aã]o\s+(obrigad[ao]|quero|preciso|vou)/i,
+  /\bn[aã]o\s+vou\s+(querer|precisar|fazer)/i,
+  /\b(deixa|esquece|esquec[ea]|cancela|abandon[ao])\s+(pra\s+l[áa]|isso|por\s+enquanto)?/i,
+  /\b(depois|outro\s*dia|mais\s+pra\s+frente|mais\s+tarde|talvez\s+depois|fica\s+pra\s+depois)\s+(eu\s+)?(volto|chamo|entro\s+em\s+contato|aviso|vejo|penso|decido)/i,
+  /\bj[áa]\s+desisti/i,
+  /\bobrigad[ao]\s*$/i,
+  /\btchau\b/i,
+  /\bvalеu\s*$/i,
+];
+
+function clientLikelyGaveUp(recentInboundBodies = []) {
+  for (const raw of recentInboundBodies) {
+    const text = String(raw || '').trim();
+    if (!text) continue;
+    for (const re of GIVEUP_PATTERNS) {
+      if (re.test(text)) return true;
+    }
+  }
+  return false;
+}
+
 function buildRecoveryMessage(stateRow, establishmentName = '') {
   const step = stateRow.current_step;
   const collected = stateRow.collected_fields || {};
@@ -62,6 +87,17 @@ async function listRecoveryCandidates(pool) {
   return result.rows.filter((row) => hasPartialSlots(row.collected_fields));
 }
 
+async function getRecentInboundBodies(pool, conversationId, limit = 4) {
+  const r = await pool.query(
+    `SELECT body FROM whatsapp_messages
+      WHERE conversation_id = $1 AND direction = 'inbound'
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2`,
+    [conversationId, limit]
+  );
+  return (r.rows || []).map((row) => row.body || '');
+}
+
 async function processRecoveryBatch(pool, app) {
   const candidates = await listRecoveryCandidates(pool);
   let sent = 0;
@@ -70,6 +106,27 @@ async function processRecoveryBatch(pool, app) {
     try {
       const humanActive = await inbox.isHumanTakeoverActive(pool, row.wa_id);
       if (humanActive) continue;
+
+      // P1-G: respeita desistência explícita do cliente nas últimas mensagens.
+      // Bug da Luiza: já tinha dito "Não obrigada" e mesmo assim recebia
+      // recovery_followup 1h depois.
+      try {
+        const recentInbound = await getRecentInboundBodies(pool, row.conversation_id, 4);
+        if (clientLikelyGaveUp(recentInbound)) {
+          console.log(
+            `[recoveryEngine] desistência detectada, pulando followup waId=${row.wa_id} conv=${row.conversation_id}`
+          );
+          // Marca como sent (mesmo sem mandar) pra não tentar de novo no próximo ciclo.
+          await stateManager.persistState(pool, row.conversation_id, {
+            followupStatus: 'recovery_skipped_giveup',
+            lastFollowupAt: new Date().toISOString(),
+            recoveryAttempts: (Number(row.recovery_attempts) || 0) + 1,
+          });
+          continue;
+        }
+      } catch (giveupCheckError) {
+        console.warn('[recoveryEngine] falha ao checar desistência:', giveupCheckError.message);
+      }
 
       const message = buildRecoveryMessage(row, row.establishment_name);
       await outboundGateway.sendText(row.wa_id, message);

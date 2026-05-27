@@ -29,6 +29,25 @@ const {
   detectEstablishmentFromText,
 } = require('../conversationEngine/helpers');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
+const { isExplicitHumanRequest, shouldForceHumanIntent } = require('../aiService');
+
+const HIGHLINE_ID = 7;
+const B2B_THRESHOLD_PEOPLE = 60;
+const B2B_KEYWORDS = /\b(locac[aã]o|loca[cç][aã]o|exclusiv[ao]|privativ[ao]|formatura|formaturas|evento\s+corporativo|corporativ[ao]|empresa|empresarial|confraterniza[cç][aã]o|workshop|congresso|festa\s+de\s+formatura)\b/i;
+
+function detectB2BIntent(text) {
+  if (!text) return null;
+  const normalized = String(text).toLowerCase();
+  if (B2B_KEYWORDS.test(normalized)) return 'keyword';
+  const partyMatch =
+    normalized.match(/(\d{2,3})\s*(?:pessoas|convidados|gente|pax|hospedes|h[oó]spedes)/) ||
+    normalized.match(/(?:para|pra|com)\s*~?\s*(\d{2,3})\s*pessoas/);
+  if (partyMatch) {
+    const n = Number(partyMatch[1]);
+    if (Number.isFinite(n) && n > B2B_THRESHOLD_PEOPLE) return 'group_size';
+  }
+  return null;
+}
 
 function extractContactName(payload) {
   const entry = payload?.entry?.[0];
@@ -85,6 +104,58 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
   if (await inbox.isHumanTakeoverActive(pool, waId)) {
     console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
+    return;
+  }
+
+  // P1-D: cliente pediu humano explicitamente → ativa takeover ANTES de chamar
+  // o LLM. Sem isso, a IA promete "vou te passar pro atendimento" e continua
+  // respondendo no próximo turno (bug do Luccas, conv=716).
+  if (isExplicitHumanRequest(incomingText) || shouldForceHumanIntent(incomingText)) {
+    try {
+      const result = await pool.query(
+        `UPDATE whatsapp_conversations
+            SET human_takeover_until = NOW() + interval '48 hours',
+                updated_at = NOW()
+          WHERE wa_id = $1
+          RETURNING id`,
+        [waId]
+      );
+      console.log(
+        `[agentEngine] takeover humano ativado por pedido explícito waId=${waId} conv=${result.rows[0]?.id || '?'}`
+      );
+      const handoffReply =
+        'Claro! Já chamei alguém da equipe pra continuar com você por aqui. Em instantes você vai ser atendido por uma pessoa, beleza?';
+      await outboundGateway.sendText(waId, handoffReply);
+      await persistOutbound(handoffReply, 'HUMAN_REQUESTED');
+    } catch (handoffError) {
+      console.error('[agentEngine] falha ao ativar takeover humano:', handoffError.message);
+    }
+    return;
+  }
+
+  // P1-E: detecta intenção B2B (evento privativo, grupo >60, formatura,
+  // corporativo). Esses leads precisam de humano — a IA pediria e-mail e
+  // data de nascimento como se fosse reserva normal (bug da Amalia, conv=698).
+  const b2bReason = detectB2BIntent(incomingText);
+  if (b2bReason) {
+    try {
+      await pool.query(
+        `UPDATE whatsapp_conversations
+            SET human_takeover_until = NOW() + interval '48 hours',
+                updated_at = NOW()
+          WHERE wa_id = $1`,
+        [waId]
+      );
+      console.log(`[agentEngine] takeover B2B (${b2bReason}) waId=${waId}`);
+      const b2bReply =
+        b2bReason === 'group_size'
+          ? 'Pra um grupo desse tamanho a gente trata como evento especial e quem cuida é uma pessoa do time, não a IA. Já encaminhei pra equipe — em instantes alguém vai te chamar por aqui, combinado?'
+          : 'Pra evento privativo/locação a gente faz o atendimento direto com a equipe. Já encaminhei pro time — em instantes alguém vai te chamar por aqui, combinado?';
+      await outboundGateway.sendText(waId, b2bReply);
+      await persistOutbound(b2bReply, 'B2B_HANDOFF');
+    } catch (b2bError) {
+      console.error('[agentEngine] falha no handoff B2B:', b2bError.message);
+    }
     return;
   }
 

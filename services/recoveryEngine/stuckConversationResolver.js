@@ -182,6 +182,19 @@ async function tryAutoSubmitReservation(pool, app, row, params) {
     return { ok: false, reason: 'minor' };
   }
 
+  // P1-F: NUNCA cria reserva pelo stuck-resolver sem o cliente ter escolhido
+  // explicitamente uma área específica. Sem isso, o resolver criava reservas
+  // fantasma com áreas que o cliente não confirmou (bug da Gio: cliente
+  // disse só "Rooftop", resolver criou "Área Rooftop - Esquerdo" sozinho).
+  const areaLabel = String(
+    params.area_label || params.area_display_name || params.area_name || ''
+  ).trim();
+  const areaSubkey = String(params.area_subkey || '').trim();
+  const hasExplicitArea = Boolean(areaSubkey) || /\s-\s/.test(areaLabel);
+  if (!hasExplicitArea) {
+    return { ok: false, reason: 'area_not_explicit', areaLabel };
+  }
+
   const businessValidation = applyBusinessRulesToReservationParams(params);
   if (!businessValidation.ok) {
     return { ok: false, reason: 'business_rules', error: businessValidation.message };
@@ -360,6 +373,18 @@ async function processStuckConversationBatch(pool, app, options = {}) {
       }
 
       if (auto.reason === 'incomplete') {
+        const triggerText = pickResumeTriggerText(row);
+        await proactiveResumeTurn(pool, app, row, triggerText);
+        resumed += 1;
+        continue;
+      }
+
+      if (auto.reason === 'area_not_explicit') {
+        // Não cria reserva sozinho — pede o cliente escolher a subárea
+        // específica antes de continuar.
+        console.log(
+          `[stuckResolver] reserva não criada (área não confirmada explicitamente) waId=${row.wa_id} areaLabel="${auto.areaLabel || ''}"`
+        );
         const triggerText = pickResumeTriggerText(row);
         await proactiveResumeTurn(pool, app, row, triggerText);
         resumed += 1;
