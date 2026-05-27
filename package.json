@@ -28,7 +28,7 @@
   "author": "",
   "license": "ISC",
   "engines": {
-    "node": ">=18 <23"
+    "node": "22.x"
   },
   "dependencies": {
     "basic-ftp": "^5.0.0",
