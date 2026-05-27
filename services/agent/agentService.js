@@ -257,6 +257,14 @@ const AGENT_FALLBACK_MODEL = process.env.OPENAI_AGENT_FALLBACK_MODEL || 'gpt-4o'
 const OPENAI_MAX_RETRIES = Number(process.env.OPENAI_RETRY_MAX || 2);
 const OPENAI_RETRY_BASE_MS = Number(process.env.OPENAI_RETRY_BASE_MS || 700);
 const OPENAI_REQUEST_TIMEOUT_MS = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS || 25000);
+const OPENAI_AGENT_TEMPERATURE = Number(process.env.OPENAI_AGENT_TEMPERATURE || 0.3);
+
+function modelSupportsCustomTemperature(modelName) {
+  const normalized = String(modelName || '').trim().toLowerCase();
+  // Em produção, a família gpt-5.x (inclui gpt-5.5) rejeita temperatura custom.
+  // Mantemos o default do provedor para evitar 400 UNSUPPORTED_VALUE.
+  return !/^gpt-5(\b|[-.])/.test(normalized);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -331,8 +339,13 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') 
     const payload = {
       model: modelName,
       messages,
-      temperature: 0.3,
     };
+    if (
+      Number.isFinite(OPENAI_AGENT_TEMPERATURE) &&
+      modelSupportsCustomTemperature(modelName)
+    ) {
+      payload.temperature = OPENAI_AGENT_TEMPERATURE;
+    }
     if (tools?.length) {
       payload.tools = tools;
       payload.tool_choice = toolChoice;

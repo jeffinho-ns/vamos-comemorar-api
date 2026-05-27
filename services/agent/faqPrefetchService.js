@@ -149,9 +149,10 @@ async function generateFaqGroundedReply({
     .map((m) => `${m.role === 'assistant' ? 'Host' : 'Cliente'}: ${m.content}`)
     .join('\n');
 
-  const completion = await getOpenAI().chat.completions.create({
+  const modelName = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
+  const payload = {
     // TRAVA DE PRODUÇÃO: modelo homologado é gpt-5.5 (ver agentService.js).
-    model: process.env.OPENAI_AGENT_MODEL || 'gpt-5.5',
+    model: modelName,
     messages: [
       {
         role: 'system',
@@ -177,8 +178,13 @@ ${faqText}`,
           : question,
       },
     ],
-    temperature: 0.35,
-  });
+  };
+  // gpt-5.x rejeita temperatura custom; usa valor padrão do modelo.
+  if (!/^gpt-5(\b|[-.])/.test(String(modelName).toLowerCase())) {
+    payload.temperature = 0.35;
+  }
+
+  const completion = await getOpenAI().chat.completions.create(payload);
 
   const reply = String(completion?.choices?.[0]?.message?.content || '').trim();
   if (!reply) throw new Error('Resposta FAQ vazia.');
