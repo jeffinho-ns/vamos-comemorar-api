@@ -81,6 +81,9 @@ function classifyAgentRuntimeError(error) {
   const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
   const code = String(error?.code || '').toUpperCase();
   const detail = String(error?.message || error?.error?.message || 'erro_desconhecido');
+  if (/model/i.test(detail) && /(not found|does not exist|not available|do not have access|insufficient)/i.test(detail)) {
+    return 'OPENAI_MODEL_ACCESS';
+  }
   if (status === 429 || /rate limit|too many/i.test(detail)) return 'OPENAI_429';
   if (status >= 500) return `OPENAI_${status}`;
   if (code === 'OPENAI_TIMEOUT' || /timeout|timed out/i.test(detail)) return 'OPENAI_TIMEOUT';
@@ -438,6 +441,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         await persistOutbound(fallback, 'AGENT_ERROR', {
           errorCode,
           source: 'agent_turn_catch',
+          detail: String(error?.message || '').slice(0, 240),
         });
         console.warn(`[agentEngine] fallback enviado waId=${waId} errCode=${errorCode}`);
       }

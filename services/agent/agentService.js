@@ -253,6 +253,7 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
 // migrar para Responses API exigiria refactor do round-trip de tool calls.
 // ============================================================================
 const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
+const AGENT_FALLBACK_MODEL = process.env.OPENAI_AGENT_FALLBACK_MODEL || 'gpt-4o';
 const OPENAI_MAX_RETRIES = Number(process.env.OPENAI_RETRY_MAX || 2);
 const OPENAI_RETRY_BASE_MS = Number(process.env.OPENAI_RETRY_BASE_MS || 700);
 const OPENAI_REQUEST_TIMEOUT_MS = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS || 25000);
@@ -266,6 +267,22 @@ function normalizeOpenAiError(error) {
   const code = String(error?.code || error?.error?.code || '').toUpperCase();
   const detail = String(error?.error?.message || error?.message || 'erro desconhecido na OpenAI');
   return { status, code, detail };
+}
+
+function isModelAccessError(error) {
+  const { status, code, detail } = normalizeOpenAiError(error);
+  const text = String(detail || '').toLowerCase();
+  if (status === 404 || status === 403) return true;
+  if (code === 'MODEL_NOT_FOUND' || code === 'INSUFFICIENT_PERMISSIONS') return true;
+  return (
+    text.includes('model') &&
+    (text.includes('not found') ||
+      text.includes('does not exist') ||
+      text.includes('not available') ||
+      text.includes('do not have access') ||
+      text.includes('not permitted') ||
+      text.includes('insufficient'))
+  );
 }
 
 function isRetryableOpenAiError(error) {
@@ -310,43 +327,64 @@ async function withTimeout(promise, timeoutMs) {
 }
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {
-  const payload = {
-    model: AGENT_MODEL,
-    messages,
-    temperature: 0.3,
-  };
-  if (tools?.length) {
-    payload.tools = tools;
-    payload.tool_choice = toolChoice;
-  }
-
-  const maxRetries = Number.isFinite(OPENAI_MAX_RETRIES) && OPENAI_MAX_RETRIES >= 0
-    ? OPENAI_MAX_RETRIES
-    : 2;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    try {
-      const completion = await withTimeout(
-        getOpenAI().chat.completions.create(payload),
-        OPENAI_REQUEST_TIMEOUT_MS
-      );
-      return completion?.choices?.[0]?.message || null;
-    } catch (error) {
-      const retryable = isRetryableOpenAiError(error);
-      const { status, code, detail } = normalizeOpenAiError(error);
-      const isLastAttempt = attempt >= maxRetries;
-      if (!retryable || isLastAttempt) {
-        const suffix = `status=${status || 'n/a'} code=${code || 'n/a'} attempt=${attempt + 1}/${maxRetries + 1}`;
-        throw new Error(`Falha na OpenAI: ${detail} (${suffix})`);
-      }
-      const waitMs = computeBackoffMs(attempt + 1);
-      console.warn(
-        `[agentService] OpenAI instável; retry ${attempt + 1}/${maxRetries} em ${waitMs}ms (status=${status || 'n/a'} code=${code || 'n/a'})`
-      );
-      await sleep(waitMs);
+  async function requestWithModel(modelName) {
+    const payload = {
+      model: modelName,
+      messages,
+      temperature: 0.3,
+    };
+    if (tools?.length) {
+      payload.tools = tools;
+      payload.tool_choice = toolChoice;
     }
+
+    const maxRetries = Number.isFinite(OPENAI_MAX_RETRIES) && OPENAI_MAX_RETRIES >= 0
+      ? OPENAI_MAX_RETRIES
+      : 2;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        const completion = await withTimeout(
+          getOpenAI().chat.completions.create(payload),
+          OPENAI_REQUEST_TIMEOUT_MS
+        );
+        return completion?.choices?.[0]?.message || null;
+      } catch (error) {
+        const retryable = isRetryableOpenAiError(error);
+        const { status, code, detail } = normalizeOpenAiError(error);
+        const isLastAttempt = attempt >= maxRetries;
+        if (!retryable || isLastAttempt) {
+          const enriched = new Error(
+            `Falha na OpenAI: ${detail} (status=${status || 'n/a'} code=${code || 'n/a'} attempt=${attempt + 1}/${maxRetries + 1} model=${modelName})`
+          );
+          enriched.status = status;
+          enriched.code = code || error?.code;
+          enriched.modelName = modelName;
+          enriched.originalError = error;
+          throw enriched;
+        }
+        const waitMs = computeBackoffMs(attempt + 1);
+        console.warn(
+          `[agentService] OpenAI instável; retry ${attempt + 1}/${maxRetries} em ${waitMs}ms (status=${status || 'n/a'} code=${code || 'n/a'} model=${modelName})`
+        );
+        await sleep(waitMs);
+      }
+    }
+    return null;
   }
-  return null;
+  try {
+    return await requestWithModel(AGENT_MODEL);
+  } catch (error) {
+    const shouldFallbackModel =
+      AGENT_FALLBACK_MODEL &&
+      String(AGENT_FALLBACK_MODEL) !== String(AGENT_MODEL) &&
+      isModelAccessError(error);
+    if (!shouldFallbackModel) throw error;
+    console.warn(
+      `[agentService] fallback de modelo ativado: ${AGENT_MODEL} -> ${AGENT_FALLBACK_MODEL}`
+    );
+    return requestWithModel(AGENT_FALLBACK_MODEL);
+  }
 }
 
 function reservationFunnelIsComplete(workingState = {}) {
