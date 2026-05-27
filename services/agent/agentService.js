@@ -253,6 +253,61 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
 // migrar para Responses API exigiria refactor do round-trip de tool calls.
 // ============================================================================
 const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
+const OPENAI_MAX_RETRIES = Number(process.env.OPENAI_RETRY_MAX || 2);
+const OPENAI_RETRY_BASE_MS = Number(process.env.OPENAI_RETRY_BASE_MS || 700);
+const OPENAI_REQUEST_TIMEOUT_MS = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS || 25000);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeOpenAiError(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  const code = String(error?.code || error?.error?.code || '').toUpperCase();
+  const detail = String(error?.error?.message || error?.message || 'erro desconhecido na OpenAI');
+  return { status, code, detail };
+}
+
+function isRetryableOpenAiError(error) {
+  const { status, code, detail } = normalizeOpenAiError(error);
+  if ([408, 409, 429].includes(status) || status >= 500) return true;
+  if (
+    ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)
+  ) {
+    return true;
+  }
+  const text = detail.toLowerCase();
+  return (
+    text.includes('timeout') ||
+    text.includes('timed out') ||
+    text.includes('rate limit') ||
+    text.includes('temporar') ||
+    text.includes('overloaded') ||
+    text.includes('try again')
+  );
+}
+
+function computeBackoffMs(attempt) {
+  const exp = OPENAI_RETRY_BASE_MS * Math.pow(2, Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * 220);
+  return exp + jitter;
+}
+
+async function withTimeout(promise, timeoutMs) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`OpenAI timeout após ${timeoutMs}ms`);
+      err.code = 'OPENAI_TIMEOUT';
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {
   const payload = {
@@ -265,13 +320,33 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') 
     payload.tool_choice = toolChoice;
   }
 
-  try {
-    const completion = await getOpenAI().chat.completions.create(payload);
-    return completion?.choices?.[0]?.message || null;
-  } catch (error) {
-    const detail = error?.error?.message || error?.message || 'erro desconhecido na OpenAI';
-    throw new Error(`Falha na OpenAI: ${detail}`);
+  const maxRetries = Number.isFinite(OPENAI_MAX_RETRIES) && OPENAI_MAX_RETRIES >= 0
+    ? OPENAI_MAX_RETRIES
+    : 2;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      const completion = await withTimeout(
+        getOpenAI().chat.completions.create(payload),
+        OPENAI_REQUEST_TIMEOUT_MS
+      );
+      return completion?.choices?.[0]?.message || null;
+    } catch (error) {
+      const retryable = isRetryableOpenAiError(error);
+      const { status, code, detail } = normalizeOpenAiError(error);
+      const isLastAttempt = attempt >= maxRetries;
+      if (!retryable || isLastAttempt) {
+        const suffix = `status=${status || 'n/a'} code=${code || 'n/a'} attempt=${attempt + 1}/${maxRetries + 1}`;
+        throw new Error(`Falha na OpenAI: ${detail} (${suffix})`);
+      }
+      const waitMs = computeBackoffMs(attempt + 1);
+      console.warn(
+        `[agentService] OpenAI instável; retry ${attempt + 1}/${maxRetries} em ${waitMs}ms (status=${status || 'n/a'} code=${code || 'n/a'})`
+      );
+      await sleep(waitMs);
+    }
   }
+  return null;
 }
 
 function reservationFunnelIsComplete(workingState = {}) {

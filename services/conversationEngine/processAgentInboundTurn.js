@@ -66,6 +66,28 @@ function emitInbox(app, payload) {
   }
 }
 
+async function activateHumanTakeover(pool, waId, hours = 48) {
+  const safeHours = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
+  await pool.query(
+    `UPDATE whatsapp_conversations
+        SET human_takeover_until = NOW() + (($2::text || ' hours')::interval),
+            updated_at = NOW()
+      WHERE wa_id = $1`,
+    [waId, String(safeHours)]
+  );
+}
+
+function classifyAgentRuntimeError(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  const code = String(error?.code || '').toUpperCase();
+  const detail = String(error?.message || error?.error?.message || 'erro_desconhecido');
+  if (status === 429 || /rate limit|too many/i.test(detail)) return 'OPENAI_429';
+  if (status >= 500) return `OPENAI_${status}`;
+  if (code === 'OPENAI_TIMEOUT' || /timeout|timed out/i.test(detail)) return 'OPENAI_TIMEOUT';
+  if (code === 'ECONNRESET' || code === 'ECONNABORTED') return code;
+  return 'AGENT_RUNTIME_ERROR';
+}
+
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
   const incomingText = String(incomingMessageText || '').trim();
   if (!incomingText) {
@@ -182,14 +204,14 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   const operationalProfile = await getProfileForPrompt(pool, waId);
   const sentiment = analyzeSentimentLead(incomingText, { collectedFields: memory.workingState });
 
-  const persistOutbound = async (bodyText, intentLabel) => {
+  const persistOutbound = async (bodyText, intentLabel, rawPayload = null) => {
     const saved = await inbox.insertMessage(pool, {
       conversationId: conversation.id,
       direction: 'outbound',
       body: bodyText,
       intent: intentLabel || 'AGENT_REPLY',
       suggestedReply: null,
-      rawPayload: null,
+      rawPayload,
     });
     emitInbox(app, {
       type: 'outbound',
@@ -360,12 +382,65 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   } catch (error) {
     console.error('[agentEngine] erro no turno do agente:', error.message, error.stack);
-    const fallback =
-      'Opa, deu um pisco aqui do meu lado. Pode repetir a sua última mensagem que eu continuo daqui?';
+
+    const errorCode = classifyAgentRuntimeError(error);
+    let recentAgentErrors = 0;
+    let lastOutboundIntent = null;
+
     try {
-      await outboundGateway.sendText(waId, fallback);
-      await persistOutbound(fallback, 'AGENT_ERROR');
-      console.warn(`[agentEngine] fallback enviado waId=${waId}`);
+      const errCount = await pool.query(
+        `SELECT COUNT(*)::int AS qtd
+           FROM whatsapp_messages
+          WHERE conversation_id = $1
+            AND direction = 'outbound'
+            AND intent = 'AGENT_ERROR'
+            AND created_at > NOW() - interval '10 minutes'`,
+        [conversation.id]
+      );
+      recentAgentErrors = Number(errCount.rows[0]?.qtd || 0);
+
+      const lastOut = await pool.query(
+        `SELECT intent
+           FROM whatsapp_messages
+          WHERE conversation_id = $1
+            AND direction = 'outbound'
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [conversation.id]
+      );
+      lastOutboundIntent = String(lastOut.rows[0]?.intent || '');
+    } catch (obsError) {
+      console.warn('[agentEngine] falha ao medir AGENT_ERROR recente:', obsError.message);
+    }
+
+    const shouldEscalateToHuman =
+      recentAgentErrors >= 1 || lastOutboundIntent === 'AGENT_ERROR';
+
+    const fallback =
+      'Opa, deu uma instabilidade aqui do meu lado. Tenta me mandar de novo em uma mensagem que eu sigo com você agora.';
+    const handoffReply =
+      'Tive uma instabilidade aqui e pra você não perder tempo já chamei alguém da equipe pra continuar seu atendimento por aqui, beleza?';
+
+    try {
+      if (shouldEscalateToHuman) {
+        await activateHumanTakeover(pool, waId, 48);
+        await outboundGateway.sendText(waId, handoffReply);
+        await persistOutbound(handoffReply, 'HUMAN_REQUESTED', {
+          source: 'agent_error_guard',
+          errorCode,
+          recentAgentErrors,
+        });
+        console.warn(
+          `[agentEngine] takeover por AGENT_ERROR em sequência waId=${waId} errCode=${errorCode} recent=${recentAgentErrors}`
+        );
+      } else {
+        await outboundGateway.sendText(waId, fallback);
+        await persistOutbound(fallback, 'AGENT_ERROR', {
+          errorCode,
+          source: 'agent_turn_catch',
+        });
+        console.warn(`[agentEngine] fallback enviado waId=${waId} errCode=${errorCode}`);
+      }
     } catch (_sendError) {
       console.error('[agentEngine] falha ao enviar fallback:', _sendError.message);
     }
