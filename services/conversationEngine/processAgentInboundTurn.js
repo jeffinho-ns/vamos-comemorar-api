@@ -81,6 +81,13 @@ function classifyAgentRuntimeError(error) {
   const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
   const code = String(error?.code || '').toUpperCase();
   const detail = String(error?.message || error?.error?.message || 'erro_desconhecido');
+  const normalizedDetail = detail.toLowerCase();
+  if (/missing credentials|api[_\s-]?key|no api key/i.test(detail)) {
+    return 'OPENAI_MISSING_CREDENTIALS';
+  }
+  if (/invalid api key|incorrect api key|authentication/i.test(normalizedDetail)) {
+    return 'OPENAI_AUTH';
+  }
   if (/model/i.test(detail) && /(not found|does not exist|not available|do not have access|insufficient)/i.test(detail)) {
     return 'OPENAI_MODEL_ACCESS';
   }
@@ -89,6 +96,30 @@ function classifyAgentRuntimeError(error) {
   if (code === 'OPENAI_TIMEOUT' || /timeout|timed out/i.test(detail)) return 'OPENAI_TIMEOUT';
   if (code === 'ECONNRESET' || code === 'ECONNABORTED') return code;
   return 'AGENT_RUNTIME_ERROR';
+}
+
+function buildAgentRuntimeErrorMeta(error, errorCode) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  const code = String(error?.code || '').toUpperCase();
+  const modelName = String(error?.modelName || '');
+  return {
+    errorCode,
+    status: Number.isFinite(status) && status > 0 ? status : null,
+    providerCode: code || null,
+    model: modelName || null,
+    detail: String(error?.message || error?.error?.message || '').slice(0, 240) || null,
+  };
+}
+
+function shouldImmediateHumanHandoffOnAgentError(errorCode) {
+  const env = String(process.env.AGENT_ERROR_IMMEDIATE_HANDOFF ?? 'true')
+    .trim()
+    .toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(env)) return false;
+  if (!errorCode) return true;
+  // Em producao, erros de runtime no agente ja representam risco de perder lead.
+  // Fazemos handoff direto em vez de mandar "instabilidade" repetidas vezes.
+  return true;
 }
 
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
@@ -118,6 +149,23 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     console.error('[agentEngine] persistência indisponível:', persistError.message);
     return;
   }
+
+  const persistOutbound = async (bodyText, intentLabel, rawPayload = null) => {
+    const saved = await inbox.insertMessage(pool, {
+      conversationId: conversation.id,
+      direction: 'outbound',
+      body: bodyText,
+      intent: intentLabel || 'AGENT_REPLY',
+      suggestedReply: null,
+      rawPayload,
+    });
+    emitInbox(app, {
+      type: 'outbound',
+      wa_id: waId,
+      conversation: await inbox.getConversationByWaId(pool, waId),
+      message: saved,
+    });
+  };
 
   emitInbox(app, {
     type: 'inbound',
@@ -206,23 +254,6 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
   const operationalProfile = await getProfileForPrompt(pool, waId);
   const sentiment = analyzeSentimentLead(incomingText, { collectedFields: memory.workingState });
-
-  const persistOutbound = async (bodyText, intentLabel, rawPayload = null) => {
-    const saved = await inbox.insertMessage(pool, {
-      conversationId: conversation.id,
-      direction: 'outbound',
-      body: bodyText,
-      intent: intentLabel || 'AGENT_REPLY',
-      suggestedReply: null,
-      rawPayload,
-    });
-    emitInbox(app, {
-      type: 'outbound',
-      wa_id: waId,
-      conversation: await inbox.getConversationByWaId(pool, waId),
-      message: saved,
-    });
-  };
 
   let contactLastEstablishmentId = null;
   let whatsappContact = null;
@@ -384,9 +415,14 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       }
     }
   } catch (error) {
-    console.error('[agentEngine] erro no turno do agente:', error.message, error.stack);
-
     const errorCode = classifyAgentRuntimeError(error);
+    const errorMeta = buildAgentRuntimeErrorMeta(error, errorCode);
+    console.error('[agentEngine] erro no turno do agente:', {
+      waId,
+      conversationId: conversation?.id || null,
+      ...errorMeta,
+      stack: error?.stack ? String(error.stack).slice(0, 500) : null,
+    });
     let recentAgentErrors = 0;
     let lastOutboundIntent = null;
 
@@ -417,7 +453,9 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
 
     const shouldEscalateToHuman =
-      recentAgentErrors >= 1 || lastOutboundIntent === 'AGENT_ERROR';
+      shouldImmediateHumanHandoffOnAgentError(errorCode) ||
+      recentAgentErrors >= 1 ||
+      lastOutboundIntent === 'AGENT_ERROR';
 
     const fallback =
       'Opa, deu uma instabilidade aqui do meu lado. Tenta me mandar de novo em uma mensagem que eu sigo com você agora.';
@@ -430,8 +468,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         await outboundGateway.sendText(waId, handoffReply);
         await persistOutbound(handoffReply, 'HUMAN_REQUESTED', {
           source: 'agent_error_guard',
-          errorCode,
           recentAgentErrors,
+          ...errorMeta,
         });
         console.warn(
           `[agentEngine] takeover por AGENT_ERROR em sequência waId=${waId} errCode=${errorCode} recent=${recentAgentErrors}`
@@ -439,9 +477,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       } else {
         await outboundGateway.sendText(waId, fallback);
         await persistOutbound(fallback, 'AGENT_ERROR', {
-          errorCode,
           source: 'agent_turn_catch',
-          detail: String(error?.message || '').slice(0, 240),
+          ...errorMeta,
         });
         console.warn(`[agentEngine] fallback enviado waId=${waId} errCode=${errorCode}`);
       }
