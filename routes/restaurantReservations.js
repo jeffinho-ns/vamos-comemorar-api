@@ -368,7 +368,15 @@ module.exports = (pool) => {
           rr.*,
           COALESCE(NULLIF(TRIM(rr.area_display_name), ''), ra.name) as area_name,
           u.name as created_by_name,
-          COALESCE(p.name, b.name) as establishment_name
+          COALESCE(p.name, b.name) as establishment_name,
+          (
+            SELECT gl.event_type::text
+            FROM guest_lists gl
+            WHERE gl.reservation_id = rr.id
+              AND gl.reservation_type = 'restaurant'
+            ORDER BY gl.id DESC
+            LIMIT 1
+          ) as event_type
         FROM restaurant_reservations rr
         LEFT JOIN restaurant_areas ra ON rr.area_id = ra.id
         LEFT JOIN users u ON rr.created_by = u.id
