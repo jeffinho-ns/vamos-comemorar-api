@@ -132,7 +132,8 @@ module.exports = (pool, app) => {
     return Math.min(max, Math.max(min, Math.round(n)));
   }
 
-  function contactEligibleForCampaign(contact, campaign) {
+  function contactEligibleForCampaign(contact, campaign, options = {}) {
+    const enforceAudienceFilters = options.enforceAudienceFilters !== false;
     if (!contact?.marketing_opt_in) {
       return { ok: false, reason: 'Sem opt-in de marketing' };
     }
@@ -146,14 +147,16 @@ module.exports = (pool, app) => {
       ? contact.tags.map((t) => String(t).trim().toLowerCase())
       : [];
 
-    if (statusRequired && contact.contact_status !== statusRequired) {
-      return { ok: false, reason: 'Status não atende ao filtro da campanha' };
-    }
-    if (tagsRequired.length > 0) {
-      const required = tagsRequired.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
-      const matched = required.some((tag) => contactTags.includes(tag));
-      if (!matched) {
-        return { ok: false, reason: 'Tags não atendem ao filtro da campanha' };
+    if (enforceAudienceFilters) {
+      if (statusRequired && contact.contact_status !== statusRequired) {
+        return { ok: false, reason: 'Status não atende ao filtro da campanha' };
+      }
+      if (tagsRequired.length > 0) {
+        const required = tagsRequired.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
+        const matched = required.some((tag) => contactTags.includes(tag));
+        if (!matched) {
+          return { ok: false, reason: 'Tags não atendem ao filtro da campanha' };
+        }
       }
     }
     if (optInRequired && !contact.marketing_opt_in) {
@@ -736,7 +739,9 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este contato' });
       }
 
-      const eligibility = contactEligibleForCampaign(contact, campaign);
+      const eligibility = contactEligibleForCampaign(contact, campaign, {
+        enforceAudienceFilters: false,
+      });
       if (!eligibility.ok) {
         return res.status(400).json({
           message:
