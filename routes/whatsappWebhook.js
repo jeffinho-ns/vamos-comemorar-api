@@ -40,6 +40,23 @@ function extractMessageId(payload) {
   return firstMessage?.id ? String(firstMessage.id) : null;
 }
 
+function extractDeliveryStatus(payload) {
+  const entry = payload?.entry?.[0];
+  const change = entry?.changes?.[0];
+  const value = change?.value;
+  const firstStatus = value?.statuses?.[0];
+  if (!firstStatus) return null;
+  return {
+    id: firstStatus.id || null,
+    status: firstStatus.status || null,
+    recipient_id: firstStatus.recipient_id || null,
+    timestamp: firstStatus.timestamp || null,
+    conversation_id: firstStatus?.conversation?.id || null,
+    pricing_category: firstStatus?.pricing?.category || null,
+    errors: Array.isArray(firstStatus.errors) ? firstStatus.errors : [],
+  };
+}
+
 module.exports = (pool, app) => {
   const router = express.Router();
 
@@ -69,6 +86,19 @@ module.exports = (pool, app) => {
     const incomingMessageText = extractMessageText(payload);
     const waId = extractSenderNumber(payload);
     const wamid = extractMessageId(payload);
+    const statusEvent = extractDeliveryStatus(payload);
+
+    if (statusEvent) {
+      const base =
+        `[WhatsApp webhook] delivery status=${statusEvent.status || 'unknown'} ` +
+        `wamid=${statusEvent.id || 'sem-id'} recipient=${statusEvent.recipient_id || 'desconhecido'} ` +
+        `conversation=${statusEvent.conversation_id || 'n/a'} pricing=${statusEvent.pricing_category || 'n/a'}`;
+      if (statusEvent.errors.length > 0 || statusEvent.status === 'failed') {
+        console.warn(`${base} errors=${JSON.stringify(statusEvent.errors)}`);
+      } else {
+        console.log(base);
+      }
+    }
 
     if (!incomingMessageText || !waId) {
       return res.sendStatus(200);

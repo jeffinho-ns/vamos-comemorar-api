@@ -775,8 +775,25 @@ module.exports = (pool, app) => {
         suggestedReply: null,
         rawPayload: sendResult || null,
       });
+      const metaWaId = Array.isArray(sendResult?.contacts) ? sendResult.contacts[0]?.wa_id || null : null;
+      const metaStatus = Array.isArray(sendResult?.messages)
+        ? sendResult.messages[0]?.message_status || null
+        : null;
+      console.log(
+        `[whatsappAdmin] campaign send accepted campaign=${campaign.id} contact=${contact.id} to=${contact.wa_id} metaWaId=${metaWaId || 'n/a'} status=${metaStatus || 'n/a'}`
+      );
       emitInbox({ type: 'outbound' });
-      return res.json({ ok: true, message: saved });
+      return res.json({
+        ok: true,
+        message: saved,
+        whatsapp: {
+          accepted: true,
+          to: contact.wa_id,
+          meta_wa_id: metaWaId,
+          meta_status: metaStatus,
+          response: sendResult,
+        },
+      });
     } catch (e) {
       console.error('[whatsappAdmin] campaign send-to-contact:', e);
       return res.status(500).json({ message: e.message || 'Erro ao enviar campanha para contato' });
