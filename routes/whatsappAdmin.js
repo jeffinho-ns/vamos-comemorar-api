@@ -713,11 +713,14 @@ module.exports = (pool, app) => {
 
   router.post('/campaigns/:id/send-to-contact', auth, authorize(...allowedRoles), async (req, res) => {
     const campaignId = Number(req.params?.id);
-    const contactId = Number(req.body?.contact_id);
+    const contactIdRaw = req.body?.contact_id ?? req.query?.contact_id;
+    const contactId = Number(contactIdRaw);
+    const waIdRaw = req.body?.wa_id ?? req.query?.wa_id;
+    const waId = typeof waIdRaw === 'string' ? waIdRaw.trim() : '';
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id da campanha inválido' });
     }
-    if (!Number.isFinite(contactId) || contactId <= 0) {
+    if ((!Number.isFinite(contactId) || contactId <= 0) && !waId) {
       return res.status(400).json({ message: 'contact_id inválido' });
     }
 
@@ -731,7 +734,9 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
-      const contact = await inbox.getContactById(pool, contactId);
+      const contact = Number.isFinite(contactId) && contactId > 0
+        ? await inbox.getContactById(pool, contactId)
+        : await inbox.getContactByWaId(pool, waId);
       if (!contact) {
         return res.status(404).json({ message: 'Contato não encontrado' });
       }
