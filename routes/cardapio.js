@@ -2207,18 +2207,19 @@ module.exports = (pool) => {
             }
             
             const currentItem = itemsResult.rows[0];
-            const newVisibility = visible !== undefined ? (visible ? 1 : 0) : (currentItem.visible === 1 ? 0 : 1);
+            const currentVisible = currentItem.visible === true || currentItem.visible === 1;
+            const newVisibility = visible !== undefined ? Boolean(visible) : !currentVisible;
             
             // Atualizar visibilidade
             await pool.query('UPDATE menu_items SET visible = $1 WHERE id = $2', [newVisibility, id]);
             
             res.json({ 
-                message: newVisibility === 1 ? 'Item tornado visível com sucesso.' : 'Item ocultado com sucesso.',
+                message: newVisibility ? 'Item tornado visível com sucesso.' : 'Item ocultado com sucesso.',
                 item: {
                     id,
                     name: currentItem.name,
-                    visible: newVisibility === 1,
-                    status: newVisibility === 1 ? 'visível' : 'oculto'
+                    visible: newVisibility,
+                    status: newVisibility ? 'visível' : 'oculto'
                 }
             });
         } catch (error) {
@@ -2450,7 +2451,7 @@ module.exports = (pool) => {
 
             if (mode === 'permanent') {
                 await pool.query(
-                    'UPDATE menu_items SET visible = 0 WHERE id = ANY($1::int[])',
+                    'UPDATE menu_items SET visible = FALSE WHERE id = ANY($1::int[])',
                     [ids],
                 );
                 for (const group of groups.values()) {
@@ -2488,7 +2489,7 @@ module.exports = (pool) => {
                 });
                 createdSchedules.push(...created);
                 await pool.query(
-                    'UPDATE menu_items SET visible = 1 WHERE id = ANY($1::int[])',
+                    'UPDATE menu_items SET visible = TRUE WHERE id = ANY($1::int[])',
                     [group.itemIds],
                 );
             }
@@ -2528,7 +2529,7 @@ module.exports = (pool) => {
                 });
             }
             await pool.query(
-                'UPDATE menu_items SET visible = 1 WHERE id = ANY($1::int[])',
+                'UPDATE menu_items SET visible = TRUE WHERE id = ANY($1::int[])',
                 [ids],
             );
             res.json({
