@@ -5,10 +5,7 @@ const {
   isDateInPastComparedToReference,
   isDateTooFarInFuture,
 } = require('../../nlp/dateResolver');
-const {
-  checkCapacityViaInternalApi,
-  buildAgentReservationOperatingBlock,
-} = require('./reservationOperatingContext');
+const { checkCapacityViaInternalApi } = require('./reservationOperatingContext');
 const {
   buildReservationBodyFromParams,
   createReservationInternal,
@@ -549,18 +546,6 @@ async function verificarDisponibilidade(pool, args = {}) {
     });
   }
 
-  let operatingSummary = '';
-  try {
-    operatingSummary = await buildAgentReservationOperatingBlock(
-      pool,
-      establishmentId,
-      '',
-      reservationDate
-    );
-  } catch (_error) {
-    operatingSummary = '';
-  }
-
   const capacityData = capacity?.ok ? capacity.capacity : null;
   const canReserveByCapacity =
     capacityData == null ? null : capacityData.canMakeReservation !== false;
@@ -590,7 +575,6 @@ async function verificarDisponibilidade(pool, args = {}) {
           turno_rooftop: capacityData.rooftopShift || null,
         }
       : null,
-    painel_resumo: operatingSummary ? operatingSummary.slice(0, 2500) : null,
     fonte: 'admin_restaurant_reservations + capacity.check',
   };
 }

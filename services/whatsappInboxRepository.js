@@ -167,13 +167,22 @@ async function upsertContact(
   return r.rows[0];
 }
 
-async function getRecentMessagesForContext(pool, conversationId, limit = 12) {
+function resolveContextMessageLimit(limit) {
+  if (limit !== undefined && limit !== null && Number.isFinite(Number(limit)) && Number(limit) > 0) {
+    return Math.min(Math.floor(Number(limit)), 32);
+  }
+  const fromEnv = Number(process.env.MAX_CONTEXT_MESSAGES || 10);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? Math.min(Math.floor(fromEnv), 32) : 10;
+}
+
+async function getRecentMessagesForContext(pool, conversationId, limit) {
+  const resolvedLimit = resolveContextMessageLimit(limit);
   const r = await pool.query(
     `SELECT direction, body FROM whatsapp_messages
      WHERE conversation_id = $1
      ORDER BY created_at DESC
      LIMIT $2`,
-    [conversationId, limit]
+    [conversationId, resolvedLimit]
   );
   return r.rows.reverse();
 }

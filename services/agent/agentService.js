@@ -11,11 +11,17 @@ const {
 } = require('./faqTopicCanonical');
 const {
   prefetchEstablishmentFaqs,
-  loadAllActiveFaqsForEstablishment,
+  loadRelevantFaqsForEstablishment,
+  detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
-  resolveFaqTopicsForTurn,
 } = require('./faqPrefetchService');
+const {
+  MODEL_AGENT,
+  MODEL_FALLBACK,
+  applyOutputLimit,
+  getAgentToolRoundLimits,
+} = require('./openAiConfig');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
 const { buildReservationDateHint } = require('./reservationDateHint');
 const {
@@ -59,8 +65,15 @@ function getReferenceDateIso() {
   }).format(new Date());
 }
 
-function buildOpenAiMessages(messageHistory, systemPrompt) {
-  const messages = [{ role: 'system', content: systemPrompt }];
+/**
+ * Monta mensagens com prefixo estático cacheável (system #1) + sufixo dinâmico (system #2).
+ */
+function buildOpenAiMessages(messageHistory, staticSystemPrompt, dynamicSystemPrompt = '') {
+  const messages = [{ role: 'system', content: String(staticSystemPrompt || '').trim() }];
+  const dynamic = String(dynamicSystemPrompt || '').trim();
+  if (dynamic) {
+    messages.push({ role: 'system', content: dynamic });
+  }
   for (const item of messageHistory || []) {
     const content = String(item?.content || '').trim();
     if (!content) continue;
@@ -73,6 +86,27 @@ function buildOpenAiMessages(messageHistory, systemPrompt) {
     throw new Error('Histórico sem mensagens do usuário para o agente.');
   }
   return messages;
+}
+
+function toolCallFingerprint(toolCall) {
+  const name = String(toolCall?.function?.name || '').trim();
+  const args = String(toolCall?.function?.arguments || '{}').trim();
+  return `${name}:${args}`;
+}
+
+function toolTraceHasFingerprint(toolTrace = [], fingerprint) {
+  return (toolTrace || []).some((entry) => {
+    if (!entry?.name) return false;
+    const args = entry?.args != null ? JSON.stringify(entry.args) : '';
+    return `${entry.name}:${args}` === fingerprint;
+  });
+}
+
+function sanitizeToolResultForModel(toolResult = {}) {
+  if (!toolResult || typeof toolResult !== 'object') return toolResult;
+  const copy = { ...toolResult };
+  delete copy.painel_resumo;
+  return copy;
 }
 
 function formatReservationDateLabel(isoDate) {
@@ -252,8 +286,8 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
 // Em todos os casos, o caminho usa Chat Completions API + function calling —
 // migrar para Responses API exigiria refactor do round-trip de tool calls.
 // ============================================================================
-const AGENT_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
-const AGENT_FALLBACK_MODEL = process.env.OPENAI_AGENT_FALLBACK_MODEL || 'gpt-4o';
+const AGENT_MODEL = MODEL_AGENT;
+const AGENT_FALLBACK_MODEL = MODEL_FALLBACK;
 const OPENAI_MAX_RETRIES = Number(process.env.OPENAI_RETRY_MAX || 2);
 const OPENAI_RETRY_BASE_MS = Number(process.env.OPENAI_RETRY_BASE_MS || 700);
 const OPENAI_REQUEST_TIMEOUT_MS = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS || 25000);
@@ -334,12 +368,15 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 
-async function requestAssistantCompletion(messages, tools, toolChoice = 'auto') {
+async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', outputMode = 'conversational') {
   async function requestWithModel(modelName) {
-    const payload = {
-      model: modelName,
-      messages,
-    };
+    const payload = applyOutputLimit(
+      {
+        model: modelName,
+        messages,
+      },
+      outputMode
+    );
     if (
       Number.isFinite(OPENAI_AGENT_TEMPERATURE) &&
       modelSupportsCustomTemperature(modelName)
@@ -856,14 +893,13 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
+  const topicHints = detectRelevantFaqTopics(userText, messageHistory, { funnelActive: false });
 
-  // Carregamos a base inteira (não só os tópicos detectados) para que a
-  // resposta esteja fundamentada em TODAS as regras cadastradas — algumas
-  // perguntas dependem de combinar tópicos (ex.: aniversário + bolo + horário).
   let faqEntries = [];
   try {
-    faqEntries = await loadAllActiveFaqsForEstablishment(pool, establishmentId);
+    faqEntries = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
+      funnelActive: false,
+    });
   } catch (_error) {
     faqEntries = [];
   }
@@ -1025,21 +1061,18 @@ async function runAgentTurn({
       if (faqFirst) return faqFirst;
     }
   }
-  const topicHints = resolveFaqTopicsForTurn(userText, messageHistory);
+  const topicHints = detectRelevantFaqTopics(userText, messageHistory, { funnelActive });
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
 
-  // Treinamento da IA (Regras da Casa): SEMPRE injetar todas as regras
-  // cadastradas no painel para o estabelecimento bloqueado. A IA deve ler a
-  // base inteira em cada turno — antes essa lista vinha só sob demanda quando
-  // o sistema detectava palavras-chave na mensagem, o que fazia a IA ignorar
-  // os fatos oficiais em conversas que não casavam com o dicionário.
   if (!faqKnowledgeBlock && pool && establishmentId > 0) {
     try {
-      const allActive = await loadAllActiveFaqsForEstablishment(pool, establishmentId);
-      if (allActive.length > 0) {
+      const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
+        funnelActive,
+      });
+      if (relevant.length > 0) {
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
-          allActive,
+          relevant,
           context.lockedEstablishmentName || ''
         );
       } else if (topicHints.length) {
@@ -1076,14 +1109,16 @@ async function runAgentTurn({
   }
 
   const reservationFunnelBlock = buildReservationFunnelPromptBlock(workingState, messageHistory);
-  const systemPrompt = promptBuilder.build({
+  const promptContext = {
     ...context,
     faqKnowledgeBlock,
     reservationDateBlock: dateHint.promptBlock,
     reservationFunnelBlock,
     referenceDate: referenceDateIso,
-  });
-  const messages = buildOpenAiMessages(messageHistory, systemPrompt);
+  };
+  const staticSystemPrompt = promptBuilder.buildStatic(promptContext);
+  const dynamicSystemPrompt = promptBuilder.buildDynamic(promptContext);
+  const messages = buildOpenAiMessages(messageHistory, staticSystemPrompt, dynamicSystemPrompt);
   const tools = getAgentToolDefinitions();
 
   const toolTrace = [];
@@ -1100,15 +1135,41 @@ async function runAgentTurn({
 
   let assistantMessage = await requestAssistantCompletion(messages, tools, initialToolChoice);
   let guard = 0;
-  const baseMaxRounds = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 3);
-  const maxToolRounds = funnelActive ? Math.max(baseMaxRounds, 5) : baseMaxRounds;
+  const maxToolRounds = getAgentToolRoundLimits(funnelActive);
+  const seenToolFingerprints = new Set();
 
   while (assistantMessage?.tool_calls?.length && pool && guard < maxToolRounds) {
     messages.push(assistantMessage);
+    let executedAnyTool = false;
     for (const toolCall of assistantMessage.tool_calls) {
+      const fingerprint = toolCallFingerprint(toolCall);
+      if (seenToolFingerprints.has(fingerprint) || toolTraceHasFingerprint(toolTrace, fingerprint)) {
+        console.warn(
+          `[agentService] tool duplicada ignorada: ${toolCall?.function?.name || 'unknown'}`
+        );
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            ok: false,
+            error: 'Tool já executada neste turno com os mesmos parâmetros.',
+          }),
+        });
+        continue;
+      }
+      seenToolFingerprints.add(fingerprint);
+
       const toolResult = await executeAgentToolCall(pool, toolCall, runtimeContext);
+      executedAnyTool = true;
+      let parsedArgs = {};
+      try {
+        parsedArgs = JSON.parse(toolCall?.function?.arguments || '{}');
+      } catch (_error) {
+        parsedArgs = {};
+      }
       toolTrace.push({
         name: toolCall?.function?.name || null,
+        args: parsedArgs,
         result: toolResult,
       });
       workingState = mergeWorkingState(
@@ -1128,8 +1189,12 @@ async function runAgentTurn({
       messages.push({
         role: 'tool',
         tool_call_id: toolCall.id,
-        content: JSON.stringify(toolResult),
+        content: JSON.stringify(sanitizeToolResultForModel(toolResult)),
       });
+    }
+
+    if (!executedAnyTool) {
+      break;
     }
 
     assistantMessage = await requestAssistantCompletion(messages, tools, 'auto');

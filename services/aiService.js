@@ -42,6 +42,11 @@
 const OpenAI = require('openai');
 const { PromptBuilder } = require('./promptBuilder/PromptBuilder');
 const {
+  MODEL_AGENT,
+  getModelForTask,
+  applyOutputLimit,
+} = require('./agent/openAiConfig');
+const {
   getToolDefinitions,
   executeToolCall,
   shouldEnableTools,
@@ -66,7 +71,7 @@ const promptBuilder = new PromptBuilder();
 // Atenção: caminho atual usa Chat Completions — para usar Responses API
 // seria necessário refactor.
 // ============================================================================
-const AI_MODEL = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
+const AI_MODEL = MODEL_AGENT;
 function getOpenAI() {
   if (!openaiClient) {
     const key = process.env.OPENAI_API_KEY;
@@ -290,12 +295,17 @@ async function interpretMessage(opts) {
   const tools = toolsEnabled ? getToolDefinitions() : undefined;
 
   if (!toolsEnabled) {
-    const completion = await getOpenAI().chat.completions.create({
-      model: AI_MODEL,
-      response_format: { type: 'json_object' },
-      messages,
-      temperature: 0.3,
-    });
+    const completion = await getOpenAI().chat.completions.create(
+      applyOutputLimit(
+        {
+          model: AI_MODEL,
+          response_format: { type: 'json_object' },
+          messages,
+          temperature: 0.3,
+        },
+        'json'
+      )
+    );
     const content = completion?.choices?.[0]?.message?.content;
     if (!content) {
       throw new Error('Resposta vazia da OpenAI.');
@@ -303,13 +313,18 @@ async function interpretMessage(opts) {
     return normalizeInterpretation(JSON.parse(content), lastUserText);
   }
 
-  let completion = await getOpenAI().chat.completions.create({
-    model: AI_MODEL,
-    messages,
-    tools,
-    tool_choice: toolsEnabled ? 'auto' : undefined,
-    temperature: 0.3,
-  });
+  let completion = await getOpenAI().chat.completions.create(
+    applyOutputLimit(
+      {
+        model: AI_MODEL,
+        messages,
+        tools,
+        tool_choice: toolsEnabled ? 'auto' : undefined,
+        temperature: 0.3,
+      },
+      'conversational'
+    )
+  );
 
   let assistantMessage = completion?.choices?.[0]?.message;
   let guard = 0;
@@ -323,45 +338,60 @@ async function interpretMessage(opts) {
         content: JSON.stringify(toolResult),
       });
     }
-    completion = await getOpenAI().chat.completions.create({
-      model: AI_MODEL,
-      messages,
-      tools,
-      tool_choice: 'auto',
-      temperature: 0.3,
-    });
+    completion = await getOpenAI().chat.completions.create(
+      applyOutputLimit(
+        {
+          model: AI_MODEL,
+          messages,
+          tools,
+          tool_choice: 'auto',
+          temperature: 0.3,
+        },
+        'conversational'
+      )
+    );
     assistantMessage = completion?.choices?.[0]?.message;
     guard += 1;
   }
 
   if (assistantMessage?.tool_calls?.length) {
     messages.push(assistantMessage);
-    completion = await getOpenAI().chat.completions.create({
-      model: AI_MODEL,
-      response_format: { type: 'json_object' },
-      messages: [
-        ...messages,
+    completion = await getOpenAI().chat.completions.create(
+      applyOutputLimit(
         {
-          role: 'user',
-          content: 'Com base nas tools executadas, responda agora somente com o JSON exigido.',
+          model: AI_MODEL,
+          response_format: { type: 'json_object' },
+          messages: [
+            ...messages,
+            {
+              role: 'user',
+              content: 'Com base nas tools executadas, responda agora somente com o JSON exigido.',
+            },
+          ],
+          temperature: 0.3,
         },
-      ],
-      temperature: 0.3,
-    });
+        'json'
+      )
+    );
   } else {
-    completion = await getOpenAI().chat.completions.create({
-      model: AI_MODEL,
-      response_format: { type: 'json_object' },
-      messages: [
-        ...messages,
-        assistantMessage,
+    completion = await getOpenAI().chat.completions.create(
+      applyOutputLimit(
         {
-          role: 'user',
-          content: 'Responda agora somente com o JSON exigido.',
+          model: AI_MODEL,
+          response_format: { type: 'json_object' },
+          messages: [
+            ...messages,
+            assistantMessage,
+            {
+              role: 'user',
+              content: 'Responda agora somente com o JSON exigido.',
+            },
+          ].filter(Boolean),
+          temperature: 0.3,
         },
-      ].filter(Boolean),
-      temperature: 0.3,
-    });
+        'json'
+      )
+    );
   }
 
   const content = completion?.choices?.[0]?.message?.content;
@@ -390,22 +420,27 @@ async function generateReservationConfirmationMessage(opts) {
       : `Fechado! Sua reserva tá confirmada na ${house}. Te espero aqui — qualquer coisa é só me chamar.`;
   }
 
-  const completion = await getOpenAI().chat.completions.create({
-    model: AI_MODEL,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: confirmationSystemPrompt },
+  const completion = await getOpenAI().chat.completions.create(
+    applyOutputLimit(
       {
-        role: 'user',
-        content: JSON.stringify({
-          reservation: opts.reservation,
-          hasGuestList: Boolean(opts.hasGuestList),
-          isBirthday: Boolean(opts.isBirthday),
-        }),
+        model: getModelForTask('confirmation'),
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: confirmationSystemPrompt },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              reservation: opts.reservation,
+              hasGuestList: Boolean(opts.hasGuestList),
+              isBirthday: Boolean(opts.isBirthday),
+            }),
+          },
+        ],
+        temperature: 0.4,
       },
-    ],
-    temperature: 0.4,
-  });
+      'confirmation'
+    )
+  );
 
   const content = completion?.choices?.[0]?.message?.content;
   if (!content) {

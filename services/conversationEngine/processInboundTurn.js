@@ -302,7 +302,7 @@ async function processInboundTurn(args) {
     try {
       conversation = await inbox.getConversationByWaId(pool, waId);
       if (conversation?.id) {
-        const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 24);
+        const recent = await inbox.getRecentMessagesForContext(pool, conversation.id);
         messageHistory = mapRowsToOpenAIHistory(recent);
         const lastMessage = messageHistory[messageHistory.length - 1];
         const incomingText = String(incomingMessageText || '').trim();
@@ -503,7 +503,7 @@ async function processLegacyInboundTurn({
   let messageHistory = [{ role: 'user', content: messageText }];
   if (usedPersistence && conversation) {
     try {
-      const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 12);
+      const recent = await inbox.getRecentMessagesForContext(pool, conversation.id);
       messageHistory = mapRowsToOpenAIHistory(recent);
     } catch (historyError) {
       console.warn('[conversationEngine] falha ao montar histórico:', historyError.message);
@@ -815,14 +815,19 @@ async function processLegacyInboundTurn({
       let faqKnowledgeBlock = '';
       try {
         const {
-          loadAllActiveFaqsForEstablishment,
+          detectRelevantFaqTopics,
+          loadRelevantFaqsForEstablishment,
           buildFaqKnowledgeBlock,
         } = require('../agent/faqPrefetchService');
         if (activeEstablishmentId) {
-          const faqEntries = await loadAllActiveFaqsForEstablishment(
+          const topicHints = detectRelevantFaqTopics(messageText, messageHistory, {
+            funnelActive: true,
+          });
+          const faqEntries = await loadRelevantFaqsForEstablishment(
             pool,
             activeEstablishmentId,
-            { maxChars: 8000 }
+            topicHints,
+            { funnelActive: true }
           );
           const establishmentNameForFaq =
             linkedEstablishment?.name ||

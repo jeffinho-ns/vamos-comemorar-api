@@ -14,6 +14,8 @@ const {
   buildSummaryFromWorkingState,
 } = require('../agent/agentMemoryService');
 const { loadAiCatalogLight } = require('../whatsappReservationService');
+const { prepareMessageHistoryForTurn } = require('../agent/contextWindow');
+const { getMaxContextMessages } = require('../agent/openAiConfig');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const {
   getProfileForPrompt,
@@ -235,7 +237,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   const memory = await getMemory(pool, conversation.id);
   let messageHistory = [{ role: 'user', content: incomingText }];
   try {
-    const recent = await inbox.getRecentMessagesForContext(pool, conversation.id, 24);
+    const recent = await inbox.getRecentMessagesForContext(
+      pool,
+      conversation.id,
+      getMaxContextMessages()
+    );
     messageHistory = mapRowsToOpenAIHistory(recent);
     const lastMessage = messageHistory[messageHistory.length - 1];
     if (!lastMessage || lastMessage.role !== 'user' || lastMessage.content !== incomingText) {
@@ -346,6 +352,21 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   }
 
+  let contextSummaryForTurn = memory.contextSummary || '';
+  try {
+    const prepared = await prepareMessageHistoryForTurn(messageHistory, contextSummaryForTurn);
+    messageHistory = prepared.messageHistory;
+    contextSummaryForTurn = prepared.contextSummary;
+    if (prepared.summarized) {
+      await persistMemory(pool, conversation.id, {
+        workingState: memoryForTurn.workingState,
+        contextSummary: contextSummaryForTurn,
+      }).catch(() => {});
+    }
+  } catch (prepError) {
+    console.warn('[agentEngine] falha ao preparar janela de contexto:', prepError.message);
+  }
+
   try {
     const agentResult = await runAgentTurn({
       pool,
@@ -358,7 +379,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         reservationOperatingBlock,
         lockedEstablishmentId,
         lockedEstablishmentName,
-        contextSummary: memory.contextSummary,
+        contextSummary: contextSummaryForTurn,
         workingStateSummary: buildSummaryFromWorkingState(memoryForTurn.workingState),
         reservationDateBlock: dateHint.promptBlock,
         emotionalState: sentiment.emotionalState,
@@ -379,6 +400,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     await persistMemory(pool, conversation.id, {
       workingState: agentResult.workingState,
+      contextSummary: contextSummaryForTurn,
     }).catch((memoryError) => {
       console.error('[agentEngine] falha ao persistir memória:', memoryError.message);
     });

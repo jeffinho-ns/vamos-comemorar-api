@@ -1,6 +1,12 @@
 const OpenAI = require('openai');
 const { buildFaqTopicCandidates } = require('./agentTools');
 const { detectFaqTopicsFromConversation } = require('./faqTopicCanonical');
+const {
+  FAQ_MAX_CHARS_PER_TURN,
+  FAQ_CORE_FALLBACK_TOPICS,
+  getModelForTask,
+  applyOutputLimit,
+} = require('./openAiConfig');
 
 let openaiClient = null;
 
@@ -108,6 +114,82 @@ async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxCha
   return entries;
 }
 
+/**
+ * Detecta tópicos FAQ relevantes para o turno (não carrega a base inteira).
+ */
+function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
+  const { funnelActive = false } = options;
+  const topics = detectFaqTopicsFromConversation(messageHistory, userText);
+
+  if (funnelActive) {
+    for (const topic of [
+      'coleta_dados_progressiva_reserva',
+      'reserva_areas_operacional_highline',
+      'horario_corte_chegada_reserva',
+    ]) {
+      if (!topics.includes(topic)) topics.push(topic);
+    }
+  }
+
+  return [...new Set(topics.filter(Boolean))];
+}
+
+/**
+ * Carrega apenas FAQs dos tópicos detectados, com teto de ~800 tokens/turno.
+ */
+async function loadRelevantFaqsForEstablishment(
+  pool,
+  establishmentId,
+  topicHints = [],
+  { maxChars = FAQ_MAX_CHARS_PER_TURN, funnelActive = false } = {}
+) {
+  const establishment = Number(establishmentId);
+  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+
+  let topics = [...new Set((topicHints || []).filter(Boolean))];
+  if (!topics.length) {
+    topics = [...FAQ_CORE_FALLBACK_TOPICS];
+  }
+
+  let entries = await prefetchEstablishmentFaqs(pool, establishment, topics);
+
+  if (!entries.length) {
+    entries = await loadAllActiveFaqsForEstablishment(pool, establishment, {
+      maxChars: Math.min(maxChars, 1200),
+    });
+    return entries;
+  }
+
+  const budget = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : FAQ_MAX_CHARS_PER_TURN;
+  const topicOrder = new Map(topics.map((t, i) => [t, i]));
+  entries.sort((a, b) => {
+    const ai = topicOrder.has(a.topic) ? topicOrder.get(a.topic) : 999;
+    const bi = topicOrder.has(b.topic) ? topicOrder.get(b.topic) : 999;
+    if (ai !== bi) return ai - bi;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+
+  const trimmed = [];
+  let totalChars = 0;
+  for (const entry of entries) {
+    const piece = `### ${entry.topic}\n${entry.answer}`;
+    if (totalChars + piece.length > budget && trimmed.length > 0) {
+      const remaining = budget - totalChars - 20;
+      if (remaining > 80) {
+        trimmed.push({
+          ...entry,
+          answer: `${String(entry.answer).slice(0, remaining)}…`,
+        });
+      }
+      break;
+    }
+    trimmed.push(entry);
+    totalChars += piece.length + 2;
+  }
+
+  return trimmed;
+}
+
 function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   if (!entries.length) return '';
   const houseLabel = establishmentName ? ` DA ${establishmentName.toUpperCase()}` : '';
@@ -116,15 +198,8 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   // a misturar informação "geral" (alucinada) com a base, gerando respostas
   // que parecem corretas mas contradizem a operação real da casa.
   const header = [
-    `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (este é o seu MATERIAL DE ESTUDO oficial — a única fonte de verdade sobre esta casa):`,
-    '',
-    'COMO USAR ESTE BLOCO:',
-    '- ESTUDE este bloco ANTES de responder qualquer dúvida factual do cliente (horário, valor, aniversário, áreas, bolo, dress code, pets, política da casa, reservas).',
-    '- Esta base PREVALECE sobre o seu conhecimento geral como modelo de linguagem. Se você "lembra" de outro horário/valor/regra do que está cadastrado aqui — ignore sua memória e use a base. Sempre.',
-    '- NUNCA contradiga, generalize ou invente fora do que está aqui. Se a base não cobrir o tópico, diga "Boa, deixa eu confirmar isso com a equipe e te respondo já" — nunca improvise valores, horários ou regras.',
-    '- Cite valores, horários e benefícios EXATAMENTE como estão escritos abaixo. Não resuma "varia por dia" se houver detalhes concretos cadastrados.',
-    '- Estas regras valem inclusive durante o funil de reserva: se o cliente perguntar algo no meio da coleta, responda com a base ANTES de seguir coletando dados.',
-    '- Se duas entradas parecerem conflitantes, prefira a mais recente/específica. Na dúvida, peça pra confirmar com a equipe.',
+    `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (fonte oficial — prevalece sobre conhecimento geral):`,
+    'Use só os fatos abaixo. Se não cobrir o tópico: "Boa, deixa eu confirmar com a equipe e te respondo já."',
   ].join('\n');
   const body = entries
     .map((entry) => `### ${entry.topic}\n${entry.answer}`)
@@ -149,37 +224,34 @@ async function generateFaqGroundedReply({
     .map((m) => `${m.role === 'assistant' ? 'Host' : 'Cliente'}: ${m.content}`)
     .join('\n');
 
-  const modelName = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
-  const payload = {
-    // TRAVA DE PRODUÇÃO: modelo homologado é gpt-5.5 (ver agentService.js).
-    model: modelName,
-    messages: [
-      {
-        role: 'system',
-        content: `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp do cliente. Tom: como uma host real respondendo no celular — caloroso, direto e claro. Português do Brasil.
+  const modelName = getModelForTask('faq');
+  const payload = applyOutputLimit(
+    {
+      model: modelName,
+      messages: [
+        {
+          role: 'system',
+          content: `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp. Tom caloroso e direto. Português do Brasil.
 
-REGRAS OBRIGATÓRIAS:
-- Use SOMENTE os fatos da base de conhecimento abaixo. Não invente horários, preços ou benefícios. Se algo não estiver lá, diga "vou confirmar com a equipe e te respondo já".
-- Responda COMPLETAMENTE à pergunta do cliente antes de convidar para reserva.
-- Não enrole com "há atenção especial" ou "varia por dia" se a base traz fatos específicos: passe os fatos.
-- Inclua os horários, valores e benefícios que estão na base, MAS em texto corrido, dentro de frases curtas (1-3 por resposta). NUNCA em forma de lista com bullets ("•", "-"), nem com cabeçalhos negritados, nem com "Horários:\\n...".
-  Ex.: em vez de "Horários:\\n• Quarta: 18h-2h\\n• Sexta: 20h-4h", escreva "A casa abre quarta a partir das 18h e sexta das 20h às 4h."
-- Tom WhatsApp: "Boa noite!", "Show", "Fechado", "qualquer coisa me chama". NUNCA "Caro X", "Prezado", "Atenciosamente", "Equipe Vamos Comemorar", assinatura, "É com grande satisfação".
-- Quando fizer sentido, termine com UMA pergunta natural sobre a reserva ("Quer que eu já reserve pra você?", "Quer fechar uma mesa pra esse dia?"). Mas só se a pergunta original do cliente já estiver completamente respondida — nunca empurre formulário ignorando a dúvida.
-- Nunca invente uma data específica (ex.: 23/05) se o cliente não pediu.
-- Emojis: quase nunca; no máximo 1 discreto se a vibe pedir (aniversário 🎉).
+REGRAS:
+- Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
+- Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).
+- Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
+- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.
+- Não invente datas. Máximo 1 emoji discreto se couber.
 
 ${faqText}`,
-      },
+        },
       {
         role: 'user',
         content: recentContext
           ? `Histórico recente:\n${recentContext}\n\nPergunta atual do cliente: ${question}`
           : question,
       },
-    ],
-  };
-  // gpt-5.x rejeita temperatura custom; usa valor padrão do modelo.
+      ],
+    },
+    'conversational'
+  );
   if (!/^gpt-5(\b|[-.])/.test(String(modelName).toLowerCase())) {
     payload.temperature = 0.35;
   }
@@ -198,6 +270,8 @@ function resolveFaqTopicsForTurn(userText, messageHistory = []) {
 module.exports = {
   prefetchEstablishmentFaqs,
   loadAllActiveFaqsForEstablishment,
+  loadRelevantFaqsForEstablishment,
+  detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
   resolveFaqTopicsForTurn,
