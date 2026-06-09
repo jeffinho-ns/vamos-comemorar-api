@@ -4,10 +4,12 @@
  */
 
 const MODEL_AGENT = process.env.OPENAI_AGENT_MODEL || 'gpt-5.5';
-const MODEL_FAQ = process.env.OPENAI_FAQ_MODEL || 'gpt-5.4-mini';
-const MODEL_CLASSIFICATION = process.env.OPENAI_CLASSIFICATION_MODEL || 'gpt-5.4-nano';
-const MODEL_CONFIRMATION = process.env.OPENAI_CONFIRMATION_MODEL || 'gpt-5.4-mini';
-const MODEL_SUMMARY = process.env.OPENAI_SUMMARY_MODEL || 'gpt-5.4-mini';
+// Modelos econômicos: gpt-4o-mini é amplamente disponível na API.
+// gpt-5.4-mini/nano podem não existir em todas as contas — sobrescreva via env se tiver acesso.
+const MODEL_FAQ = process.env.OPENAI_FAQ_MODEL || 'gpt-4o-mini';
+const MODEL_CLASSIFICATION = process.env.OPENAI_CLASSIFICATION_MODEL || 'gpt-4o-mini';
+const MODEL_CONFIRMATION = process.env.OPENAI_CONFIRMATION_MODEL || 'gpt-4o-mini';
+const MODEL_SUMMARY = process.env.OPENAI_SUMMARY_MODEL || 'gpt-4o-mini';
 const MODEL_FALLBACK = process.env.OPENAI_AGENT_FALLBACK_MODEL || 'gpt-4o';
 
 const MAX_OUTPUT_TOKENS_CONVERSATIONAL = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 500);
@@ -65,10 +67,23 @@ function getMaxOutputTokens(mode = 'conversational') {
     : 500;
 }
 
+function modelUsesMaxCompletionTokens(modelName) {
+  const normalized = String(modelName || '').trim().toLowerCase();
+  // gpt-5.x e modelos reasoning (o-series) rejeitam max_tokens na Chat Completions API.
+  return /^gpt-5(\b|[-.])/.test(normalized) || /^o\d/.test(normalized);
+}
+
 function applyOutputLimit(payload, mode = 'conversational') {
   const limit = getMaxOutputTokens(mode);
-  if (limit > 0) {
+  if (!(limit > 0)) return payload;
+
+  const modelName = String(payload.model || MODEL_AGENT);
+  if (modelUsesMaxCompletionTokens(modelName)) {
+    payload.max_completion_tokens = limit;
+    delete payload.max_tokens;
+  } else {
     payload.max_tokens = limit;
+    delete payload.max_completion_tokens;
   }
   return payload;
 }
