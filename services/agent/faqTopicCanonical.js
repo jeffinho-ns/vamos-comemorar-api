@@ -86,6 +86,10 @@ const ADMIN_TOPIC_CANONICAL = {
   // Internos
   sao_quantos_convidados: 'coleta_dados_progressiva_reserva',
   quantidade_convidados: 'coleta_dados_progressiva_reserva',
+  grupo_grande: 'reserva_grupos_grandes_highline',
+  grupos_grandes: 'reserva_grupos_grandes_highline',
+  reserva_grande: 'reserva_grupos_grandes_highline',
+  mesa_grande: 'reserva_grupos_grandes_highline',
 
   // Capacidade
   capacidade: 'capacidade_diaria_highline',
@@ -156,11 +160,42 @@ function looksLikeMusicStyleQuestion(text) {
   return /\b(musica|dj|house|open format|brasilidades|programacao)\b/.test(normalized);
 }
 
+function extractPartySizeFromText(text) {
+  const normalized = normalizeInboundText(text);
+  if (!normalized) return null;
+
+  const direct = normalized.match(/\b(\d{1,3})\s*(pessoas?|convidados?|gente|amigos?)\b/);
+  if (direct) {
+    const n = Number(direct[1]);
+    if (n > 0 && n <= 200) return n;
+  }
+  const somos = normalized.match(/\b(somos|serao|seremos|vamos ser)\s*(\d{1,3})\b/);
+  if (somos) {
+    const n = Number(somos[2]);
+    if (n > 0 && n <= 200) return n;
+  }
+  const grupo = normalized.match(/\bgrupo\s*(?:de|com)?\s*(\d{1,3})\b/);
+  if (grupo) {
+    const n = Number(grupo[1]);
+    if (n > 0 && n <= 200) return n;
+  }
+  return null;
+}
+
 function detectFaqTopicsFromUserText(text) {
   const normalized = normalizeInboundText(text);
   if (!normalized) return [];
 
   const topics = [];
+  const partySize = extractPartySizeFromText(text);
+  if (Number.isFinite(partySize) && partySize >= 16) {
+    topics.push('reserva_grupos_grandes_highline');
+  }
+  if (
+    /\b(grupo grande|grupos grandes|muita gente|mesa grande|reserva grande)\b/.test(normalized)
+  ) {
+    topics.push('reserva_grupos_grandes_highline');
+  }
 
   if (looksLikeBirthdayBenefitsQuestion(text)) {
     topics.push('beneficios_aniversario');
@@ -246,6 +281,7 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 module.exports = {
   canonicalizeAdminFaqTopic,
   normalizeTopicKey,
+  extractPartySizeFromText,
   detectFaqTopicsFromUserText,
   detectFaqTopicsFromConversation,
   isInformationalFaqTurn,

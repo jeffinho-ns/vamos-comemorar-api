@@ -170,8 +170,8 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
       Number.isFinite(pessoas) && pessoas > 0
         ? ` pra ${pessoas} pessoa${pessoas === 1 ? '' : 's'}`
         : '';
-    if (Number.isFinite(pessoas) && pessoas >= 15) {
-      return `Show, ${dateLabel}${pessoasBit} a gente organiza com carinho — grupos grandes a equipe acompanha de perto. Pra começar, qual horário fica melhor pra você?`;
+    if (Number.isFinite(pessoas) && pessoas >= 16) {
+      return `Show, ${dateLabel}${pessoasBit} a gente organiza no Deck juntando mesas — pode ser que não caiba todo mundo sentado de uma vez, mas sua reserva fica garantida e a equipe cuida na hora. Qual horário fica melhor pra você?`;
     }
     if (pessoasBit) {
       return `Boa, ${dateLabel}${pessoasBit} está liberado. Qual horário fica melhor pra você?`;
@@ -255,6 +255,10 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           Array.isArray(result.alternativas_com_vaga) && result.alternativas_com_vaga.length
             ? ` Também tem vaga em: ${result.alternativas_com_vaga.join(', ')}.`
             : '';
+        const pessoas = Number(result.quantidade_pessoas);
+        if (result.grupo_grande || (Number.isFinite(pessoas) && pessoas >= 16)) {
+          return `Pra ${pessoas} pessoas a gente organiza em ${result.area_recomendada.label} juntando mesas — pode ser que não tenha cadeira pra todo mundo ao mesmo tempo, mas sua reserva segue normal e a equipe acomoda na chegada.${alt} Posso seguir com a reserva?`;
+        }
         return `Pra ${result.quantidade_pessoas} pessoas, o que encaixa melhor é ${result.area_recomendada.label}.${alt} Topa essa?`;
       }
     }

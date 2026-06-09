@@ -1,6 +1,9 @@
 const OpenAI = require('openai');
 const { buildFaqTopicCandidates } = require('./agentTools');
-const { detectFaqTopicsFromConversation } = require('./faqTopicCanonical');
+const {
+  detectFaqTopicsFromConversation,
+  extractPartySizeFromText,
+} = require('./faqTopicCanonical');
 const {
   FAQ_MAX_CHARS_PER_TURN,
   FAQ_CORE_FALLBACK_TOPICS,
@@ -125,9 +128,24 @@ function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
     for (const topic of [
       'coleta_dados_progressiva_reserva',
       'reserva_areas_operacional_highline',
+      'reserva_grupos_grandes_highline',
       'horario_corte_chegada_reserva',
     ]) {
       if (!topics.includes(topic)) topics.push(topic);
+    }
+  }
+
+  const texts = [
+    String(userText || '').trim(),
+    ...(messageHistory || [])
+      .filter((m) => m?.role === 'user')
+      .map((m) => String(m.content || '').trim())
+      .slice(-6),
+  ];
+  for (const text of texts) {
+    const size = extractPartySizeFromText(text);
+    if (Number.isFinite(size) && size >= 16 && !topics.includes('reserva_grupos_grandes_highline')) {
+      topics.push('reserva_grupos_grandes_highline');
     }
   }
 

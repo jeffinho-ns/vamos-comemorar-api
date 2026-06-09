@@ -118,6 +118,24 @@ const RICH_FAQ_TOPIC_ROUTES = [
     fallbacks: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
   },
   {
+    slug: 'reserva_grupos_grandes_highline',
+    keywords: [
+      'grupo grande',
+      'grupos grandes',
+      'muita gente',
+      '16 pessoas',
+      '17 pessoas',
+      '18 pessoas',
+      '20 pessoas',
+      '25 pessoas',
+      '30 pessoas',
+      '40 pessoas',
+      '50 pessoas',
+      'mesa grande',
+    ],
+    fallbacks: ['reserva_grupos_grandes_highline'],
+  },
+  {
     slug: 'reserva_areas_operacional_highline',
     keywords: [
       'deck',
@@ -775,6 +793,9 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
             mesas_count: combo.mesas_count,
             table_numbers: combo.table_numbers,
             total_capacity: combo.total_capacity,
+            escopo_combinacao: combo.escopo_combinacao || 'subarea',
+            partial: Boolean(combo.partial),
+            capacidade_abaixo_do_grupo: Boolean(combo.capacidade_abaixo_do_grupo),
           };
         } else {
           const snapshot = await consultHighlineReservationAreas(pool, {
@@ -852,8 +873,18 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
 
   if (combinedTablesInfo) {
     const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
-    const obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única usando feature "múltiplas mesas" do painel.`;
+    const escopo =
+      combinedTablesInfo.escopo_combinacao === 'area'
+        ? 'mesas combinadas na mesma área do painel (várias subáreas)'
+        : 'mesas combinadas na subárea';
+    let obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única (${escopo}), como no modal "Reservar múltiplas mesas".`;
+    if (combinedTablesInfo.capacidade_abaixo_do_grupo || combinedTablesInfo.partial) {
+      obsCombo += ` Grupo grande (${partySize} pessoas): pode não haver cadeira para todos — Hostess organiza na chegada.`;
+    }
     finalNotes = finalNotes ? `${obsCombo} | ${finalNotes}` : obsCombo;
+  } else if (isHighlineEstablishment(establishmentId) && partySize >= 16) {
+    const obsGrande = `Grupo grande (${partySize} pessoas): reserva registrada — equipe combina mesas; pode não haver cadeira para todos ao mesmo tempo.`;
+    finalNotes = finalNotes ? `${obsGrande} | ${finalNotes}` : obsGrande;
   }
 
   const recentByPhone = (duplicateInfo.duplicateRecent || []).filter(

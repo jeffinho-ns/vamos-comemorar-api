@@ -63,7 +63,7 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
 - Datas: use HOJE (America/Sao_Paulo) como referência; nunca anos passados.
 - Highline (id=7): só áreas oficiais (Área Deck Frente/Esquerdo/Direito, Área Bar; Rooftop só se pedir camarote/VIP). NUNCA "Bar Central", "Terraço", "Balcão", "Área VIP" genérica.
 - Com todos os dados obrigatórios, chame criar_pre_reserva na mesma interação. Não finja confirmação sem ok=true da tool.
-- Grupos 7-60: uma reserva com múltiplas mesas. >60 ou B2B: handoff humano.
+- Grupos 7-60: uma reserva com múltiplas mesas (mesma área do painel; pode juntar subáreas do Deck/Rooftop). >60 ou B2B: handoff humano.
 - Use tools na mesma interação — não diga "vou verificar" sem chamar a ferramenta.`;
   }
 

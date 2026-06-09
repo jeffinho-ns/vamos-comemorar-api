@@ -264,6 +264,22 @@ Celebre com o cliente de forma animada ao explicar.`,
       'É crucial não confundir o cliente. Reservas de MESAS NORMAIS não têm custo de reserva. Reservas no ROOFTOP (Área VIP, 100% consumível): Lounge (6 pessoas) = R$ 800; Bangalô (8 pessoas) = R$ 1.000. CAMAROTES no Club (Área interna/pista que abre 00h): Camarote 8 VIPs = R$ 2.000 (reverte 1.600 em consumação); Camarote 10 VIPs = R$ 2.500 (reverte 2.000 em consumação). Ofereça os camarotes mais caros apenas se o cliente indicar que quer uma experiência mais exclusiva, pista ou área interna.',
   },
   {
+    topic: 'reserva_grupos_grandes_highline',
+    answer: `REGRA EXCLUSIVA HIGHLINE — reservas a partir de 16 pessoas:
+
+NUNCA diga que a casa está cheia ou sem vaga só porque uma mesa única não comporta todo o grupo. Isso é normal em grupos grandes.
+
+O que fazer:
+1) Explique com empatia: na área sugerida (geralmente Área Deck) a gente junta mesas próximas — pode não haver cadeira para cada pessoa ao mesmo tempo, mas a reserva É FEITA e a Equipe de Hostess organiza na chegada.
+2) Consulte consultar_areas_mesa_reserva e verificar_disponibilidade com a data e a quantidade corretas.
+3) REGISTRE com criar_pre_reserva mesmo quando a soma de cadeiras das mesas combinadas for menor que o número de convidados. Em observacoes escreva: "Grupo grande de X pessoas — combinar mesas; Hostess acomoda na chegada."
+4) Só use criar_lista_espera se NÃO existir NENHUMA mesa livre nas subáreas operacionais naquele dia (zero mesas livres no painel).
+
+Tom sugerido (adapte, não copie literal): "Show! Pra X pessoas a gente organiza no Deck juntando mesas — pode ser que não caiba todo mundo sentado de uma vez, mas sua reserva fica garantida e a equipe cuida na hora."
+
+Acima de 60 pessoas ou evento corporativo/formatura: handoff humano (não improvise várias reservas separadas).`,
+  },
+  {
     topic: 'reserva_areas_operacional_highline',
     answer: `REGRA EXCLUSIVA HIGHLINE — áreas do Sistema de Reservas (/admin/restaurant-reservations), mesmas dos modais Nova Reserva e Editar Reserva:
 Subáreas: Área Deck - Frente | Área Deck - Esquerdo | Área Deck - Direito | Área Bar | Área Rooftop - Direito | Área Rooftop - Bistrô | Área Rooftop - Centro | Área Rooftop - Esquerdo | Área Rooftop - Vista.
@@ -274,7 +290,7 @@ Fluxo quando o cliente perguntar sobre áreas ou quiser mesa:
 1) Confirme data e quantidade de pessoas.
 2) consultar_areas_mesa_reserva (mesas do painel; CONFIRMADA bloqueia o dia).
 3) Sugira a subárea ideal; se a preferida estiver cheia, ofereça alternativas_com_vaga.
-4) Se todas_areas_cheias → criar_lista_espera + explique que a Hostess leva à mesa quando liberar.
+4) Se todas_areas_cheias → criar_lista_espera + explique que a Hostess leva à mesa quando liberar. (Grupos 16+: leia reserva_grupos_grandes_highline — "cheio" só quando ZERO mesas livres no dia.)
 5) criar_pre_reserva com area = label da subárea (ex.: Área Deck - Frente).
 
 Observações (campo observacoes nas ferramentas): SEMPRE registrar no notes do painel o que o cliente pediu (ex.: "quer Deck Frente", "aceitou Rooftop Centro", aniversário, pedido especial). A equipe lê isso no Sistema de Reservas.
