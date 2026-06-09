@@ -27,7 +27,7 @@ function formatHistoryForSummary(messages = []) {
 }
 
 /**
- * Gera resumo compacto do histórico antigo (gpt-5.4-mini) para substituir mensagens
+ * Gera resumo compacto do histórico antigo (gpt-5.5) para substituir mensagens
  * que saíram da janela de contexto.
  */
 async function summarizeConversationHistory(olderMessages = [], existingSummary = '') {
