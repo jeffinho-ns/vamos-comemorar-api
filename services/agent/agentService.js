@@ -273,6 +273,10 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
   return null;
 }
 
+function shouldPrioritizeFaqForCurrentTurn(userText) {
+  return isInformationalFaqTurn(userText);
+}
+
 // ============================================================================
 // TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para este projeto
 // é o gpt-5.5 (flagship em maio/2026). Segue instruções e tom de voz MUITO
@@ -890,10 +894,11 @@ async function tryFaqFirstReply({
   if (!userText || !Number.isFinite(establishmentId) || establishmentId <= 0 || !pool) {
     return null;
   }
-  if (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText)) {
+  const informationalTurn = shouldPrioritizeFaqForCurrentTurn(userText);
+  if (!informationalTurn && (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText))) {
     return null;
   }
-  if (!isInformationalFaqTurn(userText)) {
+  if (!informationalTurn) {
     return null;
   }
 
@@ -1041,6 +1046,22 @@ async function runAgentTurn({
   );
   workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
+  const currentTurnIsFaq = shouldPrioritizeFaqForCurrentTurn(userText);
+
+  if (currentTurnIsFaq && process.env.OPENAI_API_KEY) {
+    const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
+      (error) => {
+        console.warn('[agentService] FAQ-first indisponível:', error.message);
+        return null;
+      }
+    );
+    if (faqFirst) {
+      return {
+        ...faqFirst,
+        workingState,
+      };
+    }
+  }
 
   const funnelAdvance = tryAdvanceFunnelFromUserMessage(workingState, userText, messageHistory);
   if (funnelAdvance?.replyText) {
@@ -1054,7 +1075,9 @@ async function runAgentTurn({
   }
 
   if (process.env.OPENAI_API_KEY) {
-    const skipFaq = shouldSkipFaqFirst(workingState, messageHistory, userText);
+    const skipFaq = currentTurnIsFaq
+      ? false
+      : shouldSkipFaqFirst(workingState, messageHistory, userText);
     if (!skipFaq) {
       const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
         (error) => {
@@ -1270,4 +1293,5 @@ module.exports = {
   sanitizeAssistantReply,
   looksLikeFakeReservationConfirmation,
   containsForbiddenAreaName,
+  shouldPrioritizeFaqForCurrentTurn,
 };

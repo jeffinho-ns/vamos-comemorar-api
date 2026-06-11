@@ -249,6 +249,11 @@ As cortesias por quantidade de convidados não são cumulativas.
 Celebre com o cliente de forma animada ao explicar.`,
   },
   {
+    topic: 'estacionamento',
+    answer:
+      'O Highline não possui estacionamento próprio. Normalmente há serviço de valet/manobrista para clientes, sujeito à operação do dia. Se quiser, a equipe confirma a melhor orientação no dia da reserva.',
+  },
+  {
     topic: 'regras_bolo',
     answer:
       'O Highline não fornece bolos, mas o cliente tem total liberdade para levar o seu. A única regra é que o bolo tenha no máximo 2kg e o cliente OBRIGATORIAMENTE traga a nota fiscal de compra para apresentar na entrada. Comunique isso com muita empatia, para não soar como uma proibição grosseira.',

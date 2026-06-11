@@ -1,5 +1,6 @@
 const { parsePtBrDateFromText } = require('../conversationEngine/helpers');
 const { looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
+const { isInformationalFaqTurn } = require('./faqTopicCanonical');
 const {
   buildCollectBundlePrompt,
   BUNDLE_FIELD_ORDER,
@@ -162,6 +163,9 @@ function isReservationFunnelInProgress(workingState = {}, messageHistory = []) {
 }
 
 function shouldSkipFaqFirst(workingState = {}, messageHistory = [], userText = '') {
+  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) {
+    return false;
+  }
   if (isReservationFunnelInProgress(workingState, messageHistory)) return true;
   if (looksLikeReservationIntent(userText) && getReservationMissingFields(workingState).length < 7) {
     return true;
@@ -419,6 +423,7 @@ function shouldAutoRunAvailabilityCheck(
   messageHistory = []
 ) {
   if (!canAutoCheckAvailability(workingState, context)) return false;
+  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) return false;
   if (looksLikeTimeOnlyAnswer(userText, workingState, messageHistory)) return false;
 
   const fingerprint = buildAvailabilityFingerprint(workingState, context);

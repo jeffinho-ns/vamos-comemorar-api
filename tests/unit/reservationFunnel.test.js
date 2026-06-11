@@ -32,6 +32,17 @@ test('shouldSkipFaqFirst durante funil ativo', () => {
   );
 });
 
+test('shouldSkipFaqFirst não pula FAQ pura durante funil ativo', () => {
+  assert.equal(
+    shouldSkipFaqFirst(
+      { establishment_id: 7, reservation_date: '2026-06-20', reservation_time: '22:00' },
+      [{ role: 'user', content: 'quero reservar mesa' }],
+      'Oi boa noite, no Highline tem estacionamento?'
+    ),
+    false
+  );
+});
+
 test('parseReservationFieldsFromUserText extrai horário e pessoas', () => {
   const patch = parseReservationFieldsFromUserText('somos 4 pessoas às 20h', {});
   assert.equal(patch.quantidade_convidados, 4);
@@ -63,6 +74,25 @@ test('shouldAutoRunAvailabilityCheck com data e pessoas no estado', () => {
       'Vou verificar a disponibilidade. Um momento.'
     ),
     true
+  );
+});
+
+test('shouldAutoRunAvailabilityCheck não roda em pergunta FAQ pura', () => {
+  assert.equal(
+    shouldAutoRunAvailabilityCheck(
+      {
+        establishment_id: 7,
+        reservation_date: '2026-06-20',
+        reservation_time: '22:00',
+        quantidade_convidados: 20,
+      },
+      { lockedEstablishmentId: 7 },
+      [],
+      '',
+      'No Highline tem estacionamento?',
+      [{ role: 'user', content: 'quero reservar mesa' }]
+    ),
+    false
   );
 });
 

@@ -39,6 +39,15 @@ const DEFAULT_FAQ = {
     'Para reservar conosco é necessário ter 18 anos ou mais. A data de nascimento é usada apenas para confirmar a idade.',
 };
 
+function getDefaultFaqAnswer(topic) {
+  const candidates = buildFaqTopicCandidates(topic);
+  for (const candidate of candidates) {
+    const answer = DEFAULT_FAQ[normalizeTopic(candidate)];
+    if (answer) return answer;
+  }
+  return DEFAULT_FAQ[normalizeTopic(topic)] || null;
+}
+
 function normalizeTopic(topic) {
   return String(topic || '')
     .trim()
@@ -1057,4 +1066,5 @@ module.exports = {
   normalizeTopic,
   buildFaqTopicCandidates,
   matchRichFaqSlug,
+  getDefaultFaqAnswer,
 };

@@ -1,5 +1,5 @@
 const OpenAI = require('openai');
-const { buildFaqTopicCandidates } = require('./agentTools');
+const { buildFaqTopicCandidates, getDefaultFaqAnswer } = require('./agentTools');
 const {
   detectFaqTopicsFromConversation,
   extractPartySizeFromText,
@@ -172,6 +172,23 @@ async function loadRelevantFaqsForEstablishment(
   let entries = await prefetchEstablishmentFaqs(pool, establishment, topics);
 
   if (!entries.length) {
+    const fallbackEntries = topics
+      .map((topic) => {
+        const answer = getDefaultFaqAnswer(topic);
+        return answer
+          ? {
+              topic,
+              answer,
+              updatedAt: 0,
+              fallback: true,
+            }
+          : null;
+      })
+      .filter(Boolean);
+    if (fallbackEntries.length > 0) {
+      return fallbackEntries;
+    }
+
     entries = await loadAllActiveFaqsForEstablishment(pool, establishment, {
       maxChars: Math.min(maxChars, 1200),
     });
@@ -253,6 +270,7 @@ async function generateFaqGroundedReply({
 
 REGRAS:
 - Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
+- Responda a PERGUNTA ATUAL. O histórico recente é só contexto; não continue fluxo antigo de reserva se a pergunta atual for operacional.
 - Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).
 - Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
 - Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.
@@ -263,7 +281,7 @@ ${faqText}`,
       {
         role: 'user',
         content: recentContext
-          ? `Histórico recente:\n${recentContext}\n\nPergunta atual do cliente: ${question}`
+          ? `Histórico recente (secundário, não substitui a pergunta atual):\n${recentContext}\n\nPergunta atual do cliente: ${question}`
           : question,
       },
       ],

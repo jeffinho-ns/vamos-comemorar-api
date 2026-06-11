@@ -6,6 +6,7 @@ const {
   sanitizeAssistantReply,
   looksLikeFakeReservationConfirmation,
   containsForbiddenAreaName,
+  shouldPrioritizeFaqForCurrentTurn,
 } = require('../../services/agent/agentService');
 const { isDateTooFarInFuture } = require('../../nlp/dateResolver');
 
@@ -24,6 +25,18 @@ test('synthesizeReplyFromToolTrace usa a última FAQ válida', () => {
   ]);
 
   assert.equal(reply, 'Temos valet na porta.');
+});
+
+test('pergunta de estacionamento tem prioridade de FAQ mesmo com contexto de reserva', () => {
+  assert.equal(
+    shouldPrioritizeFaqForCurrentTurn('Oi boa noite, me dê uma ajuda. No Highline tem estacionamento?'),
+    true
+  );
+  assert.equal(
+    shouldPrioritizeFaqForCurrentTurn('quero reservar e queria saber se tem valet'),
+    true
+  );
+  assert.equal(shouldPrioritizeFaqForCurrentTurn('quero fazer uma reserva no Highline'), false);
 });
 
 test('synthesizeReplyFromToolTrace monta horários disponíveis', () => {
