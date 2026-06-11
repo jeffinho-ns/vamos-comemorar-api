@@ -257,6 +257,33 @@ module.exports = (pool) => {
     return shiftA === shiftB;
   };
 
+  const normalizeReservationDateValue = (value) => {
+    if (!value) return '';
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return '';
+      return value.toISOString().split('T')[0];
+    }
+    const text = String(value);
+    if (text.includes('T')) return text.split('T')[0];
+    return text.substring(0, 10);
+  };
+
+  const normalizeReservationTimeValue = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const [hours, minutes] = text.split(':');
+    const h = String(hours || '0').padStart(2, '0');
+    const m = String(minutes || '0').padStart(2, '0');
+    return `${h}:${m}`;
+  };
+
+  const isSameReservationSlot = (existingReservation, { areaId, date, time }) =>
+    Number(areaId) === Number(existingReservation.area_id) &&
+    normalizeReservationDateValue(date) ===
+      normalizeReservationDateValue(existingReservation.reservation_date) &&
+    normalizeReservationTimeValue(time) ===
+      normalizeReservationTimeValue(existingReservation.reservation_time);
+
   // Regras de bloqueio de agenda devem valer sempre, independentemente de
   // permissões de horário (allow_outside_hours).
   const checkReservationBlocks = async ({
@@ -266,6 +293,7 @@ module.exports = (pool) => {
     reservationTime,
     numberOfPeople,
     allowCapacityOverride = false,
+    excludeReservationId = null,
   }) => {
     if (!reservationDate || !reservationTime || !establishmentIdNumber) {
       return null;
@@ -319,6 +347,12 @@ module.exports = (pool) => {
 
     // Bloqueio parcial por capacidade.
     if (!allowCapacityOverride) {
+      const capParams = [reservationDate, establishmentIdNumber, areaIdNumber || null];
+      let excludeClause = '';
+      if (excludeReservationId) {
+        capParams.push(Number(excludeReservationId));
+        excludeClause = ` AND id <> $${capParams.length}`;
+      }
       const capResult = await pool.query(
         `
         SELECT COALESCE(SUM(number_of_people), 0)::int AS total_people
@@ -329,9 +363,9 @@ module.exports = (pool) => {
           AND status IN (
             'NOVA', 'CONFIRMADA', 'CHECKED_IN', 'SEATED',
             'confirmed', 'checked-in', 'seated'
-          )
+          )${excludeClause}
         `,
-        [reservationDate, establishmentIdNumber, areaIdNumber || null]
+        capParams
       );
 
       const currentPeople = parseInt(capResult.rows[0].total_people, 10) || 0;
@@ -1530,24 +1564,38 @@ module.exports = (pool) => {
       const establishmentId = existingReservation.establishment_id;
       const reservationPolicy = await getReservationPolicy(establishmentId);
 
-      try {
-        const blockResult = await checkReservationBlocks({
-          establishmentIdNumber: establishmentId,
-          areaIdNumber: newAreaId,
-          reservationDate: newDate,
-          reservationTime: newTime,
-          numberOfPeople:
-            number_of_people !== undefined ? Number(number_of_people) : Number(existingReservation.number_of_people),
-          allowCapacityOverride: reservationPolicy.allow_capacity_override,
-        });
-        if (blockResult?.blocked) {
-          return res.status(400).json({
-            success: false,
-            error: blockResult.error,
+      const reservationSlotUnchanged = isSameReservationSlot(existingReservation, {
+        areaId: newAreaId,
+        date: newDate,
+        time: newTime,
+      });
+
+      // Bloqueios de agenda valem para novas reservas. Ao editar uma reserva existente
+      // no mesmo dia/horário/área, permitir salvar (nome, mesa, status, observações etc.).
+      // Se o slot mudar, reaplicar bloqueios como em uma nova reserva (excluindo a própria).
+      if (!reservationSlotUnchanged) {
+        try {
+          const blockResult = await checkReservationBlocks({
+            establishmentIdNumber: establishmentId,
+            areaIdNumber: newAreaId,
+            reservationDate: newDate,
+            reservationTime: newTime,
+            numberOfPeople:
+              number_of_people !== undefined
+                ? Number(number_of_people)
+                : Number(existingReservation.number_of_people),
+            allowCapacityOverride: reservationPolicy.allow_capacity_override,
+            excludeReservationId: Number(id),
           });
+          if (blockResult?.blocked) {
+            return res.status(400).json({
+              success: false,
+              error: blockResult.error,
+            });
+          }
+        } catch (blockError) {
+          console.error('⚠️ Erro ao verificar bloqueios de agenda (PUT):', blockError);
         }
-      } catch (blockError) {
-        console.error('⚠️ Erro ao verificar bloqueios de agenda (PUT):', blockError);
       }
       
       // Verificar se há uma reserva bloqueando toda a área para a nova data/área no mesmo estabelecimento (exceto a própria reserva sendo editada)
