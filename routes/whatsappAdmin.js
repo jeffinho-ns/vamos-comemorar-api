@@ -6,6 +6,7 @@ const {
   isWhatsAppTransientError,
   sendMessage,
 } = require('../services/whatsappService');
+const { enqueueWhatsAppOutbound } = require('../infrastructure/queue/producers');
 const inbox = require('../services/whatsappInboxRepository');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -124,6 +125,34 @@ module.exports = (pool, app) => {
         type: payload?.type || 'refresh',
       });
     }
+  }
+
+  function scheduleBestEffortWhatsAppRetry(waId, text, savedMessageId) {
+    const baseDelayMs = clampInt(process.env.WHATSAPP_MANUAL_LOCAL_RETRY_MS, 5000, 120000, 15000);
+    const retryDelaysMs = [baseDelayMs, baseDelayMs * 3, baseDelayMs * 8];
+    let delivered = false;
+
+    retryDelaysMs.forEach((retryDelayMs, index) => {
+      setTimeout(async () => {
+        if (delivered) return;
+        try {
+          await sendMessage(waId, text);
+          delivered = true;
+          console.log('[whatsappAdmin] manual send retry accepted', {
+            wa_id: waId,
+            message_id: savedMessageId,
+            attempt: index + 1,
+          });
+        } catch (retryError) {
+          console.error('[whatsappAdmin] manual send retry failed:', {
+            wa_id: waId,
+            message_id: savedMessageId,
+            attempt: index + 1,
+            error: retryError.message || String(retryError),
+          });
+        }
+      }, retryDelayMs).unref?.();
+    });
   }
 
   function sleep(ms) {
@@ -344,7 +373,40 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
-      const sendResult = await sendMessage(waId, text);
+      let sendResult;
+      let queuedFallback = null;
+      try {
+        sendResult = await sendMessage(waId, text);
+      } catch (sendError) {
+        if (!isWhatsAppTransientError(sendError)) {
+          throw sendError;
+        }
+
+        queuedFallback = await enqueueWhatsAppOutbound({
+          to: waId,
+          text,
+          meta: {
+            source: 'admin_manual_send_transient_fallback',
+            user_id: req.user?.id || null,
+          },
+        });
+
+        if (queuedFallback.enqueued) {
+          sendResult = {
+            queued: true,
+            mode: 'bullmq',
+            job_id: queuedFallback.jobId,
+            original_error: buildPublicWhatsAppErrorMessage(sendError),
+          };
+        } else {
+          sendResult = {
+            queued: true,
+            mode: 'local_best_effort',
+            reason: queuedFallback.reason || 'queue_unavailable',
+            original_error: buildPublicWhatsAppErrorMessage(sendError),
+          };
+        }
+      }
       const saved = await inbox.insertMessage(pool, {
         conversationId: conv.id,
         direction: 'outbound',
@@ -353,6 +415,10 @@ module.exports = (pool, app) => {
         suggestedReply: null,
         rawPayload: sendResult || null,
       });
+
+      if (sendResult?.mode === 'local_best_effort') {
+        scheduleBestEffortWhatsAppRetry(waId, text, saved.id);
+      }
 
       const updatedConv = await inbox.setHumanTakeoverUntilManualResume(pool, waId);
       emitInbox({
@@ -367,6 +433,7 @@ module.exports = (pool, app) => {
         whatsapp: sendResult,
         conversation: updatedConv,
         ai_paused: true,
+        pending_delivery: Boolean(sendResult?.queued),
       });
     } catch (e) {
       console.error('[whatsappAdmin] send:', e);
