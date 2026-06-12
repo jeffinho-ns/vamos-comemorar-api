@@ -31,7 +31,7 @@ const {
   detectEstablishmentFromText,
 } = require('../conversationEngine/helpers');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
-const { isExplicitHumanRequest, shouldForceHumanIntent } = require('../aiService');
+const { isExplicitHumanRequest } = require('../aiService');
 
 const HIGHLINE_ID = 7;
 const B2B_THRESHOLD_PEOPLE = 60;
@@ -206,7 +206,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   // P1-D: cliente pediu humano explicitamente → ativa takeover ANTES de chamar
   // o LLM. Sem isso, a IA promete "vou te passar pro atendimento" e continua
   // respondendo no próximo turno (bug do Luccas, conv=716).
-  if (isExplicitHumanRequest(incomingText) || shouldForceHumanIntent(incomingText)) {
+  if (isExplicitHumanRequest(incomingText)) {
     try {
       const result = await pool.query(
         `UPDATE whatsapp_conversations
@@ -229,30 +229,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     return;
   }
 
-  // P1-E: detecta intenção B2B (evento privativo, grupo >60, formatura,
-  // corporativo). Esses leads precisam de humano — a IA pediria e-mail e
-  // data de nascimento como se fosse reserva normal (bug da Amalia, conv=698).
+  // Eventos grandes/privativos agora seguem com a IA. Handoff só acontece
+  // quando o cliente pede humano ou quando o operador assume no painel.
   const b2bReason = detectB2BIntent(incomingText);
   if (b2bReason) {
-    try {
-      await pool.query(
-        `UPDATE whatsapp_conversations
-            SET human_takeover_until = NOW() + interval '48 hours',
-                updated_at = NOW()
-          WHERE wa_id = $1`,
-        [waId]
-      );
-      console.log(`[agentEngine] takeover B2B (${b2bReason}) waId=${waId}`);
-      const b2bReply =
-        b2bReason === 'group_size'
-          ? 'Pra um grupo desse tamanho a gente trata como evento especial e quem cuida é uma pessoa do time, não a IA. Já encaminhei pra equipe — em instantes alguém vai te chamar por aqui, combinado?'
-          : 'Pra evento privativo/locação a gente faz o atendimento direto com a equipe. Já encaminhei pro time — em instantes alguém vai te chamar por aqui, combinado?';
-      await outboundGateway.sendText(waId, b2bReply);
-      await persistOutbound(b2bReply, 'B2B_HANDOFF');
-    } catch (b2bError) {
-      console.error('[agentEngine] falha no handoff B2B:', b2bError.message);
-    }
-    return;
+    console.log(`[agentEngine] intenção B2B detectada sem handoff automático (${b2bReason}) waId=${waId}`);
   }
 
   const memory = await getMemory(pool, conversation.id);

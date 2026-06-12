@@ -1,4 +1,9 @@
-const { interpretMessage, generateReservationConfirmationMessage, isLikelyReservationIntent } = require('../aiService');
+const {
+  interpretMessage,
+  generateReservationConfirmationMessage,
+  isExplicitHumanRequest,
+  isLikelyReservationIntent,
+} = require('../aiService');
 const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const businessRulesEngine = require('../businessRulesEngine');
@@ -977,20 +982,10 @@ async function processLegacyInboundTurn({
             step: failedState.currentStep,
             retryCount: failedState.retryCount,
           });
-          await activateHumanTakeover(pool, waId);
-          const handoffReply =
-            'Acho que vou pedir reforço aqui pra não te deixar dando voltas. Já chamei alguém da equipe pra finalizar sua reserva com você, beleza?';
-          await outboundGateway.sendText(waId, handoffReply);
-          await persistOutbound(handoffReply, 'anti_loop_handoff');
-          await trackFunnelEvent(pool, {
-            eventType: EVENT_TYPES.HUMAN_HANDOFF,
-            conversationId: conversation.id,
-            sessionId: failedState.sessionId,
-            waId,
-            establishmentId: lockedEstablishmentId,
-            step: failedState.currentStep,
-            payload: { reason: 'anti_loop' },
-          });
+          const retryReply =
+            'Acho que eu me enrolei nessa parte. Me manda de novo, em uma mensagem só, a data, horário e quantidade de pessoas que eu continuo por aqui.';
+          await outboundGateway.sendText(waId, retryReply);
+          await persistOutbound(retryReply, 'ANTI_LOOP_RETRY');
           return;
         }
 
@@ -1125,7 +1120,7 @@ async function processLegacyInboundTurn({
       suggested_reply: interpreted.suggested_reply,
     });
 
-    if (interpreted.action === 'falar_com_humano') {
+    if (interpreted.action === 'falar_com_humano' && isExplicitHumanRequest(messageText)) {
       if (usedPersistence && isConversationSafetyBlockEnabled()) {
         await activateHumanTakeover(pool, waId);
         if (conversation?.id) {
