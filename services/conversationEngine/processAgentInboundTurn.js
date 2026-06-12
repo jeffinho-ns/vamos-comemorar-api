@@ -79,6 +79,22 @@ async function activateHumanTakeover(pool, waId, hours = 48) {
   );
 }
 
+async function isRecoverableAgentErrorHandoff(pool, conversationId) {
+  const result = await pool.query(
+    `SELECT intent, raw_payload
+       FROM whatsapp_messages
+      WHERE conversation_id = $1
+        AND direction = 'outbound'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    [conversationId]
+  );
+  const row = result.rows[0];
+  if (!row) return false;
+  const source = row.raw_payload?.source || row.raw_payload?.errorMeta?.source || null;
+  return row.intent === 'HUMAN_REQUESTED' && source === 'agent_error_guard';
+}
+
 function classifyAgentRuntimeError(error) {
   const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
   const code = String(error?.code || '').toUpperCase();
@@ -114,14 +130,11 @@ function buildAgentRuntimeErrorMeta(error, errorCode) {
 }
 
 function shouldImmediateHumanHandoffOnAgentError(errorCode) {
-  const env = String(process.env.AGENT_ERROR_IMMEDIATE_HANDOFF ?? 'true')
+  const env = String(process.env.AGENT_ERROR_IMMEDIATE_HANDOFF ?? 'false')
     .trim()
     .toLowerCase();
-  if (['0', 'false', 'no', 'off'].includes(env)) return false;
-  if (!errorCode) return true;
-  // Em producao, erros de runtime no agente ja representam risco de perder lead.
-  // Fazemos handoff direto em vez de mandar "instabilidade" repetidas vezes.
-  return true;
+  if (['1', 'true', 'yes', 'on'].includes(env)) return true;
+  return false;
 }
 
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
@@ -178,8 +191,16 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   });
 
   if (await inbox.isHumanTakeoverActive(pool, waId)) {
-    console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
-    return;
+    const recoverableAgentError = await isRecoverableAgentErrorHandoff(pool, conversation.id).catch(
+      () => false
+    );
+    if (recoverableAgentError) {
+      await inbox.clearHumanTakeover(pool, waId);
+      console.warn(`[agentEngine] handoff por erro anterior limpo; IA retomando waId=${waId}`);
+    } else {
+      console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
+      return;
+    }
   }
 
   // P1-D: cliente pediu humano explicitamente → ativa takeover ANTES de chamar
@@ -474,10 +495,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       console.warn('[agentEngine] falha ao medir AGENT_ERROR recente:', obsError.message);
     }
 
-    const shouldEscalateToHuman =
-      shouldImmediateHumanHandoffOnAgentError(errorCode) ||
-      recentAgentErrors >= 1 ||
-      lastOutboundIntent === 'AGENT_ERROR';
+    const shouldEscalateToHuman = shouldImmediateHumanHandoffOnAgentError(errorCode);
 
     const fallback =
       'Opa, deu uma instabilidade aqui do meu lado. Tenta me mandar de novo em uma mensagem que eu sigo com você agora.';
