@@ -1,7 +1,11 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
-const { sendMessage } = require('../services/whatsappService');
+const {
+  buildPublicWhatsAppErrorMessage,
+  isWhatsAppTransientError,
+  sendMessage,
+} = require('../services/whatsappService');
 const inbox = require('../services/whatsappInboxRepository');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -340,8 +344,6 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
-      await inbox.setHumanTakeoverUntilManualResume(pool, waId);
-
       const sendResult = await sendMessage(waId, text);
       const saved = await inbox.insertMessage(pool, {
         conversationId: conv.id,
@@ -352,7 +354,7 @@ module.exports = (pool, app) => {
         rawPayload: sendResult || null,
       });
 
-      const updatedConv = await inbox.getConversationByWaId(pool, waId);
+      const updatedConv = await inbox.setHumanTakeoverUntilManualResume(pool, waId);
       emitInbox({
         type: 'outbound',
         conversation: updatedConv,
@@ -368,7 +370,11 @@ module.exports = (pool, app) => {
       });
     } catch (e) {
       console.error('[whatsappAdmin] send:', e);
-      return res.status(500).json({ message: e.message || 'Erro ao enviar mensagem' });
+      const isTransient = isWhatsAppTransientError(e);
+      return res.status(isTransient ? 503 : 500).json({
+        message: buildPublicWhatsAppErrorMessage(e),
+        transient: isTransient,
+      });
     }
   });
 
