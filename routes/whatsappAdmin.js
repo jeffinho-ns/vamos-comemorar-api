@@ -326,6 +326,53 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.post('/conversations/resume-ai-unassigned', auth, authorize(...allowedRoles), async (req, res) => {
+    try {
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+
+      const params = [];
+      let scopeFilter = '';
+      if (!scope.isAdmin) {
+        params.push(scope.allowedEstablishmentIds);
+        scopeFilter = `AND c.establishment_id = ANY($${params.length}::int[])`;
+      }
+
+      const result = await pool.query(
+        `WITH target AS (
+           SELECT c.id
+             FROM whatsapp_conversations c
+            WHERE c.human_takeover_until IS NOT NULL
+              AND c.human_takeover_until > NOW()
+              AND c.assigned_user_id IS NULL
+              AND c.status <> 'resolved'
+              ${scopeFilter}
+            ORDER BY c.updated_at DESC
+            LIMIT 100
+         )
+         UPDATE whatsapp_conversations c
+            SET human_takeover_until = NULL,
+                updated_at = NOW()
+           FROM target
+          WHERE c.id = target.id
+          RETURNING c.id, c.wa_id`,
+        params
+      );
+
+      emitInbox({ type: 'resume_ai_unassigned' });
+      return res.json({
+        ok: true,
+        resumed_count: result.rowCount,
+        wa_ids: result.rows.map((row) => row.wa_id),
+      });
+    } catch (e) {
+      console.error('[whatsappAdmin] resume-ai-unassigned:', e);
+      return res.status(500).json({ message: 'Erro ao retomar IA das conversas sem atendente' });
+    }
+  });
+
   router.post('/conversations/:waId/resume', auth, authorize(...allowedRoles), async (req, res) => {
     const { waId } = req.params;
     try {
@@ -373,6 +420,7 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
+      const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, waId);
       let sendResult;
       let queuedFallback = null;
       try {
@@ -420,7 +468,9 @@ module.exports = (pool, app) => {
         scheduleBestEffortWhatsAppRetry(waId, text, saved.id);
       }
 
-      const updatedConv = await inbox.setHumanTakeoverUntilManualResume(pool, waId);
+      const updatedConv = wasHumanTakeoverActive
+        ? await inbox.setHumanTakeoverUntilManualResume(pool, waId)
+        : await inbox.getConversationByWaId(pool, waId);
       emitInbox({
         type: 'outbound',
         conversation: updatedConv,
@@ -432,7 +482,7 @@ module.exports = (pool, app) => {
         message: saved,
         whatsapp: sendResult,
         conversation: updatedConv,
-        ai_paused: true,
+        ai_paused: wasHumanTakeoverActive,
         pending_delivery: Boolean(sendResult?.queued),
       });
     } catch (e) {
