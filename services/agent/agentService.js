@@ -319,24 +319,34 @@ function normalizeOpenAiError(error) {
   return { status, code, detail };
 }
 
+function isBillingOrQuotaError(error) {
+  const { status, code, detail } = normalizeOpenAiError(error);
+  const text = String(detail || '').toLowerCase();
+  if (code === 'INSUFFICIENT_QUOTA') return true;
+  return (
+    status === 429 &&
+    (/quota|billing|exceeded your current|insufficient_quota/i.test(text) ||
+      code === 'INSUFFICIENT_QUOTA')
+  );
+}
+
 function isModelAccessError(error) {
+  if (isBillingOrQuotaError(error)) return false;
+
   const { status, code, detail } = normalizeOpenAiError(error);
   const text = String(detail || '').toLowerCase();
   if (status === 404 || status === 403) return true;
   if (code === 'MODEL_NOT_FOUND' || code === 'INSUFFICIENT_PERMISSIONS') return true;
   return (
-    text.includes('model') &&
-    (text.includes('not found') ||
-      text.includes('does not exist') ||
-      text.includes('not available') ||
-      text.includes('do not have access') ||
-      text.includes('not permitted') ||
-      text.includes('insufficient'))
+    /model [`'"]?[\w.-]+[`'"]? (does not exist|is not available|not found)/i.test(text) ||
+    /do not have access to it/i.test(text) ||
+    /you do not have access to this model/i.test(text)
   );
 }
 
 /** Erros 400 de compatibilidade (ex.: max_tokens no gpt-5.5) — tenta modelo fallback antes de falhar o turno. */
 function isOpenAiCompatError(error) {
+  if (isBillingOrQuotaError(error)) return true;
   if (isModelAccessError(error)) return true;
   const { status, detail } = normalizeOpenAiError(error);
   const text = String(detail || '').toLowerCase();
@@ -349,6 +359,8 @@ function isOpenAiCompatError(error) {
 }
 
 function isRetryableOpenAiError(error) {
+  if (isBillingOrQuotaError(error)) return false;
+
   const { status, code, detail } = normalizeOpenAiError(error);
   if ([408, 409, 429].includes(status) || status >= 500) return true;
   if (

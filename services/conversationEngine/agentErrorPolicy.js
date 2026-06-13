@@ -1,6 +1,6 @@
 function classifyAgentRuntimeError(error) {
   const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
-  const code = String(error?.code || '').toUpperCase();
+  const code = String(error?.code || error?.error?.code || '').toUpperCase();
   const detail = String(error?.message || error?.error?.message || 'erro_desconhecido');
   const normalizedDetail = detail.toLowerCase();
   if (/missing credentials|api[_\s-]?key|no api key/i.test(detail)) {
@@ -9,7 +9,17 @@ function classifyAgentRuntimeError(error) {
   if (/invalid api key|incorrect api key|authentication/i.test(normalizedDetail)) {
     return 'OPENAI_AUTH';
   }
-  if (/model/i.test(detail) && /(not found|does not exist|not available|do not have access|insufficient)/i.test(detail)) {
+  if (
+    code === 'INSUFFICIENT_QUOTA' ||
+    /exceeded your current quota|check your plan and billing/i.test(normalizedDetail)
+  ) {
+    return 'OPENAI_QUOTA_EXCEEDED';
+  }
+  if (
+    /model [`'"]?[\w.-]+[`'"]? (does not exist|is not available|not found)/i.test(detail) ||
+    /do not have access to it/i.test(detail) ||
+    code === 'MODEL_NOT_FOUND'
+  ) {
     return 'OPENAI_MODEL_ACCESS';
   }
   if (status === 429 || /rate limit|too many/i.test(detail)) return 'OPENAI_429';
