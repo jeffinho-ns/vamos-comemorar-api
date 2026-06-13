@@ -15,6 +15,7 @@ function classifyAgentRuntimeError(error) {
   if (status === 429 || /rate limit|too many/i.test(detail)) return 'OPENAI_429';
   if (status >= 500) return `OPENAI_${status}`;
   if (code === 'OPENAI_TIMEOUT' || /timeout|timed out/i.test(detail)) return 'OPENAI_TIMEOUT';
+  if (code === 'OPENAI_EMPTY_RESPONSE') return 'OPENAI_EMPTY_RESPONSE';
   if (code === 'ECONNRESET' || code === 'ECONNABORTED') return code;
   return 'AGENT_RUNTIME_ERROR';
 }

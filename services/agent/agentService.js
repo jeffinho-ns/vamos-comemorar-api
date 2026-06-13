@@ -335,11 +335,26 @@ function isModelAccessError(error) {
   );
 }
 
+/** Erros 400 de compatibilidade (ex.: max_tokens no gpt-5.5) — tenta modelo fallback antes de falhar o turno. */
+function isOpenAiCompatError(error) {
+  if (isModelAccessError(error)) return true;
+  const { status, detail } = normalizeOpenAiError(error);
+  const text = String(detail || '').toLowerCase();
+  if (![400, 422].includes(status)) return false;
+  return (
+    /max[_\s-]?tokens|max[_\s-]?completion[_\s-]?tokens|unsupported|not supported|temperature|tool_choice|invalid request/i.test(
+      text
+    ) || (text.includes('model') && /(invalid|unsupported|unrecognized)/i.test(text))
+  );
+}
+
 function isRetryableOpenAiError(error) {
   const { status, code, detail } = normalizeOpenAiError(error);
   if ([408, 409, 429].includes(status) || status >= 500) return true;
   if (
-    ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN', 'ENOTFOUND'].includes(code)
+    ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN', 'ENOTFOUND', 'OPENAI_EMPTY_RESPONSE'].includes(
+      code
+    )
   ) {
     return true;
   }
@@ -406,7 +421,18 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
           getOpenAI().chat.completions.create(payload),
           OPENAI_REQUEST_TIMEOUT_MS
         );
-        return completion?.choices?.[0]?.message || null;
+        const message = completion?.choices?.[0]?.message || null;
+        const hasContent = Boolean(String(message?.content || '').trim());
+        const hasToolCalls = Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
+        if (message && (hasContent || hasToolCalls)) {
+          return message;
+        }
+        const emptyError = new Error(
+          `OpenAI retornou resposta vazia (model=${modelName} attempt=${attempt + 1}/${maxRetries + 1})`
+        );
+        emptyError.status = 502;
+        emptyError.code = 'OPENAI_EMPTY_RESPONSE';
+        throw emptyError;
       } catch (error) {
         const retryable = isRetryableOpenAiError(error);
         const { status, code, detail } = normalizeOpenAiError(error);
@@ -436,10 +462,10 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
     const shouldFallbackModel =
       AGENT_FALLBACK_MODEL &&
       String(AGENT_FALLBACK_MODEL) !== String(AGENT_MODEL) &&
-      isModelAccessError(error);
+      isOpenAiCompatError(error);
     if (!shouldFallbackModel) throw error;
     console.warn(
-      `[agentService] fallback de modelo ativado: ${AGENT_MODEL} -> ${AGENT_FALLBACK_MODEL}`
+      `[agentService] fallback de modelo ativado: ${AGENT_MODEL} -> ${AGENT_FALLBACK_MODEL} (${error.message})`
     );
     return requestWithModel(AGENT_FALLBACK_MODEL);
   }
@@ -794,7 +820,7 @@ async function finalizeAssistantReply(
 
   if (funnelFallback) return funnelFallback;
 
-  throw new Error('Resposta vazia do agente.');
+  return buildSafeFollowupQuestion(workingState);
 }
 
 async function ensureAvailabilityChecked({

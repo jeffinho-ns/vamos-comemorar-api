@@ -84,22 +84,6 @@ async function activateHumanTakeover(pool, waId, hours = 48) {
   );
 }
 
-async function isRecoverableAgentErrorHandoff(pool, conversationId) {
-  const result = await pool.query(
-    `SELECT intent, raw_payload
-       FROM whatsapp_messages
-      WHERE conversation_id = $1
-        AND direction = 'outbound'
-      ORDER BY created_at DESC, id DESC
-      LIMIT 1`,
-    [conversationId]
-  );
-  const row = result.rows[0];
-  if (!row) return false;
-  const source = row.raw_payload?.source || row.raw_payload?.errorMeta?.source || null;
-  return row.intent === 'HUMAN_REQUESTED' && source === 'agent_error_guard';
-}
-
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
   const incomingText = String(incomingMessageText || '').trim();
   if (!incomingText) {
@@ -154,16 +138,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   });
 
   if (await inbox.isHumanTakeoverActive(pool, waId)) {
-    const recoverableAgentError = await isRecoverableAgentErrorHandoff(pool, conversation.id).catch(
-      () => false
-    );
-    if (recoverableAgentError) {
-      await inbox.clearHumanTakeover(pool, waId);
-      console.warn(`[agentEngine] handoff por erro anterior limpo; IA retomando waId=${waId}`);
-    } else {
-      console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
-      return;
-    }
+    console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
+    return;
   }
 
   // P1-D: cliente pediu humano explicitamente → ativa takeover ANTES de chamar
