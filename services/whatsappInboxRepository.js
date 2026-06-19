@@ -116,12 +116,27 @@ async function assignConversation(pool, waId, userId) {
   return getConversationByWaId(pool, waId);
 }
 
-async function insertMessage(pool, { conversationId, direction, body, intent, suggestedReply, rawPayload }) {
+async function insertMessage(
+  pool,
+  { conversationId, direction, body, intent, suggestedReply, rawPayload, messageType, mediaUrl, mediaMime }
+) {
   const r = await pool.query(
-    `INSERT INTO whatsapp_messages (conversation_id, direction, body, intent, suggested_reply, raw_payload)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, conversation_id, direction, body, intent, suggested_reply, created_at`,
-    [conversationId, direction, body, intent || null, suggestedReply || null, rawPayload || null]
+    `INSERT INTO whatsapp_messages
+       (conversation_id, direction, body, intent, suggested_reply, raw_payload, message_type, media_url, media_mime)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, conversation_id, direction, body, intent, suggested_reply,
+               message_type, media_url, media_mime, created_at`,
+    [
+      conversationId,
+      direction,
+      body,
+      intent || null,
+      suggestedReply || null,
+      rawPayload || null,
+      messageType || 'text',
+      mediaUrl || null,
+      mediaMime || null,
+    ]
   );
   await pool.query(
     `UPDATE whatsapp_conversations SET updated_at = NOW() WHERE id = $1`,
@@ -227,14 +242,17 @@ async function listConversations(pool, options = {}) {
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
             c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
             c.human_takeover_until, c.updated_at,
-            lm.body AS last_body,
+            COALESCE(
+              NULLIF(lm.body, ''),
+              CASE WHEN lm.message_type = 'image' THEN '📷 Foto' ELSE lm.body END
+            ) AS last_body,
             lm.created_at AS last_message_at,
             lm.direction AS last_direction
      FROM whatsapp_conversations c
      LEFT JOIN places p ON p.id = c.establishment_id
      LEFT JOIN users u ON u.id = c.assigned_user_id
      LEFT JOIN LATERAL (
-       SELECT body, created_at, direction
+       SELECT body, created_at, direction, message_type
        FROM whatsapp_messages m
        WHERE m.conversation_id = c.id
        ORDER BY m.created_at DESC, m.id DESC
@@ -254,9 +272,9 @@ async function listMessages(pool, conversationId, limit = 500) {
   // Antes era ORDER BY created_at ASC LIMIT 300, o que retornava as mais ANTIGAS
   // — mensagens novas sumiam quando a conversa passava de 300 trocas.
   const r = await pool.query(
-    `SELECT id, direction, body, intent, suggested_reply, created_at
+    `SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, created_at
        FROM (
-         SELECT id, direction, body, intent, suggested_reply, created_at
+         SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, created_at
            FROM whatsapp_messages
           WHERE conversation_id = $1
           ORDER BY created_at DESC, id DESC

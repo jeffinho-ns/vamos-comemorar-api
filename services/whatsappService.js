@@ -174,11 +174,35 @@ async function sendSticker(to, { mediaId, link } = {}) {
   );
 }
 
+async function sendImage(to, { mediaId, link, caption } = {}) {
+  if (!to || typeof to !== 'string') {
+    throw new Error('Parâmetro "to" inválido para envio de imagem.');
+  }
+  const image = mediaId ? { id: String(mediaId) } : link ? { link: String(link) } : null;
+  if (!image) {
+    throw new Error('Imagem sem media_id nem URL.');
+  }
+  if (caption && String(caption).trim()) {
+    image.caption = String(caption).trim();
+  }
+
+  return postGraphMessage(
+    {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'image',
+      image,
+    },
+    'Falha ao enviar imagem no WhatsApp'
+  );
+}
+
 module.exports = {
   buildPublicWhatsAppErrorMessage,
   isWhatsAppTransientError,
   sendMessage,
   sendTemplateMessage,
   sendSticker,
+  sendImage,
   WhatsAppApiError,
 };

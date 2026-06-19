@@ -1,12 +1,20 @@
 const express = require('express');
+const multer = require('multer');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const {
   buildPublicWhatsAppErrorMessage,
   isWhatsAppTransientError,
   sendMessage,
+  sendImage,
 } = require('../services/whatsappService');
+const cloudinaryService = require('../services/cloudinaryService');
 const { enqueueWhatsAppOutbound } = require('../infrastructure/queue/producers');
+
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 const inbox = require('../services/whatsappInboxRepository');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -492,6 +500,86 @@ module.exports = (pool, app) => {
         message: buildPublicWhatsAppErrorMessage(e),
         transient: isTransient,
       });
+    }
+  });
+
+  // Envio manual de imagem para o cliente. A imagem é hospedada no Cloudinary
+  // (URL pública) e enviada à Meta via link; a mesma URL é guardada para
+  // renderizar a miniatura no painel. O texto do campo de digitação vira legenda.
+  router.post(
+    '/conversations/:waId/send-image',
+    auth,
+    authorize(...allowedRoles),
+    uploadImage.single('image'),
+    async (req, res) => {
+      const { waId } = req.params;
+      const file = req.file;
+      const caption = typeof req.body?.caption === 'string' ? req.body.caption.trim() : '';
+
+      if (!file) {
+        return res.status(400).json({ message: 'Arquivo de imagem é obrigatório (campo "image").' });
+      }
+      const mime = file.mimetype || '';
+      if (!mime.startsWith('image/')) {
+        return res.status(400).json({ message: 'Apenas arquivos de imagem são permitidos.' });
+      }
+
+      try {
+        const scope = await loadUserScope(req.user);
+        let conv = await inbox.getConversationByWaId(pool, waId);
+        if (!conv) {
+          if (!scope.isAdmin) {
+            return res.status(404).json({ message: 'Conversa não encontrada' });
+          }
+          conv = await inbox.upsertConversation(pool, { waId, contactName: null });
+        } else if (!canAccessEstablishment(scope, conv.establishment_id)) {
+          return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+        }
+
+        const ext = (mime.split('/')[1] || 'jpg').split(';')[0];
+        const fileName = `wpp_${waId}_${Date.now()}.${ext}`;
+        const secureUrl = await cloudinaryService.uploadFileAndGetPublicUrl(fileName, file.buffer, {
+          folder: 'whatsapp-outbound',
+        });
+
+        const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, waId);
+        const sendResult = await sendImage(waId, { link: secureUrl, caption });
+
+        const saved = await inbox.insertMessage(pool, {
+          conversationId: conv.id,
+          direction: 'outbound',
+          body: caption || '',
+          messageType: 'image',
+          mediaUrl: secureUrl,
+          mediaMime: mime,
+          intent: null,
+          suggestedReply: null,
+          rawPayload: sendResult || null,
+        });
+
+        const updatedConv = wasHumanTakeoverActive
+          ? await inbox.setHumanTakeoverUntilManualResume(pool, waId)
+          : await inbox.getConversationByWaId(pool, waId);
+        emitInbox({
+          type: 'outbound',
+          conversation: updatedConv,
+          message: saved,
+        });
+
+        return res.json({
+          ok: true,
+          message: saved,
+          whatsapp: sendResult,
+          conversation: updatedConv,
+          ai_paused: wasHumanTakeoverActive,
+        });
+      } catch (e) {
+        console.error('[whatsappAdmin] send-image:', e);
+        const isTransient = isWhatsAppTransientError(e);
+        return res.status(isTransient ? 503 : 500).json({
+          message: buildPublicWhatsAppErrorMessage(e),
+          transient: isTransient,
+        });
     }
   });
 
