@@ -21,12 +21,24 @@ function parseEstablishmentId(value) {
   return id;
 }
 
+const FAQ_CATEGORIES = ['geral', 'evento', 'reserva', 'cardapio', 'fila'];
+
+function normalizeCategory(value) {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return FAQ_CATEGORIES.includes(raw) ? raw : 'geral';
+}
+
 function mapFaqRow(row) {
   return {
     id: row.id,
     establishment_id: row.establishment_id,
     topic: row.topic,
     answer: row.answer,
+    category: row.category || 'geral',
     is_active: Boolean(row.is_active),
     updated_at: row.updated_at,
     created_at: row.created_at,
@@ -56,7 +68,7 @@ module.exports = (pool) => {
         }
 
         const result = await pool.query(
-          `SELECT id, establishment_id, topic, answer, is_active, updated_at, created_at
+          `SELECT id, establishment_id, topic, answer, category, is_active, updated_at, created_at
              FROM establishment_faq
             WHERE establishment_id = $1
             ORDER BY topic ASC`,
@@ -80,6 +92,7 @@ module.exports = (pool) => {
         const establishmentId = parseEstablishmentId(req.params.id);
         const topic = normalizeTopic(req.body?.topic);
         const answer = String(req.body?.answer || '').trim();
+        const category = normalizeCategory(req.body?.category);
 
         if (!establishmentId) {
           return res.status(400).json({ success: false, message: 'ID de estabelecimento inválido.' });
@@ -95,10 +108,10 @@ module.exports = (pool) => {
         }
 
         const result = await pool.query(
-          `INSERT INTO establishment_faq (establishment_id, topic, answer, is_active, updated_at)
-           VALUES ($1, $2, $3, TRUE, NOW())
-           RETURNING id, establishment_id, topic, answer, is_active, updated_at, created_at`,
-          [establishmentId, topic, answer]
+          `INSERT INTO establishment_faq (establishment_id, topic, answer, category, is_active, updated_at)
+           VALUES ($1, $2, $3, $4, TRUE, NOW())
+           RETURNING id, establishment_id, topic, answer, category, is_active, updated_at, created_at`,
+          [establishmentId, topic, answer, category]
         );
 
         return res.status(201).json({ success: true, data: mapFaqRow(result.rows[0]) });
@@ -123,6 +136,8 @@ module.exports = (pool) => {
         const topic = req.body?.topic !== undefined ? normalizeTopic(req.body.topic) : null;
         const answer =
           req.body?.answer !== undefined ? String(req.body.answer || '').trim() : null;
+        const category =
+          req.body?.category !== undefined ? normalizeCategory(req.body.category) : null;
         const isActive =
           req.body?.is_active !== undefined ? Boolean(req.body.is_active) : undefined;
 
@@ -137,7 +152,7 @@ module.exports = (pool) => {
         }
 
         const existing = await pool.query(
-          `SELECT id, establishment_id, topic, answer, is_active
+          `SELECT id, establishment_id, topic, answer, category, is_active
              FROM establishment_faq
             WHERE id = $1 AND establishment_id = $2
             LIMIT 1`,
@@ -149,17 +164,19 @@ module.exports = (pool) => {
 
         const nextTopic = topic !== null ? topic : existing.rows[0].topic;
         const nextAnswer = answer !== null ? answer : existing.rows[0].answer;
+        const nextCategory = category !== null ? category : existing.rows[0].category || 'geral';
         const nextActive = isActive !== undefined ? isActive : existing.rows[0].is_active;
 
         const result = await pool.query(
           `UPDATE establishment_faq
               SET topic = $1,
                   answer = $2,
-                  is_active = $3,
+                  category = $3,
+                  is_active = $4,
                   updated_at = NOW()
-            WHERE id = $4 AND establishment_id = $5
-            RETURNING id, establishment_id, topic, answer, is_active, updated_at, created_at`,
-          [nextTopic, nextAnswer, nextActive, faqId, establishmentId]
+            WHERE id = $5 AND establishment_id = $6
+            RETURNING id, establishment_id, topic, answer, category, is_active, updated_at, created_at`,
+          [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId]
         );
 
         return res.json({ success: true, data: mapFaqRow(result.rows[0]) });

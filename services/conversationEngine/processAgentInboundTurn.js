@@ -36,6 +36,7 @@ const {
   shouldImmediateHumanHandoffOnAgentError,
 } = require('./agentErrorPolicy');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
+const { loadInboundAccessGate } = require('../agent/assistantSettingsService');
 const { isExplicitHumanRequest } = require('../aiService');
 
 const HIGHLINE_ID = 7;
@@ -246,6 +247,25 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       await inbox.upsertContact(pool, { waId, lastEstablishmentId: lockedEstablishmentId });
     } catch (_error) {
       // ignore
+    }
+  }
+
+  // Números habilitados: quando a casa desativa a IA globalmente, só números da
+  // allow-list recebem resposta automática. Default = liberado (gate inerte).
+  if (lockedEstablishmentId) {
+    try {
+      const accessGate = await loadInboundAccessGate(pool, lockedEstablishmentId);
+      if (accessGate && accessGate.aiGloballyEnabled === false) {
+        const senderDigits = String(waId || '').replace(/\D/g, '');
+        if (!accessGate.allowedNumbers.has(senderDigits)) {
+          console.log(
+            `[agentEngine] IA desativada globalmente para establishment_id=${lockedEstablishmentId}; número ${senderDigits} fora da allow-list — IA não responde.`
+          );
+          return;
+        }
+      }
+    } catch (gateError) {
+      console.warn('[agentEngine] falha ao avaliar números habilitados:', gateError.message);
     }
   }
 

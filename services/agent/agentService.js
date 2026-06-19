@@ -23,6 +23,10 @@ const {
   getAgentToolRoundLimits,
 } = require('./openAiConfig');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
+const {
+  loadActiveSettings: loadActiveAssistantSettings,
+  loadExternalLinksBlock,
+} = require('./assistantSettingsService');
 const { buildReservationDateHint } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
@@ -1174,8 +1178,29 @@ async function runAgentTurn({
   }
 
   const reservationFunnelBlock = buildReservationFunnelPromptBlock(workingState, messageHistory);
+
+  // Identidade/personalidade configurada por estabelecimento (aba "Configurações
+  // de IA"). Retorna null quando a casa não ativou a config customizada — nesse
+  // caso o AgentPromptBuilder mantém a persona/comportamento padrão.
+  let assistantSettings = context.assistantSettings || null;
+  if (!assistantSettings && pool && establishmentId > 0) {
+    assistantSettings = await loadActiveAssistantSettings(pool, establishmentId).catch((error) => {
+      console.warn('[agentService] falha ao carregar config da IA:', error.message);
+      return null;
+    });
+  }
+
+  // Links oficiais cadastrados na aba "Links externos" (independem da persona
+  // customizada — a IA pode compartilhá-los sempre que existirem).
+  let externalLinksBlock = String(context.externalLinksBlock || '').trim();
+  if (!externalLinksBlock && pool && establishmentId > 0) {
+    externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
+  }
+
   const promptContext = {
     ...context,
+    assistantSettings,
+    externalLinksBlock,
     faqKnowledgeBlock,
     reservationDateBlock: dateHint.promptBlock,
     reservationFunnelBlock,

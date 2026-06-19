@@ -22,7 +22,8 @@
     "test-cloudinary": "node scripts/test-cloudinary-service.js",
     "migrate-cloudinary": "node scripts/migrate-images-to-cloudinary.js",
     "regenerate-cardapio-variants": "node scripts/regenerate-cardapio-image-variants.js",
-    "seed:faqs": "node scripts/seedFaqs.js"
+    "seed:faqs": "node scripts/seedFaqs.js",
+    "migrate:ai-settings": "node scripts/run_ai_assistant_settings_migration.js"
   },
   "keywords": [],
   "author": "",

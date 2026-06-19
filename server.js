@@ -205,6 +205,8 @@ const publicImagesRoutes = require('./routes/publicImages');
 const whatsappAdminRoutes = require('./routes/whatsappAdmin');
 const conversationMetricsRoutes = require('./routes/conversationMetrics');
 const establishmentFaqsAdminRoutes = require('./routes/establishmentFaqsAdmin');
+const aiAssistantSettingsAdminRoutes = require('./routes/aiAssistantSettingsAdmin');
+const aiAssistantConfigAdminRoutes = require('./routes/aiAssistantConfigAdmin');
 const privacyLgpdRoutes = require('./routes/privacyLgpd');
 
 
@@ -257,6 +259,8 @@ app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
 app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
 app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
 app.use('/api/admin', establishmentFaqsAdminRoutes(pool));
+app.use('/api/admin', aiAssistantSettingsAdminRoutes(pool));
+app.use('/api/admin', aiAssistantConfigAdminRoutes(pool));
 app.use('/api/privacy/lgpd', privacyLgpdRoutes(pool));
 // Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
 app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
