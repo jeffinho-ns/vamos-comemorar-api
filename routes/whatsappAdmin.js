@@ -538,9 +538,10 @@ module.exports = (pool, app) => {
 
         const ext = (mime.split('/')[1] || 'jpg').split(';')[0];
         const fileName = `wpp_${waId}_${Date.now()}.${ext}`;
-        const secureUrl = await cloudinaryService.uploadFileAndGetPublicUrl(fileName, file.buffer, {
+        const uploaded = await cloudinaryService.uploadFile(fileName, file.buffer, {
           folder: 'whatsapp-outbound',
         });
+        const secureUrl = uploaded.secureUrl;
 
         const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, waId);
         const sendResult = await sendImage(waId, { link: secureUrl, caption });
@@ -552,6 +553,7 @@ module.exports = (pool, app) => {
           messageType: 'image',
           mediaUrl: secureUrl,
           mediaMime: mime,
+          mediaPublicId: uploaded.publicId || null,
           intent: null,
           suggestedReply: null,
           rawPayload: sendResult || null,

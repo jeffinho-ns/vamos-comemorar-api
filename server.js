@@ -207,6 +207,7 @@ const conversationMetricsRoutes = require('./routes/conversationMetrics');
 const establishmentFaqsAdminRoutes = require('./routes/establishmentFaqsAdmin');
 const aiAssistantSettingsAdminRoutes = require('./routes/aiAssistantSettingsAdmin');
 const aiAssistantConfigAdminRoutes = require('./routes/aiAssistantConfigAdmin');
+const aiFlyersAdminRoutes = require('./routes/aiFlyersAdmin');
 const privacyLgpdRoutes = require('./routes/privacyLgpd');
 
 
@@ -261,6 +262,7 @@ app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
 app.use('/api/admin', establishmentFaqsAdminRoutes(pool));
 app.use('/api/admin', aiAssistantSettingsAdminRoutes(pool));
 app.use('/api/admin', aiAssistantConfigAdminRoutes(pool));
+app.use('/api/admin', aiFlyersAdminRoutes(pool));
 app.use('/api/privacy/lgpd', privacyLgpdRoutes(pool));
 // Disponibilizar checkAndAwardPromoterGifts para uso em outras rotas
 app.set('checkAndAwardPromoterGifts', checkAndAwardPromoterGifts);
@@ -445,7 +447,9 @@ console.log('✅ Application boot complete');
 
 const { startConversationCommercialScheduler } = require('./workers/conversationCommercialScheduler');
 const { startQueueWorkers } = require('./workers/queueWorkers');
+const { startWhatsappMaintenanceScheduler } = require('./workers/whatsappMaintenanceScheduler');
 setImmediate(() => {
   startConversationCommercialScheduler(pool, app);
   startQueueWorkers(pool, app);
+  startWhatsappMaintenanceScheduler(pool, app);
 });

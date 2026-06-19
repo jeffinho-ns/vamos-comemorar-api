@@ -48,8 +48,18 @@ async function sendSticker(to, sticker = {}) {
   return { delivered: true, mode: 'inline', response };
 }
 
+async function sendImage(to, image = {}) {
+  if (!to || (!image.mediaId && !image.link)) {
+    return { delivered: false, reason: 'invalid_payload' };
+  }
+  const { sendImage: sendImageMessage } = require('../whatsappService');
+  const response = await sendImageMessage(to, image);
+  return { delivered: true, mode: 'inline', response };
+}
+
 module.exports = {
   sendText,
   sendTemplate,
   sendSticker,
+  sendImage,
 };

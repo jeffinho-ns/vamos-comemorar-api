@@ -4,6 +4,10 @@ const messageDedup = require('../services/whatsappMessageDedupRepository');
 const { processInboundTurn } = require('../services/conversationEngine/processInboundTurn');
 const { enqueueInboundTurn } = require('../infrastructure/queue/producers');
 const { isQueueEnabled } = require('../infrastructure/queue/redisConnection');
+const {
+  extractInboundMedia,
+  handleInboundMedia,
+} = require('../services/whatsappInboundMediaService');
 
 function extractMessageText(payload) {
   const entry = payload?.entry?.[0];
@@ -98,6 +102,28 @@ module.exports = (pool, app) => {
       } else {
         console.log(base);
       }
+    }
+
+    // Imagem recebida: baixa da Meta, hospeda e salva no box (não aciona a IA).
+    // A mídia é expurgada após 24h por um worker de manutenção.
+    const inboundMedia = extractInboundMedia(payload);
+    if (inboundMedia && waId) {
+      try {
+        const dedupResult = await messageDedup.claimInboundMessage(pool, wamid, waId);
+        if (dedupResult.duplicate) {
+          console.log('[WhatsApp webhook] mídia duplicada ignorada:', wamid);
+          return res.sendStatus(200);
+        }
+      } catch (dedupError) {
+        console.warn('[WhatsApp webhook] deduplicação (mídia) indisponível:', dedupError.message);
+      }
+      try {
+        await handleInboundMedia(pool, app, { waId, payload, media: inboundMedia });
+        console.log(`[WhatsApp webhook] imagem recebida salva waId=${waId} wamid=${wamid || 'sem-id'}`);
+      } catch (mediaError) {
+        console.error('[WhatsApp webhook] falha ao processar imagem recebida:', mediaError.message);
+      }
+      return res.sendStatus(200);
     }
 
     if (!incomingMessageText || !waId) {

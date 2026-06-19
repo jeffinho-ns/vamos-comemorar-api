@@ -7,6 +7,7 @@ const authenticateToken = require('../middleware/auth');
 const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 const { loadActiveRestaurantAreas } = require('../services/conversationEngine/helpers');
+const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 
 module.exports = (pool) => {
   let reservationPolicyTableReady = false;
@@ -1711,6 +1712,27 @@ module.exports = (pool) => {
 
       await pool.query(query, params);
 
+      // Flyer automático de cancelamento (aba Flyers). Best-effort.
+      if (status !== undefined && /cancel/i.test(String(status))) {
+        try {
+          const rr = await pool.query(
+            `SELECT id, client_phone, establishment_id FROM restaurant_reservations WHERE id = $1`,
+            [id]
+          );
+          const row = rr.rows[0];
+          if (row?.client_phone && row?.establishment_id) {
+            await sendFlyersForEvent(pool, req.app, {
+              establishmentId: row.establishment_id,
+              waId: row.client_phone,
+              event: 'reserva_cancelada',
+              reservationId: row.id,
+            });
+          }
+        } catch (flyerErr) {
+          console.warn('[reservas] flyer reserva_cancelada falhou:', flyerErr.message);
+        }
+      }
+
       // Atualizar event_type na guest_list quando existir (Reserva Grande)
       if (event_type !== undefined) {
         const et = event_type == null || String(event_type).trim() === '' ? null : String(event_type).trim();
@@ -1840,7 +1862,7 @@ module.exports = (pool) => {
 
       // Verificar se a reserva existe
       const existingReservationResult = await pool.query(
-        'SELECT id FROM restaurant_reservations WHERE id = $1',
+        'SELECT id, client_phone, establishment_id FROM restaurant_reservations WHERE id = $1',
         [id]
       );
 
@@ -1851,7 +1873,23 @@ module.exports = (pool) => {
         });
       }
 
+      const removedReservation = existingReservationResult.rows[0];
+
       await pool.query('DELETE FROM restaurant_reservations WHERE id = $1', [id]);
+
+      // Flyer automático de cancelamento (reserva removida). Best-effort.
+      if (removedReservation?.client_phone && removedReservation?.establishment_id) {
+        try {
+          await sendFlyersForEvent(pool, req.app, {
+            establishmentId: removedReservation.establishment_id,
+            waId: removedReservation.client_phone,
+            event: 'reserva_cancelada',
+            reservationId: removedReservation.id,
+          });
+        } catch (flyerErr) {
+          console.warn('[reservas] flyer cancelamento (delete) falhou:', flyerErr.message);
+        }
+      }
 
       res.json({
         success: true,

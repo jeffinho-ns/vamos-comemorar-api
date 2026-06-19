@@ -118,12 +118,23 @@ async function assignConversation(pool, waId, userId) {
 
 async function insertMessage(
   pool,
-  { conversationId, direction, body, intent, suggestedReply, rawPayload, messageType, mediaUrl, mediaMime }
+  {
+    conversationId,
+    direction,
+    body,
+    intent,
+    suggestedReply,
+    rawPayload,
+    messageType,
+    mediaUrl,
+    mediaMime,
+    mediaPublicId,
+  }
 ) {
   const r = await pool.query(
     `INSERT INTO whatsapp_messages
-       (conversation_id, direction, body, intent, suggested_reply, raw_payload, message_type, media_url, media_mime)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (conversation_id, direction, body, intent, suggested_reply, raw_payload, message_type, media_url, media_mime, media_public_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING id, conversation_id, direction, body, intent, suggested_reply,
                message_type, media_url, media_mime, created_at`,
     [
@@ -136,6 +147,7 @@ async function insertMessage(
       messageType || 'text',
       mediaUrl || null,
       mediaMime || null,
+      mediaPublicId || null,
     ]
   );
   await pool.query(

@@ -197,6 +197,47 @@ async function sendImage(to, { mediaId, link, caption } = {}) {
   );
 }
 
+/**
+ * Baixa uma mídia recebida via WhatsApp Cloud API.
+ * Passo 1: GET /{mediaId} -> retorna URL temporária + mime_type.
+ * Passo 2: GET dessa URL (com Bearer) -> binário.
+ * Retorna { buffer, mimeType }.
+ */
+async function downloadMedia(mediaId) {
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error('WHATSAPP_ACCESS_TOKEN não definido no ambiente.');
+  }
+  if (!mediaId) {
+    throw new Error('mediaId é obrigatório para baixar mídia.');
+  }
+
+  const metaRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!metaRes.ok) {
+    const errBody = await metaRes.text().catch(() => '');
+    throw new Error(`Falha ao obter metadados da mídia: ${metaRes.status} ${errBody}`);
+  }
+  const meta = await metaRes.json();
+  if (!meta?.url) {
+    throw new Error('Mídia sem URL retornada pela Meta.');
+  }
+
+  const binRes = await fetch(meta.url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!binRes.ok) {
+    const errBody = await binRes.text().catch(() => '');
+    throw new Error(`Falha ao baixar binário da mídia: ${binRes.status} ${errBody}`);
+  }
+  const arrayBuffer = await binRes.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    mimeType: meta.mime_type || binRes.headers.get('content-type') || 'application/octet-stream',
+  };
+}
+
 module.exports = {
   buildPublicWhatsAppErrorMessage,
   isWhatsAppTransientError,
@@ -204,5 +245,6 @@ module.exports = {
   sendTemplateMessage,
   sendSticker,
   sendImage,
+  downloadMedia,
   WhatsAppApiError,
 };

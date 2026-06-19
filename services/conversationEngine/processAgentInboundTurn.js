@@ -37,6 +37,7 @@ const {
 } = require('./agentErrorPolicy');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
 const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
+const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
 
 const HIGHLINE_ID = 7;
@@ -397,6 +398,20 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         }
       } catch (stickerError) {
         console.warn('[agentEngine] falha ao enviar figurinha:', stickerError.message);
+      }
+    }
+
+    // Flyer automático de reserva criada (aba Flyers). Best-effort.
+    if (lockedEstablishmentId && agentResult.preReservationResult?.reservation) {
+      try {
+        await sendFlyersForEvent(pool, app, {
+          establishmentId: lockedEstablishmentId,
+          waId,
+          event: 'reserva_criada',
+          reservationId: agentResult.preReservationResult.reservation.id || null,
+        });
+      } catch (flyerError) {
+        console.warn('[agentEngine] flyer reserva_criada falhou:', flyerError.message);
       }
     }
 
