@@ -39,7 +39,17 @@ async function sendTemplate(to, template, meta = {}) {
   return { delivered: true, mode: 'inline', response };
 }
 
+async function sendSticker(to, sticker = {}) {
+  if (!to || (!sticker.mediaId && !sticker.link)) {
+    return { delivered: false, reason: 'invalid_payload' };
+  }
+  const { sendSticker: sendStickerMessage } = require('../whatsappService');
+  const response = await sendStickerMessage(to, sticker);
+  return { delivered: true, mode: 'inline', response };
+}
+
 module.exports = {
   sendText,
   sendTemplate,
+  sendSticker,
 };

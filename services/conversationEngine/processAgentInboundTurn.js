@@ -36,7 +36,7 @@ const {
   shouldImmediateHumanHandoffOnAgentError,
 } = require('./agentErrorPolicy');
 const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
-const { loadInboundAccessGate } = require('../agent/assistantSettingsService');
+const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
 const { isExplicitHumanRequest } = require('../aiService');
 
 const HIGHLINE_ID = 7;
@@ -381,6 +381,24 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     console.log(
       `[agentEngine] resposta enviada waId=${waId} establishment_id=${lockedEstablishmentId || 'n/a'} faqFirst=${Boolean(agentResult.faqFirst)} intent=${agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'} chars=${agentResult.replyText.length} tools=${agentResult.toolTrace?.length || 0}`
     );
+
+    // Figurinha opcional: enviada quando o gatilho cadastrado (aba Figurinhas)
+    // bate com a mensagem do cliente ou a resposta da IA. Falha não interrompe.
+    if (lockedEstablishmentId) {
+      try {
+        const sticker = await pickStickerForText(
+          pool,
+          lockedEstablishmentId,
+          `${incomingText} ${agentResult.replyText}`
+        );
+        if (sticker && (sticker.mediaId || sticker.link)) {
+          await outboundGateway.sendSticker(waId, sticker);
+          await persistOutbound('[figurinha]', 'STICKER');
+        }
+      } catch (stickerError) {
+        console.warn('[agentEngine] falha ao enviar figurinha:', stickerError.message);
+      }
+    }
 
     if (agentResult.guestListLink) {
       const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink);

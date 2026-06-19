@@ -154,10 +154,31 @@ async function sendTemplateMessage(to, template) {
   );
 }
 
+async function sendSticker(to, { mediaId, link } = {}) {
+  if (!to || typeof to !== 'string') {
+    throw new Error('Parâmetro "to" inválido para envio de figurinha.');
+  }
+  const sticker = mediaId ? { id: String(mediaId) } : link ? { link: String(link) } : null;
+  if (!sticker) {
+    throw new Error('Figurinha sem media_id nem URL.');
+  }
+
+  return postGraphMessage(
+    {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'sticker',
+      sticker,
+    },
+    'Falha ao enviar figurinha no WhatsApp'
+  );
+}
+
 module.exports = {
   buildPublicWhatsAppErrorMessage,
   isWhatsAppTransientError,
   sendMessage,
   sendTemplateMessage,
+  sendSticker,
   WhatsAppApiError,
 };

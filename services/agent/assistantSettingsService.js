@@ -11,6 +11,7 @@
 const SETTINGS_CACHE = new Map();
 const LINKS_CACHE = new Map();
 const GATE_CACHE = new Map();
+const STICKERS_CACHE = new Map();
 const CACHE_TTL_MS = 60 * 1000;
 
 const RESPONSE_SIZES = new Set(['curta', 'media', 'longa']);
@@ -157,6 +158,68 @@ function invalidateSettingsCache(establishmentId) {
   SETTINGS_CACHE.delete(id);
   LINKS_CACHE.delete(id);
   GATE_CACHE.delete(id);
+  STICKERS_CACHE.delete(id);
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+async function loadActiveStickers(pool, establishmentId) {
+  const id = Number(establishmentId);
+  if (!pool || !Number.isFinite(id) || id <= 0) return [];
+
+  const cached = STICKERS_CACHE.get(id);
+  const now = Date.now();
+  if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
+
+  let value = [];
+  try {
+    const result = await pool.query(
+      `SELECT trigger, media_id, url
+         FROM ai_stickers
+        WHERE establishment_id = $1 AND is_active = TRUE AND (media_id <> '' OR url <> '')
+        ORDER BY sort_order ASC, id ASC`,
+      [id]
+    );
+    value = result.rows.map((row) => ({
+      trigger: String(row.trigger || '').trim(),
+      mediaId: String(row.media_id || '').trim(),
+      link: String(row.url || '').trim(),
+    }));
+  } catch (error) {
+    console.warn('[assistantSettings] falha ao carregar figurinhas:', error.message);
+  }
+
+  STICKERS_CACHE.set(id, { at: now, value });
+  return value;
+}
+
+/**
+ * Escolhe a primeira figurinha cujo "gatilho" (palavras separadas por vírgula)
+ * apareça no texto. Determinístico e controlado pelo dono (campo trigger).
+ */
+async function pickStickerForText(pool, establishmentId, text) {
+  const stickers = await loadActiveStickers(pool, establishmentId);
+  if (!stickers.length) return null;
+
+  const haystack = normalizeText(text);
+  if (!haystack) return null;
+
+  for (const sticker of stickers) {
+    const keywords = normalizeText(sticker.trigger)
+      .split(/[,;\n]/)
+      .map((k) => k.trim())
+      .filter((k) => k.length >= 3);
+    if (!keywords.length) continue;
+    if (keywords.some((kw) => haystack.includes(kw))) {
+      return { mediaId: sticker.mediaId, link: sticker.link };
+    }
+  }
+  return null;
 }
 
 /** Links oficiais (cardápio, reserva, fila, CRM) que a IA pode compartilhar. */
@@ -247,5 +310,7 @@ module.exports = {
   loadActiveSettings,
   loadExternalLinksBlock,
   loadInboundAccessGate,
+  loadActiveStickers,
+  pickStickerForText,
   invalidateSettingsCache,
 };
