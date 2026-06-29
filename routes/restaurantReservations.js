@@ -8,8 +8,14 @@ const { logAction } = require('../middleware/actionLogger');
 const { getRooftopFlowRoomFromReservation, getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 const { loadActiveRestaurantAreas } = require('../services/conversationEngine/helpers');
 const { sendFlyersForEvent } = require('../services/flyer/flyerService');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
 
 module.exports = (pool) => {
+  // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
+  // INERTE enquanto SAAS_MODE != observe/on — não bloqueia nada (ver tenancy/README.md).
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
   let reservationPolicyTableReady = false;
   const ensureReservationPolicyTable = async () => {
     if (reservationPolicyTableReady) return;

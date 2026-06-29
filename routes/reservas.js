@@ -3,11 +3,18 @@
 
 const express = require('express');
 const auth = require('../middleware/auth'); 
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
 // A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
 // const qrcode = require('qrcode');
 
 module.exports = (pool) => {
     const router = express.Router();
+
+    // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
+    // INERTE enquanto SAAS_MODE != observe/on — não bloqueia nada (ver tenancy/README.md).
+    router.use(optionalAuth);
+    router.use(tenantMiddleware());
 
     // ==========================================================================================
     // FUNÇÃO AUXILIAR: Verifica e Ativa Brindes
