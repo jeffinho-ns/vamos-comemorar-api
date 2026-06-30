@@ -10,7 +10,8 @@ const { loadActiveRestaurantAreas } = require('../services/conversationEngine/he
 const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
-const { establishmentScopeClause } = require('../tenancy/queryScope');
+const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
+const { isSaasEnforced } = require('../tenancy/featureFlags');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -703,24 +704,31 @@ module.exports = (pool) => {
     try {
       const today = new Date().toISOString().split('T')[0];
 
+      // SaaS multi-tenant: isolamento por escopo do usuário autenticado.
+      // INERTE enquanto SAAS_MODE != on (cláusula vazia → queries idênticas às originais).
+      const scTotal = establishmentScopeClause(req, 'establishment_id', 1);
+      const scToday = establishmentScopeClause(req, 'establishment_id', 2);
+
       // Total de reservas
       const totalReservationsResult = await pool.query(
-        'SELECT COUNT(*) as count FROM restaurant_reservations'
+        `SELECT COUNT(*) as count FROM restaurant_reservations WHERE 1=1${scTotal.sql}`,
+        [...scTotal.params]
       );
 
       // Reservas de hoje
       const todayReservationsResult = await pool.query(
-        'SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = $1',
-        [today]
+        `SELECT COUNT(*) as count FROM restaurant_reservations WHERE reservation_date = $1${scToday.sql}`,
+        [today, ...scToday.params]
       );
 
-      // Taxa de ocupação (simplificada)
+      // Taxa de ocupação (simplificada). NULLIF evita divisão por zero quando o
+      // escopo não tem reservas hoje (antes erraria; comportamento sem escopo igual).
       const occupancyRateResult = await pool.query(`
         SELECT
-          (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / COUNT(*)) as rate
+          (COUNT(CASE WHEN status IN ('confirmed', 'checked-in') THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)) as rate
         FROM restaurant_reservations
-        WHERE reservation_date = $1
-      `, [today]);
+        WHERE reservation_date = $1${scToday.sql}
+      `, [today, ...scToday.params]);
 
       res.json({
         success: true,
@@ -772,9 +780,17 @@ module.exports = (pool) => {
         });
       }
 
+      const reservation = reservationResult.rows[0];
+
+      // SaaS multi-tenant: usuário escopado não lê reserva de outra casa.
+      // INERTE até SAAS_MODE=on; admin/anônimo passam. 404 para não revelar existência.
+      if (!canReadEstablishment(req, reservation.establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Reserva não encontrada' });
+      }
+
       res.json({
         success: true,
-        reservation: reservationResult.rows[0]
+        reservation
       });
 
     } catch (error) {
@@ -2509,6 +2525,19 @@ module.exports = (pool) => {
   router.get('/:id/guest-list', async (req, res) => {
     try {
       const { id } = req.params;
+
+      // SaaS multi-tenant: usuário escopado não lê a lista de reserva de outra casa.
+      // INERTE até SAAS_MODE=on (guard evita a query extra fora do enforce).
+      if (isSaasEnforced()) {
+        const estRow = await pool.query(
+          'SELECT establishment_id FROM restaurant_reservations WHERE id = $1',
+          [id],
+        );
+        const estId = estRow.rows[0] ? estRow.rows[0].establishment_id : null;
+        if (estId != null && !canReadEstablishment(req, estId)) {
+          return res.status(404).json({ success: false, error: 'Esta reserva não possui lista de convidados' });
+        }
+      }
 
       // Buscar a guest list da reserva
       const guestListResult = await pool.query(

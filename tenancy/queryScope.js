@@ -41,4 +41,26 @@ function establishmentScopeClause(req, column, startIndex) {
   return { sql: ` AND ${column} IN (${placeholders})`, params: ids, nextIndex: startIndex + ids.length };
 }
 
-module.exports = { establishmentScopeClause };
+/**
+ * Checagem pós-fetch para recursos buscados por id (ex.: GET /:id): o
+ * estabelecimento do recurso está no escopo do usuário autenticado?
+ *
+ * INERTE quando SAAS_MODE != on (sempre true). Admin e anônimo (sem req.tenant)
+ * também retornam true — a rota mantém sua política. Use para responder 404
+ * (não revelar existência) quando um usuário escopado tenta ler recurso de outra casa.
+ *
+ * @param {object} req
+ * @param {number|string} establishmentId   id operacional do recurso
+ * @returns {boolean}
+ */
+function canReadEstablishment(req, establishmentId) {
+  if (!isSaasEnforced()) return true;
+  const tenant = req && req.tenant;
+  if (!tenant || tenant.isAdmin) return true;
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) return true; // sem vínculo de casa: não bloqueia
+  const ids = Array.isArray(tenant.establishmentIds) ? tenant.establishmentIds.map(Number) : [];
+  return ids.includes(id);
+}
+
+module.exports = { establishmentScopeClause, canReadEstablishment };
