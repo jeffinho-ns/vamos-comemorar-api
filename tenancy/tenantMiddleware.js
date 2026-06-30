@@ -7,7 +7,10 @@
  *   - SAAS_MODE off      => no-op total (next()).
  *   - SAAS_MODE observe  => resolve o tenant e LOGA o que seria bloqueado,
  *                           mas NUNCA bloqueia (modo observação do plano).
- *   - SAAS_MODE on       => exige tenant resolvido; bloqueia acesso cruzado.
+ *   - SAAS_MODE on       => restringe usuários AUTENTICADOS ao seu escopo
+ *                           (bloqueia acesso cruzado). NÃO impõe login: requisições
+ *                           anônimas seguem normalmente (rotas públicas continuam
+ *                           funcionando — ex.: criação pública de reserva).
  *
  * Este arquivo NÃO está montado no server.js. É plugável depois, rota a rota,
  * começando em 'observe'. Espera que `authenticateToken` já tenha populado
@@ -39,11 +42,13 @@ function tenantMiddleware(options = {}) {
     if (isFailOpen() && !isSaasObserving()) return next();
 
     const pool = getPool(req);
-    if (!pool || !req.user) {
-      // Sem contexto suficiente: em observe/off nunca bloqueia.
-      if (!isSaasEnforced()) return next();
-      return res.status(401).json({ success: false, error: 'Autenticação necessária.' });
-    }
+
+    // IMPORTANTE: o tenancy NÃO impõe autenticação. Requisições anônimas seguem
+    // (a rota mantém sua própria política — ex.: criação pública de reserva).
+    // Só restringimos requisições AUTENTICADAS ao escopo do usuário. Exigir token
+    // em rotas hoje públicas é um passo separado (adicionar authenticateToken),
+    // feito depois para não quebrar o fluxo público.
+    if (!pool || !req.user) return next();
 
     let scope;
     try {

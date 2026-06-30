@@ -10,6 +10,7 @@ const { loadActiveRestaurantAreas } = require('../services/conversationEngine/he
 const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const { establishmentScopeClause } = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -442,6 +443,12 @@ module.exports = (pool) => {
       if (status) { query += ` AND rr.status = $${paramIndex++}`; params.push(status); }
       if (area_id) { query += ` AND rr.area_id = $${paramIndex++}`; params.push(area_id); }
       if (establishment_id) { query += ` AND rr.establishment_id = $${paramIndex++}`; params.push(establishment_id); }
+      // SaaS multi-tenant: isolamento de LEITURA por escopo do usuário autenticado.
+      // INERTE enquanto SAAS_MODE != on (não altera a query); admin/anônimo veem tudo.
+      {
+        const scope = establishmentScopeClause(req, 'rr.establishment_id', paramIndex);
+        if (scope.sql) { query += scope.sql; params.push(...scope.params); paramIndex = scope.nextIndex; }
+      }
       if (sort && order) { query += ` ORDER BY rr."${sort}" ${order.toUpperCase()}`; } 
       else { query += ` ORDER BY rr.reservation_date DESC, rr.reservation_time DESC`; }
       if (limit) { query += ` LIMIT $${paramIndex++}`; params.push(parseInt(limit)); }
