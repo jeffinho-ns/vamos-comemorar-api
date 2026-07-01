@@ -270,6 +270,13 @@ async function importContacts(
           ? row.nome.trim()
           : null;
 
+    const clientEmail =
+      typeof row.client_email === 'string' && row.client_email.trim()
+        ? row.client_email.trim()
+        : typeof row.email === 'string' && row.email.trim()
+          ? row.email.trim()
+          : null;
+
     let marketingOptIn = defaultMarketingOptIn;
     if (row.marketing_opt_in === true || row.marketing_opt_in === 'true' || row.marketing_opt_in === '1') {
       marketingOptIn = true;
@@ -292,12 +299,13 @@ async function importContacts(
 
     await pool.query(
       `INSERT INTO whatsapp_contacts (
-         wa_id, contact_name, last_establishment_id, marketing_opt_in, marketing_opt_in_at,
+         wa_id, contact_name, client_email, last_establishment_id, marketing_opt_in, marketing_opt_in_at,
          contact_status, tags, last_seen_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN NOW() ELSE NULL END, $5, $6, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN NOW() ELSE NULL END, $6, $7, NOW(), NOW())
        ON CONFLICT (wa_id) DO UPDATE SET
          contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
+         client_email = COALESCE(EXCLUDED.client_email, whatsapp_contacts.client_email),
          last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
          marketing_opt_in = CASE
            WHEN EXCLUDED.marketing_opt_in THEN TRUE
@@ -320,6 +328,7 @@ async function importContacts(
       [
         waId,
         contactName,
+        clientEmail,
         estId,
         marketingOptIn,
         typeof row.contact_status === 'string' && row.contact_status.trim()

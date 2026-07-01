@@ -194,28 +194,57 @@ module.exports = (pool, app) => {
     if (lines.length === 0) return [];
 
     const header = lines[0].split(/[,;]/).map((h) => h.trim().toLowerCase().replace(/^"|"$/g, ''));
-    const hasHeader = header.some((h) =>
-      ['wa_id', 'telefone', 'phone', 'nome', 'contact_name'].includes(h)
-    );
+    const headerKeys = [
+      'wa_id',
+      'telefone',
+      'phone',
+      'celular',
+      'whatsapp',
+      'nome',
+      'contact_name',
+      'name',
+      'email',
+      'client_email',
+      'e-mail',
+      'e_mail',
+      'marketing_opt_in',
+      'opt_in',
+      'optin',
+      'tags',
+      'etiquetas',
+    ];
+    const hasHeader = header.some((h) => headerKeys.includes(h));
     const dataLines = hasHeader ? lines.slice(1) : lines;
-    const startIdx = hasHeader ? 0 : -1;
 
-    const col = (name) => (hasHeader ? header.indexOf(name) : -1);
+    const colFirst = (names) => {
+      if (!hasHeader) return -1;
+      for (const name of names) {
+        const idx = header.indexOf(name);
+        if (idx >= 0) return idx;
+      }
+      return -1;
+    };
+
     const idxWa = hasHeader
-      ? Math.max(col('wa_id'), col('telefone'), col('phone'))
+      ? colFirst(['wa_id', 'telefone', 'phone', 'celular', 'whatsapp'])
       : 0;
-    const idxName = hasHeader ? Math.max(col('contact_name'), col('nome')) : 1;
-    const idxOptIn = hasHeader ? col('marketing_opt_in') : 2;
-    const idxTags = hasHeader ? col('tags') : 3;
+    const idxName = hasHeader ? colFirst(['contact_name', 'nome', 'name']) : 1;
+    const idxEmail = hasHeader ? colFirst(['client_email', 'email', 'e-mail', 'e_mail']) : -1;
+    const idxOptIn = hasHeader ? colFirst(['marketing_opt_in', 'opt_in', 'optin']) : 2;
+    const idxTags = hasHeader ? colFirst(['tags', 'etiquetas']) : 3;
 
     return dataLines.map((line, lineNo) => {
       const cells = line.split(/[,;]/).map((c) => c.trim().replace(/^"|"$/g, ''));
       const row = {};
       if (idxWa >= 0 && cells[idxWa]) row.wa_id = cells[idxWa];
       if (idxName >= 0 && cells[idxName]) row.contact_name = cells[idxName];
-      if (idxOptIn >= 0 && cells[idxOptIn] !== undefined) row.marketing_opt_in = cells[idxOptIn];
+      if (idxEmail >= 0 && cells[idxEmail]) row.client_email = cells[idxEmail];
+      if (idxOptIn >= 0 && cells[idxOptIn] !== undefined && cells[idxOptIn] !== '') {
+        row.marketing_opt_in = cells[idxOptIn];
+      }
       if (idxTags >= 0 && cells[idxTags]) row.tags = cells[idxTags];
       if (!hasHeader && cells[0]) row.wa_id = cells[0];
+      if (!hasHeader && cells[1]) row.contact_name = cells[1];
       row._line = lineNo + (hasHeader ? 2 : 1);
       return row;
     });
@@ -858,7 +887,8 @@ module.exports = (pool, app) => {
       }
       if (rows.length === 0) {
         return res.status(400).json({
-          message: 'Envie contacts[] (JSON) ou csv_text com colunas wa_id, contact_name, marketing_opt_in, tags',
+          message:
+            'Envie contacts[] (JSON) ou csv_text. Colunas aceitas: telefone/wa_id (obrigatório), nome, email, marketing_opt_in, tags. O estabelecimento é escolhido no painel.',
         });
       }
       if (rows.length > 5000) {
