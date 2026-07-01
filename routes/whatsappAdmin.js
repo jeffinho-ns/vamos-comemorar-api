@@ -16,6 +16,12 @@ const uploadImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 const inbox = require('../services/whatsappInboxRepository');
+const {
+  deliverCampaignToContact,
+  campaignPreviewText,
+  defaultTemplateName,
+  defaultTemplateLanguage,
+} = require('../services/campaignDeliveryService');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
 const {
@@ -213,6 +219,43 @@ module.exports = (pool, app) => {
       row._line = lineNo + (hasHeader ? 2 : 1);
       return row;
     });
+  }
+
+  function assertCampaignHasContent(campaign) {
+    const body = String(campaign?.message_template || '').trim();
+    const image = String(campaign?.image_url || '').trim();
+    if (!body && !image) {
+      return { ok: false, message: 'Campanha precisa de texto e/ou imagem.' };
+    }
+    return { ok: true };
+  }
+
+  async function persistCampaignOutbound(pool, { waId, contactName, establishmentId, campaign, delivery, intent }) {
+    const preview = campaignPreviewText(campaign);
+    const imageUrl = String(campaign?.image_url || '').trim();
+    const conv = await inbox.upsertConversation(pool, {
+      waId,
+      contactName,
+      establishmentId,
+    });
+    const saved = await inbox.insertMessage(pool, {
+      conversationId: conv.id,
+      direction: 'outbound',
+      body: preview,
+      intent: intent || 'CAMPAIGN_SEND',
+      suggestedReply: null,
+      rawPayload: delivery || null,
+      messageType: imageUrl ? 'image' : 'text',
+      mediaUrl: imageUrl || null,
+      mediaMime: imageUrl ? 'image/jpeg' : null,
+    });
+    return saved;
+  }
+
+  function parseSendMode(value) {
+    const mode = String(value || 'auto').trim().toLowerCase();
+    if (mode === 'session' || mode === 'template' || mode === 'auto') return mode;
+    return 'auto';
   }
 
   function contactEligibleForCampaign(contact, campaign, options = {}) {
@@ -901,6 +944,46 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.post('/campaigns/upload-image', auth, authorize(...allowedRoles), uploadImage.single('image'), async (req, res) => {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ message: 'Arquivo de imagem é obrigatório (campo "image").' });
+    }
+    const mime = file.mimetype || '';
+    if (!mime.startsWith('image/')) {
+      return res.status(400).json({ message: 'Apenas arquivos de imagem são permitidos.' });
+    }
+    try {
+      const ext = (mime.split('/')[1] || 'jpg').split(';')[0];
+      const fileName = `campaign_${Date.now()}.${ext}`;
+      const uploaded = await cloudinaryService.uploadFile(fileName, file.buffer, {
+        folder: 'whatsapp-campaigns',
+      });
+      return res.json({ ok: true, image_url: uploaded.secureUrl, public_id: uploaded.publicId || null });
+    } catch (e) {
+      console.error('[whatsappAdmin] campaign upload-image:', e);
+      return res.status(500).json({ message: 'Erro ao enviar imagem da campanha' });
+    }
+  });
+
+  router.get('/campaigns/meta-template-info', auth, authorize(...allowedRoles), async (_req, res) => {
+    return res.json({
+      default_template_name: defaultTemplateName(),
+      default_template_language: defaultTemplateLanguage(),
+      template_structure: {
+        category: 'MARKETING',
+        header: 'IMAGE (dinâmico — URL da campanha)',
+        body: '{{1}} título + {{2}} texto principal',
+        note: 'Crie e aprove este template no WhatsApp Manager antes de disparos fora da janela de 24h.',
+      },
+      send_modes: {
+        auto: 'Imagem+texto na janela 24h; template Meta fora dela',
+        session: 'Sempre imagem+texto (só entrega se cliente falou nas últimas 24h)',
+        template: 'Sempre template Meta aprovado (marketing em massa)',
+      },
+    });
+  });
+
   router.get('/campaigns', auth, authorize(...allowedRoles), async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
@@ -933,11 +1016,20 @@ module.exports = (pool, app) => {
       const establishmentId = Number(req.body?.establishment_id);
       const name = String(req.body?.name || '').trim();
       const messageTemplate = String(req.body?.message_template || '').trim();
+      const headline = String(req.body?.headline || '').trim();
+      const imageUrl = String(req.body?.image_url || '').trim();
+      const sendMode = parseSendMode(req.body?.send_mode);
+      const metaTemplateName = String(req.body?.meta_template_name || '').trim() || null;
+      const metaTemplateLanguage =
+        String(req.body?.meta_template_language || '').trim() || defaultTemplateLanguage();
       if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
         return res.status(400).json({ message: 'establishment_id inválido' });
       }
-      if (!name || !messageTemplate) {
-        return res.status(400).json({ message: 'name e message_template são obrigatórios' });
+      if (!name) {
+        return res.status(400).json({ message: 'name é obrigatório' });
+      }
+      if (!messageTemplate && !imageUrl) {
+        return res.status(400).json({ message: 'Informe o texto da campanha e/ou uma imagem.' });
       }
       if (!canAccessEstablishment(scope, establishmentId)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
@@ -945,7 +1037,12 @@ module.exports = (pool, app) => {
       const campaign = await inbox.createCampaign(pool, {
         establishmentId,
         name,
-        messageTemplate,
+        messageTemplate: messageTemplate || ' ',
+        headline: headline || name,
+        imageUrl: imageUrl || null,
+        sendMode,
+        metaTemplateName,
+        metaTemplateLanguage,
         targetFilters:
           req.body?.target_filters && typeof req.body.target_filters === 'object'
             ? req.body.target_filters
@@ -975,9 +1072,20 @@ module.exports = (pool, app) => {
       }
       const updated = await inbox.updateCampaignById(pool, campaignId, {
         name: typeof req.body?.name === 'string' ? req.body.name.trim() : null,
+        headline: typeof req.body?.headline === 'string' ? req.body.headline.trim() : null,
         messageTemplate:
           typeof req.body?.message_template === 'string'
             ? req.body.message_template.trim()
+            : null,
+        imageUrl: typeof req.body?.image_url === 'string' ? req.body.image_url.trim() : null,
+        sendMode: req.body?.send_mode ? parseSendMode(req.body.send_mode) : null,
+        metaTemplateName:
+          typeof req.body?.meta_template_name === 'string'
+            ? req.body.meta_template_name.trim() || null
+            : null,
+        metaTemplateLanguage:
+          typeof req.body?.meta_template_language === 'string'
+            ? req.body.meta_template_language.trim()
             : null,
         targetFilters:
           req.body?.target_filters && typeof req.body.target_filters === 'object'
@@ -1100,42 +1208,42 @@ module.exports = (pool, app) => {
         });
       }
 
-      const text = String(campaign.message_template || '').trim();
-      if (!text) {
-        return res.status(400).json({ message: 'Campanha sem mensagem configurada' });
+      const contentCheck = assertCampaignHasContent(campaign);
+      if (!contentCheck.ok) {
+        return res.status(400).json({ message: contentCheck.message });
       }
 
-      const sendResult = await sendMessage(contact.wa_id, text);
-      const conv = await inbox.upsertConversation(pool, {
+      const delivery = await deliverCampaignToContact(pool, campaign, contact);
+      const saved = await persistCampaignOutbound(pool, {
         waId: contact.wa_id,
         contactName: contact.contact_name,
         establishmentId: campaign.establishment_id,
-      });
-      const saved = await inbox.insertMessage(pool, {
-        conversationId: conv.id,
-        direction: 'outbound',
-        body: text,
+        campaign,
+        delivery,
         intent: 'CAMPAIGN_SEND',
-        suggestedReply: null,
-        rawPayload: sendResult || null,
       });
-      const metaWaId = Array.isArray(sendResult?.contacts) ? sendResult.contacts[0]?.wa_id || null : null;
-      const metaStatus = Array.isArray(sendResult?.messages)
-        ? sendResult.messages[0]?.message_status || null
+      const primaryResult = delivery.results?.[0]?.response;
+      const metaWaId = Array.isArray(primaryResult?.contacts)
+        ? primaryResult.contacts[0]?.wa_id || null
+        : null;
+      const metaStatus = Array.isArray(primaryResult?.messages)
+        ? primaryResult.messages[0]?.message_status || null
         : null;
       console.log(
-        `[whatsappAdmin] campaign send accepted campaign=${campaign.id} contact=${contact.id} to=${contact.wa_id} metaWaId=${metaWaId || 'n/a'} status=${metaStatus || 'n/a'}`
+        `[whatsappAdmin] campaign send accepted campaign=${campaign.id} contact=${contact.id} to=${contact.wa_id} mode=${delivery.mode} metaWaId=${metaWaId || 'n/a'} status=${metaStatus || 'n/a'}`
       );
       emitInbox({ type: 'outbound' });
       return res.json({
         ok: true,
         message: saved,
+        delivery_mode: delivery.mode,
         whatsapp: {
           accepted: true,
           to: contact.wa_id,
+          mode: delivery.mode,
           meta_wa_id: metaWaId,
           meta_status: metaStatus,
-          response: sendResult,
+          results: delivery.results,
         },
       });
     } catch (e) {
@@ -1359,14 +1467,14 @@ module.exports = (pool, app) => {
         return res.status(400).json({ message: activeCheck.message });
       }
 
-      const text = String(campaign.message_template || '').trim();
-      if (!text) {
+      const contentCheck = assertCampaignHasContent(campaign);
+      if (!contentCheck.ok) {
         await inbox.updateCampaignBatchFields(pool, batchId, {
           status: 'failed',
-          errorMessage: 'Campanha sem mensagem configurada',
+          errorMessage: contentCheck.message,
           completedAt: new Date(),
         });
-        return res.status(400).json({ message: 'Campanha sem mensagem configurada' });
+        return res.status(400).json({ message: contentCheck.message });
       }
 
       const effectiveChunk = Math.min(Number(batch.chunk_size) || 25, maxBatchChunkSize());
@@ -1415,19 +1523,14 @@ module.exports = (pool, app) => {
         }
 
         try {
-          const sendResult = await sendMessage(contact.wa_id, text);
-          const conv = await inbox.upsertConversation(pool, {
+          const delivery = await deliverCampaignToContact(pool, campaign, contact);
+          await persistCampaignOutbound(pool, {
             waId: contact.wa_id,
             contactName: contact.contact_name,
             establishmentId: campaign.establishment_id,
-          });
-          await inbox.insertMessage(pool, {
-            conversationId: conv.id,
-            direction: 'outbound',
-            body: text,
+            campaign,
+            delivery,
             intent: 'CAMPAIGN_BATCH',
-            suggestedReply: null,
-            rawPayload: sendResult || null,
           });
           chunkSentOk += 1;
           await inbox.insertCampaignSendLog(pool, {
@@ -1436,7 +1539,7 @@ module.exports = (pool, app) => {
             waId: contact.wa_id,
             status: 'sent',
             errorMessage: null,
-            meta: null,
+            meta: { mode: delivery.mode },
           });
           emitInbox({ type: 'outbound' });
         } catch (sendErr) {

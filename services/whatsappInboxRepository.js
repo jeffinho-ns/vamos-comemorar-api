@@ -704,7 +704,9 @@ async function listCampaigns(pool, options = {}) {
 
   const r = await pool.query(
     `SELECT c.id, c.establishment_id, p.name AS establishment_name, c.name,
-            c.message_template, c.target_filters, c.is_active,
+            c.headline, c.message_template, c.image_url, c.send_mode,
+            c.meta_template_name, c.meta_template_language,
+            c.target_filters, c.is_active,
             c.created_by, c.updated_by, c.created_at, c.updated_at
      FROM whatsapp_campaigns c
      LEFT JOIN places p ON p.id = c.establishment_id
@@ -721,7 +723,9 @@ async function getCampaignById(pool, campaignId) {
   if (!Number.isFinite(normalizedId) || normalizedId <= 0) return null;
   const r = await pool.query(
     `SELECT c.id, c.establishment_id, p.name AS establishment_name, c.name,
-            c.message_template, c.target_filters, c.is_active,
+            c.headline, c.message_template, c.image_url, c.send_mode,
+            c.meta_template_name, c.meta_template_language,
+            c.target_filters, c.is_active,
             c.created_by, c.updated_by, c.created_at, c.updated_at
      FROM whatsapp_campaigns c
      LEFT JOIN places p ON p.id = c.establishment_id
@@ -731,14 +735,40 @@ async function getCampaignById(pool, campaignId) {
   return r.rows[0] || null;
 }
 
-async function createCampaign(pool, { establishmentId, name, messageTemplate, targetFilters, userId }) {
+async function createCampaign(
+  pool,
+  {
+    establishmentId,
+    name,
+    messageTemplate,
+    headline,
+    imageUrl,
+    sendMode,
+    metaTemplateName,
+    metaTemplateLanguage,
+    targetFilters,
+    userId,
+  }
+) {
   const r = await pool.query(
     `INSERT INTO whatsapp_campaigns (
-       establishment_id, name, message_template, target_filters, created_by, updated_by
+       establishment_id, name, headline, message_template, image_url, send_mode,
+       meta_template_name, meta_template_language, target_filters, created_by, updated_by
      )
-     VALUES ($1, $2, $3, $4::jsonb, $5, $5)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $10)
      RETURNING *`,
-    [establishmentId, name, messageTemplate, JSON.stringify(targetFilters || {}), userId || null]
+    [
+      establishmentId,
+      name,
+      headline || null,
+      messageTemplate,
+      imageUrl || null,
+      sendMode || 'auto',
+      metaTemplateName || null,
+      metaTemplateLanguage || 'pt_BR',
+      JSON.stringify(targetFilters || {}),
+      userId || null,
+    ]
   );
   return r.rows[0];
 }
@@ -746,24 +776,45 @@ async function createCampaign(pool, { establishmentId, name, messageTemplate, ta
 async function updateCampaignById(
   pool,
   campaignId,
-  { name, messageTemplate, targetFilters, isActive, userId }
+  {
+    name,
+    messageTemplate,
+    headline,
+    imageUrl,
+    sendMode,
+    metaTemplateName,
+    metaTemplateLanguage,
+    targetFilters,
+    isActive,
+    userId,
+  }
 ) {
   const normalizedId = Number(campaignId);
   if (!Number.isFinite(normalizedId) || normalizedId <= 0) return null;
   const r = await pool.query(
     `UPDATE whatsapp_campaigns
      SET name = COALESCE($2, name),
-         message_template = COALESCE($3, message_template),
-         target_filters = COALESCE($4::jsonb, target_filters),
-         is_active = COALESCE($5, is_active),
-         updated_by = $6,
+         headline = COALESCE($3, headline),
+         message_template = COALESCE($4, message_template),
+         image_url = COALESCE($5, image_url),
+         send_mode = COALESCE($6, send_mode),
+         meta_template_name = COALESCE($7, meta_template_name),
+         meta_template_language = COALESCE($8, meta_template_language),
+         target_filters = COALESCE($9::jsonb, target_filters),
+         is_active = COALESCE($10, is_active),
+         updated_by = $11,
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
     [
       normalizedId,
       name ?? null,
+      headline ?? null,
       messageTemplate ?? null,
+      imageUrl ?? null,
+      sendMode ?? null,
+      metaTemplateName ?? null,
+      metaTemplateLanguage ?? null,
       targetFilters ? JSON.stringify(targetFilters) : null,
       isActive ?? null,
       userId || null,
