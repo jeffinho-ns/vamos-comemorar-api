@@ -108,7 +108,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       body: incomingText,
       rawPayload: payload,
     });
-    await inbox.upsertContact(pool, { waId, contactName });
+    await inbox.upsertContact(pool, { waId, contactName, grantMarketingOptIn: true });
   } catch (persistError) {
     console.error('[agentEngine] persistência indisponível:', persistError.message);
     return;
@@ -245,7 +245,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   if (lockedEstablishmentId && waId) {
     try {
       await inbox.setConversationEstablishment(pool, waId, lockedEstablishmentId);
-      await inbox.upsertContact(pool, { waId, lastEstablishmentId: lockedEstablishmentId });
+      await inbox.upsertContact(pool, {
+        waId,
+        lastEstablishmentId: lockedEstablishmentId,
+        grantMarketingOptIn: true,
+      });
     } catch (_error) {
       // ignore
     }

@@ -173,25 +173,202 @@ async function upsertContact(
     birthDate = null,
     lastEstablishmentId = null,
     lastReservationId = null,
+    /** true quando o contato iniciou conversa (inbound) — concede opt-in de marketing. */
+    grantMarketingOptIn = false,
   }
 ) {
   const r = await pool.query(
     `INSERT INTO whatsapp_contacts (
-       wa_id, contact_name, client_email, birth_date, last_establishment_id, last_reservation_id, last_seen_at, updated_at
+       wa_id, contact_name, client_email, birth_date, last_establishment_id, last_reservation_id,
+       marketing_opt_in, marketing_opt_in_at, last_seen_at, updated_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+     VALUES (
+       $1, $2, $3, $4, $5, $6,
+       $7, CASE WHEN $7 THEN NOW() ELSE NULL END,
+       NOW(), NOW()
+     )
      ON CONFLICT (wa_id) DO UPDATE SET
        contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
        client_email = COALESCE(EXCLUDED.client_email, whatsapp_contacts.client_email),
        birth_date = COALESCE(EXCLUDED.birth_date, whatsapp_contacts.birth_date),
        last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
        last_reservation_id = COALESCE(EXCLUDED.last_reservation_id, whatsapp_contacts.last_reservation_id),
+       marketing_opt_in = CASE
+         WHEN $7 THEN TRUE
+         ELSE whatsapp_contacts.marketing_opt_in
+       END,
+       marketing_opt_in_at = CASE
+         WHEN $7 AND NOT whatsapp_contacts.marketing_opt_in THEN NOW()
+         WHEN $7 THEN COALESCE(whatsapp_contacts.marketing_opt_in_at, NOW())
+         ELSE whatsapp_contacts.marketing_opt_in_at
+       END,
        last_seen_at = NOW(),
        updated_at = NOW()
      RETURNING *`,
-    [waId, contactName, clientEmail, birthDate, lastEstablishmentId, lastReservationId]
+    [
+      waId,
+      contactName,
+      clientEmail,
+      birthDate,
+      lastEstablishmentId,
+      lastReservationId,
+      Boolean(grantMarketingOptIn),
+    ]
   );
   return r.rows[0];
+}
+
+/** Normaliza telefone BR para wa_id (somente dígitos, prefixo 55). */
+function normalizeWaId(raw) {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  digits = digits.replace(/^0+/, '');
+  if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+  if (digits.length < 12) return null;
+  return digits;
+}
+
+/**
+ * Importa contatos de uma base externa (CSV/planilha). Upsert por wa_id.
+ * @returns {{ imported: number, updated: number, skipped: number, errors: object[] }}
+ */
+async function importContacts(
+  pool,
+  {
+    establishmentId,
+    rows = [],
+    defaultMarketingOptIn = false,
+    sourceTag = 'importado',
+  }
+) {
+  const estId = Number(establishmentId);
+  if (!Number.isFinite(estId) || estId <= 0) {
+    throw new Error('establishment_id inválido');
+  }
+
+  const result = { imported: 0, updated: 0, skipped: 0, errors: [] };
+  const seen = new Set();
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i] || {};
+    const waId = normalizeWaId(row.wa_id ?? row.waId ?? row.telefone ?? row.phone);
+    if (!waId) {
+      result.skipped += 1;
+      result.errors.push({ line: i + 1, reason: 'wa_id/telefone inválido' });
+      continue;
+    }
+    if (seen.has(waId)) {
+      result.skipped += 1;
+      continue;
+    }
+    seen.add(waId);
+
+    const contactName =
+      typeof row.contact_name === 'string' && row.contact_name.trim()
+        ? row.contact_name.trim()
+        : typeof row.nome === 'string' && row.nome.trim()
+          ? row.nome.trim()
+          : null;
+
+    let marketingOptIn = defaultMarketingOptIn;
+    if (row.marketing_opt_in === true || row.marketing_opt_in === 'true' || row.marketing_opt_in === '1') {
+      marketingOptIn = true;
+    }
+    if (row.marketing_opt_in === false || row.marketing_opt_in === 'false' || row.marketing_opt_in === '0') {
+      marketingOptIn = false;
+    }
+
+    let tags = [];
+    const tagsRaw = row.tags ?? row.etiquetas;
+    if (Array.isArray(tagsRaw)) {
+      tags = tagsRaw.map((t) => String(t).trim()).filter(Boolean);
+    } else if (typeof tagsRaw === 'string' && tagsRaw.trim()) {
+      tags = tagsRaw.split(/[;,]/).map((t) => t.trim()).filter(Boolean);
+    }
+    if (sourceTag && !tags.includes(sourceTag)) tags.push(sourceTag);
+
+    const existing = await pool.query(`SELECT id FROM whatsapp_contacts WHERE wa_id = $1`, [waId]);
+    const isNew = existing.rows.length === 0;
+
+    await pool.query(
+      `INSERT INTO whatsapp_contacts (
+         wa_id, contact_name, last_establishment_id, marketing_opt_in, marketing_opt_in_at,
+         contact_status, tags, last_seen_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN NOW() ELSE NULL END, $5, $6, NOW(), NOW())
+       ON CONFLICT (wa_id) DO UPDATE SET
+         contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
+         last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
+         marketing_opt_in = CASE
+           WHEN EXCLUDED.marketing_opt_in THEN TRUE
+           ELSE whatsapp_contacts.marketing_opt_in
+         END,
+         marketing_opt_in_at = CASE
+           WHEN EXCLUDED.marketing_opt_in AND NOT whatsapp_contacts.marketing_opt_in THEN NOW()
+           WHEN EXCLUDED.marketing_opt_in THEN COALESCE(whatsapp_contacts.marketing_opt_in_at, NOW())
+           ELSE whatsapp_contacts.marketing_opt_in_at
+         END,
+         contact_status = COALESCE(EXCLUDED.contact_status, whatsapp_contacts.contact_status),
+         tags = (
+           SELECT ARRAY(
+             SELECT DISTINCT unnest(
+               COALESCE(whatsapp_contacts.tags, '{}')::text[] || COALESCE(EXCLUDED.tags, '{}')::text[]
+             )
+           )
+         ),
+         updated_at = NOW()`,
+      [
+        waId,
+        contactName,
+        estId,
+        marketingOptIn,
+        typeof row.contact_status === 'string' && row.contact_status.trim()
+          ? row.contact_status.trim()
+          : 'new',
+        tags,
+      ]
+    );
+
+    if (isNew) result.imported += 1;
+    else result.updated += 1;
+  }
+
+  return result;
+}
+
+/**
+ * Concede opt-in a contatos que já enviaram pelo menos 1 mensagem inbound.
+ */
+async function backfillMarketingOptInFromConversations(pool, options = {}) {
+  const establishmentId = Number(options.establishmentId);
+  const hasEst =
+    Number.isFinite(establishmentId) && establishmentId > 0;
+
+  const params = [];
+  let estClause = '';
+  if (hasEst) {
+    params.push(establishmentId);
+    estClause = ` AND c.last_establishment_id = $${params.length}`;
+  }
+
+  const r = await pool.query(
+    `UPDATE whatsapp_contacts c
+        SET marketing_opt_in = TRUE,
+            marketing_opt_in_at = COALESCE(c.marketing_opt_in_at, NOW()),
+            updated_at = NOW()
+      WHERE c.marketing_opt_in = FALSE
+        AND EXISTS (
+          SELECT 1
+            FROM whatsapp_conversations cv
+            JOIN whatsapp_messages m ON m.conversation_id = cv.id
+           WHERE cv.wa_id = c.wa_id
+             AND m.direction = 'inbound'
+        )
+        ${estClause}
+      RETURNING c.id`,
+    params
+  );
+  return { updated: r.rowCount || 0 };
 }
 
 function resolveContextMessageLimit(limit) {
@@ -858,4 +1035,7 @@ module.exports = {
   updateCampaignBatchFields,
   insertCampaignSendLog,
   listCampaignSendLogs,
+  normalizeWaId,
+  importContacts,
+  backfillMarketingOptInFromConversations,
 };

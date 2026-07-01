@@ -67,7 +67,7 @@ async function handleInboundMedia(pool, app, { waId, payload, media }) {
   });
 
   try {
-    await inbox.upsertContact(pool, { waId, contactName });
+    await inbox.upsertContact(pool, { waId, contactName, grantMarketingOptIn: true });
   } catch (e) {
     console.warn('[inboundMedia] upsertContact falhou:', e.message);
   }

@@ -405,6 +405,7 @@ async function processLegacyInboundTurn({
       waId,
       contactName,
       lastEstablishmentId: linkedEstablishment?.id || null,
+      grantMarketingOptIn: true,
     });
     usedPersistence = true;
   } catch (persistError) {
@@ -1303,6 +1304,7 @@ async function processLegacyInboundTurn({
           Number.isFinite(reservationEstablishmentId) && reservationEstablishmentId > 0
             ? reservationEstablishmentId
             : null,
+        grantMarketingOptIn: true,
         lastReservationId: reservationRow.id || null,
       });
       try {

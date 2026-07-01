@@ -173,6 +173,48 @@ module.exports = (pool, app) => {
     return Math.min(max, Math.max(min, Math.round(n)));
   }
 
+  function assertCampaignActiveForSend(campaign) {
+    if (campaign && campaign.is_active === false) {
+      return { ok: false, message: 'Campanha inativa. Ative-a antes de enviar.' };
+    }
+    return { ok: true };
+  }
+
+  function parseContactsCsvText(csvText) {
+    const lines = String(csvText || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return [];
+
+    const header = lines[0].split(/[,;]/).map((h) => h.trim().toLowerCase().replace(/^"|"$/g, ''));
+    const hasHeader = header.some((h) =>
+      ['wa_id', 'telefone', 'phone', 'nome', 'contact_name'].includes(h)
+    );
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    const startIdx = hasHeader ? 0 : -1;
+
+    const col = (name) => (hasHeader ? header.indexOf(name) : -1);
+    const idxWa = hasHeader
+      ? Math.max(col('wa_id'), col('telefone'), col('phone'))
+      : 0;
+    const idxName = hasHeader ? Math.max(col('contact_name'), col('nome')) : 1;
+    const idxOptIn = hasHeader ? col('marketing_opt_in') : 2;
+    const idxTags = hasHeader ? col('tags') : 3;
+
+    return dataLines.map((line, lineNo) => {
+      const cells = line.split(/[,;]/).map((c) => c.trim().replace(/^"|"$/g, ''));
+      const row = {};
+      if (idxWa >= 0 && cells[idxWa]) row.wa_id = cells[idxWa];
+      if (idxName >= 0 && cells[idxName]) row.contact_name = cells[idxName];
+      if (idxOptIn >= 0 && cells[idxOptIn] !== undefined) row.marketing_opt_in = cells[idxOptIn];
+      if (idxTags >= 0 && cells[idxTags]) row.tags = cells[idxTags];
+      if (!hasHeader && cells[0]) row.wa_id = cells[0];
+      row._line = lineNo + (hasHeader ? 2 : 1);
+      return row;
+    });
+  }
+
   function contactEligibleForCampaign(contact, campaign, options = {}) {
     const enforceAudienceFilters = options.enforceAudienceFilters !== false;
     if (!contact?.marketing_opt_in) {
@@ -721,6 +763,90 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.post('/contacts/backfill-opt-in', auth, authorize(...allowedRoles), async (req, res) => {
+    try {
+      const scope = await loadUserScope(req.user);
+      const establishmentId = Number(req.body?.establishment_id);
+      if (
+        Number.isFinite(establishmentId) &&
+        establishmentId > 0 &&
+        !canAccessEstablishment(scope, establishmentId)
+      ) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+      if (
+        !scope.isAdmin &&
+        Number.isFinite(establishmentId) &&
+        establishmentId > 0 &&
+        scope.allowedEstablishmentIds.length > 0 &&
+        !scope.allowedEstablishmentIds.includes(establishmentId)
+      ) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+
+      const result = await inbox.backfillMarketingOptInFromConversations(pool, {
+        establishmentId: Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : undefined,
+      });
+      return res.json({
+        ok: true,
+        message: `${result.updated} contato(s) receberam opt-in (já tinham conversado antes).`,
+        ...result,
+      });
+    } catch (e) {
+      console.error('[whatsappAdmin] contacts/backfill-opt-in:', e);
+      return res.status(500).json({ message: 'Erro ao conceder opt-in em massa' });
+    }
+  });
+
+  router.post('/contacts/import', auth, authorize(...allowedRoles), async (req, res) => {
+    try {
+      const scope = await loadUserScope(req.user);
+      const establishmentId = Number(req.body?.establishment_id);
+      if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+        return res.status(400).json({ message: 'establishment_id é obrigatório' });
+      }
+      if (!canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+
+      let rows = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
+      if (rows.length === 0 && typeof req.body?.csv_text === 'string' && req.body.csv_text.trim()) {
+        rows = parseContactsCsvText(req.body.csv_text);
+      }
+      if (rows.length === 0) {
+        return res.status(400).json({
+          message: 'Envie contacts[] (JSON) ou csv_text com colunas wa_id, contact_name, marketing_opt_in, tags',
+        });
+      }
+      if (rows.length > 5000) {
+        return res.status(400).json({ message: 'Máximo de 5000 contatos por importação' });
+      }
+
+      const defaultMarketingOptIn = parseBoolean(req.body?.default_marketing_opt_in) === true;
+      const sourceTag =
+        typeof req.body?.source_tag === 'string' && req.body.source_tag.trim()
+          ? req.body.source_tag.trim()
+          : 'importado';
+
+      const result = await inbox.importContacts(pool, {
+        establishmentId,
+        rows,
+        defaultMarketingOptIn,
+        sourceTag,
+      });
+
+      return res.json({
+        ok: true,
+        message: `Importação concluída: ${result.imported} novo(s), ${result.updated} atualizado(s), ${result.skipped} ignorado(s).`,
+        establishment_id: establishmentId,
+        ...result,
+      });
+    } catch (e) {
+      console.error('[whatsappAdmin] contacts/import:', e);
+      return res.status(500).json({ message: e.message || 'Erro ao importar contatos' });
+    }
+  });
+
   router.patch('/contacts/:id', auth, authorize(...allowedRoles), async (req, res) => {
     const contactId = Number(req.params?.id);
     if (!Number.isFinite(contactId) || contactId <= 0) {
@@ -947,6 +1073,11 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
+      const activeCheck = assertCampaignActiveForSend(campaign);
+      if (!activeCheck.ok) {
+        return res.status(400).json({ message: activeCheck.message });
+      }
+
       const contact = Number.isFinite(contactId) && contactId > 0
         ? await inbox.getContactById(pool, contactId)
         : await inbox.getContactByWaId(pool, waId);
@@ -1029,6 +1160,11 @@ module.exports = (pool, app) => {
       }
       if (!canAccessEstablishment(scope, campaign.establishment_id)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+
+      const activeCheck = assertCampaignActiveForSend(campaign);
+      if (!activeCheck.ok) {
+        return res.status(400).json({ message: activeCheck.message });
       }
 
       const audienceOpts = {
@@ -1211,6 +1347,16 @@ module.exports = (pool, app) => {
           completedAt: new Date(),
         });
         return res.status(400).json({ message: 'Campanha não encontrada para este lote' });
+      }
+
+      const activeCheck = assertCampaignActiveForSend(campaign);
+      if (!activeCheck.ok) {
+        await inbox.updateCampaignBatchFields(pool, batchId, {
+          status: 'failed',
+          errorMessage: activeCheck.message,
+          completedAt: new Date(),
+        });
+        return res.status(400).json({ message: activeCheck.message });
       }
 
       const text = String(campaign.message_template || '').trim();
