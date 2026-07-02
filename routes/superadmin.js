@@ -3,10 +3,19 @@
 const express = require('express');
 const { superAdminRouter } = require('../middleware/requireSuperAdmin');
 const billing = require('../billing/billingService');
+const training = require('../billing/trainingService');
+const impersonate = require('../billing/impersonateService');
 
 module.exports = (pool) => {
   const router = express.Router();
   superAdminRouter(router);
+
+  const requestMeta = (req) => ({
+    ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+    userAgent: req.headers['user-agent'] || null,
+    requestMethod: req.method,
+    requestUrl: req.originalUrl,
+  });
 
   router.get('/dashboard', async (req, res) => {
     try {
@@ -146,6 +155,118 @@ module.exports = (pool) => {
       res.json({ success: true, data: result });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/billing/summary', async (req, res) => {
+    try {
+      const summary = await billing.getBillingSummaryByMonth(pool, req.query.month);
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      console.error('[superadmin/billing/summary]', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/organizations/:id/users', async (req, res) => {
+    try {
+      const users = await billing.listOrganizationUsers(pool, Number(req.params.id));
+      res.json({ success: true, data: users });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/impersonate/users', async (req, res) => {
+    try {
+      const users = await impersonate.listImpersonationCandidates(pool, {
+        organizationId: req.query.organizationId,
+        search: req.query.search,
+      });
+      res.json({ success: true, data: users });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/impersonate/:userId', async (req, res) => {
+    try {
+      const result = await impersonate.startImpersonation(
+        pool,
+        req.user,
+        Number(req.params.userId),
+        requestMeta(req),
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/training-materials', async (req, res) => {
+    try {
+      const items = await training.listTrainingMaterials(pool, {
+        organizationId: req.query.organizationId,
+        moduleKey: req.query.moduleKey,
+        publishedOnly: req.query.publishedOnly === 'true',
+      });
+      res.json({ success: true, data: items });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/training-materials', async (req, res) => {
+    try {
+      const item = await training.createTrainingMaterial(pool, req.body, req.user.id);
+      res.status(201).json({ success: true, data: item });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.patch('/training-materials/:id', async (req, res) => {
+    try {
+      const item = await training.updateTrainingMaterial(pool, Number(req.params.id), req.body);
+      res.json({ success: true, data: item });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/training-materials/:id', async (req, res) => {
+    try {
+      await training.deleteTrainingMaterial(pool, Number(req.params.id));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/audit-logs', async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const actionType = req.query.actionType || null;
+      const params = [];
+      let where = '';
+      if (actionType) {
+        params.push(actionType);
+        where = 'WHERE action_type = $1';
+      }
+      params.push(limit);
+      const limitIdx = params.length;
+      const { rows } = await pool.query(
+        `SELECT id, user_id, user_name, user_email, user_role, action_type, action_description,
+                resource_type, resource_id, status, additional_data, created_at
+           FROM action_logs
+          ${where}
+          ORDER BY created_at DESC
+          LIMIT $${limitIdx}`,
+        params,
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

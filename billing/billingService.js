@@ -567,6 +567,142 @@ async function listPlans(pool) {
   return rows;
 }
 
+function parseYearMonth(yearMonth) {
+  const m = String(yearMonth || '').match(/^(\d{4})-(\d{2})$/);
+  if (!m) {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      label: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+    };
+  }
+  return { year: Number(m[1]), month: Number(m[2]), label: yearMonth };
+}
+
+async function getBillingSummaryByMonth(pool, yearMonth) {
+  const { year, month, label } = parseYearMonth(yearMonth);
+  const start = `${label}-01`;
+  const endDate = new Date(year, month, 0);
+  const end = `${label}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+  const hasMonthly = await hasSubscriptionMonthlyAmountColumn(pool);
+  const monthlyExpr = hasMonthly
+    ? `COALESCE(s.monthly_amount_cents, p.price_cents, 0)`
+    : `COALESCE(p.price_cents, 0)`;
+
+  const { rows: orgRows } = await pool.query(
+    `SELECT o.id, o.name, o.slug, o.status,
+            s.status AS subscription_status,
+            p.key AS plan_key, p.name AS plan_name,
+            ${monthlyExpr} AS monthly_amount_cents
+       FROM meu_backup_db.organizations o
+       LEFT JOIN meu_backup_db.subscriptions s ON s.organization_id = o.id
+       LEFT JOIN meu_backup_db.plans p ON p.id = s.plan_id
+      WHERE o.saas_enabled = TRUE
+      ORDER BY o.name`,
+  );
+
+  const { rows: paymentRows } = await pool.query(
+    `SELECT i.organization_id,
+            COALESCE(SUM(p.amount_cents), 0)::bigint AS paid_cents,
+            COUNT(p.id)::int AS payment_count
+       FROM meu_backup_db.payments p
+       JOIN meu_backup_db.invoices i ON i.id = p.invoice_id
+      WHERE p.paid_at >= $1::date
+        AND p.paid_at < ($2::date + INTERVAL '1 day')
+      GROUP BY i.organization_id`,
+    [start, end],
+  );
+
+  const paidMap = new Map(paymentRows.map((r) => [r.organization_id, r]));
+
+  const { rows: openRows } = await pool.query(
+    `SELECT organization_id,
+            COALESCE(SUM(amount_cents), 0)::bigint AS open_cents,
+            COUNT(*)::int AS open_count
+       FROM meu_backup_db.invoices
+      WHERE status IN ('pending', 'overdue')
+      GROUP BY organization_id`,
+  );
+  const openMap = new Map(openRows.map((r) => [r.organization_id, r]));
+
+  const clients = orgRows.map((o) => {
+    const paid = paidMap.get(o.id) || { paid_cents: 0, payment_count: 0 };
+    const open = openMap.get(o.id) || { open_cents: 0, open_count: 0 };
+    const monthly = Number(o.monthly_amount_cents) || 0;
+    const paidCents = Number(paid.paid_cents) || 0;
+    return {
+      organizationId: o.id,
+      name: o.name,
+      slug: o.slug,
+      status: o.status,
+      subscriptionStatus: o.subscription_status,
+      planKey: o.plan_key,
+      planName: o.plan_name,
+      monthlyAmountCents: monthly,
+      paidThisMonthCents: paidCents,
+      paymentCountThisMonth: paid.payment_count,
+      openInvoicesCents: Number(open.open_cents) || 0,
+      openInvoicesCount: open.open_count,
+      collectionStatus:
+        paidCents >= monthly && monthly > 0
+          ? 'paid'
+          : paidCents > 0
+            ? 'partial'
+            : monthly > 0
+              ? 'pending'
+              : 'no_billing',
+    };
+  });
+
+  const totals = clients.reduce(
+    (acc, c) => {
+      acc.expectedMrrCents += c.monthlyAmountCents;
+      acc.collectedCents += c.paidThisMonthCents;
+      acc.openCents += c.openInvoicesCents;
+      if (c.collectionStatus === 'pending' || c.collectionStatus === 'partial') {
+        acc.pendingClients += 1;
+      }
+      if (c.subscriptionStatus === 'past_due') acc.pastDueClients += 1;
+      return acc;
+    },
+    {
+      expectedMrrCents: 0,
+      collectedCents: 0,
+      openCents: 0,
+      pendingClients: 0,
+      pastDueClients: 0,
+    },
+  );
+
+  return {
+    month: label,
+    periodStart: start,
+    periodEnd: end,
+    totals,
+    clients,
+  };
+}
+
+async function listOrganizationUsers(pool, organizationId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT u.id, u.name, u.email, u.role
+       FROM users u
+       LEFT JOIN meu_backup_db.memberships m
+         ON m.user_id = u.id AND m.organization_id = $1 AND m.is_active = TRUE
+       LEFT JOIN user_establishment_permissions uep ON uep.user_id = u.id
+       LEFT JOIN meu_backup_db.establishments e
+         ON (e.legacy_place_id = uep.establishment_id OR e.legacy_bar_id = uep.establishment_id)
+        AND e.organization_id = $1
+      WHERE COALESCE(u.is_super_admin, FALSE) = FALSE
+        AND (m.id IS NOT NULL OR e.id IS NOT NULL)
+      ORDER BY u.name`,
+    [organizationId],
+  );
+  return rows;
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -583,4 +719,6 @@ module.exports = {
   markSubscriptionPastDue,
   provisionOrganization,
   listPlans,
+  getBillingSummaryByMonth,
+  listOrganizationUsers,
 };

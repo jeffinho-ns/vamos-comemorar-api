@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const path = require("path");
 const authenticateToken = require("../middleware/auth");
 const { buildTokenPayload } = require("../tenancy/jwtClaims");
+const { endImpersonation } = require("../billing/impersonateService");
 
 const router = express.Router();
 const baseUrl =
@@ -617,6 +618,29 @@ module.exports = (pool, upload) => {
     } catch (error) {
       console.error("Erro ao realizar login:", error);
       res.status(500).json({ error: "Erro ao realizar login" });
+    }
+  });
+
+  router.post("/impersonate/end", authenticateToken, async (req, res) => {
+    try {
+      const meta = {
+        ipAddress: req.ip || req.headers["x-forwarded-for"] || null,
+        userAgent: req.headers["user-agent"] || null,
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+      };
+      const result = await endImpersonation(pool, req.user, meta);
+      res.json({
+        success: true,
+        token: result.token,
+        userId: result.user.id,
+        role: result.user.role,
+        nome: result.user.name,
+        email: result.user.email,
+        isSuperAdmin: true,
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message || "Falha ao encerrar impersonate." });
     }
   });
 
