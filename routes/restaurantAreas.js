@@ -6,19 +6,22 @@ const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
+const {
+  getEstablishmentRules,
+  buildAreasNameFilterSql,
+  areaAllowedForRules,
+} = require('../services/establishmentRules');
 
-function areasFilterForEstablishmentId(establishmentId) {
-  if (establishmentId === 9) {
-    return `ra.name ILIKE 'Reserva Rooftop - %'`;
-  }
-  return `ra.name NOT ILIKE 'Reserva Rooftop - %'`;
+async function areasFilterForEstablishment(pool, establishmentId) {
+  const rules = await getEstablishmentRules(pool, establishmentId);
+  return buildAreasNameFilterSql(rules);
 }
 
-function areasScopeSql(req, establishmentIdFromQuery) {
+async function areasScopeSql(pool, req, establishmentIdFromQuery) {
   const tenant = req && req.tenant;
   if (!isSaasEnforced() || !tenant || tenant.isAdmin) {
     if (establishmentIdFromQuery != null && !Number.isNaN(establishmentIdFromQuery)) {
-      return areasFilterForEstablishmentId(establishmentIdFromQuery);
+      return areasFilterForEstablishment(pool, establishmentIdFromQuery);
     }
     return null;
   }
@@ -29,26 +32,29 @@ function areasScopeSql(req, establishmentIdFromQuery) {
   if (ids.length === 0) return '1=0';
 
   if (establishmentIdFromQuery != null && !Number.isNaN(establishmentIdFromQuery)) {
-    return areasFilterForEstablishmentId(establishmentIdFromQuery);
+    return areasFilterForEstablishment(pool, establishmentIdFromQuery);
   }
 
   if (ids.length === 1) {
-    return areasFilterForEstablishmentId(ids[0]);
+    return areasFilterForEstablishment(pool, ids[0]);
   }
 
-  const parts = ids.map((id) => `(${areasFilterForEstablishmentId(id)})`);
-  return `(${parts.join(' OR ')})`;
+  const parts = await Promise.all(ids.map((id) => areasFilterForEstablishment(pool, id)));
+  return `(${parts.map((p) => `(${p})`).join(' OR ')})`;
 }
 
-function areaAllowedForScope(req, areaName) {
+async function areaAllowedForScope(pool, req, areaName) {
   const tenant = req && req.tenant;
   if (!isSaasEnforced() || !tenant || tenant.isAdmin) return true;
   const ids = Array.isArray(tenant.establishmentIds)
     ? tenant.establishmentIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
     : [];
   if (ids.length === 0) return false;
-  const isRooftop = String(areaName || '').startsWith('Reserva Rooftop -');
-  return ids.some((id) => (id === 9 ? isRooftop : !isRooftop));
+  for (const id of ids) {
+    const rules = await getEstablishmentRules(pool, id);
+    if (areaAllowedForRules(rules, areaName)) return true;
+  }
+  return false;
 }
 
 module.exports = (pool) => {
@@ -79,7 +85,7 @@ module.exports = (pool) => {
       // - Demais estabelecimentos: excluir áreas "Reserva Rooftop - ..."
       const whereParts = [`ra.is_active = TRUE`];
       const params = [];
-      const scopeFilter = areasScopeSql(req, establishmentId);
+      const scopeFilter = await areasScopeSql(pool, req, establishmentId);
       if (scopeFilter) {
         whereParts.push(scopeFilter);
       }
@@ -146,7 +152,7 @@ module.exports = (pool) => {
         });
       }
 
-      if (!areaAllowedForScope(req, areasResult.rows[0].name)) {
+      if (!(await areaAllowedForScope(pool, req, areasResult.rows[0].name))) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'

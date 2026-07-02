@@ -17,6 +17,7 @@ const {
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
+const establishmentRules = require('../services/establishmentRules');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -99,8 +100,7 @@ module.exports = (pool) => {
     };
   }
 
-  // Limite diário específico para o Reserva Rooftop (establishment_id = 9)
-  const MAX_DAILY_RESERVATIONS_ROOFTOP = 60;
+  // Limite diário e regras por perfil (config em establishments — Fase 7)
 
   const operatingWindowsCache = new Map();
 
@@ -498,11 +498,10 @@ module.exports = (pool) => {
       // Filtrar áreas pelo estabelecimento (mesma lógica de GET /api/restaurant-areas:
       // id 9 = Reserva Rooftop; demais = excluir áreas "Reserva Rooftop - ...")
       const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+      const estRules = await establishmentRules.getEstablishmentRules(pool, establishmentIdNum);
+      const isRooftopEst = establishmentRules.isRooftop(estRules);
       const capacityPolicy = await getReservationPolicy(establishmentIdNum);
-      const areaWhere =
-        establishmentIdNum === 9
-          ? "ra.name ILIKE 'Reserva Rooftop - %'"
-          : "ra.name NOT ILIKE 'Reserva Rooftop - %'";
+      const areaWhere = establishmentRules.buildAreasNameFilterSql(estRules);
 
       const areasResult = await pool.query(
         `SELECT
@@ -518,7 +517,7 @@ module.exports = (pool) => {
       const timeStr = time && String(time).trim() ? String(time).trim() : null;
       let rooftopShift = null;
 
-      if (establishmentIdNum === 9 && timeStr) {
+      if (isRooftopEst && timeStr) {
         rooftopShift = await getRooftopShift(date, timeStr);
       }
 
@@ -528,7 +527,7 @@ module.exports = (pool) => {
       }
 
       // Para o Reserva Rooftop, usar capacidade distinta por turno (almoço/jantar)
-      if (establishmentIdNum === 9 && rooftopShift) {
+      if (isRooftopEst && rooftopShift) {
         if (rooftopShift === 'lunch' && totalLunch > 0) {
           totalCapacity = totalLunch;
         } else if (rooftopShift === 'dinner' && totalDinner > 0) {
@@ -555,7 +554,7 @@ module.exports = (pool) => {
       let currentPeople = 0;
 
       // Para o Reserva Rooftop, somar apenas as pessoas do mesmo turno (almoço/jantar)
-      if (establishmentIdNum === 9 && timeStr && rooftopShift) {
+      if (isRooftopEst && timeStr && rooftopShift) {
         const activeReservationsResult = await pool.query(
           `
           SELECT reservation_time, number_of_people
@@ -602,7 +601,9 @@ module.exports = (pool) => {
       let dailyReservationsCount = null;
       let dailyReservationsLimitReached = false;
 
-      if (establishmentIdNum === 9) {
+      const maxDailyReservations = establishmentRules.getMaxDailyReservations(estRules);
+
+      if (isRooftopEst && maxDailyReservations) {
         try {
           const dailyCountResult = await pool.query(
             `
@@ -622,10 +623,10 @@ module.exports = (pool) => {
             parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
           dailyReservationsLimitReached =
             !capacityPolicy.allow_capacity_override &&
-            dailyReservationsCount >= MAX_DAILY_RESERVATIONS_ROOFTOP;
+            dailyReservationsCount >= maxDailyReservations;
         } catch (e) {
           console.error(
-            '⚠️ Erro ao verificar limite diário de reservas para Reserva Rooftop (capacity.check):',
+            '⚠️ Erro ao verificar limite diário de reservas (capacity.check):',
             e
           );
         }
@@ -653,7 +654,7 @@ module.exports = (pool) => {
       // nunca permitir reserva via capacity.check (salvo política allow_outside_hours)
       const outsideRooftopOperatingHours =
         !capacityPolicy.allow_outside_hours &&
-        establishmentIdNum === 9 &&
+        isRooftopEst &&
         !!timeStr &&
         !rooftopShift;
 
@@ -686,8 +687,7 @@ module.exports = (pool) => {
           rooftopShift,
           dailyReservationsCount,
           dailyReservationsLimitReached,
-          maxDailyReservationsRooftop:
-            establishmentIdNum === 9 ? MAX_DAILY_RESERVATIONS_ROOFTOP : null,
+          maxDailyReservationsRooftop: isRooftopEst ? maxDailyReservations : null,
           outsideRooftopOperatingHours
         }
       });
@@ -907,6 +907,13 @@ module.exports = (pool) => {
         });
       }
 
+      const createEstRules = await establishmentRules.getEstablishmentRules(
+        pool,
+        establishmentIdNumber,
+      );
+      const createIsRooftop = establishmentRules.isRooftop(createEstRules);
+      const createMaxDaily = establishmentRules.getMaxDailyReservations(createEstRules);
+
       const allowedAreas = await loadActiveRestaurantAreas(pool, establishmentIdNumber);
       if (!allowedAreas.some((area) => Number(area.id) === areaIdNumber)) {
         return res.status(400).json({
@@ -949,7 +956,7 @@ module.exports = (pool) => {
 
       // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
       // Conta apenas reservas ativas (ignora canceladas, concluídas e no-show)
-      if (establishmentIdNumber === 9 && reservation_date && !reservationPolicy.allow_capacity_override) {
+      if (createIsRooftop && reservation_date && !reservationPolicy.allow_capacity_override && createMaxDaily) {
         try {
           const dailyCountResult = await pool.query(
             `
@@ -966,25 +973,23 @@ module.exports = (pool) => {
             [reservation_date, establishmentIdNumber]
           );
           const dailyCount = parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
-          if (dailyCount >= MAX_DAILY_RESERVATIONS_ROOFTOP) {
+          if (dailyCount >= createMaxDaily) {
             return res.status(400).json({
               success: false,
-              error: `Limite diário de ${MAX_DAILY_RESERVATIONS_ROOFTOP} reservas atingido para o Reserva Rooftop nesta data.`
+              error: `Limite diário de ${createMaxDaily} reservas atingido para este estabelecimento nesta data.`
             });
           }
         } catch (e) {
           console.error(
-            '⚠️ Erro ao verificar limite diário de reservas para Reserva Rooftop (POST /restaurant-reservations):',
+            '⚠️ Erro ao verificar limite diário de reservas (POST /restaurant-reservations):',
             e
           );
-          // Em caso de erro na verificação, não bloquear a criação da reserva
         }
       }
 
-      // Validação de horário de funcionamento específico para o Reserva Rooftop (establishment_id = 9)
-      if (establishmentIdNumber === 9 && reservation_date && reservation_time && !reservationPolicy.allow_outside_hours) {
+      if (createIsRooftop && reservation_date && reservation_time && !reservationPolicy.allow_outside_hours) {
         const rooftopShift = await getRooftopShift(reservation_date, reservation_time);
-        const rooftopWindows = await getOperatingWindowsForDate(9, reservation_date);
+        const rooftopWindows = await getOperatingWindowsForDate(establishmentIdNumber, reservation_date);
         if (!rooftopShift) {
           const windowsLabel =
             rooftopWindows.length > 0
@@ -993,7 +998,7 @@ module.exports = (pool) => {
           return res.status(400).json({
             success: false,
             error:
-              'Horário fora do funcionamento do Reserva Rooftop. ' +
+              'Horário fora do funcionamento. ' +
               `Regras atuais: ${windowsLabel}.`
           });
         }
@@ -1008,8 +1013,10 @@ module.exports = (pool) => {
       let finalNotes = notes || '';
       let finalTableNumber = table_number;
       
-      const isSeuJustino = establishmentIdNumber === 1;
-      const isPracinha = establishmentIdNumber === 8;
+      const isSeuJustino =
+        establishmentRules.isProfile(createEstRules, 'seu_justino') ||
+        establishmentIdNumber === 1;
+      const isPracinha = establishmentRules.isPracinha(createEstRules);
       
       if ((isSeuJustino || isPracinha) && reservation_date && reservation_time) {
         const reservationDate = new Date(reservation_date + 'T00:00:00');

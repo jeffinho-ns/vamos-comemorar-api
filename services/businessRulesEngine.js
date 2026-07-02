@@ -245,12 +245,20 @@ function buildDateOverridesBlock(establishments, overrideRows) {
 function validateReservationPartySize(params) {
   const establishmentId = Number(params?.establishment_id);
   const quantidade = Number(params?.quantidade_convidados);
+  const { LEGACY_PROFILES } = require('./establishmentRules');
+  const maxParty =
+    Number(params?.rules?.reservations?.maxPartySize) ||
+    Number(LEGACY_PROFILES[establishmentId]?.reservations?.maxPartySize) ||
+    null;
 
-  if (establishmentId === 8 && Number.isFinite(quantidade) && quantidade > 60) {
+  if (Number.isFinite(maxParty) && Number.isFinite(quantidade) && quantidade > maxParty) {
+    const profile = LEGACY_PROFILES[establishmentId]?.profile;
+    const venueLabel =
+      profile === 'pracinha' ? 'na Pracinha' : 'neste estabelecimento';
     return {
       ok: false,
       message:
-        'Pra um grupo desse tamanho na Pracinha (mais de 60), a gente trata como evento especial e precisa de um humano do time. Quer que eu chame? Ou se preferir reservar pra até 60 a gente segue agora mesmo.',
+        `Pra um grupo desse tamanho ${venueLabel} (mais de ${maxParty}), a gente trata como evento especial e precisa de um humano do time. Quer que eu chame? Ou se preferir reservar pra até ${maxParty} a gente segue agora mesmo.`,
     };
   }
 

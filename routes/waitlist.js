@@ -10,6 +10,7 @@ const {
   canReadEstablishment,
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
+const establishmentRules = require('../services/establishmentRules');
 
 const toMinutes = (timeStr) => {
   const [h, m] = String(timeStr || '').split(':').map(Number);
@@ -297,7 +298,8 @@ module.exports = (pool) => {
       const preferredTime = preferred_time && String(preferred_time).trim() !== '' ? preferred_time : null;
 
       // Bloquear lista de espera para Reserva Rooftop em horários fora do funcionamento
-      if (establishmentIdNum === 9 && preferredTime) {
+      const estRules = await establishmentRules.getEstablishmentRules(pool, establishmentIdNum);
+      if (establishmentRules.isRooftop(estRules) && estRules?.reservations?.strictHours !== false && preferredTime) {
         const rooftopWindows = await getRooftopWindows(preferredDate);
         const isValid = isTimeWithinWindows(preferredTime, rooftopWindows);
         if (!isValid) {
@@ -307,7 +309,7 @@ module.exports = (pool) => {
               : 'Reservas fechadas para este dia';
           return res.status(400).json({
             success: false,
-            error: `Horário fora do funcionamento do Reserva Rooftop. Regras atuais: ${windowsLabel}.`
+            error: `Horário fora do funcionamento. Regras atuais: ${windowsLabel}.`
           });
         }
       }

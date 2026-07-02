@@ -10,7 +10,7 @@ node scripts/saas/run-saas-migrations.js   # dry-run: lista pendentes
 SAAS_MIGRATE_CONFIRM=apply node scripts/saas/run-saas-migrations.js
 ```
 
-Esperado se prod parou na 008: `009`, `010`, `011`.
+Esperado se prod parou na 008: `009`–`012`.
 
 ## 2. Backfill memberships (UEP → memberships)
 
