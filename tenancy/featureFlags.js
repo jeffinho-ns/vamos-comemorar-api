@@ -31,4 +31,24 @@ function isFailOpen() {
   return !isSaasEnforced();
 }
 
-module.exports = { saasMode, isSaasEnforced, isSaasObserving, isFailOpen };
+function saasRlsMode() {
+  return String(process.env.SAAS_RLS_MODE || 'off').toLowerCase();
+}
+
+function isRlsEnforced() {
+  return saasRlsMode() === 'on';
+}
+
+function isRlsObserving() {
+  return saasRlsMode() === 'observe';
+}
+
+module.exports = {
+  saasMode,
+  isSaasEnforced,
+  isSaasObserving,
+  isFailOpen,
+  saasRlsMode,
+  isRlsEnforced,
+  isRlsObserving,
+};

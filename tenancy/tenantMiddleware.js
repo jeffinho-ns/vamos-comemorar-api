@@ -19,6 +19,7 @@
 
 const { isSaasEnforced, isSaasObserving, isFailOpen } = require('./featureFlags');
 const { loadUserScope, canAccessEstablishment } = require('./tenantScope');
+const { runWithRequestTenant } = require('./requestContext');
 
 function getPool(req) {
   return req.app && typeof req.app.get === 'function' ? req.app.get('pool') : null;
@@ -60,11 +61,30 @@ function tenantMiddleware(options = {}) {
     }
 
     const requestedEst = readRequestedEstablishmentId(req);
+    const tokenOrgId = Number(req.user.organization_id);
+    const primaryOrganizationId =
+      scope.organizationIds[0] ??
+      (Number.isFinite(tokenOrgId) && tokenOrgId > 0 ? tokenOrgId : null);
+
+    if (
+      isSaasObserving() &&
+      Number.isFinite(tokenOrgId) &&
+      tokenOrgId > 0 &&
+      scope.organizationIds.length > 0 &&
+      !scope.organizationIds.includes(tokenOrgId)
+    ) {
+      console.warn(
+        `[tenant:observe] JWT organization_id=${tokenOrgId} diverge do escopo DB ` +
+          `[${scope.organizationIds.join(',')}] user=${req.user.id}`,
+      );
+    }
+
     req.tenant = {
       isAdmin: scope.isAdmin,
       organizationIds: scope.organizationIds,
       establishmentIds: scope.establishmentIds,
       establishmentId: requestedEst,
+      primaryOrganizationId,
     };
 
     // Validação anti-ID-na-URL (o establishment pedido está no escopo?)
@@ -87,7 +107,14 @@ function tenantMiddleware(options = {}) {
       return res.status(403).json({ success: false, error: 'Acesso negado ao estabelecimento.' });
     }
 
-    return next();
+    return runWithRequestTenant(
+      {
+        organizationId: primaryOrganizationId,
+        isAdmin: scope.isAdmin,
+        userId: req.user.id,
+      },
+      () => next(),
+    );
   };
 }
 

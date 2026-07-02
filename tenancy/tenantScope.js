@@ -112,7 +112,24 @@ async function loadUserScope(pool, user) {
       [user.id],
     );
     const establishmentIds = [...new Set(rows.map((r) => Number(r.establishment_id)).filter(Boolean))];
-    return { isAdmin: false, organizationIds: [], establishmentIds };
+    let organizationIds = [];
+    if (establishmentIds.length > 0) {
+      try {
+        const orgResult = await pool.query(
+          `SELECT DISTINCT organization_id
+             FROM meu_backup_db.establishments
+            WHERE organization_id IS NOT NULL
+              AND (legacy_place_id = ANY($1::int[]) OR legacy_bar_id = ANY($1::int[]))`,
+          [establishmentIds],
+        );
+        organizationIds = [
+          ...new Set(orgResult.rows.map((r) => Number(r.organization_id)).filter(Boolean)),
+        ];
+      } catch (_) {
+        organizationIds = [];
+      }
+    }
+    return { isAdmin: false, organizationIds, establishmentIds };
   } catch (_) {
     return { isAdmin: false, organizationIds: [], establishmentIds: [] };
   }

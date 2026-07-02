@@ -1,22 +1,25 @@
+'use strict';
+
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
-const db = require("../config/database");
+const pool = require("../config/database");
 const passport = require("passport");
+const { buildTokenPayload } = require("../tenancy/jwtClaims");
 
 require("../middleware/passport");
 
-const generateToken = (user) => {
-  return jwt.sign(
-    {
-      id: user.id,
-      email: user.email,
-      nome: user.nome || user.name, // adapta nome se vier em inglês
-      role: user.role || "Cliente",
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
+const generateToken = async (user) => {
+  const payload = await buildTokenPayload(pool, {
+    id: user.id,
+    email: user.email,
+    role: user.role || "Cliente",
+    is_super_admin: user.is_super_admin,
+  });
+  if (user.nome || user.name) {
+    payload.nome = user.nome || user.name;
+  }
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
 };
 
 // Rota para iniciar login com Google
@@ -26,11 +29,16 @@ router.get("/google", passport.authenticate("google", { scope: ["profile", "emai
 router.get(
   "/google/callback",
   passport.authenticate("google", { session: false, failureRedirect: "/login" }),
-  (req, res) => {
-    const token = generateToken(req.user);
-    res.redirect(
-      `https://vamos-comemorar-mobile.vercel.app/social-auth?token=${token}&userId=${req.user.id}`
-    );
+  async (req, res) => {
+    try {
+      const token = await generateToken(req.user);
+      res.redirect(
+        `https://vamos-comemorar-mobile.vercel.app/social-auth?token=${token}&userId=${req.user.id}`
+      );
+    } catch (err) {
+      console.error("Erro ao gerar token Google:", err);
+      res.redirect("/login");
+    }
   }
 );
 
@@ -44,13 +52,13 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Credenciais inválidas!" });
     }
 
-    const result = await db.query("SELECT * FROM users WHERE email = $1", [email]);
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
 
     let user;
     if (result.rows.length > 0) {
       user = result.rows[0];
     } else {
-      const insertResult = await db.query(
+      const insertResult = await pool.query(
         "INSERT INTO users (nome, email, role, provider, createdAt) VALUES ($1, $2, $3, $4, NOW()) RETURNING id",
         [nome, email, "Cliente", provider]
       );
@@ -58,7 +66,7 @@ router.post("/login", async (req, res) => {
       user = { id: insertResult.rows[0].id, nome, email, role: "Cliente", provider };
     }
 
-    const token = generateToken(user);
+    const token = await generateToken(user);
 
     res.json({ token, user });
   } catch (error) {

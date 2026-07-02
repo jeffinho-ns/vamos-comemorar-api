@@ -20,4 +20,7 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle pool client:', err.message);
 });
 
-module.exports = pool; 
+const { wrapPoolWithTenantRls } = require('../tenancy/poolRlsWrap');
+wrapPoolWithTenantRls(pool);
+
+module.exports = pool;

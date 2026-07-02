@@ -20,6 +20,9 @@ nas rotas de reserva; comportamento controlado por `SAAS_MODE`.
 | `tenantScope.js` | `loadUserScope` (memberships → ids **operacionais** place/bar) / `canAccessEstablishment`. |
 | `queryScope.js` | `establishmentScopeClause` (leitura em listagens) + `canReadEstablishment` / `denyIfCannotReadEstablishment` (GET/PUT/DELETE por id). |
 | `tenantMiddleware.js` | Injeta `req.tenant`; valida establishment do request contra o escopo. |
+| `jwtClaims.js` | `buildTokenPayload` — JWT com `organization_id`, `organization_ids`, `is_super_admin`. |
+| `requestContext.js` | AsyncLocalStorage — contexto de org por request (RLS). |
+| `scopedQuery.js` / `poolRlsWrap.js` | `SET LOCAL app.current_org` / `app.bypass_rls` em queries a `restaurant_reservations`. |
 | `requireModule.js` | Gate de módulo contratado (receita). |
 | `requirePermission.js` | Gate de permissão `modulo:acao` (RBAC). |
 | `meEntitlementsRouter.js` | `GET /api/me/entitlements` (read-only). |
@@ -37,7 +40,30 @@ nas rotas de reserva; comportamento controlado por `SAAS_MODE`.
    - Formulário **público** `POST /` sem token → continua criando reserva.
 4. **Se OK:** manter `on` só em `/api/restaurant-reservations`; expandir depois.
 
-**IDs:** `loadUserScope` traduz `memberships.establishment_id` (canônico) para `legacy_place_id` / `legacy_bar_id` antes do enforce.
+**IDs:** `loadUserScope` traduz `memberships.establishment_id` (canônico) para `legacy_place_id` / `legacy_bar_id` antes do enforce. Fallback UEP também resolve `organizationIds` via tabela `establishments`.
+
+## JWT com tenant
+
+No login (`routes/users.js`, `routes/auth.js`), o token passa a incluir:
+
+- `organization_id` — org primária (primeira do escopo)
+- `organization_ids` — array completo
+- `is_super_admin` — flag do banco
+
+Tokens antigos (7d) continuam válidos; `tenantMiddleware` revalida escopo via DB e loga divergência JWT vs DB em `observe`.
+
+## RLS piloto (`restaurant_reservations`)
+
+| `SAAS_RLS_MODE` | Comportamento |
+|-----------------|---------------|
+| `off` (padrão) | Sem policies ativas na prática (pool não seta session vars). |
+| `on` | `pool.query` em SQL com `restaurant_reservations` usa `SET LOCAL app.current_org` ou `app.bypass_rls` (admin). |
+
+Migration: `migrations/saas/008_rls_restaurant_reservations.sql`.
+
+**Ordem recomendada:** staging → aplicar 008 → `SAAS_RLS_MODE=observe` (opcional) → `on` → validar analista restrito → produção.
+
+**Anônimo / sem org na sessão:** policies são fail-open (mesmo comportamento legado).
 
 ## Por que produção permanece segura em `observe`
 - `observe` **nunca bloqueia** — só loga `[tenant:observe] BLOQUEARIA...`.

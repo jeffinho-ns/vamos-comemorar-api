@@ -57,6 +57,6 @@ SELECT count(*) FROM restaurant_reservations WHERE organization_id IS NULL;  -- 
 
 ## O que NÃO está aqui (próximas fases, exigem decisão/staging)
 - `organization_id` NOT NULL (Contract).
-- RLS por tabela (`ENABLE ROW LEVEL SECURITY` + policies) — ativar 1 tabela de cada vez.
-- `organization_id` no JWT e `tenantMiddleware` plugado (ver `../../tenancy/README.md`).
+- RLS por tabela (`ENABLE ROW LEVEL SECURITY` + policies) — **008 piloto** em `restaurant_reservations`; expandir após validação.
+- `organization_id` no JWT — **implementado** (`tenancy/jwtClaims.js`); `tenantMiddleware` + RLS via `SAAS_RLS_MODE`.
 - Migrar filtros por nome (`restaurant_areas` ILIKE 'Reserva Rooftop - %') para `establishment_id`.

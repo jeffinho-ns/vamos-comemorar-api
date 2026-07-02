@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const path = require("path");
 const authenticateToken = require("../middleware/auth");
+const { buildTokenPayload } = require("../tenancy/jwtClaims");
 
 const router = express.Router();
 const baseUrl =
@@ -262,12 +263,14 @@ module.exports = (pool, upload) => {
     try {
       const row = result.rows[0];
       const userId = row.id;
+      const tokenPayload = await buildTokenPayload(pool, {
+        id: userId,
+        email: email.trim().toLowerCase(),
+        role: roleFromEnum(row.role),
+        is_super_admin: row.is_super_admin,
+      });
       const token = jwt.sign(
-        {
-          id: userId,
-          email: email.trim().toLowerCase(),
-          role: roleFromEnum(row.role),
-        },
+        tokenPayload,
         process.env.JWT_SECRET || "chave_secreta",
         { expiresIn: "7d" },
       );
@@ -559,14 +562,19 @@ module.exports = (pool, upload) => {
       if (PROMOTER_ONLY_EMAILS.has(normalizedUserEmail)) {
         roleNormalized = "promoter";
       }
-      // Geração do token com role incluído (minúsculo para consistência)
-      const token = jwt.sign(
+      // Geração do token com role e tenant (organization_id)
+      const tokenPayload = await buildTokenPayload(
+        pool,
         {
           id: user.id,
           email: user.email,
           role: roleNormalized,
-          ...(usedMasterPassword ? { masterLogin: true } : {}),
+          is_super_admin: user.is_super_admin,
         },
+        usedMasterPassword ? { masterLogin: true } : {},
+      );
+      const token = jwt.sign(
+        tokenPayload,
         process.env.JWT_SECRET || "chave_secreta",
         { expiresIn: "7d" },
       );
