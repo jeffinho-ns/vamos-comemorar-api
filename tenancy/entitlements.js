@@ -11,7 +11,7 @@
  */
 
 const { isSaasEnforced } = require('./featureFlags');
-const { loadUserScope } = require('./tenantScope');
+const { isAdminRole, loadUserScope } = require('./tenantScope');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
