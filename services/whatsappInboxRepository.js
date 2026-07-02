@@ -411,12 +411,19 @@ async function listConversations(pool, options = {}) {
     : null;
   const establishmentId = Number(options.establishmentId);
   const unassignedOnly = options.unassignedOnly === true;
+  const userId = Number(options.userId);
   const status = typeof options.status === 'string' ? options.status.trim() : '';
   const assignee = options.assignedUserId !== undefined ? Number(options.assignedUserId) : null;
 
   const filters = [];
   const params = [];
   let idx = 1;
+
+  let readUserParam = null;
+  if (Number.isFinite(userId) && userId > 0) {
+    readUserParam = idx++;
+    params.push(userId);
+  }
 
   if (allowedEstablishmentIds && allowedEstablishmentIds.length > 0) {
     filters.push(`c.establishment_id = ANY($${idx++}::int[])`);
@@ -447,10 +454,28 @@ async function listConversations(pool, options = {}) {
   const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
   params.push(limit);
 
+  const readJoin =
+    readUserParam != null
+      ? `LEFT JOIN whatsapp_inbox_read_state irs ON irs.conversation_id = c.id AND irs.user_id = $${readUserParam}`
+      : '';
+  const unreadSelect =
+    readUserParam != null
+      ? `(irs.conversation_id IS NULL) AS never_opened_by_me,
+            CASE
+              WHEN lm.id IS NULL THEN FALSE
+              WHEN irs.last_read_message_id IS NULL THEN TRUE
+              WHEN lm.id > irs.last_read_message_id THEN TRUE
+              ELSE FALSE
+            END AS has_unread`
+      : `FALSE AS never_opened_by_me, FALSE AS has_unread`;
+
   const r = await pool.query(
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
             c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
             c.human_takeover_until, c.updated_at,
+            lm.id AS last_message_id,
+            lm.intent AS last_intent,
+            ${unreadSelect},
             COALESCE(
               NULLIF(lm.body, ''),
               CASE WHEN lm.message_type = 'image' THEN '📷 Foto' ELSE lm.body END
@@ -460,8 +485,9 @@ async function listConversations(pool, options = {}) {
      FROM whatsapp_conversations c
      LEFT JOIN places p ON p.id = c.establishment_id
      LEFT JOIN users u ON u.id = c.assigned_user_id
+     ${readJoin}
      LEFT JOIN LATERAL (
-       SELECT body, created_at, direction, message_type
+       SELECT id, body, created_at, direction, message_type, intent
        FROM whatsapp_messages m
        WHERE m.conversation_id = c.id
        ORDER BY m.created_at DESC, m.id DESC
@@ -474,6 +500,30 @@ async function listConversations(pool, options = {}) {
     params
   );
   return r.rows;
+}
+
+async function markConversationRead(pool, { userId, conversationId, lastMessageId }) {
+  const uid = Number(userId);
+  const convId = Number(conversationId);
+  const msgId = Number(lastMessageId);
+  if (!Number.isFinite(uid) || uid <= 0 || !Number.isFinite(convId) || convId <= 0) {
+    return null;
+  }
+
+  const r = await pool.query(
+    `INSERT INTO whatsapp_inbox_read_state (user_id, conversation_id, last_read_message_id, last_read_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id, conversation_id) DO UPDATE SET
+       last_read_message_id = CASE
+         WHEN $3 IS NULL THEN whatsapp_inbox_read_state.last_read_message_id
+         WHEN whatsapp_inbox_read_state.last_read_message_id IS NULL THEN $3
+         ELSE GREATEST(whatsapp_inbox_read_state.last_read_message_id, $3)
+       END,
+       last_read_at = NOW()
+     RETURNING user_id, conversation_id, last_read_message_id, last_read_at`,
+    [uid, convId, Number.isFinite(msgId) && msgId > 0 ? msgId : null]
+  );
+  return r.rows[0] || null;
 }
 
 /** Contagem por estabelecimento para abas do inbox (independe do LIMIT da listagem). */
@@ -1129,6 +1179,7 @@ module.exports = {
   upsertContact,
   getRecentMessagesForContext,
   listConversations,
+  markConversationRead,
   countConversationsByEstablishment,
   listMessages,
   listContacts,

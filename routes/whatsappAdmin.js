@@ -393,6 +393,7 @@ module.exports = (pool, app) => {
         assignedUserId: Number.isFinite(assignedUserId) ? assignedUserId : undefined,
         allowedEstablishmentIds: scope.isAdmin ? null : scope.allowedEstablishmentIds,
         unassignedOnly,
+        userId: Number(req.user?.id),
       };
       if (Number.isFinite(establishmentId) && establishmentId > 0) {
         if (!canAccessEstablishment(scope, establishmentId)) {
@@ -446,6 +447,34 @@ module.exports = (pool, app) => {
     } catch (e) {
       console.error('[whatsappAdmin] list messages:', e);
       return res.status(500).json({ message: 'Erro ao listar mensagens' });
+    }
+  });
+
+  router.post('/conversations/:waId/mark-read', auth, authorize(...allowedRoles), async (req, res) => {
+    const { waId } = req.params;
+    try {
+      const scope = await loadUserScope(req.user);
+      const userId = Number(req.user?.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.status(401).json({ message: 'Usuário não identificado' });
+      }
+      const conv = await inbox.getConversationByWaId(pool, waId);
+      if (!conv) {
+        return res.status(404).json({ message: 'Conversa não encontrada' });
+      }
+      if (!canAccessEstablishment(scope, conv.establishment_id)) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+      const lastMessageId = Number(req.body?.last_message_id);
+      const row = await inbox.markConversationRead(pool, {
+        userId,
+        conversationId: conv.id,
+        lastMessageId: Number.isFinite(lastMessageId) && lastMessageId > 0 ? lastMessageId : null,
+      });
+      return res.json({ ok: true, read_state: row });
+    } catch (e) {
+      console.error('[whatsappAdmin] mark-read:', e);
+      return res.status(500).json({ message: 'Erro ao marcar conversa como lida' });
     }
   });
 
