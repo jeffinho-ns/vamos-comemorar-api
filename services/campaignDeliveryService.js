@@ -64,6 +64,18 @@ function buildImageCaption(campaign) {
   return (headline || body).slice(0, 1024);
 }
 
+/**
+ * Parâmetros {{1}}/{{2}} do template Meta não podem ter quebra de linha, tab
+ * nem mais de 4 espaços seguidos (erro #132018).
+ */
+function sanitizeTemplateParameterText(value) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/ {5,}/g, '    ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function isWithinSessionWindow(pool, waId) {
   if (!pool || !waId) return false;
   const r = await pool.query(
@@ -128,6 +140,13 @@ function formatCampaignDeliveryError(error) {
   if (code === 132000) {
     return `Template Meta com parâmetros incompatíveis (título/corpo/imagem). Confira se o template tem header IMAGE + body {{1}} e {{2}}. Detalhe: ${detail}`;
   }
+  if (code === 132018) {
+    return (
+      'Texto da campanha inválido para template Meta: remova quebras de linha no título e no corpo ' +
+      '(use um parágrafo contínuo; a formatação visual fica no template). Detalhe: ' +
+      detail
+    );
+  }
   if (code === 131047 || code === 131026) {
     return (
       'A Meta bloqueou o envio: contato fora da janela de 24h ou número inválido. ' +
@@ -150,8 +169,8 @@ function formatCampaignDeliveryError(error) {
 function buildMetaTemplatePayload(campaign) {
   const templateName = resolveTemplateName(campaign);
   const language = resolveTemplateLanguage(campaign);
-  const headline = campaignHeadline(campaign) || ' ';
-  const body = campaignBodyText(campaign) || ' ';
+  const headline = sanitizeTemplateParameterText(campaignHeadline(campaign)) || ' ';
+  const body = sanitizeTemplateParameterText(campaignBodyText(campaign)) || ' ';
   const imageUrl = campaignImageUrl(campaign);
 
   const components = [];
@@ -251,6 +270,7 @@ module.exports = {
   isWithinSessionWindow,
   campaignPreviewText,
   buildMetaTemplatePayload,
+  sanitizeTemplateParameterText,
   defaultTemplateName,
   defaultTemplateLanguage,
 };

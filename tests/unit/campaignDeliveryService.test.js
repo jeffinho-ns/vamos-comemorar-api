@@ -8,6 +8,7 @@ const {
   defaultTemplateName,
   formatCampaignDeliveryError,
   resolveEffectiveDeliveryMode,
+  sanitizeTemplateParameterText,
 } = require('../../services/campaignDeliveryService');
 const { WhatsAppApiError } = require('../../services/whatsappService');
 
@@ -24,6 +25,24 @@ test('buildMetaTemplatePayload monta header image + body vars', () => {
   assert.equal(payload.components.length, 2);
   assert.equal(payload.components[0].type, 'header');
   assert.equal(payload.components[1].parameters.length, 2);
+});
+
+test('buildMetaTemplatePayload remove quebras de linha dos parâmetros Meta', () => {
+  const payload = buildMetaTemplatePayload({
+    headline: 'Título\ncom linha',
+    message_template: 'Linha 1\n\nLinha 2\tcom tab',
+    image_url: 'https://cdn.example.com/banner.jpg',
+  });
+  const params = payload.components[1].parameters;
+  assert.equal(params[0].text, 'Título com linha');
+  assert.equal(params[1].text, 'Linha 1 Linha 2 com tab');
+  assert.doesNotMatch(params[0].text, /[\n\r\t]/);
+  assert.doesNotMatch(params[1].text, /[\n\r\t]/);
+});
+
+test('sanitizeTemplateParameterText limita espaços consecutivos', () => {
+  assert.equal(sanitizeTemplateParameterText('a     b'), 'a b');
+  assert.equal(sanitizeTemplateParameterText('a    b'), 'a b');
 });
 
 test('campaignPreviewText inclui título e imagem', () => {
