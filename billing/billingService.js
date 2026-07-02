@@ -2,6 +2,10 @@
 
 const bcrypt = require('bcryptjs');
 const ManualPaymentProvider = require('./ManualPaymentProvider');
+const {
+  seedOrganizationTrainingMaterials,
+  seedEstablishmentConfig,
+} = require('./onboardingTemplates');
 
 const ACTIVE_SUB_STATUSES = ['active', 'trialing'];
 let hasMonthlyAmountColumnCache = null;
@@ -496,12 +500,15 @@ async function provisionOrganization(pool, input, actorUserId) {
     );
 
     if (establishmentName) {
-      await client.query(
+      const estIns = await client.query(
         `INSERT INTO meu_backup_db.establishments (organization_id, slug, name, status)
-         VALUES ($1, $2, $3, 'active')`,
+         VALUES ($1, $2, $3, 'active') RETURNING id`,
         [org.id, slug, establishmentName],
       );
+      await seedEstablishmentConfig(client, estIns.rows[0].id, slug);
     }
+
+    await seedOrganizationTrainingMaterials(client, org.id, planKey);
 
     let adminUser = null;
     if (adminEmail) {

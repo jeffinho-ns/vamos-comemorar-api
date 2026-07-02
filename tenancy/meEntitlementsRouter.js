@@ -17,6 +17,7 @@
 const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const { resolveEntitlements } = require('./entitlements');
+const { listTrainingMaterialsForUser } = require('../billing/trainingService');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -32,6 +33,16 @@ module.exports = (pool) => {
         success: true,
         data: { allowAll: true, modules: ['*'], permissions: ['*'], organizationId: null },
       });
+    }
+  });
+
+  router.get('/training-materials', authenticateToken, async (req, res) => {
+    try {
+      const items = await listTrainingMaterialsForUser(pool, req.user);
+      return res.json({ success: true, data: items });
+    } catch (err) {
+      console.error('[meTrainingMaterials] erro:', err.message);
+      return res.json({ success: true, data: [] });
     }
   });
 

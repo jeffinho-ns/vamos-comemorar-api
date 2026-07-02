@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveEntitlements } = require('../tenancy/entitlements');
+
 async function listTrainingMaterials(pool, { organizationId, moduleKey, publishedOnly } = {}) {
   const params = [];
   let where = 'WHERE 1=1';
@@ -109,8 +111,60 @@ async function deleteTrainingMaterial(pool, id) {
   if (!rowCount) throw new Error('Material não encontrado.');
 }
 
+/**
+ * Materiais visíveis ao cliente logado (plano + módulos + org).
+ */
+async function listTrainingMaterialsForUser(pool, user) {
+  const entitlements = await resolveEntitlements(pool, user);
+  if (entitlements.billingBlocked) return [];
+
+  const orgId = entitlements.organizationId;
+  if (!orgId && !entitlements.allowAll) return [];
+
+  let planKey = null;
+  let moduleKeys = entitlements.modules || [];
+
+  if (orgId) {
+    try {
+      const planRes = await pool.query(
+        `SELECT p.key AS plan_key
+           FROM meu_backup_db.subscriptions s
+           JOIN meu_backup_db.plans p ON p.id = s.plan_id
+          WHERE s.organization_id = $1
+          ORDER BY s.id DESC LIMIT 1`,
+        [orgId],
+      );
+      planKey = planRes.rows[0]?.plan_key || null;
+    } catch (_) {
+      planKey = null;
+    }
+  }
+
+  if (entitlements.allowAll) {
+    return listTrainingMaterials(pool, { publishedOnly: true });
+  }
+
+  const params = [orgId, moduleKeys.length ? moduleKeys : ['__none__'], planKey];
+  const { rows } = await pool.query(
+    `SELECT tm.id, tm.title, tm.description, tm.content_type, tm.url,
+            tm.module_key, tm.plan_key, tm.sort_order, tm.created_at
+       FROM meu_backup_db.training_materials tm
+      WHERE tm.is_published = TRUE
+        AND (tm.organization_id IS NULL OR tm.organization_id = $1)
+        AND (tm.plan_key IS NULL OR tm.plan_key = $4 OR $4 IS NULL)
+        AND (
+          tm.module_key IS NULL
+          OR tm.module_key = ANY($2::text[])
+        )
+      ORDER BY tm.sort_order ASC, tm.created_at DESC`,
+    params,
+  );
+  return rows;
+}
+
 module.exports = {
   listTrainingMaterials,
+  listTrainingMaterialsForUser,
   createTrainingMaterial,
   updateTrainingMaterial,
   deleteTrainingMaterial,
