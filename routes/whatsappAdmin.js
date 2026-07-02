@@ -7,6 +7,7 @@ const {
   isWhatsAppTransientError,
   sendMessage,
   sendImage,
+  WhatsAppApiError,
 } = require('../services/whatsappService');
 const cloudinaryService = require('../services/cloudinaryService');
 const { enqueueWhatsAppOutbound } = require('../infrastructure/queue/producers');
@@ -21,6 +22,7 @@ const {
   campaignPreviewText,
   defaultTemplateName,
   defaultTemplateLanguage,
+  formatCampaignDeliveryError,
 } = require('../services/campaignDeliveryService');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -259,6 +261,29 @@ module.exports = (pool, app) => {
     return { ok: true };
   }
 
+  function contactEstablishmentForAccess(contact, campaign) {
+    const contactEst = Number(contact?.last_establishment_id);
+    if (Number.isFinite(contactEst) && contactEst > 0) return contactEst;
+    const campaignEst = Number(campaign?.establishment_id);
+    if (Number.isFinite(campaignEst) && campaignEst > 0) return campaignEst;
+    return null;
+  }
+
+  function campaignSendErrorResponse(error) {
+    const message = formatCampaignDeliveryError(error);
+    const isValidation =
+      error instanceof Error &&
+      !error.name?.includes('WhatsApp') &&
+      !error.responseBody &&
+      (message.includes('janela de 24h') ||
+        message.includes('meta_template') ||
+        message.includes('sem texto') ||
+        message.includes('sem wa_id'));
+    const status =
+      isValidation || (error instanceof WhatsAppApiError && !error.isTransient) ? 400 : 502;
+    return { status, message };
+  }
+
   async function persistCampaignOutbound(pool, { waId, contactName, establishmentId, campaign, delivery, intent }) {
     const preview = campaignPreviewText(campaign);
     const imageUrl = String(campaign?.image_url || '').trim();
@@ -273,7 +298,15 @@ module.exports = (pool, app) => {
       body: preview,
       intent: intent || 'CAMPAIGN_SEND',
       suggestedReply: null,
-      rawPayload: delivery || null,
+      rawPayload: delivery
+        ? {
+            mode: delivery.mode,
+            results: (delivery.results || []).map((item) => ({
+              type: item.type,
+              template_name: item.template_name || null,
+            })),
+          }
+        : null,
       messageType: imageUrl ? 'image' : 'text',
       mediaUrl: imageUrl || null,
       mediaMime: imageUrl ? 'image/jpeg' : null,
@@ -1222,7 +1255,8 @@ module.exports = (pool, app) => {
       if (!contact) {
         return res.status(404).json({ message: 'Contato não encontrado' });
       }
-      if (!canAccessEstablishment(scope, contact.last_establishment_id)) {
+      const accessEstablishmentId = contactEstablishmentForAccess(contact, campaign);
+      if (!canAccessEstablishment(scope, accessEstablishmentId)) {
         return res.status(403).json({ message: 'Acesso negado para este contato' });
       }
 
@@ -1278,7 +1312,8 @@ module.exports = (pool, app) => {
       });
     } catch (e) {
       console.error('[whatsappAdmin] campaign send-to-contact:', e);
-      return res.status(500).json({ message: e.message || 'Erro ao enviar campanha para contato' });
+      const { status, message } = campaignSendErrorResponse(e);
+      return res.status(status).json({ message: message || 'Erro ao enviar campanha para contato' });
     }
   });
 

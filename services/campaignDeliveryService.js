@@ -79,6 +79,74 @@ async function isWithinSessionWindow(pool, waId) {
   return r.rows.length > 0;
 }
 
+/**
+ * Define session vs template. Bases importadas / sem conversa recente exigem template Meta.
+ * @returns {Promise<'session'|'template'>}
+ */
+async function resolveEffectiveDeliveryMode(pool, campaign, waId) {
+  const configuredMode = resolveSendMode(campaign);
+  const templateName = resolveTemplateName(campaign);
+  const inWindow = await isWithinSessionWindow(pool, waId);
+
+  if (configuredMode === 'template') {
+    if (!templateName) {
+      throw new Error(
+        'Campanha em modo template, mas meta_template_name não está configurado.'
+      );
+    }
+    return 'template';
+  }
+
+  if (configuredMode === 'session') {
+    if (inWindow) return 'session';
+    if (templateName) return 'template';
+    throw new Error(
+      'Contato fora da janela de 24h (sem mensagem recente do cliente). ' +
+        'Para marketing em massa, use modo Automático ou Template Meta com template aprovado na Meta.'
+    );
+  }
+
+  // auto
+  if (inWindow) return 'session';
+  if (templateName) return 'template';
+  throw new Error(
+    'Contato fora da janela de 24h. Configure um template Meta aprovado ' +
+      `(ex.: ${defaultTemplateName()}) e use send_mode=auto ou template.`
+  );
+}
+
+/** Mensagem amigável a partir de erros da Graph API (Meta). */
+function formatCampaignDeliveryError(error) {
+  const responseBody = error?.responseBody;
+  const metaError = responseBody?.error;
+  const code = Number(metaError?.code);
+  const detail = String(metaError?.message || error?.message || 'Erro ao enviar campanha').trim();
+
+  if (code === 132001) {
+    return `Template Meta não encontrado ou não aprovado. Verifique o nome "${defaultTemplateName()}" no WhatsApp Manager. Detalhe: ${detail}`;
+  }
+  if (code === 132000) {
+    return `Template Meta com parâmetros incompatíveis (título/corpo/imagem). Confira se o template tem header IMAGE + body {{1}} e {{2}}. Detalhe: ${detail}`;
+  }
+  if (code === 131047 || code === 131026) {
+    return (
+      'A Meta bloqueou o envio: contato fora da janela de 24h ou número inválido. ' +
+      'Use modo Template Meta para bases importadas. Detalhe: ' +
+      detail
+    );
+  }
+  if (code === 133010) {
+    return `Número não autorizado no ambiente de testes da Meta. Detalhe: ${detail}`;
+  }
+  if (detail.includes('Falha ao enviar template')) {
+    return `Falha no template Meta: ${detail}`;
+  }
+  if (detail.includes('Falha ao enviar imagem') || detail.includes('Falha ao enviar mensagem')) {
+    return `Falha no envio livre (janela 24h): ${detail}`;
+  }
+  return detail;
+}
+
 function buildMetaTemplatePayload(campaign) {
   const templateName = resolveTemplateName(campaign);
   const language = resolveTemplateLanguage(campaign);
@@ -126,21 +194,7 @@ async function deliverCampaignToContact(pool, campaign, contact) {
     throw new Error('Campanha sem texto nem imagem');
   }
 
-  const configuredMode = resolveSendMode(campaign);
-  let mode = configuredMode;
-
-  if (mode === 'auto') {
-    const inWindow = await isWithinSessionWindow(pool, waId);
-    if (inWindow) {
-      mode = 'session';
-    } else if (resolveTemplateName(campaign)) {
-      mode = 'template';
-    } else {
-      throw new Error(
-        'Contato fora da janela de 24h. Configure um template Meta (send_mode=template ou auto com meta_template_name).'
-      );
-    }
-  }
+  const mode = await resolveEffectiveDeliveryMode(pool, campaign, waId);
 
   const results = [];
 
@@ -174,7 +228,7 @@ async function deliverCampaignToContact(pool, campaign, contact) {
     return { mode: 'template', results };
   }
 
-  throw new Error(`send_mode inválido: ${configuredMode}`);
+  throw new Error(`Modo de envio inválido: ${resolveSendMode(campaign)}`);
 }
 
 /** Texto armazenado no histórico da conversa (preview no inbox). */
@@ -192,6 +246,8 @@ function campaignPreviewText(campaign) {
 module.exports = {
   SESSION_WINDOW_HOURS,
   deliverCampaignToContact,
+  resolveEffectiveDeliveryMode,
+  formatCampaignDeliveryError,
   isWithinSessionWindow,
   campaignPreviewText,
   buildMetaTemplatePayload,

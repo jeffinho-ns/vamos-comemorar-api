@@ -6,7 +6,10 @@ const {
   buildMetaTemplatePayload,
   campaignPreviewText,
   defaultTemplateName,
+  formatCampaignDeliveryError,
+  resolveEffectiveDeliveryMode,
 } = require('../../services/campaignDeliveryService');
+const { WhatsAppApiError } = require('../../services/whatsappService');
 
 test('buildMetaTemplatePayload monta header image + body vars', () => {
   const payload = buildMetaTemplatePayload({
@@ -39,4 +42,34 @@ test('defaultTemplateName tem fallback', () => {
   delete process.env.WHATSAPP_CAMPAIGN_TEMPLATE_NAME;
   assert.equal(defaultTemplateName(), 'agilizai_campanha_marketing');
   if (prev) process.env.WHATSAPP_CAMPAIGN_TEMPLATE_NAME = prev;
+});
+
+test('resolveEffectiveDeliveryMode usa template fora da janela 24h', async () => {
+  const pool = { query: async () => ({ rows: [] }) };
+  const mode = await resolveEffectiveDeliveryMode(
+    pool,
+    { send_mode: 'auto', meta_template_name: 'agilizai_campanha_marketing' },
+    '5511999999999'
+  );
+  assert.equal(mode, 'template');
+});
+
+test('resolveEffectiveDeliveryMode usa session dentro da janela', async () => {
+  const pool = { query: async () => ({ rows: [{ ok: 1 }] }) };
+  const mode = await resolveEffectiveDeliveryMode(
+    pool,
+    { send_mode: 'auto', meta_template_name: 'agilizai_campanha_marketing' },
+    '5511999999999'
+  );
+  assert.equal(mode, 'session');
+});
+
+test('formatCampaignDeliveryError traduz template inexistente', () => {
+  const err = new WhatsAppApiError('Falha ao enviar template no WhatsApp: 404 {}', {
+    status: 404,
+    responseBody: { error: { code: 132001, message: 'Template name does not exist' } },
+    isTransient: false,
+  });
+  const msg = formatCampaignDeliveryError(err);
+  assert.match(msg, /Template Meta não encontrado/);
 });
