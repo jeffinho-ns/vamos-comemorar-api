@@ -26,6 +26,27 @@ async function resolveEntitlements(pool, user) {
   const orgId = scope.organizationIds[0] || null;
   if (!orgId) return { allowAll: false, modules: [], permissions: [], organizationId: null };
 
+  try {
+    const subRes = await pool.query(
+      `SELECT status FROM meu_backup_db.subscriptions
+        WHERE organization_id = $1 ORDER BY id DESC LIMIT 1`,
+      [orgId],
+    );
+    const subStatus = subRes.rows[0]?.status;
+    if (subStatus === 'past_due' || subStatus === 'canceled') {
+      return {
+        allowAll: false,
+        modules: [],
+        permissions: [],
+        organizationId: orgId,
+        billingBlocked: true,
+        subscriptionStatus: subStatus,
+      };
+    }
+  } catch (_) {
+    /* fail-open em erro de billing */
+  }
+
   // Módulos habilitados da organização (override > plano)
   let modules = [];
   try {

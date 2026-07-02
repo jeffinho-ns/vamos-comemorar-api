@@ -240,6 +240,7 @@ app.use('/api/bars', barsRoutes(pool));
 app.use('/api/restaurant-reservations', restaurantReservationsRoutes(pool));
 // Entitlements do usuário logado (SaaS multi-tenant; read-only, fail-open). Inerte com SAAS_MODE off.
 app.use('/api/me', require('./tenancy/meEntitlementsRouter')(pool));
+app.use('/api/superadmin', require('./routes/superadmin')(pool));
 // Rotas de bloqueio de agenda de reservas de restaurante
 app.use('/api/restaurant-reservation-blocks', restaurantReservationBlocksRoutes(pool));
 // Configurações de funcionamento de reservas (semanal + exceções por data)
