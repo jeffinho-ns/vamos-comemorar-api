@@ -9,7 +9,9 @@ async function upsertConversation(pool, { waId, contactName, establishmentId = n
      VALUES ($1, $2, $3, NOW())
      ON CONFLICT (wa_id) DO UPDATE SET
        contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_conversations.contact_name),
-       establishment_id = COALESCE(EXCLUDED.establishment_id, whatsapp_conversations.establishment_id),
+       -- Preserva a casa já vinculada (ex.: Highline). Campanhas/outbound não devem
+       -- reatribuir conversas existentes para outro estabelecimento.
+       establishment_id = COALESCE(whatsapp_conversations.establishment_id, EXCLUDED.establishment_id),
        updated_at = NOW()
      RETURNING id, wa_id, contact_name, establishment_id, status, assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
     [waId, name, establishmentId]
@@ -407,6 +409,8 @@ async function listConversations(pool, options = {}) {
         .map((v) => Number(v))
         .filter((v) => Number.isFinite(v) && v > 0)
     : null;
+  const establishmentId = Number(options.establishmentId);
+  const unassignedOnly = options.unassignedOnly === true;
   const status = typeof options.status === 'string' ? options.status.trim() : '';
   const assignee = options.assignedUserId !== undefined ? Number(options.assignedUserId) : null;
 
@@ -417,6 +421,13 @@ async function listConversations(pool, options = {}) {
   if (allowedEstablishmentIds && allowedEstablishmentIds.length > 0) {
     filters.push(`c.establishment_id = ANY($${idx++}::int[])`);
     params.push(allowedEstablishmentIds);
+  }
+
+  if (unassignedOnly) {
+    filters.push('c.establishment_id IS NULL');
+  } else if (Number.isFinite(establishmentId) && establishmentId > 0) {
+    filters.push(`c.establishment_id = $${idx++}`);
+    params.push(establishmentId);
   }
 
   if (status) {
@@ -463,6 +474,49 @@ async function listConversations(pool, options = {}) {
     params
   );
   return r.rows;
+}
+
+/** Contagem por estabelecimento para abas do inbox (independe do LIMIT da listagem). */
+async function countConversationsByEstablishment(pool, options = {}) {
+  const allowedEstablishmentIds = Array.isArray(options.allowedEstablishmentIds)
+    ? options.allowedEstablishmentIds
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    : null;
+
+  const filters = [];
+  const params = [];
+  let idx = 1;
+
+  if (allowedEstablishmentIds && allowedEstablishmentIds.length > 0) {
+    filters.push(`c.establishment_id = ANY($${idx++}::int[])`);
+    params.push(allowedEstablishmentIds);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+  const r = await pool.query(
+    `SELECT c.establishment_id, COUNT(*)::int AS total
+       FROM whatsapp_conversations c
+       ${whereClause}
+      GROUP BY c.establishment_id`,
+    params
+  );
+
+  const byEstablishment = {};
+  let unassigned = 0;
+  let total = 0;
+  for (const row of r.rows) {
+    const count = Number(row.total) || 0;
+    total += count;
+    if (row.establishment_id == null) {
+      unassigned += count;
+    } else {
+      byEstablishment[String(row.establishment_id)] = count;
+    }
+  }
+
+  return { total, unassigned, byEstablishment };
 }
 
 async function listMessages(pool, conversationId, limit = 500) {
@@ -1075,6 +1129,7 @@ module.exports = {
   upsertContact,
   getRecentMessagesForContext,
   listConversations,
+  countConversationsByEstablishment,
   listMessages,
   listContacts,
   getContactById,

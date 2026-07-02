@@ -287,10 +287,12 @@ module.exports = (pool, app) => {
   async function persistCampaignOutbound(pool, { waId, contactName, establishmentId, campaign, delivery, intent }) {
     const preview = campaignPreviewText(campaign);
     const imageUrl = String(campaign?.image_url || '').trim();
+    // Não reatribui establishment_id da conversa — campanha é outbound de marketing;
+    // a casa do thread continua a definida pelo atendimento/IA (setConversationEstablishment).
     const conv = await inbox.upsertConversation(pool, {
       waId,
       contactName,
-      establishmentId,
+      establishmentId: null,
     });
     const saved = await inbox.insertMessage(pool, {
       conversationId: conv.id,
@@ -370,13 +372,53 @@ module.exports = (pool, app) => {
         assignedUserIdRaw !== undefined && assignedUserIdRaw !== ''
           ? Number(assignedUserIdRaw)
           : undefined;
-      const rows = await inbox.listConversations(pool, {
-        limit: 150,
+      const establishmentIdRaw = req.query?.establishment_id;
+      const establishmentId =
+        establishmentIdRaw === 'unassigned'
+          ? null
+          : establishmentIdRaw !== undefined && establishmentIdRaw !== ''
+            ? Number(establishmentIdRaw)
+            : undefined;
+      const unassignedOnly = establishmentIdRaw === 'unassigned';
+      const listLimit = clampInt(
+        req.query?.limit ?? process.env.WHATSAPP_INBOX_LIST_LIMIT,
+        50,
+        1000,
+        500
+      );
+
+      const listOptions = {
+        limit: listLimit,
         status,
         assignedUserId: Number.isFinite(assignedUserId) ? assignedUserId : undefined,
         allowedEstablishmentIds: scope.isAdmin ? null : scope.allowedEstablishmentIds,
+        unassignedOnly,
+      };
+      if (Number.isFinite(establishmentId) && establishmentId > 0) {
+        if (!canAccessEstablishment(scope, establishmentId)) {
+          return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+        }
+        listOptions.establishmentId = establishmentId;
+      }
+
+      const [rows, counts] = await Promise.all([
+        inbox.listConversations(pool, listOptions),
+        inbox.countConversationsByEstablishment(pool, {
+          allowedEstablishmentIds: scope.isAdmin ? null : scope.allowedEstablishmentIds,
+        }),
+      ]);
+
+      return res.json({
+        conversations: rows,
+        meta: {
+          limit: listLimit,
+          returned: rows.length,
+          total: counts.total,
+          unassigned: counts.unassigned,
+          by_establishment: counts.byEstablishment,
+          truncated: rows.length >= listLimit,
+        },
       });
-      return res.json({ conversations: rows });
     } catch (e) {
       console.error('[whatsappAdmin] list conversations:', e);
       return res.status(500).json({ message: 'Erro ao listar conversas' });
