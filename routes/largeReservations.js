@@ -973,45 +973,32 @@ module.exports = (pool) => {
     try {
       const today = new Date().toISOString().split('T')[0];
 
-      // Total de reservas grandes
+      const scTotal = establishmentScopeClause(req, 'establishment_id', 1);
+      const scToday = establishmentScopeClause(req, 'establishment_id', 2);
+
       const totalReservationsResult = await pool.query(
-        'SELECT COUNT(*) as count FROM large_reservations'
+        `SELECT COUNT(*) as count FROM large_reservations WHERE 1=1${scTotal.sql}`,
+        [...scTotal.params]
       );
 
-      // Reservas grandes de hoje
       const todayReservationsResult = await pool.query(
-        'SELECT COUNT(*) as count FROM large_reservations WHERE reservation_date = $1',
-        [today]
+        `SELECT COUNT(*) as count FROM large_reservations WHERE reservation_date = $1${scToday.sql}`,
+        [today, ...scToday.params]
       );
 
-      // Taxa de ocupação (simplificada)
       let rate = 0;
       try {
-        // Buscar total de reservas de hoje
-        const totalResult = await pool.query(
-          'SELECT COUNT(*) as total FROM large_reservations WHERE reservation_date = $1',
-          [today]
+        const occupancyRateResult = await pool.query(
+          `SELECT
+            (COUNT(CASE WHEN status::TEXT IN ('CONFIRMADA', 'CHECKED_IN') THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)) as rate
+           FROM large_reservations
+           WHERE reservation_date = $1${scToday.sql}`,
+          [today, ...scToday.params]
         );
-        
-        // Buscar reservas confirmadas/checked-in de hoje
-        const confirmedResult = await pool.query(
-          `SELECT COUNT(*) as confirmed 
-           FROM large_reservations 
-           WHERE reservation_date = $1 
-           AND status::TEXT IN ('CONFIRMADA', 'CHECKED_IN')`,
-          [today]
-        );
-        
-        const total = parseInt(totalResult.rows[0]?.total) || 0;
-        const confirmed = parseInt(confirmedResult.rows[0]?.confirmed) || 0;
-        
-        if (total > 0 && confirmed >= 0) {
-          rate = Math.round((confirmed / total) * 100);
-        }
+        rate = Math.round(parseFloat(occupancyRateResult.rows[0]?.rate) || 0);
       } catch (rateError) {
         console.error('❌ Erro ao calcular taxa de ocupação:', rateError);
-        console.error('❌ Stack:', rateError.stack);
-        rate = 0; // Se houver erro, retorna 0
+        rate = 0;
       }
 
       res.json({

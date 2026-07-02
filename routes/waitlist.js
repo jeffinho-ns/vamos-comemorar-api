@@ -597,6 +597,13 @@ module.exports = (pool) => {
         countQuery += ` AND preferred_time = $${countIndex++}`;
         countParams.push(preferred_time);
       }
+      {
+        const scope = establishmentScopeClause(req, 'establishment_id', countIndex);
+        if (scope.sql) {
+          countQuery += scope.sql;
+          countParams.push(...scope.params);
+        }
+      }
       const waitingCountResult = await pool.query(countQuery, countParams);
       
       res.json({

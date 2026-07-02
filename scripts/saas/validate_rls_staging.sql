@@ -20,11 +20,16 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'meu_backup_db' AND c.relname = 'restaurant_reservations';
 
 \echo '=== Teste como saas_rls_test (org inexistente => 0 linhas) ==='
-SET ROLE saas_rls_test;
+BEGIN;
+SET LOCAL ROLE saas_rls_test;
 SELECT set_config('app.current_org', '99999', true);
 SELECT count(*) AS rows_org_inexistente FROM restaurant_reservations;
+COMMIT;
 
 \echo '=== Teste como saas_rls_test (org piloto => linhas) ==='
+BEGIN;
+SET LOCAL ROLE saas_rls_test;
 SELECT set_config('app.current_org', '1', true);
 SELECT count(*) AS rows_org_piloto FROM restaurant_reservations;
+COMMIT;
 RESET ROLE;

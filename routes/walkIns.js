@@ -342,8 +342,13 @@ module.exports = (pool) => {
    */
   router.get('/stats/active', async (req, res) => {
     try {
+      const scope = establishmentScopeClause(req, 'ra.establishment_id', 1);
       const activeWalkInsResult = await pool.query(
-        "SELECT COUNT(*) as count FROM walk_ins WHERE status = 'ATIVO'"
+        `SELECT COUNT(*) as count
+         FROM walk_ins wi
+         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
+         WHERE wi.status = 'ATIVO'${scope.sql}`,
+        [...scope.params]
       );
       
       res.json({
