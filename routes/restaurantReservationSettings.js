@@ -1,9 +1,14 @@
 const express = require('express');
 const authenticateToken = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const { canReadEstablishment, denyIfCannotReadEstablishment } = require('../tenancy/queryScope');
 const { buildDefaultWeekly } = require('../services/operationalHours/defaultWeeklySchedule');
 
 module.exports = (pool) => {
   const router = express.Router();
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
 
   const toLabel = (start, end) => `${start}–${end}`;
 
@@ -61,6 +66,10 @@ module.exports = (pool) => {
       const establishmentId = Number(req.query.establishment_id);
       if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
         return res.status(400).json({ success: false, error: 'establishment_id é obrigatório' });
+      }
+
+      if (!canReadEstablishment(req, establishmentId)) {
+        return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado' });
       }
 
       const placeResult = await pool.query('SELECT name FROM places WHERE id = $1 LIMIT 1', [establishmentId]);
@@ -147,6 +156,9 @@ module.exports = (pool) => {
       if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
         return res.status(400).json({ success: false, error: 'establishment_id inválido' });
       }
+      if (!denyIfCannotReadEstablishment(req, res, establishmentId, 'Estabelecimento não encontrado')) {
+        return;
+      }
 
       await pool.query('BEGIN');
       for (const row of weekly) {
@@ -197,6 +209,9 @@ module.exports = (pool) => {
       if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !overrideDate) {
         return res.status(400).json({ success: false, error: 'establishment_id e override_date são obrigatórios' });
       }
+      if (!denyIfCannotReadEstablishment(req, res, establishmentId, 'Estabelecimento não encontrado')) {
+        return;
+      }
 
       const result = await pool.query(
         `INSERT INTO restaurant_reservation_date_overrides
@@ -229,6 +244,9 @@ module.exports = (pool) => {
       const establishmentId = Number(req.body?.establishment_id);
       if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
         return res.status(400).json({ success: false, error: 'establishment_id inválido' });
+      }
+      if (!denyIfCannotReadEstablishment(req, res, establishmentId, 'Estabelecimento não encontrado')) {
+        return;
       }
       const allow_capacity_override = !!req.body?.allow_capacity_override;
       const allow_outside_hours = !!req.body?.allow_outside_hours;
@@ -269,6 +287,16 @@ module.exports = (pool) => {
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         return res.status(400).json({ success: false, error: 'id inválido' });
+      }
+      const existing = await pool.query(
+        'SELECT establishment_id FROM restaurant_reservation_date_overrides WHERE id = $1 LIMIT 1',
+        [id],
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Exceção não encontrada' });
+      }
+      if (!denyIfCannotReadEstablishment(req, res, existing.rows[0].establishment_id, 'Exceção não encontrada')) {
+        return;
       }
       await pool.query('DELETE FROM restaurant_reservation_date_overrides WHERE id = $1', [id]);
       return res.json({ success: true });

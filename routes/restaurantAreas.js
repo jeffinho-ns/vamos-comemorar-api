@@ -2,8 +2,57 @@
 
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const { isSaasEnforced } = require('../tenancy/featureFlags');
+
+function areasFilterForEstablishmentId(establishmentId) {
+  if (establishmentId === 9) {
+    return `ra.name ILIKE 'Reserva Rooftop - %'`;
+  }
+  return `ra.name NOT ILIKE 'Reserva Rooftop - %'`;
+}
+
+function areasScopeSql(req, establishmentIdFromQuery) {
+  const tenant = req && req.tenant;
+  if (!isSaasEnforced() || !tenant || tenant.isAdmin) {
+    if (establishmentIdFromQuery != null && !Number.isNaN(establishmentIdFromQuery)) {
+      return areasFilterForEstablishmentId(establishmentIdFromQuery);
+    }
+    return null;
+  }
+
+  const ids = Array.isArray(tenant.establishmentIds)
+    ? [...new Set(tenant.establishmentIds.map(Number).filter((n) => Number.isFinite(n) && n > 0))]
+    : [];
+  if (ids.length === 0) return '1=0';
+
+  if (establishmentIdFromQuery != null && !Number.isNaN(establishmentIdFromQuery)) {
+    return areasFilterForEstablishmentId(establishmentIdFromQuery);
+  }
+
+  if (ids.length === 1) {
+    return areasFilterForEstablishmentId(ids[0]);
+  }
+
+  const parts = ids.map((id) => `(${areasFilterForEstablishmentId(id)})`);
+  return `(${parts.join(' OR ')})`;
+}
+
+function areaAllowedForScope(req, areaName) {
+  const tenant = req && req.tenant;
+  if (!isSaasEnforced() || !tenant || tenant.isAdmin) return true;
+  const ids = Array.isArray(tenant.establishmentIds)
+    ? tenant.establishmentIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  if (ids.length === 0) return false;
+  const isRooftop = String(areaName || '').startsWith('Reserva Rooftop -');
+  return ids.some((id) => (id === 9 ? isRooftop : !isRooftop));
+}
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
   /**
    * @route   GET /api/restaurant-areas
    * @desc    Lista todas as áreas do restaurante
@@ -28,12 +77,9 @@ module.exports = (pool) => {
       // - Demais estabelecimentos: excluir áreas "Reserva Rooftop - ..."
       const whereParts = [`ra.is_active = TRUE`];
       const params = [];
-      if (establishmentId != null && !Number.isNaN(establishmentId)) {
-        if (establishmentId === 9) {
-          whereParts.push(`ra.name ILIKE 'Reserva Rooftop - %'`);
-        } else {
-          whereParts.push(`ra.name NOT ILIKE 'Reserva Rooftop - %'`);
-        }
+      const scopeFilter = areasScopeSql(req, establishmentId);
+      if (scopeFilter) {
+        whereParts.push(scopeFilter);
       }
 
       const query = `
@@ -92,6 +138,13 @@ module.exports = (pool) => {
       const areasResult = await pool.query(query, [id]);
       
       if (areasResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Área não encontrada'
+        });
+      }
+
+      if (!areaAllowedForScope(req, areasResult.rows[0].name)) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'

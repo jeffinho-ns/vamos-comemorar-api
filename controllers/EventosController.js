@@ -1,5 +1,7 @@
 // controllers/EventosController.js
 
+const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
+
 /**
  * Controller para gerenciamento de Eventos e Listas
  * VERSÃO 2: Integrado com tabela 'eventos' existente
@@ -155,13 +157,35 @@ class EventosController {
   async getDashboard(req, res) {
     try {
       const { establishment_id } = req.query;
+
+      if (establishment_id && !canReadEstablishment(req, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado' });
+      }
+
+      const buildPlaceFilter = (paramIndex) => {
+        if (establishment_id) {
+          return {
+            sql: `AND e.id_place = $${paramIndex}`,
+            params: [establishment_id],
+            nextIndex: paramIndex + 1,
+          };
+        }
+        const scope = establishmentScopeClause(req, 'e.id_place', paramIndex);
+        return {
+          sql: scope.sql,
+          params: scope.params,
+          nextIndex: scope.nextIndex,
+        };
+      };
       
       console.log('📊 Dashboard request - establishment_id:', establishment_id);
       console.log('📊 Buscando TODOS os eventos (únicos e semanais) para o estabelecimento:', establishment_id || 'TODOS');
       
       // Query para buscar o próximo evento único
-      const proximoEventoParams = [];
       let proximoEventoParamIndex = 1;
+      const proximoPlaceFilter = buildPlaceFilter(proximoEventoParamIndex);
+      proximoEventoParamIndex = proximoPlaceFilter.nextIndex;
+      const proximoEventoParams = [...proximoPlaceFilter.params];
       const proximoEventoQuery = `
         SELECT 
           e.id as evento_id,
@@ -179,11 +203,10 @@ class EventosController {
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
         AND (e.data_do_evento >= CURRENT_DATE OR e.data_do_evento IS NULL)
-        ${establishment_id ? `AND e.id_place = $${proximoEventoParamIndex++}` : ''}
+        ${proximoPlaceFilter.sql}
         ORDER BY e.data_do_evento ASC NULLS LAST
         LIMIT 1
       `;
-      if (establishment_id) proximoEventoParams.push(establishment_id);
       const proximoEventoUnicoResult = await this.pool.query(proximoEventoQuery, proximoEventoParams);
       const proximoEventoUnico = proximoEventoUnicoResult.rows;
 
@@ -191,6 +214,9 @@ class EventosController {
       // IMPORTANTE: Sem LIMIT para retornar TODOS os eventos únicos futuros
       const todosEventosParams = [];
       let todosEventosParamIndex = 1;
+      const todosPlaceFilter = buildPlaceFilter(todosEventosParamIndex);
+      todosEventosParamIndex = todosPlaceFilter.nextIndex;
+      todosEventosParams.push(...todosPlaceFilter.params);
       const todosEventosQuery = `
         SELECT 
           e.id as evento_id,
@@ -207,11 +233,10 @@ class EventosController {
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'unico' 
         AND (e.data_do_evento >= CURRENT_DATE OR e.data_do_evento IS NULL)
-        ${establishment_id ? `AND e.id_place = $${todosEventosParamIndex++}` : ''}
+        ${todosPlaceFilter.sql}
         ORDER BY e.data_do_evento ASC NULLS LAST
         -- SEM LIMIT - retorna TODOS os eventos únicos futuros
       `;
-      if (establishment_id) todosEventosParams.push(establishment_id);
       
       console.log('🔍 [getDashboard] Query para todos eventos únicos:', todosEventosQuery);
       console.log('🔍 [getDashboard] Parâmetros:', todosEventosParams);
@@ -224,6 +249,9 @@ class EventosController {
       // Query para eventos semanais ativos (TODOS os eventos semanais)
       const eventosSemanaisParams = [];
       let eventosSemanaisParamIndex = 1;
+      const semanaisPlaceFilter = buildPlaceFilter(eventosSemanaisParamIndex);
+      eventosSemanaisParamIndex = semanaisPlaceFilter.nextIndex;
+      eventosSemanaisParams.push(...semanaisPlaceFilter.params);
       const eventosSemanaisQuery = `
         SELECT 
           e.id as evento_id,
@@ -237,16 +265,18 @@ class EventosController {
         LEFT JOIN places p ON e.id_place = p.id
         LEFT JOIN bars b ON e.id_place = b.id
         WHERE e.tipo_evento = 'semanal'
-        ${establishment_id ? `AND e.id_place = $${eventosSemanaisParamIndex++}` : ''}
+        ${semanaisPlaceFilter.sql}
         ORDER BY e.dia_da_semana ASC
       `;
-      if (establishment_id) eventosSemanaisParams.push(establishment_id);
       const eventosSemanaisResult = await this.pool.query(eventosSemanaisQuery, eventosSemanaisParams);
       const eventosSemanais = eventosSemanaisResult.rows;
 
       // Query para total de convidados (eventos únicos futuros + semanais)
       const totalConvidadosParams = [];
       let totalConvidadosParamIndex = 1;
+      const convidadosPlaceFilter = buildPlaceFilter(totalConvidadosParamIndex);
+      totalConvidadosParamIndex = convidadosPlaceFilter.nextIndex;
+      totalConvidadosParams.push(...convidadosPlaceFilter.params);
       const totalConvidadosQuery = `
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total
         FROM listas_convidados lc
@@ -256,15 +286,17 @@ class EventosController {
           (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? `AND e.id_place = $${totalConvidadosParamIndex++}` : ''}
+        ${convidadosPlaceFilter.sql}
       `;
-      if (establishment_id) totalConvidadosParams.push(establishment_id);
       const totalConvidadosResult = await this.pool.query(totalConvidadosQuery, totalConvidadosParams);
       const totalConvidados = totalConvidadosResult.rows;
 
       // Query para total de check-ins
       const totalCheckinsParams = [];
       let totalCheckinsParamIndex = 1;
+      const checkinsPlaceFilter = buildPlaceFilter(totalCheckinsParamIndex);
+      totalCheckinsParamIndex = checkinsPlaceFilter.nextIndex;
+      totalCheckinsParams.push(...checkinsPlaceFilter.params);
       const totalCheckinsQuery = `
         SELECT COUNT(DISTINCT lc.lista_convidado_id) as total
         FROM listas_convidados lc
@@ -275,9 +307,8 @@ class EventosController {
           (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? `AND e.id_place = $${totalCheckinsParamIndex++}` : ''}
+        ${checkinsPlaceFilter.sql}
       `;
-      if (establishment_id) totalCheckinsParams.push(establishment_id);
       const totalCheckinsResult = await this.pool.query(totalCheckinsQuery, totalCheckinsParams);
       const totalCheckins = totalCheckinsResult.rows;
 
@@ -292,6 +323,9 @@ class EventosController {
       // Query para estatísticas por tipo de lista
       const estatisticasParams = [];
       let estatisticasParamIndex = 1;
+      const statsPlaceFilter = buildPlaceFilter(estatisticasParamIndex);
+      estatisticasParamIndex = statsPlaceFilter.nextIndex;
+      estatisticasParams.push(...statsPlaceFilter.params);
       const estatisticasQuery = `
         SELECT 
           l.tipo,
@@ -304,10 +338,9 @@ class EventosController {
           (e.tipo_evento = 'unico' AND e.data_do_evento >= CURRENT_DATE)
           OR e.tipo_evento = 'semanal'
         )
-        ${establishment_id ? `AND e.id_place = $${estatisticasParamIndex++}` : ''}
+        ${statsPlaceFilter.sql}
         GROUP BY l.tipo
       `;
-      if (establishment_id) estatisticasParams.push(establishment_id);
       const estatisticasPorTipoResult = await this.pool.query(estatisticasQuery, estatisticasParams);
       const estatisticasPorTipo = estatisticasPorTipoResult.rows;
 

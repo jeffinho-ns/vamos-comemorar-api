@@ -2,34 +2,51 @@
 
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
-const authorize = require('../middleware/authorize');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const {
+  establishmentScopeClause,
+  canReadEstablishment,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
-module.exports = (pool, checkAndAwardGifts = null) => {
-  // Middleware de autenticação opcional - permite acesso com ou sem token
-  const optionalAuth = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (token) {
-      // Se há token, valida normalmente
-      console.log(`🔐 Acesso autenticado para ${req.method} ${req.path}`);
-      auth(req, res, next);
-    } else {
-      // Se não há token, continua sem autenticação (para desenvolvimento/admin)
-      console.log(`⚠️ Acesso sem autenticação para ${req.method} ${req.path} - IP: ${req.ip}`);
-      req.user = { role: 'Admin', id: 1 }; // Usuário admin padrão
-      next();
-    }
-  };
+async function resolveGuestListEstablishmentId(pool, listId) {
+  const result = await pool.query(
+    `SELECT COALESCE(lr.establishment_id, rr.establishment_id) AS establishment_id
+     FROM guest_lists gl
+     LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+     LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+     WHERE gl.id = $1
+     LIMIT 1`,
+    [listId],
+  );
+  return result.rows[0]?.establishment_id ?? null;
+}
 
+async function resolveGuestEstablishmentId(pool, guestId) {
+  const result = await pool.query(
+    `SELECT COALESCE(lr.establishment_id, rr.establishment_id) AS establishment_id
+     FROM guests g
+     JOIN guest_lists gl ON g.guest_list_id = gl.id
+     LEFT JOIN large_reservations lr ON gl.reservation_id = lr.id AND gl.reservation_type = 'large'
+     LEFT JOIN restaurant_reservations rr ON gl.reservation_id = rr.id AND gl.reservation_type = 'restaurant'
+     WHERE g.id = $1
+     LIMIT 1`,
+    [guestId],
+  );
+  return result.rows[0]?.establishment_id ?? null;
+}
+
+module.exports = (pool, checkAndAwardGifts = null) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
   /**
    * @route   GET /api/admin/guest-lists
    * @desc    Lista todas as reservas GRANDES futuras com listas de convidados
    * @access  Private (Administrador, Gerente)
    */
-  router.get('/guest-lists', optionalAuth, async (req, res) => {
+  router.get('/guest-lists', async (req, res) => {
     try {
       const { date, month, establishment_id, show_all } = req.query;
       let whereClauses = [];
@@ -65,6 +82,19 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         whereClauses.push(`COALESCE(lr.establishment_id, rr.establishment_id) = $${paramIndex++}`);
         params.push(establishment_id);
         console.log('🏢 Filtrando por estabelecimento:', establishment_id);
+      }
+
+      {
+        const scope = establishmentScopeClause(
+          req,
+          'COALESCE(lr.establishment_id, rr.establishment_id)',
+          paramIndex,
+        );
+        if (scope.sql) {
+          whereClauses.push(scope.sql.trim().replace(/^AND\s+/i, ''));
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
       }
       
       // Query atualizada para incluir AMBOS os tipos de reserva (large e restaurant) com campos de check-in
@@ -161,6 +191,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
 
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, list_id);
+      if (!denyIfCannotReadEstablishment(req, res, listEstablishmentId, 'Lista não encontrada')) {
+        return;
+      }
+
       const result = await pool.query(
         'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3) RETURNING id',
         [list_id, name.trim(), whatsapp || null]
@@ -178,13 +213,18 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Lista convidados de uma lista
    * @access  Private (Administrador, Gerente)
    */
-  router.get('/guest-lists/:list_id/guests', optionalAuth, async (req, res) => {
+  router.get('/guest-lists/:list_id/guests', async (req, res) => {
     try {
       const { list_id } = req.params;
       
       // Verificar se a lista existe
       const listsResult = await pool.query('SELECT id FROM guest_lists WHERE id = $1 LIMIT 1', [list_id]);
       if (listsResult.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Lista não encontrada' });
+      }
+
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, list_id);
+      if (!canReadEstablishment(req, listEstablishmentId)) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
 
@@ -268,6 +308,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return res.status(404).json({ success: false, error: 'Convidado não encontrado' });
       }
 
+      const guestEstablishmentId = await resolveGuestEstablishmentId(pool, guest_id);
+      if (!denyIfCannotReadEstablishment(req, res, guestEstablishmentId, 'Convidado não encontrado')) {
+        return;
+      }
+
       const fields = [];
       const params = [];
       let paramIndex = 1;
@@ -300,6 +345,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return res.status(404).json({ success: false, error: 'Convidado não encontrado' });
       }
 
+      const guestEstablishmentId = await resolveGuestEstablishmentId(pool, guest_id);
+      if (!denyIfCannotReadEstablishment(req, res, guestEstablishmentId, 'Convidado não encontrado')) {
+        return;
+      }
+
       await pool.query('DELETE FROM guests WHERE id = $1', [guest_id]);
       res.json({ success: true });
     } catch (error) {
@@ -313,7 +363,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Cria uma nova lista de convidados manualmente (admin)
    * @access  Private (Administrador, Gerente)
    */
-  router.post('/guest-lists/create', optionalAuth, async (req, res) => {
+  router.post('/guest-lists/create', async (req, res) => {
     try {
       const { client_name, reservation_date, event_type, establishment_id } = req.body;
       
@@ -339,6 +389,10 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           error: 'Estabelecimento é obrigatório. Por favor, selecione um estabelecimento.',
           received: { client_name, reservation_date, establishment_id }
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, establishment_id, 'Estabelecimento não encontrado')) {
+        return;
       }
 
       const crypto = require('crypto');
@@ -425,7 +479,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Faz check-in de um convidado específico
    * @access  Private (Admin)
    */
-  router.post('/guests/:id/checkin', optionalAuth, async (req, res) => {
+  router.post('/guests/:id/checkin', async (req, res) => {
     try {
       const { id } = req.params;
       const { entrada_tipo, entrada_valor } = req.body;
@@ -444,6 +498,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       const guest = guestResult.rows[0];
+
+      const guestEstablishmentId = await resolveGuestEstablishmentId(pool, id);
+      if (!denyIfCannotReadEstablishment(req, res, guestEstablishmentId, 'Convidado não encontrado')) {
+        return;
+      }
 
       // Verificar se já fez check-in
       if (guest.checked_in) {
@@ -546,7 +605,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Faz check-out de um convidado específico (registra a saída)
    * @access  Private (Admin)
    */
-  router.post('/guests/:id/checkout', optionalAuth, async (req, res) => {
+  router.post('/guests/:id/checkout', async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -564,6 +623,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       const guest = guestResult.rows[0];
+
+      const guestEstablishmentId = await resolveGuestEstablishmentId(pool, id);
+      if (!denyIfCannotReadEstablishment(req, res, guestEstablishmentId, 'Convidado não encontrado')) {
+        return;
+      }
 
       // Verificar se fez check-in antes de fazer check-out
       if (!guest.checked_in) {
@@ -718,7 +782,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Exclui lista(s) de convidados pelo nome do dono
    * @access  Private (Administrador)
    */
-  router.delete('/guest-lists/by-owner/:ownerName', optionalAuth, async (req, res) => {
+  router.delete('/guest-lists/by-owner/:ownerName', async (req, res) => {
     try {
       const { ownerName } = req.params;
       const decodedOwnerName = decodeURIComponent(ownerName);
@@ -785,7 +849,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Exclui uma lista de convidados (apenas para usuários autorizados)
    * @access  Private (Administrador específico)
    */
-  router.delete('/guest-lists/:id', optionalAuth, async (req, res) => {
+  router.delete('/guest-lists/:id', async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -803,6 +867,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       }
 
       const guestList = guestListResult.rows[0];
+
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, id);
+      if (!denyIfCannotReadEstablishment(req, res, listEstablishmentId, 'Lista de convidados não encontrada')) {
+        return;
+      }
 
       // Excluir todos os convidados da lista (cascade)
       await pool.query('DELETE FROM guests WHERE guest_list_id = $1', [id]);
@@ -830,7 +899,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Busca o status de check-in de uma lista de convidados
    * @access  Private (Admin)
    */
-  router.get('/guest-lists/:id/checkin-status', optionalAuth, async (req, res) => {
+  router.get('/guest-lists/:id/checkin-status', async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -844,6 +913,14 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       );
 
       if (guestListResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Lista de convidados não encontrada'
+        });
+      }
+
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, id);
+      if (!canReadEstablishment(req, listEstablishmentId)) {
         return res.status(404).json({
           success: false,
           error: 'Lista de convidados não encontrada'
@@ -894,7 +971,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Faz check-in do dono da reserva
    * @access  Private (Admin)
    */
-  router.post('/guest-lists/:id/owner-checkin', optionalAuth, async (req, res) => {
+  router.post('/guest-lists/:id/owner-checkin', async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -916,6 +993,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           success: false,
           error: 'Lista de convidados não encontrada'
         });
+      }
+
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, id);
+      if (!denyIfCannotReadEstablishment(req, res, listEstablishmentId, 'Lista de convidados não encontrada')) {
+        return;
       }
 
       // Verificar se já fez check-in
@@ -974,7 +1056,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @desc    Faz check-out do dono da reserva (registra a saída)
    * @access  Private (Admin)
    */
-  router.post('/guest-lists/:id/owner-checkout', optionalAuth, async (req, res) => {
+  router.post('/guest-lists/:id/owner-checkout', async (req, res) => {
     try {
       const { id } = req.params;
 
@@ -996,6 +1078,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
           success: false,
           error: 'Lista de convidados não encontrada'
         });
+      }
+
+      const listEstablishmentId = await resolveGuestListEstablishmentId(pool, id);
+      if (!denyIfCannotReadEstablishment(req, res, listEstablishmentId, 'Lista de convidados não encontrada')) {
+        return;
       }
 
       // Verificar se fez check-in antes de fazer check-out
@@ -1147,7 +1234,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
    * @access  Private (Admin)
    * @query   evento_id, guest_list_id, establishment_id, date
    */
-  router.get('/checkouts', optionalAuth, async (req, res) => {
+  router.get('/checkouts', async (req, res) => {
     try {
       const { evento_id, guest_list_id, establishment_id, date } = req.query;
       
@@ -1186,6 +1273,15 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       if (establishment_id) {
         query += ` AND establishment_id = $${paramIndex++}`;
         params.push(Number(establishment_id));
+      }
+
+      {
+        const scope = establishmentScopeClause(req, 'establishment_id', paramIndex);
+        if (scope.sql) {
+          query += scope.sql;
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
       }
       
       if (date) {

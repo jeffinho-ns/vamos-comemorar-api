@@ -1,8 +1,16 @@
 const express = require('express');
 const authenticateToken = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const {
+  establishmentScopeClause,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
   const router = express.Router();
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
 
   // Garante que a tabela de bloqueios exista (útil em ambientes onde a migration ainda não rodou)
   const ensureBlocksTableExists = async () => {
@@ -56,6 +64,14 @@ module.exports = (pool) => {
                    AND end_datetime::date >= $${params.length}`;
       }
 
+      {
+        const scope = establishmentScopeClause(req, 'establishment_id', params.length + 1);
+        if (scope.sql) {
+          where += scope.sql;
+          params.push(...scope.params);
+        }
+      }
+
       let result;
       try {
         result = await pool.query(
@@ -104,6 +120,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Campos obrigatórios: establishment_id, start_datetime, end_datetime, reason',
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, establishment_id, 'Estabelecimento não encontrado')) {
+        return;
       }
 
       const userId = req.user?.id || null;
@@ -199,6 +219,17 @@ module.exports = (pool) => {
         return res.status(400).json({ success: false, error: 'Nenhum campo para atualizar' });
       }
 
+      const existing = await pool.query(
+        'SELECT establishment_id FROM restaurant_reservation_blocks WHERE id = $1 LIMIT 1',
+        [id],
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Bloqueio não encontrado' });
+      }
+      if (!denyIfCannotReadEstablishment(req, res, existing.rows[0].establishment_id, 'Bloqueio não encontrado')) {
+        return;
+      }
+
       params.push(id);
 
       await pool.query(
@@ -219,6 +250,16 @@ module.exports = (pool) => {
   router.delete('/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
+      const existing = await pool.query(
+        'SELECT establishment_id FROM restaurant_reservation_blocks WHERE id = $1 LIMIT 1',
+        [id],
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Bloqueio não encontrado' });
+      }
+      if (!denyIfCannotReadEstablishment(req, res, existing.rows[0].establishment_id, 'Bloqueio não encontrado')) {
+        return;
+      }
       await pool.query('DELETE FROM restaurant_reservation_blocks WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (error) {
