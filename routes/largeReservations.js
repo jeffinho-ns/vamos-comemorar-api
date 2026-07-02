@@ -3,8 +3,17 @@
 const express = require('express');
 const router = express.Router();
 const NotificationService = require('../services/notificationService');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const {
+  establishmentScopeClause,
+  canReadEstablishment,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
   /**
    * @route   GET /api/large-reservations
    * @desc    Lista todas as reservas grandes com filtros opcionais
@@ -78,6 +87,14 @@ module.exports = (pool) => {
         query += ` AND lr.establishment_id = $${paramIndex++}`;
         params.push(establishment_id);
         console.log('🔍 Filtrando reservas grandes por establishment_id:', establishment_id);
+      }
+      {
+        const scope = establishmentScopeClause(req, 'lr.establishment_id', paramIndex);
+        if (scope.sql) {
+          query += scope.sql;
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
       }
       if (sort && order) {
         query += ` ORDER BY lr.${sort} ${order.toUpperCase()}`;
@@ -154,6 +171,12 @@ module.exports = (pool) => {
       `;
       const result = await pool.query(query, [id]);
       if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Reserva grande não encontrada'
+        });
+      }
+      if (!canReadEstablishment(req, result.rows[0].establishment_id)) {
         return res.status(404).json({
           success: false,
           error: 'Reserva grande não encontrada'
@@ -694,7 +717,7 @@ module.exports = (pool) => {
 
       // Verificar se a reserva existe
       const existingResult = await pool.query(
-        'SELECT id FROM large_reservations WHERE id = $1',
+        'SELECT id, establishment_id FROM large_reservations WHERE id = $1',
         [id]
       );
 
@@ -703,6 +726,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Reserva grande não encontrada'
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, existingResult.rows[0].establishment_id, 'Reserva grande não encontrada')) {
+        return;
       }
 
       // Construir query dinamicamente baseado nos campos fornecidos
@@ -827,7 +854,7 @@ module.exports = (pool) => {
 
       // Verificar se a reserva existe
       const existingResult = await pool.query(
-        'SELECT id FROM large_reservations WHERE id = $1',
+        'SELECT id, establishment_id FROM large_reservations WHERE id = $1',
         [id]
       );
 
@@ -836,6 +863,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Reserva grande não encontrada'
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, existingResult.rows[0].establishment_id, 'Reserva grande não encontrada')) {
+        return;
       }
 
       await pool.query('DELETE FROM large_reservations WHERE id = $1', [id]);

@@ -3,8 +3,14 @@
 const express = require('express');
 const router = express.Router();
 const NotificationService = require('../services/notificationService');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const { establishmentScopeClause } = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+
   /**
    * @route   POST /api/birthday-reservations
    * @desc    Cria uma nova reserva de aniversário com todos os detalhes
@@ -697,8 +703,10 @@ module.exports = (pool) => {
       `;
       
       const params = [];
+      let paramIndex = 1;
+
+      query += ` WHERE 1=1`;
       
-      // Se establishment_id foi fornecido, filtrar por ele
       if (establishment_id) {
         const establishmentIdNumber = typeof establishment_id === 'string' ? parseInt(establishment_id) : establishment_id;
         console.log('🔍 [GET /birthday-reservations] Filtrando reservas por establishment_id:', {
@@ -706,11 +714,19 @@ module.exports = (pool) => {
           converted: establishmentIdNumber,
           type: typeof establishmentIdNumber
         });
-        // Usar CAST para garantir que a comparação funcione independente do tipo no banco
-        query += ` WHERE CAST(br.id_casa_evento AS INTEGER) = $1`;
+        query += ` AND CAST(br.id_casa_evento AS INTEGER) = $${paramIndex++}`;
         params.push(establishmentIdNumber);
       } else {
         console.log('🔍 [GET /birthday-reservations] Buscando todas as reservas (sem filtro de estabelecimento)');
+      }
+
+      {
+        const scope = establishmentScopeClause(req, 'CAST(br.id_casa_evento AS INTEGER)', paramIndex);
+        if (scope.sql) {
+          query += scope.sql;
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
       }
       
       query += ` ORDER BY br.created_at DESC`;

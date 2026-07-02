@@ -2,6 +2,13 @@
 
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const {
+  establishmentScopeClause,
+  canReadEstablishment,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 
 const toMinutes = (timeStr) => {
   const [h, m] = String(timeStr || '').split(':').map(Number);
@@ -47,6 +54,9 @@ const defaultRooftopWindows = (dateStr) => {
 };
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+
   const getRooftopWindows = async (dateStr) => {
     try {
       const overrideResult = await pool.query(
@@ -150,6 +160,15 @@ module.exports = (pool) => {
         params.push(establishment_id);
       }
 
+      {
+        const scope = establishmentScopeClause(req, 'wl.establishment_id', paramIndex);
+        if (scope.sql) {
+          query += scope.sql;
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
+      }
+
       if (date) {
         query += ` AND (wl.preferred_date = $${paramIndex++} OR wl.preferred_date IS NULL)`;
         params.push(date);
@@ -207,6 +226,13 @@ module.exports = (pool) => {
       const waitlistResult = await pool.query(query, [id]);
       
       if (waitlistResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Item não encontrado na lista de espera'
+        });
+      }
+
+      if (!canReadEstablishment(req, waitlistResult.rows[0].establishment_id)) {
         return res.status(404).json({
           success: false,
           error: 'Item não encontrado na lista de espera'
@@ -361,7 +387,7 @@ module.exports = (pool) => {
       
       // Verificar se o item existe
       const existingEntryResult = await pool.query(
-        'SELECT id FROM waitlist WHERE id = $1',
+        'SELECT id, establishment_id FROM waitlist WHERE id = $1',
         [id]
       );
       
@@ -370,6 +396,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Item não encontrado na lista de espera'
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, existingEntryResult.rows[0].establishment_id, 'Item não encontrado na lista de espera')) {
+        return;
       }
       
       const updateFields = [];
@@ -469,7 +499,7 @@ module.exports = (pool) => {
       
       // Verificar se o item existe
       const existingEntryResult = await pool.query(
-        'SELECT id FROM waitlist WHERE id = $1',
+        'SELECT id, establishment_id FROM waitlist WHERE id = $1',
         [id]
       );
       
@@ -478,6 +508,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Item não encontrado na lista de espera'
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, existingEntryResult.rows[0].establishment_id, 'Item não encontrado na lista de espera')) {
+        return;
       }
       
       await pool.query('DELETE FROM waitlist WHERE id = $1', [id]);

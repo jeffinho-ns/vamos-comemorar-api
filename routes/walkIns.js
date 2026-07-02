@@ -2,8 +2,18 @@
 
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const {
+  establishmentScopeClause,
+  canReadEstablishment,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+
   /**
    * @route   GET /api/walk-ins
    * @desc    Lista todos os passantes com filtros opcionais
@@ -19,6 +29,7 @@ module.exports = (pool) => {
         SELECT 
           wi.*,
           ra.name as area_name,
+          ra.establishment_id,
           u.name as created_by_name
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
@@ -42,6 +53,15 @@ module.exports = (pool) => {
       if (date) {
         query += ` AND wi.arrival_time::DATE = $${paramIndex++}`;
         params.push(date);
+      }
+
+      {
+        const scope = establishmentScopeClause(req, 'ra.establishment_id', paramIndex);
+        if (scope.sql) {
+          query += scope.sql;
+          params.push(...scope.params);
+          paramIndex = scope.nextIndex;
+        }
       }
       
       if (sort && order) {
@@ -85,6 +105,7 @@ module.exports = (pool) => {
         SELECT 
           wi.*,
           ra.name as area_name,
+          ra.establishment_id,
           u.name as created_by_name
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
@@ -95,6 +116,13 @@ module.exports = (pool) => {
       const walkInsResult = await pool.query(query, [id]);
       
       if (walkInsResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Passante não encontrado'
+        });
+      }
+
+      if (!canReadEstablishment(req, walkInsResult.rows[0].establishment_id)) {
         return res.status(404).json({
           success: false,
           error: 'Passante não encontrado'
@@ -202,7 +230,10 @@ module.exports = (pool) => {
       
       // Verificar se o passante existe
       const existingWalkInResult = await pool.query(
-        'SELECT id FROM walk_ins WHERE id = $1',
+        `SELECT wi.id, ra.establishment_id
+           FROM walk_ins wi
+           LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
+          WHERE wi.id = $1`,
         [id]
       );
       
@@ -211,6 +242,10 @@ module.exports = (pool) => {
           success: false,
           error: 'Passante não encontrado'
         });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, existingWalkInResult.rows[0].establishment_id, 'Passante não encontrado')) {
+        return;
       }
       
       const query = `
@@ -266,7 +301,10 @@ module.exports = (pool) => {
       
       // Verificar se o passante existe
       const existingWalkInResult = await pool.query(
-        'SELECT id FROM walk_ins WHERE id = $1',
+        `SELECT wi.id, ra.establishment_id
+           FROM walk_ins wi
+           LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
+          WHERE wi.id = $1`,
         [id]
       );
       
@@ -276,7 +314,11 @@ module.exports = (pool) => {
           error: 'Passante não encontrado'
         });
       }
-      
+
+      if (!denyIfCannotReadEstablishment(req, res, existingWalkInResult.rows[0].establishment_id, 'Passante não encontrado')) {
+        return;
+      }
+
       await pool.query('DELETE FROM walk_ins WHERE id = $1', [id]);
       
       res.json({
