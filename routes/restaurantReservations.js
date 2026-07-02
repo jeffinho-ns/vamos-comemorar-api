@@ -108,13 +108,15 @@ module.exports = (pool) => {
 
   const defaultWindowsByEstablishment = (establishmentId, dateStr) => {
     if (dateStr === '2026-04-20') {
-      if (Number(establishmentId) === 1) {
+      const rules = establishmentRules.LEGACY_PROFILES[Number(establishmentId)];
+      const profile = rules?.profile;
+      if (profile === 'seu_justino') {
         return [{ start: '12:00', end: '00:00', label: 'Segunda especial (20/04): 12:00–00:00' }];
       }
-      if (Number(establishmentId) === 8) {
+      if (profile === 'pracinha') {
         return [{ start: '14:00', end: '00:00', label: 'Segunda especial (20/04): 14:00–00:00' }];
       }
-      if (Number(establishmentId) === 9) {
+      if (profile === 'rooftop') {
         return [{ start: '12:00', end: '20:00', label: 'Segunda especial (20/04): 12:00–20:00' }];
       }
     }

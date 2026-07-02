@@ -367,14 +367,12 @@ function applyBusinessRulesToReservationParams(params) {
 }
 
 async function loadActiveRestaurantAreas(pool, establishmentId = null) {
+  const establishmentRules = require('../establishmentRules');
   const whereParts = ['is_active = TRUE'];
   const id = establishmentId != null ? Number(establishmentId) : null;
   if (id != null && Number.isFinite(id) && id > 0) {
-    if (id === 9) {
-      whereParts.push(`name ILIKE 'Reserva Rooftop - %'`);
-    } else {
-      whereParts.push(`name NOT ILIKE 'Reserva Rooftop - %'`);
-    }
+    const rules = await establishmentRules.getEstablishmentRules(pool, id);
+    whereParts.push(establishmentRules.buildAreasNameFilterSql(rules, 'name'));
   }
 
   const result = await pool.query(

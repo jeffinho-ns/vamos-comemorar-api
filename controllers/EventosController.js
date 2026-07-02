@@ -1,6 +1,7 @@
 // controllers/EventosController.js
 
 const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
+const establishmentRules = require('../services/establishmentRules');
 
 /**
  * Controller para gerenciamento de Eventos e Listas
@@ -1859,7 +1860,11 @@ class EventosController {
       }
       
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
-        const isReservaRooftop = Number(eventoInfo.establishment_id) === 9;
+        const eventEstRules = await establishmentRules.getEstablishmentRules(
+          this.pool,
+          eventoInfo.establishment_id,
+        );
+        const isReservaRooftop = establishmentRules.usesExtendedGuestListWindow(eventEstRules);
         let dateStart = eventoInfo.data_evento;
         let dateEnd = eventoInfo.data_evento;
         if (isReservaRooftop) {
@@ -2447,7 +2452,12 @@ class EventosController {
       // Só busca se tiver establishment_id e data_evento (não é evento semanal)
       let convidadosReservasRestaurante = [];
       if (eventoInfo.establishment_id && eventoInfo.data_evento) {
-        const convIsReservaRooftop = Number(eventoInfo.establishment_id) === 9;
+        const convEstRules = await establishmentRules.getEstablishmentRules(
+          this.pool,
+          eventoInfo.establishment_id,
+        );
+        const convIsReservaRooftop =
+          establishmentRules.usesExtendedGuestListWindow(convEstRules);
         let convDateStart = eventoInfo.data_evento;
         let convDateEnd = eventoInfo.data_evento;
         if (convIsReservaRooftop) {

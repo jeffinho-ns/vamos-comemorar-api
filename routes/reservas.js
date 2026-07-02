@@ -582,7 +582,9 @@ router.post('/camarote', auth, async (req, res) => {
         // Verificação de lotação ANTES do commit (se falhar, podemos fazer rollback)
         let lotacaoOk = true;
         try {
-            const areaWhere = idPlace === 9 ? "ra.name ILIKE 'Reserva Rooftop - %'" : "ra.name NOT ILIKE 'Reserva Rooftop - %'";
+            const establishmentRules = require('../services/establishmentRules');
+            const estRules = await establishmentRules.getEstablishmentRules(pool, idPlace);
+            const areaWhere = establishmentRules.buildAreasNameFilterSql(estRules);
             const capacityResult = await client.query(`
                 SELECT (COALESCE(SUM(ra.capacity_dinner), 0) + COALESCE(SUM(ra.capacity_lunch), 0))::int as total_cap
                 FROM restaurant_areas ra

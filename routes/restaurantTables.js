@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const establishmentRules = require('../services/establishmentRules');
 
 module.exports = (pool) => {
   // Tabela restaurant_tables já deve existir no PostgreSQL
@@ -73,13 +74,19 @@ module.exports = (pool) => {
       const reservedRows = reservedRowsResult.rows;
 
       const reservedSet = new Set(reservedRows.map(r => String(r.table_number)));
+      let overlapBlocking = false;
+      if (establishment_id) {
+        const estRules = await establishmentRules.getEstablishmentRules(
+          pool,
+          Number(establishment_id),
+        );
+        overlapBlocking = establishmentRules.usesTableOverlapBlocking(estRules);
+      }
       const data = tables.map(t => ({
         ...t,
-        // Justino/Pracinha são RESTAURANTES: frontend calcula por overlap de horário (2h)
-        // Highline é BALADA: bloqueio do dia todo quando há reserva confirmada
-        is_reserved: (establishment_id && (establishment_id === 1 || establishment_id === 8))
-          ? false  // Justino/Pracinha (restaurantes): frontend calcula por overlap de horário
-          : reservedSet.has(String(t.table_number))  // Highline/outros (baladas): bloqueio do dia todo
+        is_reserved: overlapBlocking
+          ? false
+          : reservedSet.has(String(t.table_number)),
       }));
 
       res.json({ success: true, date, area_id: Number(areaId), tables: data });

@@ -168,16 +168,16 @@ function getCardapioBarId(rules, operationalId) {
   return Number(operationalId);
 }
 
-function buildAreasNameFilterSql(rules) {
+function buildAreasNameFilterSql(rules, column = 'ra.name') {
   const prefix = rules?.reservations?.areaNamePrefix;
   if (prefix) {
     const safe = String(prefix).replace(/'/g, "''");
-    return `ra.name ILIKE '${safe}%'`;
+    return `${column} ILIKE '${safe}%'`;
   }
   const exclude =
     rules?.reservations?.excludeAreaPrefix || DEFAULT_EXCLUDE_AREA_PREFIX;
   const safeExclude = String(exclude).replace(/'/g, "''");
-  return `ra.name NOT ILIKE '${safeExclude}%'`;
+  return `${column} NOT ILIKE '${safeExclude}%'`;
 }
 
 function areaAllowedForRules(rules, areaName) {
@@ -187,6 +187,18 @@ function areaAllowedForRules(rules, areaName) {
   const exclude =
     rules?.reservations?.excludeAreaPrefix || DEFAULT_EXCLUDE_AREA_PREFIX;
   return !name.startsWith(exclude);
+}
+
+/** Restaurantes com bloqueio de mesa por overlap de horário (front calcula). */
+function usesTableOverlapBlocking(rules) {
+  if (rules?.reservations?.tableBlocking === 'overlap') return true;
+  if (rules?.reservations?.tableBlocking === 'full_day') return false;
+  return ['seu_justino', 'pracinha'].includes(rules?.profile);
+}
+
+/** Janela estendida de guest lists para eventos rooftop. */
+function usesExtendedGuestListWindow(rules) {
+  return isRooftop(rules) || rules?.events?.extendedGuestListWindow === true;
 }
 
 async function listOperationalMappings(pool) {
@@ -218,6 +230,8 @@ module.exports = {
   getCardapioBarId,
   buildAreasNameFilterSql,
   areaAllowedForRules,
+  usesTableOverlapBlocking,
+  usesExtendedGuestListWindow,
   listOperationalMappings,
   LEGACY_PROFILES,
 };
