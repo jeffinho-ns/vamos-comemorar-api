@@ -16,6 +16,7 @@ rodar primeiro em **staging**.
 | 003 | `003_users_super_admin.sql` | Adiciona `users.is_super_admin` (default FALSE) + backfill da lista atual | Baixo |
 | 004 | `004_add_organization_id.sql` | **EXPAND**: adiciona `organization_id` (nullable) + índice nas tabelas operacionais existentes | Baixo (nullable; guard `to_regclass`) |
 | 005 | `005_backfill_pilot_org.sql` | **MIGRATE**: cria a org piloto (Grupo Ideia Um), gera `establishments` a partir de `places`/`bars`, faz backfill `organization_id` em todas as linhas | Médio (revisar antes) |
+| 009 | `009_subscription_monthly_amount.sql` | Adiciona `subscriptions.monthly_amount_cents` para salvar a mensalidade real de cada empresa no Super Admin | Baixo |
 
 > A virada de `organization_id` para **NOT NULL** (CONTRACT) é uma migration **posterior**,
 > só depois do backfill 100% validado e do código já gravando `organization_id`.
@@ -59,4 +60,5 @@ SELECT count(*) FROM restaurant_reservations WHERE organization_id IS NULL;  -- 
 - `organization_id` NOT NULL (Contract).
 - RLS por tabela (`ENABLE ROW LEVEL SECURITY` + policies) — **008 piloto** em `restaurant_reservations`; expandir após validação.
 - `organization_id` no JWT — **implementado** (`tenancy/jwtClaims.js`); `tenantMiddleware` + RLS via `SAAS_RLS_MODE`.
+- Mensalidade real por empresa no billing manual — **migration 009**; aplicar em staging/prod antes de editar mensalidade no `/superadmin`.
 - Migrar filtros por nome (`restaurant_areas` ILIKE 'Reserva Rooftop - %') para `establishment_id`.

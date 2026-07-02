@@ -83,6 +83,20 @@ module.exports = (pool) => {
     }
   });
 
+  router.patch('/organizations/:id/subscription', async (req, res) => {
+    try {
+      const result = await billing.updateSubscriptionBilling(
+        pool,
+        Number(req.params.id),
+        req.body,
+        req.user.id,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.put('/organizations/:id/modules/:moduleKey', async (req, res) => {
     try {
       const isEnabled = req.body.is_enabled !== false;

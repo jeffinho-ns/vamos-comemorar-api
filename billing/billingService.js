@@ -4,6 +4,33 @@ const bcrypt = require('bcryptjs');
 const ManualPaymentProvider = require('./ManualPaymentProvider');
 
 const ACTIVE_SUB_STATUSES = ['active', 'trialing'];
+let hasMonthlyAmountColumnCache = null;
+
+async function hasSubscriptionMonthlyAmountColumn(pool) {
+  if (hasMonthlyAmountColumnCache !== null) return hasMonthlyAmountColumnCache;
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM information_schema.columns
+        WHERE table_schema = 'meu_backup_db'
+          AND table_name = 'subscriptions'
+          AND column_name = 'monthly_amount_cents'
+        LIMIT 1`,
+    );
+    hasMonthlyAmountColumnCache = rows.length > 0;
+  } catch (_) {
+    hasMonthlyAmountColumnCache = false;
+  }
+  return hasMonthlyAmountColumnCache;
+}
+
+async function subscriptionAmountSql(pool, subscriptionAlias = 's', planAlias = 'p') {
+  const hasMonthly = await hasSubscriptionMonthlyAmountColumn(pool);
+  if (hasMonthly) {
+    return `COALESCE(${subscriptionAlias}.monthly_amount_cents, ${planAlias}.price_cents, 0)`;
+  }
+  return `COALESCE(${planAlias}.price_cents, 0)`;
+}
 
 function centsToBrl(cents) {
   return (Number(cents || 0) / 100).toLocaleString('pt-BR', {
@@ -21,8 +48,9 @@ async function logBillingEvent(pool, organizationId, eventType, payload = {}) {
 }
 
 async function computeMrrCents(pool) {
+  const amountSql = await subscriptionAmountSql(pool);
   const { rows } = await pool.query(
-    `SELECT COALESCE(SUM(p.price_cents), 0)::int AS mrr_cents
+    `SELECT COALESCE(SUM(${amountSql}), 0)::int AS mrr_cents
        FROM meu_backup_db.subscriptions s
        JOIN meu_backup_db.plans p ON p.id = s.plan_id
       WHERE s.status = ANY($1::text[])
@@ -68,11 +96,13 @@ async function getDashboardMetrics(pool) {
 }
 
 async function listOrganizations(pool) {
+  const amountSql = await subscriptionAmountSql(pool);
   const { rows } = await pool.query(
     `SELECT
        o.id, o.slug, o.name, o.status, o.saas_enabled, o.created_at,
        s.id AS subscription_id, s.status AS subscription_status,
        p.key AS plan_key, p.name AS plan_name, p.price_cents AS plan_price_cents,
+       ${amountSql} AS monthly_amount_cents,
        (SELECT COUNT(*)::int FROM meu_backup_db.establishments e WHERE e.organization_id = o.id) AS establishments_count,
        (SELECT COUNT(*)::int FROM meu_backup_db.invoices i
          WHERE i.organization_id = o.id AND i.status IN ('pending', 'overdue')) AS open_invoices
@@ -89,9 +119,11 @@ async function listOrganizations(pool) {
 }
 
 async function getOrganizationDetail(pool, organizationId) {
+  const amountSql = await subscriptionAmountSql(pool);
   const orgResult = await pool.query(
     `SELECT o.*, s.id AS subscription_id, s.status AS subscription_status,
-            s.plan_id, p.key AS plan_key, p.name AS plan_name, p.price_cents
+            s.plan_id, p.key AS plan_key, p.name AS plan_name, p.price_cents,
+            ${amountSql} AS monthly_amount_cents
        FROM meu_backup_db.organizations o
        LEFT JOIN LATERAL (
          SELECT * FROM meu_backup_db.subscriptions
@@ -120,7 +152,25 @@ async function getOrganizationDetail(pool, organizationId) {
     ),
     pool.query(
       `SELECT i.*,
-         (SELECT COALESCE(SUM(amount_cents), 0) FROM meu_backup_db.payments pay WHERE pay.invoice_id = i.id) AS paid_cents
+         (SELECT COALESCE(SUM(amount_cents), 0) FROM meu_backup_db.payments pay WHERE pay.invoice_id = i.id) AS paid_cents,
+         COALESCE(
+           (
+             SELECT json_agg(
+               json_build_object(
+                 'id', pay.id,
+                 'amount_cents', pay.amount_cents,
+                 'paid_at', pay.paid_at,
+                 'method', pay.method,
+                 'receipt_url', pay.receipt_url,
+                 'created_at', pay.created_at
+               )
+               ORDER BY pay.created_at DESC
+             )
+             FROM meu_backup_db.payments pay
+             WHERE pay.invoice_id = i.id
+           ),
+           '[]'::json
+         ) AS payments
        FROM meu_backup_db.invoices i
        WHERE i.organization_id = $1
        ORDER BY i.created_at DESC
@@ -252,6 +302,57 @@ async function changePlan(pool, organizationId, planKey, actorUserId) {
   return { subscription, plan };
 }
 
+async function updateSubscriptionBilling(pool, organizationId, patch, actorUserId) {
+  const hasMonthly = await hasSubscriptionMonthlyAmountColumn(pool);
+  const fields = [];
+  const params = [];
+  let i = 1;
+
+  if (patch.status !== undefined) {
+    fields.push(`status = $${i++}`);
+    params.push(patch.status);
+  }
+  if (patch.currentPeriodStart !== undefined) {
+    fields.push(`current_period_start = $${i++}`);
+    params.push(patch.currentPeriodStart || null);
+  }
+  if (patch.currentPeriodEnd !== undefined) {
+    fields.push(`current_period_end = $${i++}`);
+    params.push(patch.currentPeriodEnd || null);
+  }
+  if (patch.monthlyAmountCents !== undefined) {
+    if (!hasMonthly) {
+      throw new Error(
+        'A migration 009 ainda não foi aplicada. Rode as migrations SaaS para habilitar mensalidade por empresa.',
+      );
+    }
+    fields.push(`monthly_amount_cents = $${i++}`);
+    params.push(patch.monthlyAmountCents);
+  }
+
+  if (!fields.length) {
+    throw new Error('Nenhum campo de billing informado.');
+  }
+
+  params.push(organizationId);
+  const { rows } = await pool.query(
+    `UPDATE meu_backup_db.subscriptions
+        SET ${fields.join(', ')}, updated_at = now()
+      WHERE organization_id = $${i}
+      RETURNING *`,
+    params,
+  );
+  if (!rows.length) {
+    throw new Error('Assinatura não encontrada.');
+  }
+
+  await logBillingEvent(pool, organizationId, 'subscription.billing_updated', {
+    actorUserId,
+    patch,
+  });
+  return rows[0];
+}
+
 async function createInvoice(pool, data, actorUserId) {
   const { organizationId, periodStart, periodEnd, amountCents, dueDate, currency = 'BRL' } = data;
   const { rows } = await pool.query(
@@ -341,6 +442,7 @@ async function provisionOrganization(pool, input, actorUserId) {
     adminName,
     adminPassword,
     establishmentName,
+    monthlyAmountCents,
   } = input;
 
   if (!name || !slug) throw new Error('name e slug são obrigatórios');
@@ -356,17 +458,26 @@ async function provisionOrganization(pool, input, actorUserId) {
     );
     const org = orgIns.rows[0];
 
+    const hasMonthly = await hasSubscriptionMonthlyAmountColumn(pool);
     const planRes = await client.query(
       `SELECT id FROM meu_backup_db.plans WHERE key = $1 AND is_active = TRUE`,
       [planKey],
     );
     if (!planRes.rows.length) throw new Error(`Plano '${planKey}' não encontrado`);
 
-    await client.query(
-      `INSERT INTO meu_backup_db.subscriptions (organization_id, plan_id, status)
-       VALUES ($1, $2, 'active')`,
-      [org.id, planRes.rows[0].id],
-    );
+    if (hasMonthly) {
+      await client.query(
+        `INSERT INTO meu_backup_db.subscriptions (organization_id, plan_id, status, monthly_amount_cents)
+         VALUES ($1, $2, 'active', $3)`,
+        [org.id, planRes.rows[0].id, monthlyAmountCents ?? null],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO meu_backup_db.subscriptions (organization_id, plan_id, status)
+         VALUES ($1, $2, 'active')`,
+        [org.id, planRes.rows[0].id],
+      );
+    }
 
     await client.query(
       `INSERT INTO meu_backup_db.organization_modules (organization_id, module_id, is_enabled)
@@ -466,6 +577,7 @@ module.exports = {
   updateOrganization,
   setOrganizationModule,
   changePlan,
+  updateSubscriptionBilling,
   createInvoice,
   recordManualPayment,
   markSubscriptionPastDue,
