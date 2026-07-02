@@ -10,7 +10,11 @@ const { loadActiveRestaurantAreas } = require('../services/conversationEngine/he
 const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
-const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
+const {
+  establishmentScopeClause,
+  canReadEstablishment,
+  denyIfCannotReadEstablishment,
+} = require('../tenancy/queryScope');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
 
 module.exports = (pool) => {
@@ -1585,6 +1589,11 @@ module.exports = (pool) => {
       }
 
       const existingReservation = existingReservationResult.rows[0];
+
+      if (!denyIfCannotReadEstablishment(req, res, existingReservation.establishment_id)) {
+        return;
+      }
+
       const reservationBeforeAudit = auditReservationSnapshot(existingReservation);
       
       // Se data/hora/área estão sendo alteradas, verificar bloqueios de agenda.
@@ -1903,6 +1912,10 @@ module.exports = (pool) => {
       }
 
       const removedReservation = existingReservationResult.rows[0];
+
+      if (!denyIfCannotReadEstablishment(req, res, removedReservation.establishment_id)) {
+        return;
+      }
 
       await pool.query('DELETE FROM restaurant_reservations WHERE id = $1', [id]);
 
@@ -2620,6 +2633,10 @@ module.exports = (pool) => {
       }
 
       const reservation = reservationsResult.rows[0];
+
+      if (!denyIfCannotReadEstablishment(req, res, reservation.establishment_id)) {
+        return;
+      }
 
       // Verificar se o evento existe
       const eventosResult = await pool.query(

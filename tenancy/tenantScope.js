@@ -19,9 +19,42 @@ const isAdminRole = (user) => {
 };
 
 /**
+ * memberships.establishment_id é CANÔNICO (establishments.id).
+ * Rotas operacionais (restaurant_reservations, permissions legadas) usam id de place/bar.
+ * Traduz para legacy_place_id (preferência) ou legacy_bar_id.
+ */
+function operationalEstablishmentIdFromRow(row) {
+  const placeId = Number(row?.legacy_place_id);
+  if (Number.isFinite(placeId) && placeId > 0) return placeId;
+  const barId = Number(row?.legacy_bar_id);
+  if (Number.isFinite(barId) && barId > 0) return barId;
+  const canonical = Number(row?.establishment_id);
+  if (Number.isFinite(canonical) && canonical > 0) return canonical;
+  return null;
+}
+
+async function operationalIdsForOrganizations(pool, organizationIds) {
+  if (!organizationIds.length) return [];
+  const { rows } = await pool.query(
+    `SELECT legacy_place_id, legacy_bar_id
+       FROM meu_backup_db.establishments
+      WHERE organization_id = ANY($1::int[])`,
+    [organizationIds],
+  );
+  return [
+    ...new Set(
+      rows.map((r) => operationalEstablishmentIdFromRow(r)).filter((id) => id != null),
+    ),
+  ];
+}
+
+/**
  * Carrega o escopo do usuário usando as tabelas NOVAS (memberships) quando
  * existirem, com fallback para a tabela legada user_establishment_permissions.
  * Tolerante a schema incompleto (staging): qualquer erro => escopo vazio.
+ *
+ * establishmentIds retornados são sempre OPERACIONAIS (place/bar), compatíveis com
+ * restaurant_reservations.establishment_id e user_establishment_permissions.
  *
  * @returns {{ isAdmin: boolean, organizationIds: number[], establishmentIds: number[] }}
  */
@@ -36,15 +69,35 @@ async function loadUserScope(pool, user) {
   // 1) Tenta o modelo novo (memberships)
   try {
     const { rows } = await pool.query(
-      `SELECT DISTINCT m.organization_id, m.establishment_id
+      `SELECT DISTINCT m.organization_id, m.establishment_id,
+              e.legacy_place_id, e.legacy_bar_id
          FROM meu_backup_db.memberships m
+         LEFT JOIN meu_backup_db.establishments e ON e.id = m.establishment_id
         WHERE m.user_id = $1 AND m.is_active = TRUE`,
       [user.id],
     );
     if (rows.length > 0) {
       const organizationIds = [...new Set(rows.map((r) => Number(r.organization_id)).filter(Boolean))];
-      const establishmentIds = [...new Set(rows.map((r) => Number(r.establishment_id)).filter(Boolean))];
-      return { isAdmin: false, organizationIds, establishmentIds };
+      const establishmentIds = [];
+      const orgWideMembership = rows.some((r) => r.establishment_id == null);
+
+      for (const row of rows) {
+        if (row.establishment_id != null) {
+          const opId = operationalEstablishmentIdFromRow(row);
+          if (opId) establishmentIds.push(opId);
+        }
+      }
+
+      if (orgWideMembership) {
+        const orgIds = await operationalIdsForOrganizations(pool, organizationIds);
+        establishmentIds.push(...orgIds);
+      }
+
+      return {
+        isAdmin: false,
+        organizationIds,
+        establishmentIds: [...new Set(establishmentIds)],
+      };
     }
   } catch (_) {
     // tabela memberships ainda não existe — segue para o legado
@@ -73,4 +126,9 @@ function canAccessEstablishment(scope, establishmentId) {
   return scope.establishmentIds.includes(id);
 }
 
-module.exports = { isAdminRole, loadUserScope, canAccessEstablishment };
+module.exports = {
+  isAdminRole,
+  loadUserScope,
+  canAccessEstablishment,
+  operationalEstablishmentIdFromRow,
+};

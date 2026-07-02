@@ -63,4 +63,14 @@ function canReadEstablishment(req, establishmentId) {
   return ids.includes(id);
 }
 
-module.exports = { establishmentScopeClause, canReadEstablishment };
+/**
+ * Responde 404 se o usuário escopado não pode ler/mutar o estabelecimento.
+ * @returns {boolean} true = pode continuar; false = já respondeu 404
+ */
+function denyIfCannotReadEstablishment(req, res, establishmentId, notFoundMessage = 'Reserva não encontrada') {
+  if (canReadEstablishment(req, establishmentId)) return true;
+  res.status(404).json({ success: false, error: notFoundMessage });
+  return false;
+}
+
+module.exports = { establishmentScopeClause, canReadEstablishment, denyIfCannotReadEstablishment };
