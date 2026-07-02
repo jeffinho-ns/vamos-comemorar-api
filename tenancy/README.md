@@ -61,7 +61,9 @@ Tokens antigos (7d) continuam válidos; `tenantMiddleware` revalida escopo via D
 
 Migration: `migrations/saas/008_rls_restaurant_reservations.sql`.
 
-**Ordem recomendada:** staging → aplicar 008 → `SAAS_RLS_MODE=observe` (opcional) → `on` → validar analista restrito → produção.
+**Ordem recomendada:** staging → aplicar 008 → `SAAS_RLS_MODE=on` no Render → validar `/health` (`saas.rlsMode`) → analista restrito → produção.
+
+Runbook detalhado: `scripts/saas/go_live_rls_production.md`.
 
 **Anônimo / sem org na sessão:** policies são fail-open (mesmo comportamento legado).
 

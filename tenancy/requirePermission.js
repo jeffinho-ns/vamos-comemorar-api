@@ -15,10 +15,12 @@ function requirePermission(permissionKey) {
   return async function permissionGate(req, res, next) {
     if (!isSaasEnforced() && !isSaasObserving()) return next();
 
+    if (!req.user) return next();
+
     const pool = req.app && req.app.get ? req.app.get('pool') : null;
-    if (!pool || !req.user) {
+    if (!pool) {
       if (!isSaasEnforced()) return next();
-      return res.status(401).json({ success: false, error: 'Autenticação necessária.' });
+      return res.status(500).json({ success: false, error: 'Pool indisponível.' });
     }
 
     let entitlements = req.entitlements;

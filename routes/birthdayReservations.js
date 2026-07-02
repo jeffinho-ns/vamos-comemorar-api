@@ -5,11 +5,13 @@ const router = express.Router();
 const NotificationService = require('../services/notificationService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const { establishmentScopeClause } = require('../tenancy/queryScope');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
 
   /**
    * @route   POST /api/birthday-reservations

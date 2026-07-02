@@ -6,12 +6,14 @@ const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const EventosController = require('../controllers/EventosController');
 
 module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   const controller = new EventosController(pool, checkAndAwardPromoterGifts);
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('eventos'));
 
   /**
    * @route   GET /api/v1/eventos/todos

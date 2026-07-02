@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
 
 function areasFilterForEstablishmentId(establishmentId) {
@@ -53,6 +54,7 @@ function areaAllowedForScope(req, areaName) {
 module.exports = (pool) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
   /**
    * @route   GET /api/restaurant-areas
    * @desc    Lista todas as áreas do restaurante

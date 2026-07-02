@@ -2,6 +2,7 @@ const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const {
   establishmentScopeClause,
   denyIfCannotReadEstablishment,
@@ -11,6 +12,7 @@ module.exports = (pool) => {
   const router = express.Router();
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
 
   // Garante que a tabela de bloqueios exista (útil em ambientes onde a migration ainda não rodou)
   const ensureBlocksTableExists = async () => {

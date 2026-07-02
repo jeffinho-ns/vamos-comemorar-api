@@ -11,7 +11,7 @@
  */
 
 const { isSaasEnforced } = require('./featureFlags');
-const { isAdminRole, loadUserScope } = require('./tenantScope');
+const { loadUserScope } = require('./tenantScope');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
@@ -57,7 +57,19 @@ async function resolveEntitlements(pool, user) {
     permissions = [];
   }
 
-  return { allowAll: false, modules, permissions, organizationId: orgId };
+  // Usuários legados (UEP sem memberships): módulos da org, sem permissões finas ainda.
+  const legacyScoped =
+    permissions.length === 0 &&
+    Array.isArray(scope.establishmentIds) &&
+    scope.establishmentIds.length > 0;
+
+  return {
+    allowAll: false,
+    modules,
+    permissions,
+    organizationId: orgId,
+    legacyScoped,
+  };
 }
 
 function hasModule(entitlements, moduleKey) {
@@ -69,6 +81,7 @@ function hasModule(entitlements, moduleKey) {
 function hasPermission(entitlements, permissionKey) {
   if (!entitlements) return false;
   if (entitlements.allowAll) return true;
+  if (entitlements.legacyScoped) return true;
   return entitlements.permissions.includes(permissionKey);
 }
 

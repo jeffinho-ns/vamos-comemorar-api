@@ -10,6 +10,7 @@ const { loadActiveRestaurantAreas } = require('../services/conversationEngine/he
 const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const {
   establishmentScopeClause,
   canReadEstablishment,
@@ -22,6 +23,7 @@ module.exports = (pool) => {
   // INERTE enquanto SAAS_MODE != observe/on — não bloqueia nada (ver tenancy/README.md).
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
   let reservationPolicyTableReady = false;
   const ensureReservationPolicyTable = async () => {
     if (reservationPolicyTableReady) return;

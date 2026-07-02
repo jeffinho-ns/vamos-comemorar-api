@@ -2,6 +2,7 @@ const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const { canReadEstablishment, denyIfCannotReadEstablishment } = require('../tenancy/queryScope');
 const { buildDefaultWeekly } = require('../services/operationalHours/defaultWeeklySchedule');
 
@@ -9,6 +10,7 @@ module.exports = (pool) => {
   const router = express.Router();
   router.use(optionalAuth);
   router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
 
   const toLabel = (start, end) => `${start}–${end}`;
 

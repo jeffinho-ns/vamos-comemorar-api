@@ -32,6 +32,7 @@ const BIND_PORT = Number(process.env.PORT || config.server.port || 10000);
 let applicationBootComplete = false;
 
 function buildHealthPayload() {
+  const { saasMode, saasRlsMode } = require('./tenancy/featureFlags');
   const hasAppSecret = Boolean(process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET);
   const hasVerifyToken = Boolean(process.env.WHATSAPP_VERIFY_TOKEN);
   const hasOutboundConfig = Boolean(
@@ -49,6 +50,10 @@ function buildHealthPayload() {
       outboundReady: hasOutboundConfig,
       aiReady: hasOpenAi,
       queueEnabled: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
+    },
+    saas: {
+      mode: saasMode(),
+      rlsMode: saasRlsMode(),
     },
   };
 }
