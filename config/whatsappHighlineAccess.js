@@ -1,14 +1,14 @@
 /**
- * Inbox WhatsApp restrito ao HighLine (establishment_id 7) para estes e-mails.
+ * Inbox WhatsApp restrito ao HighLine para estes e-mails.
  * Não remove outras permissões do utilizador — só limita rotas /api/admin/whatsapp.
  */
 const WHATSAPP_HIGHLINE_ONLY_EMAILS = new Set(['reservas@highlinebar.com.br']);
 
-const HIGHLINE_ESTABLISHMENT_ID = Number(
-  process.env.HIGHLINE_ESTABLISHMENT_ID ||
-    process.env.WHATSAPP_DEFAULT_ESTABLISHMENT_ID ||
-    7
-);
+const { getOperationalIdForProfile } = require('../tenancy/operationalProfileIds');
+
+function resolveHighlineEstablishmentId() {
+  return getOperationalIdForProfile('highline');
+}
 
 function isWhatsappHighlineOnlyEmail(email) {
   if (!email) return false;
@@ -17,15 +17,23 @@ function isWhatsappHighlineOnlyEmail(email) {
 
 function getWhatsappHighlineOnlyEstablishmentIds(user) {
   if (!isWhatsappHighlineOnlyEmail(user?.email)) return null;
-  if (!Number.isFinite(HIGHLINE_ESTABLISHMENT_ID) || HIGHLINE_ESTABLISHMENT_ID <= 0) {
-    return [7];
-  }
-  return [HIGHLINE_ESTABLISHMENT_ID];
+  const highlineId = resolveHighlineEstablishmentId();
+  if (Number.isFinite(highlineId) && highlineId > 0) return [highlineId];
+  const envId = Number(
+    process.env.HIGHLINE_ESTABLISHMENT_ID || process.env.WHATSAPP_DEFAULT_ESTABLISHMENT_ID || '',
+  );
+  if (Number.isFinite(envId) && envId > 0) return [envId];
+  return null;
 }
 
 module.exports = {
   WHATSAPP_HIGHLINE_ONLY_EMAILS,
-  HIGHLINE_ESTABLISHMENT_ID,
+  resolveHighlineEstablishmentId,
   isWhatsappHighlineOnlyEmail,
   getWhatsappHighlineOnlyEstablishmentIds,
 };
+
+Object.defineProperty(module.exports, 'HIGHLINE_ESTABLISHMENT_ID', {
+  enumerable: true,
+  get: resolveHighlineEstablishmentId,
+});

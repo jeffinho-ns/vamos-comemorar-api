@@ -1,4 +1,8 @@
 const businessRulesEngine = require('../businessRulesEngine');
+const {
+  getOperationalIdForProfile,
+  getAliasPatternsFromCatalog,
+} = require('../../tenancy/operationalProfileIds');
 
 function extractEstablishmentToken(text) {
   const normalizedText = String(text || '');
@@ -234,7 +238,32 @@ function normalizeInboundText(text) {
 // para casar. Aceitar só "rooftop" sozinho sequestra conversas do Highline que
 // mencionam a Área Rooftop (sub-área do Highline) e empurra o cliente pra outro
 // estabelecimento — bug reportado em produção (caso Julia Monteiro).
-const ESTABLISHMENT_ALIAS_PATTERNS = [
+function getEstablishmentAliasPatterns() {
+  const patterns = [];
+  for (const [profile, regex] of Object.entries(PROFILE_ALIAS_REGEX)) {
+    const id = getOperationalIdForProfile(profile);
+    if (Number.isFinite(id) && id > 0) {
+      patterns.push({ pattern: regex, id });
+    }
+  }
+  if (patterns.length > 0) return patterns;
+
+  const fromCatalog = getAliasPatternsFromCatalog();
+  if (fromCatalog && fromCatalog.length > 0) return fromCatalog;
+
+  return ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK;
+}
+
+/** Regex semânticos por profile — IDs resolvidos do banco no boot. */
+const PROFILE_ALIAS_REGEX = {
+  rooftop: /\breserva\s*rooftop\b/,
+  pracinha: /\bpracinha\b/,
+  highline: /\bhigh[\s-]?line\b/,
+  oh_fregues: /\boh\s*fregues\b|\bfregues\b/,
+  justino: /\bseu\s*justino\b|\bjustino\b/,
+};
+
+const ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK = [
   { pattern: /\breserva\s*rooftop\b/, id: 9 },
   { pattern: /\bpracinha\b/, id: 8 },
   { pattern: /\bhigh[\s-]?line\b/, id: 7 },
@@ -259,7 +288,7 @@ function detectEstablishmentFromText(text, establishments = []) {
   }
   if (bestId) return bestId;
 
-  for (const alias of ESTABLISHMENT_ALIAS_PATTERNS) {
+  for (const alias of getEstablishmentAliasPatterns()) {
     if (alias.pattern.test(normalized)) return alias.id;
   }
   return null;
@@ -326,14 +355,19 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-  const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
+  const highlineId = getOperationalIdForProfile('highline');
   // "Reserva Rooftop" (id 9) só pode ser resolvido pela string completa.
   // "rooftop" sozinho pode ser a Área Rooftop do Highline (sub-área), não a casa Reserva Rooftop.
-  if (hint.includes('reserva rooftop')) return 9;
-  if (hint.includes('pracinha')) return 8;
-  if (hint.includes('seu justino') || hint.includes('justino')) return 1;
+  const rooftopId = getOperationalIdForProfile('rooftop');
+  const pracinhaId = getOperationalIdForProfile('pracinha');
+  const justinoId = getOperationalIdForProfile('justino');
+  if (hint.includes('reserva rooftop') && rooftopId) return rooftopId;
+  if (hint.includes('pracinha') && pracinhaId) return pracinhaId;
+  if (hint.includes('seu justino') || hint.includes('justino')) {
+    if (justinoId) return justinoId;
+  }
   if (hint.includes('highline') || hint.includes('high line')) {
-    if (Number.isFinite(highlineEnvId) && highlineEnvId > 0) return highlineEnvId;
+    if (highlineId) return highlineId;
     if (Number.isFinite(establishmentId) && establishmentId > 0) return establishmentId;
   }
   return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : null;

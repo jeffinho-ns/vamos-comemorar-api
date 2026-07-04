@@ -92,6 +92,42 @@ async function checkOrgIsolationDb() {
     const orgCount = await pool.query(`SELECT count(*)::int AS c FROM meu_backup_db.organizations`);
     pass('Organizações no banco', String(orgCount.rows[0]?.c ?? 0));
 
+    const orgList = await pool.query(
+      `SELECT id, slug, name FROM meu_backup_db.organizations ORDER BY id`,
+    );
+    if (orgList.rows.length >= 2) {
+      pass(
+        'Org A vs B (banco)',
+        orgList.rows.map((o) => `${o.slug}(id=${o.id})`).join(', '),
+      );
+    } else {
+      pass('Org A vs B (banco)', '1 org — rode scripts/saas/provision_org_demo_b.js');
+    }
+
+    const crossOrgEst = await pool.query(`
+      SELECT count(*)::int AS c
+        FROM meu_backup_db.establishments e1
+        JOIN meu_backup_db.establishments e2
+          ON e1.organization_id = e2.organization_id AND e1.id <> e2.id
+       WHERE e1.legacy_place_id IS NOT NULL
+         AND e2.legacy_place_id IS NOT NULL
+         AND e1.legacy_place_id = e2.legacy_place_id
+    `);
+    if ((crossOrgEst.rows[0]?.c ?? 0) === 0) {
+      pass('Isolamento legacy_place_id', '0 duplicatas cross-org');
+    } else {
+      fail('Isolamento legacy_place_id', `${crossOrgEst.rows[0].c} duplicatas`);
+    }
+
+    const { warmOperationalProfileIds } = require('../../tenancy/operationalProfileIds');
+    const profileMap = await warmOperationalProfileIds(pool);
+    const highlineId = profileMap.highline;
+    if (highlineId) {
+      pass('IA profile highline', `operational id=${highlineId} (catálogo DB)`);
+    } else {
+      pass('IA profile highline', 'não resolvido — verifique establishments.config.profile');
+    }
+
     const usersNull = await pool.query(`
       SELECT count(*)::int AS c FROM users
        WHERE organization_id IS NULL AND COALESCE(is_super_admin, FALSE) = FALSE

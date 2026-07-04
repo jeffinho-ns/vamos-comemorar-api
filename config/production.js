@@ -24,20 +24,20 @@ module.exports = {
 
   // Configurações do banco de dados
   database: {
-    host: process.env.DB_HOST || '193.203.175.55',
-    user: process.env.DB_USER || 'u621081794_vamos',
-    password: process.env.DB_PASSWORD || '@123Mudar!@',
-    database: process.env.DB_NAME || 'u621081794_vamos',
+    host: process.env.DB_HOST || '',
+    user: process.env.DB_USER || '',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || '',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
   },
 
-  // Configurações FTP (PRODUÇÃO)
+  // Configurações FTP — credenciais somente via env (FTP_HOST, FTP_USER, FTP_PASSWORD)
   ftp: {
-    host: process.env.FTP_HOST || '195.35.41.247',
-    user: process.env.FTP_USER || 'u621081794',
-    password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
+    host: process.env.FTP_HOST || '',
+    user: process.env.FTP_USER || '',
+    password: process.env.FTP_PASSWORD || '',
     secure: false,
     port: 21,
     remoteDirectory: '/public_html/cardapio-agilizaiapp/',

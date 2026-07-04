@@ -39,8 +39,6 @@ const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentCo
 const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
 const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
-
-const HIGHLINE_ID = 7;
 const B2B_THRESHOLD_PEOPLE = 60;
 const B2B_KEYWORDS = /\b(locac[aã]o|loca[cç][aã]o|exclusiv[ao]|privativ[ao]|formatura|formaturas|evento\s+corporativo|corporativ[ao]|empresa|empresarial|confraterniza[cç][aã]o|workshop|congresso|festa\s+de\s+formatura)\b/i;
 

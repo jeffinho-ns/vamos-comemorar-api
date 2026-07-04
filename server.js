@@ -68,10 +68,22 @@ server.listen(BIND_PORT, BIND_HOST, () => {
 });
 
 const pool = require('./config/database');
+const { warmOperationalProfileIds } = require('./tenancy/operationalProfileIds');
 
 // Disponibilizar pool para as rotas
 app.set('pool', pool);
 app.set('ftpConfig', config.ftp);
+
+warmOperationalProfileIds(pool)
+  .then((map) => {
+    const keys = Object.keys(map || {});
+    if (keys.length) {
+      console.log('[startup] operational profile IDs:', map);
+    }
+  })
+  .catch((err) => {
+    console.warn('[startup] operational profile IDs warm falhou:', err.message);
+  });
 
 if (process.env.NODE_ENV === 'production') {
   const missingWhatsAppEnv = [];

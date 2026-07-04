@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+process.env.HIGHLINE_ESTABLISHMENT_ID = process.env.HIGHLINE_ESTABLISHMENT_ID || '7';
+
 const {
   getHighlineSubareas,
   resolveHighlineSubarea,

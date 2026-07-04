@@ -448,6 +448,7 @@ async function provisionOrganization(pool, input, actorUserId) {
     adminPassword,
     establishmentName,
     monthlyAmountCents,
+    adminCpf,
   } = input;
 
   if (!name || !slug) throw new Error('name e slug são obrigatórios');
@@ -462,6 +463,8 @@ async function provisionOrganization(pool, input, actorUserId) {
       [slug, name],
     );
     const org = orgIns.rows[0];
+
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [String(org.id)]);
 
     const hasMonthly = await hasSubscriptionMonthlyAmountColumn(pool);
     const planRes = await client.query(
@@ -516,10 +519,11 @@ async function provisionOrganization(pool, input, actorUserId) {
         );
       } else {
         const hash = await bcrypt.hash(adminPassword || '@123Mudar', 10);
+        const cpf = String(adminCpf || process.env.PROVISION_ADMIN_CPF || '00000000000').replace(/\D/g, '');
         const userIns = await client.query(
-          `INSERT INTO users (name, email, password, role, organization_id)
-           VALUES ($1, $2, $3, 'admin', $4) RETURNING id, email, name`,
-          [adminName || emailNorm, emailNorm, hash, org.id],
+          `INSERT INTO users (name, email, password, role, organization_id, cpf)
+           VALUES ($1, $2, $3, 'admin', $4, $5) RETURNING id, email, name`,
+          [adminName || emailNorm, emailNorm, hash, org.id, cpf],
         );
         userId = userIns.rows[0].id;
         adminUser = userIns.rows[0];

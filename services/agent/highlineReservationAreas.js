@@ -3,7 +3,12 @@
  * Mesma lista em ReservationModal.tsx e ReservationForm.tsx.
  */
 
-const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
+const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 0);
+
+const {
+  getOperationalIdForProfile,
+  isOperationalProfile,
+} = require('../../tenancy/operationalProfileIds');
 
 /** A partir deste tamanho a casa combina mesas e ainda registra reserva mesmo sem cadeira para todos. */
 const HIGHLINE_LARGE_GROUP_MIN = Number(process.env.HIGHLINE_LARGE_GROUP_MIN || 16);
@@ -102,9 +107,15 @@ function normalizeLabel(text) {
     .trim();
 }
 
+function resolveHighlineOperationalId() {
+  return getOperationalIdForProfile('highline') || HIGHLINE_ESTABLISHMENT_ID || null;
+}
+
 function isHighlineEstablishment(establishmentId) {
+  if (isOperationalProfile(establishmentId, 'highline')) return true;
+  const highlineId = resolveHighlineOperationalId();
   const id = Number(establishmentId);
-  return Number.isFinite(id) && id === HIGHLINE_ESTABLISHMENT_ID;
+  return Number.isFinite(highlineId) && highlineId > 0 && id === highlineId;
 }
 
 function getHighlineSubareas() {
@@ -737,7 +748,7 @@ async function findCombinedTablesInAreaForGroup(
 }
 
 module.exports = {
-  HIGHLINE_ESTABLISHMENT_ID,
+  resolveHighlineOperationalId,
   HIGHLINE_LARGE_GROUP_MIN,
   HIGHLINE_SUBAREAS,
   STANDARD_SUBAREA_KEYS,
@@ -754,3 +765,8 @@ module.exports = {
   pickCombinedTablesFromFreeList,
   pickCombinedTablesForArea,
 };
+
+Object.defineProperty(module.exports, 'HIGHLINE_ESTABLISHMENT_ID', {
+  enumerable: true,
+  get: resolveHighlineOperationalId,
+});

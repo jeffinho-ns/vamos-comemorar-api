@@ -42,10 +42,10 @@ async function seedOrganizationTrainingMaterials(client, organizationId, planKey
     await client.query(
       `INSERT INTO meu_backup_db.training_materials
          (title, description, content_type, url, module_key, plan_key, organization_id, is_published, sort_order)
-       SELECT $1, $2, $3, $4, $5, $6, $7, TRUE, $8
+       SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::integer, TRUE, $8::integer
         WHERE NOT EXISTS (
           SELECT 1 FROM meu_backup_db.training_materials
-           WHERE organization_id = $7 AND title = $1
+           WHERE organization_id = $7::integer AND title = $1::varchar
         )`,
       [
         item.title,

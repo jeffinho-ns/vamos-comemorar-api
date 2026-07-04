@@ -3,6 +3,7 @@
 const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
 const establishmentRules = require('../services/establishmentRules');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+const { getOperationalIdForProfile } = require('../tenancy/operationalProfileIds');
 
 /**
  * Controller para gerenciamento de Eventos e Listas
@@ -1405,8 +1406,8 @@ class EventosController {
               // Fallback: verificar se é Highline
               const casaLower = eventoInfo.casa_do_evento.toLowerCase();
               if (casaLower.includes('high') && casaLower.includes('line')) {
-                establishment_id = 7;
-                console.log(`✅ Detectado Highline, usando id_place = 7`);
+                establishment_id = getOperationalIdForProfile('highline');
+                console.log(`✅ Detectado Highline, usando id_place = ${establishment_id}`);
               }
             }
           }
@@ -1462,13 +1463,16 @@ class EventosController {
         
         // Última tentativa: buscar diretamente por "Highline"
         if (eventoInfo.casa_do_evento && eventoInfo.casa_do_evento.toLowerCase().includes('highline')) {
-          console.log(`🔧 Última tentativa: forçando id_place = 7 para Highline`);
-          try {
-            await this.pool.query(`UPDATE eventos SET id_place = 7 WHERE id = $1`, [eventoId]);
-            eventoInfo.establishment_id = 7;
-            console.log(`✅ Forçado id_place = 7 para evento ${eventoId}`);
-          } catch (err) {
-            console.error(`❌ Erro ao forçar id_place:`, err.message);
+          const highlineId = getOperationalIdForProfile('highline');
+          if (highlineId) {
+            console.log(`🔧 Última tentativa: forçando id_place = ${highlineId} para Highline`);
+            try {
+              await this.pool.query(`UPDATE eventos SET id_place = $1 WHERE id = $2`, [highlineId, eventoId]);
+              eventoInfo.establishment_id = highlineId;
+              console.log(`✅ Forçado id_place = ${highlineId} para evento ${eventoId}`);
+            } catch (err) {
+              console.error(`❌ Erro ao forçar id_place:`, err.message);
+            }
           }
         }
       }
