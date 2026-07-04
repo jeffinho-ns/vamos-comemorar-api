@@ -34,6 +34,19 @@ function resolveDatabaseUrl() {
     return `postgresql://${encUser}:${encPass}@${host}:${port}/${database}${sslQuery}`;
   }
 
+  // Serviços Render legados: DATABASE_URL não estava no painel Environment (só no código).
+  // Preferir: Web Service → Environment → DATABASE_URL = Internal Database URL do Postgres.
+  if (process.env.RENDER === 'true') {
+    console.warn(
+      '[db] DATABASE_URL ausente no Render — usando fallback legado. ' +
+        'Configure DATABASE_URL no painel Environment para remover este aviso.',
+    );
+    return (
+      process.env.RENDER_DATABASE_FALLBACK ||
+      'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=require'
+    );
+  }
+
   return null;
 }
 
