@@ -4,10 +4,17 @@ const express = require('express');
 const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 const bcrypt = require('bcryptjs');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+  router.use(requireModule('promoters'));
+
   /**
    * @route   GET /api/v1/promoters/advanced
    * @desc    Lista promoters com informações completas e estatísticas

@@ -4,8 +4,9 @@ const bcrypt = require('bcryptjs');
 const ManualPaymentProvider = require('./ManualPaymentProvider');
 const {
   seedOrganizationTrainingMaterials,
-  seedEstablishmentConfig,
 } = require('./onboardingTemplates');
+const { provisionOperationalEstablishment } = require('./provisioningOperational');
+const { seedFactoryRoles, seedRolePermissionsForOrg } = require('./rolePermissionMatrix');
 
 const ACTIVE_SUB_STATUSES = ['active', 'trialing'];
 let hasMonthlyAmountColumnCache = null;
@@ -490,23 +491,15 @@ async function provisionOrganization(pool, input, actorUserId) {
       [org.id, planRes.rows[0].id],
     );
 
-    await client.query(
-      `INSERT INTO meu_backup_db.roles (organization_id, key, name, is_system) VALUES
-         ($1, 'account_admin', 'Account Admin', TRUE),
-         ($1, 'gerente_bar', 'Gerente do Bar', TRUE),
-         ($1, 'recepcao', 'Recepção', TRUE)
-       ON CONFLICT (organization_id, key) DO NOTHING`,
-      [org.id],
-    );
+    await seedFactoryRoles(client, org.id);
+    await seedRolePermissionsForOrg(client, org.id);
 
-    if (establishmentName) {
-      const estIns = await client.query(
-        `INSERT INTO meu_backup_db.establishments (organization_id, slug, name, status)
-         VALUES ($1, $2, $3, 'active') RETURNING id`,
-        [org.id, slug, establishmentName],
-      );
-      await seedEstablishmentConfig(client, estIns.rows[0].id, slug);
-    }
+    const estName = establishmentName || name;
+    const operational = await provisionOperationalEstablishment(client, {
+      org,
+      slug,
+      establishmentName: estName,
+    });
 
     await seedOrganizationTrainingMaterials(client, org.id, planKey);
 
@@ -517,11 +510,16 @@ async function provisionOrganization(pool, input, actorUserId) {
       let userId;
       if (existing.rows.length) {
         userId = existing.rows[0].id;
+        await client.query(
+          `UPDATE users SET organization_id = $1 WHERE id = $2 AND organization_id IS NULL`,
+          [org.id, userId],
+        );
       } else {
         const hash = await bcrypt.hash(adminPassword || '@123Mudar', 10);
         const userIns = await client.query(
-          `INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, 'admin') RETURNING id, email, name`,
-          [adminName || emailNorm, emailNorm, hash],
+          `INSERT INTO users (name, email, password, role, organization_id)
+           VALUES ($1, $2, $3, 'admin', $4) RETURNING id, email, name`,
+          [adminName || emailNorm, emailNorm, hash, org.id],
         );
         userId = userIns.rows[0].id;
         adminUser = userIns.rows[0];
@@ -544,11 +542,19 @@ async function provisionOrganization(pool, input, actorUserId) {
     await client.query(
       `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
        VALUES ($1, 'organization.provisioned', $2::jsonb)`,
-      [org.id, JSON.stringify({ actorUserId, planKey, adminEmail: adminEmail || null })],
+      [
+        org.id,
+        JSON.stringify({
+          actorUserId,
+          planKey,
+          adminEmail: adminEmail || null,
+          establishment: operational,
+        }),
+      ],
     );
 
     await client.query('COMMIT');
-    return { organization: org, adminUser };
+    return { organization: org, adminUser, establishment: operational };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -710,6 +716,76 @@ async function listOrganizationUsers(pool, organizationId) {
   return rows;
 }
 
+async function listOrganizationMemberships(pool, organizationId) {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.user_id, m.organization_id, m.establishment_id, m.role_id, m.is_active,
+            u.name AS user_name, u.email AS user_email,
+            r.key AS role_key, r.name AS role_name,
+            e.name AS establishment_name
+       FROM meu_backup_db.memberships m
+       JOIN users u ON u.id = m.user_id
+       LEFT JOIN meu_backup_db.roles r ON r.id = m.role_id
+       LEFT JOIN meu_backup_db.establishments e ON e.id = m.establishment_id
+      WHERE m.organization_id = $1
+      ORDER BY u.name, m.id`,
+    [organizationId],
+  );
+  return rows;
+}
+
+async function createOrganizationMembership(pool, organizationId, input, actorUserId) {
+  const { userEmail, userId, roleKey, establishmentId, isActive = true } = input;
+  if (!userEmail && !userId) throw new Error('userEmail ou userId é obrigatório');
+  if (!roleKey) throw new Error('roleKey é obrigatório');
+
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
+    const emailNorm = String(userEmail).trim().toLowerCase();
+    const userRes = await pool.query(`SELECT id FROM users WHERE LOWER(email) = $1`, [emailNorm]);
+    if (!userRes.rows.length) throw new Error('Usuário não encontrado');
+    resolvedUserId = userRes.rows[0].id;
+  }
+
+  const roleRes = await pool.query(
+    `SELECT id FROM meu_backup_db.roles WHERE organization_id = $1 AND key = $2 LIMIT 1`,
+    [organizationId, roleKey],
+  );
+  if (!roleRes.rows.length) throw new Error(`Role '${roleKey}' não encontrada na organização`);
+
+  const estId = establishmentId != null && establishmentId !== '' ? Number(establishmentId) : null;
+  if (estId) {
+    const estCheck = await pool.query(
+      `SELECT id FROM meu_backup_db.establishments WHERE id = $1 AND organization_id = $2`,
+      [estId, organizationId],
+    );
+    if (!estCheck.rows.length) throw new Error('Estabelecimento inválido para esta organização');
+  }
+
+  await pool.query(
+    `UPDATE users SET organization_id = $1 WHERE id = $2 AND organization_id IS NULL`,
+    [organizationId, resolvedUserId],
+  );
+
+  const { rows } = await pool.query(
+    `INSERT INTO meu_backup_db.memberships (user_id, organization_id, establishment_id, role_id, is_active)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, organization_id, establishment_id)
+     DO UPDATE SET role_id = EXCLUDED.role_id, is_active = EXCLUDED.is_active
+     RETURNING *`,
+    [resolvedUserId, organizationId, estId, roleRes.rows[0].id, !!isActive],
+  );
+
+  await logBillingEvent(pool, organizationId, 'membership.upserted', {
+    actorUserId,
+    membershipId: rows[0].id,
+    userId: resolvedUserId,
+    roleKey,
+    establishmentId: estId,
+  });
+
+  return rows[0];
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -728,4 +804,6 @@ module.exports = {
   listPlans,
   getBillingSummaryByMonth,
   listOrganizationUsers,
+  listOrganizationMemberships,
+  createOrganizationMembership,
 };

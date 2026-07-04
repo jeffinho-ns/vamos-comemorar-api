@@ -66,6 +66,9 @@ Migrations:
 - `017_rls_lote4_reservas_promoters.sql` — `reservas`, `promoters`, `promoter_eventos`, `promoter_convidados`
 - `018_rls_tighten_strict_tenant.sql` — remove cláusula `organization_id IS NULL` das policies
 - `019_contract_organization_id_not_null.sql` — NOT NULL em tabelas RLS
+- `020_role_permissions_seed.sql` — matriz de fábrica role → permissions por org
+
+**Provisionamento (Bloco A):** `billing/provisioningOperational.js` — nova org cria place+bar+legacy IDs+área+mesas+FAQ.
 
 **checkins:** tabela/coluna `organization_id` inexistente no banco atual — fora do escopo RLS até migration aditiva futura.
 - `016_rls_guests.sql` — RLS em `guests`

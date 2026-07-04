@@ -1,8 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 
 module.exports = (pool) => {
-  
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+  router.use(requireModule('promoters'));
+
   // ========================================
   // GET /api/promoter-eventos/:evento_id
   // Lista todos os promoters de um evento

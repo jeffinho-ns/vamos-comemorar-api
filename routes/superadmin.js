@@ -178,6 +178,29 @@ module.exports = (pool) => {
     }
   });
 
+  router.get('/organizations/:id/memberships', async (req, res) => {
+    try {
+      const memberships = await billing.listOrganizationMemberships(pool, Number(req.params.id));
+      res.json({ success: true, data: memberships });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/organizations/:id/memberships', async (req, res) => {
+    try {
+      const membership = await billing.createOrganizationMembership(
+        pool,
+        Number(req.params.id),
+        req.body,
+        req.user.id,
+      );
+      res.status(201).json({ success: true, data: membership });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/impersonate/users', async (req, res) => {
     try {
       const users = await impersonate.listImpersonationCandidates(pool, {
