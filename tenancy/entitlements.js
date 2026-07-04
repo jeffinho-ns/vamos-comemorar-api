@@ -75,16 +75,19 @@ async function resolveEntitlements(pool, user) {
 
   // Permissões via roles do usuário naquela organização
   let permissions = [];
+  let isAccountAdmin = false;
   try {
     const { rows } = await pool.query(
-      `SELECT DISTINCT p.key
+      `SELECT DISTINCT p.key, r.key AS role_key
          FROM meu_backup_db.memberships mem
+         JOIN meu_backup_db.roles r ON r.id = mem.role_id
          JOIN meu_backup_db.role_permissions rp ON rp.role_id = mem.role_id
          JOIN meu_backup_db.permissions p ON p.id = rp.permission_id
         WHERE mem.user_id = $1 AND mem.organization_id = $2 AND mem.is_active = TRUE`,
       [user.id, orgId],
     );
-    permissions = rows.map((r) => r.key);
+    permissions = [...new Set(rows.map((r) => r.key))];
+    isAccountAdmin = rows.some((r) => r.role_key === 'account_admin');
   } catch (_) {
     permissions = [];
   }
@@ -101,6 +104,7 @@ async function resolveEntitlements(pool, user) {
     permissions,
     organizationId: orgId,
     legacyScoped,
+    isAccountAdmin,
   };
 }
 

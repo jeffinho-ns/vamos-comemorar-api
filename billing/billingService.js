@@ -786,6 +786,87 @@ async function createOrganizationMembership(pool, organizationId, input, actorUs
   return rows[0];
 }
 
+async function updateOrganizationMembership(pool, organizationId, membershipId, input, actorUserId) {
+  const existing = await pool.query(
+    `SELECT id FROM meu_backup_db.memberships WHERE id = $1 AND organization_id = $2`,
+    [membershipId, organizationId],
+  );
+  if (!existing.rows.length) throw new Error('Membership não encontrado');
+
+  const { roleKey, establishmentId, isActive } = input;
+  const updates = [];
+  const params = [membershipId, organizationId];
+  let idx = 3;
+
+  if (roleKey != null) {
+    const roleRes = await pool.query(
+      `SELECT id FROM meu_backup_db.roles WHERE organization_id = $1 AND key = $2 LIMIT 1`,
+      [organizationId, roleKey],
+    );
+    if (!roleRes.rows.length) throw new Error(`Role '${roleKey}' não encontrada`);
+    updates.push(`role_id = $${idx++}`);
+    params.push(roleRes.rows[0].id);
+  }
+
+  if (establishmentId !== undefined) {
+    const estId =
+      establishmentId != null && establishmentId !== '' ? Number(establishmentId) : null;
+    if (estId) {
+      const estCheck = await pool.query(
+        `SELECT id FROM meu_backup_db.establishments WHERE id = $1 AND organization_id = $2`,
+        [estId, organizationId],
+      );
+      if (!estCheck.rows.length) throw new Error('Estabelecimento inválido para esta organização');
+    }
+    updates.push(`establishment_id = $${idx++}`);
+    params.push(estId);
+  }
+
+  if (isActive !== undefined) {
+    updates.push(`is_active = $${idx++}`);
+    params.push(!!isActive);
+  }
+
+  if (!updates.length) throw new Error('Nenhum campo para atualizar');
+
+  const { rows } = await pool.query(
+    `UPDATE meu_backup_db.memberships SET ${updates.join(', ')}
+      WHERE id = $1 AND organization_id = $2
+      RETURNING *`,
+    params,
+  );
+
+  await logBillingEvent(pool, organizationId, 'membership.updated', {
+    actorUserId,
+    membershipId,
+    patch: input,
+  });
+
+  return rows[0];
+}
+
+async function listOrganizationRoles(pool, organizationId) {
+  const { rows } = await pool.query(
+    `SELECT id, key, name, is_system
+       FROM meu_backup_db.roles
+      WHERE organization_id = $1
+      ORDER BY name`,
+    [organizationId],
+  );
+  return rows;
+}
+
+async function listOrganizationEstablishments(pool, organizationId) {
+  const { rows } = await pool.query(
+    `SELECT id, name, slug, legacy_place_id, legacy_bar_id
+       FROM meu_backup_db.establishments
+      WHERE organization_id = $1
+      ORDER BY name`,
+    [organizationId],
+  );
+  return rows;
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -806,4 +887,7 @@ module.exports = {
   listOrganizationUsers,
   listOrganizationMemberships,
   createOrganizationMembership,
+  updateOrganizationMembership,
+  listOrganizationRoles,
+  listOrganizationEstablishments,
 };

@@ -26,6 +26,13 @@ nas rotas de reserva; comportamento controlado por `SAAS_MODE`.
 | `requireModule.js` | Gate de módulo contratado (receita). |
 | `requirePermission.js` | Gate de permissão `modulo:acao` (RBAC). |
 | `meEntitlementsRouter.js` | `GET /api/me/entitlements` (read-only). |
+| `requireAccountAdmin.js` | Gate Account Admin para `/api/org/*`. |
+| `reservasPermissionMiddleware.js` | RBAC fino reservas por verbo HTTP. |
+
+## Migrations recentes
+| Arquivo | Conteúdo |
+|---------|----------|
+| `024_contract_users_organization_id.sql` | CHECK: `users.organization_id NOT NULL` exceto `is_super_admin`. Pré-requisito: backfill users. |
 
 ## Runbook: virar `SAAS_MODE=on` (enforce gradual)
 
