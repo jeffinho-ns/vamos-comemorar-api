@@ -24,6 +24,8 @@ module.exports = (pool) => {
           profile: rules.profile,
           reservations: rules.reservations || {},
           cardapio: { barId: getCardapioBarId(rules, id) },
+          events: rules.events || {},
+          operationalAliases: rules.operationalAliases || [],
         },
       });
     } catch (err) {
