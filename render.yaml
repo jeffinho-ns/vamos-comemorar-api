@@ -14,8 +14,10 @@ services:
         value: production
       - key: PORT
         value: 10000
+      # Obrigatório: vincule o Postgres ao web service OU cole a Internal Database URL aqui.
+      # Dashboard: Web Service → Environment → DATABASE_URL
       - key: DATABASE_URL
-        value: postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer
+        sync: false
       - key: FTP_HOST
         value: 195.35.41.247
       - key: FTP_USER

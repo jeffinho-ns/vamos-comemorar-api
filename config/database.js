@@ -1,21 +1,7 @@
 'use strict';
 
 const { Pool } = require('pg');
-
-/**
- * Pool PostgreSQL — exige DATABASE_URL (sem credenciais no código).
- * Local: export DATABASE_URL=postgresql://...
- * Render/prod: variável injetada pelo painel.
- */
-function requireDatabaseUrl() {
-  const url = process.env.DATABASE_URL;
-  if (!url || !String(url).trim()) {
-    throw new Error(
-      'DATABASE_URL não definida. Configure no Render ou export DATABASE_URL antes de iniciar a API.',
-    );
-  }
-  return url;
-}
+const { requireDatabaseUrl } = require('./resolveDatabaseUrl');
 
 const connectionString = requireDatabaseUrl();
 const isLocalDatabase = /localhost|127\.0\.0\.1/i.test(connectionString);
