@@ -29,12 +29,30 @@ const { processStuckConversationBatch } = require('../services/recoveryEngine/st
 const {
   getWhatsappHighlineOnlyEstablishmentIds,
 } = require('../config/whatsappHighlineAccess');
+const { isSaasEnforced, isSaasObserving } = require('../tenancy/featureFlags');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const requirePermission = require('../tenancy/requirePermission');
+const {
+  loadUserScope: loadTenantScope,
+} = require('../tenancy/tenantScope');
 
 module.exports = (pool, app) => {
   const router = express.Router();
   const allowedRoles = ['admin', 'gerente', 'hostess', 'promoter', 'recepção', 'recepcao', 'atendente'];
   const ALLOWED_STATUSES = new Set(['new', 'in_progress', 'waiting_customer', 'resolved']);
   const ALLOWED_CONTACT_STATUSES = new Set(['new', 'qualified', 'customer', 'inactive']);
+
+  router.use(auth);
+  router.use(authorize(...allowedRoles));
+  router.use(tenantMiddleware());
+  router.use(requireModule('whatsapp'));
+  router.use((req, res, next) => {
+    const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+      ? 'whatsapp:update'
+      : 'whatsapp:read';
+    return requirePermission(perm)(req, res, next);
+  });
 
   function isAdminRole(user) {
     const role = String(user?.role || '').trim().toLowerCase();
@@ -45,6 +63,13 @@ module.exports = (pool, app) => {
     const highlineOnlyIds = getWhatsappHighlineOnlyEstablishmentIds(user);
     if (highlineOnlyIds) {
       return { isAdmin: false, allowedEstablishmentIds: highlineOnlyIds };
+    }
+    if (isSaasEnforced() || isSaasObserving()) {
+      const scope = await loadTenantScope(pool, user);
+      return {
+        isAdmin: scope.isAdmin,
+        allowedEstablishmentIds: scope.establishmentIds,
+      };
     }
     if (isAdminRole(user)) {
       return { isAdmin: true, allowedEstablishmentIds: [] };
@@ -359,7 +384,7 @@ module.exports = (pool, app) => {
     return clampInt(process.env.WHATSAPP_CAMPAIGN_BATCH_MAX_CHUNK, 1, 200, 50);
   }
 
-  router.get('/conversations', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/conversations', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -426,7 +451,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/conversations/:waId/messages', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/conversations/:waId/messages', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -450,7 +475,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/mark-read', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/mark-read', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -478,7 +503,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/takeover', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/takeover', async (req, res) => {
     const { waId } = req.params;
     const hours = Number(req.body?.hours);
     const untilManualResume = req.body?.until_resume !== false;
@@ -510,7 +535,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/stuck/resolve', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/stuck/resolve', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -529,7 +554,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/resolve-stuck', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/resolve-stuck', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -552,7 +577,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/resume-ai-unassigned', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/resume-ai-unassigned', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -599,7 +624,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/resume', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/resume', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -628,7 +653,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/send', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/send', async (req, res) => {
     const { waId } = req.params;
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
     if (!text) {
@@ -726,8 +751,6 @@ module.exports = (pool, app) => {
   // renderizar a miniatura no painel. O texto do campo de digitação vira legenda.
   router.post(
     '/conversations/:waId/send-image',
-    auth,
-    authorize(...allowedRoles),
     uploadImage.single('image'),
     async (req, res) => {
       const { waId } = req.params;
@@ -803,7 +826,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/status', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/status', async (req, res) => {
     const { waId } = req.params;
     const status = String(req.body?.status || '').trim();
     if (!ALLOWED_STATUSES.has(status)) {
@@ -827,7 +850,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/assign-self', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/assign-self', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -848,7 +871,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/conversations/:waId/unassign', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/conversations/:waId/unassign', async (req, res) => {
     const { waId } = req.params;
     try {
       const scope = await loadUserScope(req.user);
@@ -868,7 +891,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/contacts', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/contacts', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -900,7 +923,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/contacts/export.csv', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/contacts/export.csv', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -939,7 +962,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/contacts/backfill-opt-in', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/contacts/backfill-opt-in', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       const establishmentId = Number(req.body?.establishment_id);
@@ -974,7 +997,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/contacts/import', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/contacts/import', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       const establishmentId = Number(req.body?.establishment_id);
@@ -1024,7 +1047,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.patch('/contacts/:id', auth, authorize(...allowedRoles), async (req, res) => {
+  router.patch('/contacts/:id', async (req, res) => {
     const contactId = Number(req.params?.id);
     if (!Number.isFinite(contactId) || contactId <= 0) {
       return res.status(400).json({ message: 'id inválido' });
@@ -1078,7 +1101,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaigns/upload-image', auth, authorize(...allowedRoles), uploadImage.single('image'), async (req, res) => {
+  router.post('/campaigns/upload-image', uploadImage.single('image'), async (req, res) => {
     const file = req.file;
     if (!file) {
       return res.status(400).json({ message: 'Arquivo de imagem é obrigatório (campo "image").' });
@@ -1100,7 +1123,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/campaigns/meta-template-info', auth, authorize(...allowedRoles), async (_req, res) => {
+  router.get('/campaigns/meta-template-info', async (_req, res) => {
     return res.json({
       default_template_name: defaultTemplateName(),
       default_template_language: defaultTemplateLanguage(),
@@ -1118,7 +1141,7 @@ module.exports = (pool, app) => {
     });
   });
 
-  router.get('/campaigns', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/campaigns', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && scope.allowedEstablishmentIds.length === 0) {
@@ -1144,7 +1167,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaigns', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/campaigns', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       const establishmentId = Number(req.body?.establishment_id);
@@ -1190,7 +1213,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.put('/campaigns/:id', auth, authorize(...allowedRoles), async (req, res) => {
+  router.put('/campaigns/:id', async (req, res) => {
     const campaignId = Number(req.params?.id);
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id inválido' });
@@ -1236,7 +1259,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.delete('/campaigns/:id', auth, authorize(...allowedRoles), async (req, res) => {
+  router.delete('/campaigns/:id', async (req, res) => {
     const campaignId = Number(req.params?.id);
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id inválido' });
@@ -1258,7 +1281,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/campaigns/:id/audience-preview', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/campaigns/:id/audience-preview', async (req, res) => {
     const campaignId = Number(req.params?.id);
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id inválido' });
@@ -1292,7 +1315,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaigns/:id/send-to-contact', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/campaigns/:id/send-to-contact', async (req, res) => {
     const campaignId = Number(req.params?.id);
     const contactIdRaw = req.body?.contact_id ?? req.query?.contact_id;
     const contactId = Number(contactIdRaw);
@@ -1388,7 +1411,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaigns/:id/batches', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/campaigns/:id/batches', async (req, res) => {
     const campaignId = Number(req.params?.id);
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id da campanha inválido' });
@@ -1429,7 +1452,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/campaigns/:id/batches', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/campaigns/:id/batches', async (req, res) => {
     const campaignId = Number(req.params?.id);
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ message: 'id da campanha inválido' });
@@ -1451,7 +1474,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/campaign-batches/:batchId', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/campaign-batches/:batchId', async (req, res) => {
     const batchId = Number(req.params?.batchId);
     if (!Number.isFinite(batchId) || batchId <= 0) {
       return res.status(400).json({ message: 'batch inválido' });
@@ -1472,7 +1495,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/campaign-batches/:batchId/logs', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/campaign-batches/:batchId/logs', async (req, res) => {
     const batchId = Number(req.params?.batchId);
     if (!Number.isFinite(batchId) || batchId <= 0) {
       return res.status(400).json({ message: 'batch inválido' });
@@ -1497,7 +1520,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaign-batches/:batchId/cancel', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/campaign-batches/:batchId/cancel', async (req, res) => {
     const batchId = Number(req.params?.batchId);
     if (!Number.isFinite(batchId) || batchId <= 0) {
       return res.status(400).json({ message: 'batch inválido' });
@@ -1532,7 +1555,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.post('/campaign-batches/:batchId/process', auth, authorize(...allowedRoles), async (req, res) => {
+  router.post('/campaign-batches/:batchId/process', async (req, res) => {
     const batchId = Number(req.params?.batchId);
     if (!Number.isFinite(batchId) || batchId <= 0) {
       return res.status(400).json({ message: 'batch inválido' });
@@ -1737,7 +1760,7 @@ module.exports = (pool, app) => {
     }
   });
 
-  router.get('/reports/summary', auth, authorize(...allowedRoles), async (req, res) => {
+  router.get('/reports/summary', async (req, res) => {
     try {
       const scope = await loadUserScope(req.user);
       const establishmentId = Number(req.query?.establishment_id);

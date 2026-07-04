@@ -19,6 +19,14 @@ const RLS_SCOPED_TABLES = [
   'promoters',
   'promoter_eventos',
   'promoter_convidados',
+  'menu_items',
+  'cardapio_images',
+  'menu_pause_schedules',
+  'whatsapp_contacts',
+  'whatsapp_conversations',
+  'whatsapp_messages',
+  'whatsapp_campaigns',
+  'establishment_faq',
 ];
 
 const RLS_TABLE_PATTERNS = RLS_SCOPED_TABLES.map(

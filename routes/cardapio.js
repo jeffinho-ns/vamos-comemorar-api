@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const requirePermission = require('../tenancy/requirePermission');
 const { logAction } = require('../middleware/actionLogger');
 const { limiter60PerMin } = require('../middleware/rateLimiters');
 const {
@@ -11,6 +14,17 @@ const {
 } = require('../services/menuPauseScheduleService');
 
 module.exports = (pool) => {
+    router.use(optionalAuth);
+    router.use(tenantMiddleware());
+    router.use(requireModule('cardapio'));
+    router.use((req, res, next) => {
+        if (!req.user) return next();
+        const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+            ? 'cardapio:update'
+            : 'cardapio:read';
+        return requirePermission(perm)(req, res, next);
+    });
+
     /**
      * URL pública de leitura no Firebase Storage (sem proxy da API).
      * Se FIREBASE_STORAGE_BUCKET não estiver definido, cai no proxy /public/images/.

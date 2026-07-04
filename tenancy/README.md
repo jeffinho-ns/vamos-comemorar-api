@@ -67,13 +67,15 @@ Migrations:
 - `018_rls_tighten_strict_tenant.sql` — remove cláusula `organization_id IS NULL` das policies
 - `019_contract_organization_id_not_null.sql` — NOT NULL em tabelas RLS
 - `020_role_permissions_seed.sql` — matriz de fábrica role → permissions por org
+- `021_rls_cardapio_whatsapp.sql` — RLS `menu_items`, whatsapp_*, `establishment_faq`
 
 **Provisionamento (Bloco A):** `billing/provisioningOperational.js` — nova org cria place+bar+legacy IDs+área+mesas+FAQ.
 
-**checkins:** tabela/coluna `organization_id` inexistente no banco atual — fora do escopo RLS até migration aditiva futura.
-- `016_rls_guests.sql` — RLS em `guests`
+**Backfill WhatsApp/cardápio:** `scripts/saas/backfill_organization_id_whatsapp.js`
 
-Tabelas monitoradas: `tenancy/rlsTables.js`. Validação: `scripts/saas/validate_rls_operational.sql`.
+**checkins:** tabela/coluna `organization_id` inexistente no banco atual — fora do escopo RLS até migration aditiva futura.
+
+Tabelas monitoradas: `tenancy/rlsTables.js` (**21 tabelas**). Validação: `scripts/saas/validate_rls_operational.sql`.
 
 **Ordem recomendada:** staging → aplicar 008/014 → `SAAS_RLS_MODE=on` no Render → validar `/health` (`saas.rlsMode`) → analista restrito → produção.
 

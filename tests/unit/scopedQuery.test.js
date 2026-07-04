@@ -14,5 +14,7 @@ test('targetsRlsScopedTable detecta tabelas RLS', () => {
   assert.equal(targetsRlsScopedTable('SELECT * FROM reservas'), true);
   assert.equal(targetsRlsScopedTable('SELECT * FROM promoters'), true);
   assert.equal(targetsRlsScopedTable('SELECT * FROM promoter_eventos'), true);
+  assert.equal(targetsRlsScopedTable('SELECT * FROM menu_items'), true);
+  assert.equal(targetsRlsScopedTable('SELECT * FROM whatsapp_conversations'), true);
   assert.equal(targetsRlsScopedTable('SELECT * FROM users'), false);
 });

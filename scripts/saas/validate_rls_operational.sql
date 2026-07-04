@@ -1,4 +1,4 @@
--- Validação RLS expandido (008–019) — órfãos organization_id nas tabelas RLS
+-- Validação RLS expandido (008–021) — órfãos organization_id nas tabelas RLS
 SET search_path TO meu_backup_db, public;
 
 \echo '=== Tabelas com RLS ==='
@@ -10,7 +10,7 @@ WHERE n.nspname = 'meu_backup_db'
   AND c.relrowsecurity = true
 ORDER BY c.relname;
 
-\echo '=== Órfãos organization_id (tabelas RLS — esperado 0 pós-019) ==='
+\echo '=== Órfãos organization_id (tabelas RLS — esperado 0) ==='
 SELECT 'restaurant_reservations' AS tbl, count(*) FROM restaurant_reservations WHERE organization_id IS NULL
 UNION ALL SELECT 'guest_lists', count(*) FROM guest_lists WHERE organization_id IS NULL
 UNION ALL SELECT 'guests', count(*) FROM guests WHERE organization_id IS NULL
@@ -23,9 +23,17 @@ UNION ALL SELECT 'reservas', count(*) FROM reservas WHERE organization_id IS NUL
 UNION ALL SELECT 'reservas_camarote', count(*) FROM reservas_camarote WHERE organization_id IS NULL
 UNION ALL SELECT 'promoters', count(*) FROM promoters WHERE organization_id IS NULL
 UNION ALL SELECT 'promoter_eventos', count(*) FROM promoter_eventos WHERE organization_id IS NULL
-UNION ALL SELECT 'promoter_convidados', count(*) FROM promoter_convidados WHERE organization_id IS NULL;
+UNION ALL SELECT 'promoter_convidados', count(*) FROM promoter_convidados WHERE organization_id IS NULL
+UNION ALL SELECT 'menu_items', count(*) FROM menu_items WHERE organization_id IS NULL
+UNION ALL SELECT 'cardapio_images', count(*) FROM cardapio_images WHERE organization_id IS NULL
+UNION ALL SELECT 'menu_pause_schedules', count(*) FROM menu_pause_schedules WHERE organization_id IS NULL
+UNION ALL SELECT 'whatsapp_contacts', count(*) FROM whatsapp_contacts WHERE organization_id IS NULL
+UNION ALL SELECT 'whatsapp_conversations', count(*) FROM whatsapp_conversations WHERE organization_id IS NULL
+UNION ALL SELECT 'whatsapp_messages', count(*) FROM whatsapp_messages WHERE organization_id IS NULL
+UNION ALL SELECT 'whatsapp_campaigns', count(*) FROM whatsapp_campaigns WHERE organization_id IS NULL
+UNION ALL SELECT 'establishment_faq', count(*) FROM establishment_faq WHERE organization_id IS NULL;
 
-\echo '=== NOT NULL constraints em organization_id (tabelas RLS) ==='
+\echo '=== NOT NULL constraints em organization_id (tabelas RLS core 019) ==='
 SELECT c.table_name, c.is_nullable
 FROM information_schema.columns c
 WHERE c.table_schema = 'meu_backup_db'
