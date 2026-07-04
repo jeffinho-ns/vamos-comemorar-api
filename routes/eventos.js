@@ -8,19 +8,94 @@ const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const requirePermission = require('../tenancy/requirePermission');
+const { isSaasEnforced, isSaasObserving } = require('../tenancy/featureFlags');
+const { resolveEntitlements, hasModule, hasPermission } = require('../tenancy/entitlements');
 const EventosController = require('../controllers/EventosController');
+
+function requireAnyModule(moduleKeys = []) {
+  return async function anyModuleGate(req, res, next) {
+    if (!isSaasEnforced() && !isSaasObserving()) return next();
+    if (!req.user) return next();
+
+    const pool = req.app && req.app.get ? req.app.get('pool') : null;
+    if (!pool) {
+      if (!isSaasEnforced()) return next();
+      return res.status(500).json({ success: false, error: 'Pool indisponível.' });
+    }
+
+    try {
+      const entitlements = req.entitlements || (await resolveEntitlements(pool, req.user));
+      req.entitlements = entitlements;
+      if (moduleKeys.some((moduleKey) => hasModule(entitlements, moduleKey))) {
+        return next();
+      }
+    } catch (err) {
+      console.error('[eventos:anyModule] erro:', err.message);
+      if (!isSaasEnforced()) return next();
+      return res.status(500).json({ success: false, error: 'Falha ao validar módulo.' });
+    }
+
+    if (isSaasObserving()) {
+      console.warn(
+        `[module:observe] BLOQUEARIA modulos='${moduleKeys.join('|')}' user=${req.user.id} ` +
+          `rota=${req.method} ${req.originalUrl}`,
+      );
+      return next();
+    }
+    return res.status(403).json({ success: false, error: 'Módulo não contratado.' });
+  };
+}
+
+function requireAnyPermission(permissionKeys = []) {
+  return async function anyPermissionGate(req, res, next) {
+    if (!isSaasEnforced() && !isSaasObserving()) return next();
+    if (!req.user) return next();
+
+    const pool = req.app && req.app.get ? req.app.get('pool') : null;
+    if (!pool) {
+      if (!isSaasEnforced()) return next();
+      return res.status(500).json({ success: false, error: 'Pool indisponível.' });
+    }
+
+    try {
+      const entitlements = req.entitlements || (await resolveEntitlements(pool, req.user));
+      req.entitlements = entitlements;
+      if (permissionKeys.some((permissionKey) => hasPermission(entitlements, permissionKey))) {
+        return next();
+      }
+    } catch (err) {
+      console.error('[eventos:anyPermission] erro:', err.message);
+      if (!isSaasEnforced()) return next();
+      return res.status(500).json({ success: false, error: 'Falha ao validar permissão.' });
+    }
+
+    if (isSaasObserving()) {
+      console.warn(
+        `[permission:observe] BLOQUEARIA perms='${permissionKeys.join('|')}' user=${req.user.id} ` +
+          `rota=${req.method} ${req.originalUrl}`,
+      );
+      return next();
+    }
+    return res.status(403).json({ success: false, error: 'Sem permissão para eventos/check-in.' });
+  };
+}
 
 module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   const controller = new EventosController(pool, checkAndAwardPromoterGifts);
   router.use(optionalAuth);
   router.use(tenantMiddleware());
-  router.use(requireModule('eventos'));
+  router.use((req, res, next) => {
+    if (req.method === 'GET') {
+      return requireAnyModule(['eventos', 'checkin'])(req, res, next);
+    }
+    return requireModule('eventos')(req, res, next);
+  });
   router.use((req, res, next) => {
     if (!req.user) return next();
-    const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
-      ? 'eventos:update'
-      : 'eventos:read';
-    return requirePermission(perm)(req, res, next);
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      return requirePermission('eventos:update')(req, res, next);
+    }
+    return requireAnyPermission(['eventos:read', 'checkin:read'])(req, res, next);
   });
 
   /**
