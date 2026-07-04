@@ -63,6 +63,7 @@ Migrations:
 - `008_rls_restaurant_reservations.sql`
 - `014_rls_operational_tables.sql` — `guest_lists`, `waitlist`, `walk_ins`, `large_reservations`, `birthday_reservations`, `restaurant_reservation_blocks`
 - `016_rls_guests.sql` — RLS em `guests`
+- `016_rls_guests.sql` — RLS em `guests`
 
 Tabelas monitoradas: `tenancy/rlsTables.js`. Validação: `scripts/saas/validate_rls_operational.sql`.
 
