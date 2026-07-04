@@ -24,7 +24,18 @@ async function resolveEntitlements(pool, user) {
 
   const scope = await loadUserScope(pool, user);
   const orgId = scope.organizationIds[0] || null;
-  if (!orgId) return { allowAll: false, modules: [], permissions: [], organizationId: null };
+  if (!orgId) {
+    if (Array.isArray(scope.establishmentIds) && scope.establishmentIds.length > 0) {
+      return {
+        allowAll: false,
+        modules: [],
+        permissions: [],
+        organizationId: null,
+        legacyScoped: true,
+      };
+    }
+    return { allowAll: false, modules: [], permissions: [], organizationId: null };
+  }
 
   try {
     const subRes = await pool.query(
