@@ -20,7 +20,7 @@ const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: [
  */
 async function resolveEntitlements(pool, user) {
   if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null };
-  if (isAdminRole(user)) return { ...ALLOW_ALL, organizationId: null };
+  if (user?.is_super_admin === true) return { ...ALLOW_ALL, organizationId: null };
 
   const scope = await loadUserScope(pool, user);
   const orgId = scope.organizationIds[0] || null;

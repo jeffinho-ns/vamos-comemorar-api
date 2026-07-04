@@ -62,11 +62,11 @@ async function loadUserScope(pool, user) {
   if (!user || !user.id) {
     return { isAdmin: false, organizationIds: [], establishmentIds: [] };
   }
-  if (isAdminRole(user)) {
+  if (user.is_super_admin === true) {
     return { isAdmin: true, organizationIds: [], establishmentIds: [] };
   }
 
-  // 1) Tenta o modelo novo (memberships)
+  // 1) Tenta o modelo novo (memberships) — inclusive account_admin com users.role = admin
   try {
     const { rows } = await pool.query(
       `SELECT DISTINCT m.organization_id, m.establishment_id,
@@ -104,6 +104,8 @@ async function loadUserScope(pool, user) {
   }
 
   // 2) Fallback legado: user_establishment_permissions
+  let establishmentIds = [];
+  let organizationIds = [];
   try {
     const { rows } = await pool.query(
       `SELECT DISTINCT establishment_id
@@ -111,8 +113,7 @@ async function loadUserScope(pool, user) {
         WHERE user_id = $1 AND is_active = TRUE`,
       [user.id],
     );
-    const establishmentIds = [...new Set(rows.map((r) => Number(r.establishment_id)).filter(Boolean))];
-    let organizationIds = [];
+    establishmentIds = [...new Set(rows.map((r) => Number(r.establishment_id)).filter(Boolean))];
     if (establishmentIds.length > 0) {
       try {
         const orgResult = await pool.query(
@@ -129,10 +130,40 @@ async function loadUserScope(pool, user) {
         organizationIds = [];
       }
     }
-    return { isAdmin: false, organizationIds, establishmentIds };
   } catch (_) {
-    return { isAdmin: false, organizationIds: [], establishmentIds: [] };
+    establishmentIds = [];
+    organizationIds = [];
   }
+
+  if (organizationIds.length > 0 || establishmentIds.length > 0) {
+    return { isAdmin: false, organizationIds, establishmentIds };
+  }
+
+  // 3) organization_id em users (account admins provisionados sem UEP)
+  try {
+    const { rows } = await pool.query(
+      `SELECT organization_id FROM users WHERE id = $1 AND organization_id IS NOT NULL LIMIT 1`,
+      [user.id],
+    );
+    const orgId = Number(rows[0]?.organization_id);
+    if (Number.isFinite(orgId) && orgId > 0) {
+      const opIds = await operationalIdsForOrganizations(pool, [orgId]);
+      return {
+        isAdmin: false,
+        organizationIds: [orgId],
+        establishmentIds: opIds,
+      };
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  // 4) Admin global legado (role admin sem tenant)
+  if (isAdminRole(user)) {
+    return { isAdmin: true, organizationIds: [], establishmentIds: [] };
+  }
+
+  return { isAdmin: false, organizationIds: [], establishmentIds: [] };
 }
 
 function canAccessEstablishment(scope, establishmentId) {
