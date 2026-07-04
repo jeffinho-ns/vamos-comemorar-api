@@ -109,9 +109,9 @@ module.exports = (pool) => {
 
   const { getDefaultWindowsForEstablishmentId } = require('../services/operationalHours/defaultWeeklySchedule');
 
-  const defaultWindowsByEstablishment = (establishmentId, dateStr) => {
+  const defaultWindowsByEstablishment = async (establishmentId, dateStr) => {
     if (dateStr === '2026-04-20') {
-      const rules = establishmentRules.LEGACY_PROFILES[Number(establishmentId)];
+      const rules = await establishmentRules.getEstablishmentRules(pool, establishmentId);
       const profile = rules?.profile;
       if (profile === 'seu_justino') {
         return [{ start: '12:00', end: '00:00', label: 'Segunda especial (20/04): 12:00–00:00' }];
@@ -230,7 +230,7 @@ module.exports = (pool) => {
       // fallback para regras antigas quando tabelas ainda não existem
     }
 
-    windows = defaultWindowsByEstablishment(establishmentId, dateStr);
+    windows = await defaultWindowsByEstablishment(establishmentId, dateStr);
     operatingWindowsCache.set(cacheKey, windows);
     return windows;
   };

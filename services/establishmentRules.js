@@ -1,68 +1,48 @@
 'use strict';
 
 /**
- * Regras por estabelecimento — substitui hardcodes de ID (8=Pracinha, 9=Rooftop, etc.)
- * Lê `establishments.config` com fallback para perfis legados conhecidos.
+ * Regras por estabelecimento — lê `establishments.config` (sem mapa hardcoded por ID).
  */
 
 const cache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-const LEGACY_PROFILES = {
-  1: {
-    profile: 'seu_justino',
-    cardapio: { barId: 1 },
-    reservations: { excludeAreaPrefix: 'Reserva Rooftop - ' },
+const DEFAULT_EXCLUDE_AREA_PREFIX = 'Reserva Rooftop - ';
+
+const PROFILE_DEFAULTS = {
+  rooftop: {
+    reservations: {
+      maxDaily: 60,
+      areaNamePrefix: 'Reserva Rooftop - ',
+      dualShift: true,
+      strictHours: true,
+    },
+    cardapio: { barId: 5 },
+    operationalAliases: [5, 9],
   },
-  2: {
-    profile: 'oh_fregues',
-    cardapio: { barId: 2 },
-    reservations: { excludeAreaPrefix: 'Reserva Rooftop - ' },
-  },
-  4: {
-    profile: 'oh_fregues',
-    cardapio: { barId: 2 },
-    reservations: { excludeAreaPrefix: 'Reserva Rooftop - ' },
-  },
-  7: {
-    profile: 'highline',
-    cardapio: { barId: 3 },
-    reservations: { excludeAreaPrefix: 'Reserva Rooftop - ' },
-  },
-  8: {
-    profile: 'pracinha',
+  pracinha: {
+    reservations: { maxPartySize: 60, excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
     cardapio: { barId: 4 },
-    reservations: { maxPartySize: 60, excludeAreaPrefix: 'Reserva Rooftop - ' },
   },
-  9: {
-    profile: 'rooftop',
-    operationalAliases: [5, 9],
-    cardapio: { barId: 5 },
-    reservations: {
-      maxDaily: 60,
-      areaNamePrefix: 'Reserva Rooftop - ',
-      dualShift: true,
-      strictHours: true,
-    },
+  highline: {
+    reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+    cardapio: { barId: 3 },
   },
-  5: {
-    profile: 'rooftop',
-    operationalAliases: [5, 9],
-    cardapio: { barId: 5 },
-    reservations: {
-      maxDaily: 60,
-      areaNamePrefix: 'Reserva Rooftop - ',
-      dualShift: true,
-      strictHours: true,
-    },
+  oh_fregues: {
+    reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+    cardapio: { barId: 2 },
   },
-  10: {
-    profile: 'sitio_ilha',
-    reservations: { excludeAreaPrefix: 'Reserva Rooftop - ' },
+  seu_justino: {
+    reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+    cardapio: { barId: 1 },
+  },
+  sitio_ilha: {
+    reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+  },
+  generic: {
+    reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
   },
 };
-
-const DEFAULT_EXCLUDE_AREA_PREFIX = 'Reserva Rooftop - ';
 
 function deepMerge(base, extra) {
   if (!extra || typeof extra !== 'object') return { ...base };
@@ -89,16 +69,18 @@ function inferProfileFromName(name) {
 }
 
 function normalizeRules(raw, establishmentName, operationalId) {
-  const legacy = LEGACY_PROFILES[Number(operationalId)] || {};
   const fromConfig = raw?.rules ? raw.rules : raw || {};
-  const merged = deepMerge(legacy, fromConfig);
-
-  if (!merged.profile) {
-    merged.profile = raw?.profile || inferProfileFromName(establishmentName);
-  }
+  const profile =
+    raw?.profile ||
+    fromConfig.profile ||
+    inferProfileFromName(establishmentName);
+  const profileDefaults = PROFILE_DEFAULTS[profile] || PROFILE_DEFAULTS.generic;
+  const merged = deepMerge(
+    { profile, ...profileDefaults },
+    fromConfig,
+  );
   if (!merged.reservations) merged.reservations = {};
   if (!merged.cardapio) merged.cardapio = {};
-
   return merged;
 }
 
@@ -124,6 +106,8 @@ async function getEstablishmentRules(pool, operationalEstablishmentId) {
     );
     if (rows[0]) {
       rules = normalizeRules(rows[0].config || {}, rows[0].name, id);
+    } else {
+      rules = normalizeRules({}, '', id);
     }
   } catch (_) {
     rules = normalizeRules({}, '', id);
@@ -162,9 +146,6 @@ function getMaxPartySize(rules) {
 function getCardapioBarId(rules, operationalId) {
   const fromRules = Number(rules?.cardapio?.barId);
   if (Number.isFinite(fromRules) && fromRules > 0) return fromRules;
-  const legacy = LEGACY_PROFILES[Number(operationalId)];
-  const legacyBar = Number(legacy?.cardapio?.barId);
-  if (Number.isFinite(legacyBar) && legacyBar > 0) return legacyBar;
   return Number(operationalId);
 }
 
@@ -189,14 +170,12 @@ function areaAllowedForRules(rules, areaName) {
   return !name.startsWith(exclude);
 }
 
-/** Restaurantes com bloqueio de mesa por overlap de horário (front calcula). */
 function usesTableOverlapBlocking(rules) {
   if (rules?.reservations?.tableBlocking === 'overlap') return true;
   if (rules?.reservations?.tableBlocking === 'full_day') return false;
   return ['seu_justino', 'pracinha'].includes(rules?.profile);
 }
 
-/** Janela estendida de guest lists para eventos rooftop. */
 function usesExtendedGuestListWindow(rules) {
   return isRooftop(rules) || rules?.events?.extendedGuestListWindow === true;
 }
@@ -238,5 +217,4 @@ module.exports = {
   usesExtendedGuestListWindow,
   listOperationalMappings,
   previewMergedRules,
-  LEGACY_PROFILES,
 };

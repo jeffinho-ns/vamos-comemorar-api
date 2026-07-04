@@ -243,16 +243,11 @@ function buildDateOverridesBlock(establishments, overrideRows) {
 }
 
 function validateReservationPartySize(params) {
-  const establishmentId = Number(params?.establishment_id);
   const quantidade = Number(params?.quantidade_convidados);
-  const { LEGACY_PROFILES } = require('./establishmentRules');
-  const maxParty =
-    Number(params?.rules?.reservations?.maxPartySize) ||
-    Number(LEGACY_PROFILES[establishmentId]?.reservations?.maxPartySize) ||
-    null;
+  const maxParty = Number(params?.rules?.reservations?.maxPartySize) || null;
+  const profile = params?.rules?.profile;
 
   if (Number.isFinite(maxParty) && Number.isFinite(quantidade) && quantidade > maxParty) {
-    const profile = LEGACY_PROFILES[establishmentId]?.profile;
     const venueLabel =
       profile === 'pracinha' ? 'na Pracinha' : 'neste estabelecimento';
     return {

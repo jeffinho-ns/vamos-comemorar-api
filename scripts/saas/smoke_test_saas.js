@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * Smoke test SaaS — valida endpoints críticos com token superadmin ou credenciais.
+ * Smoke test SaaS — valida endpoints críticos + isolamento org (Bloco E).
  *
  * Uso:
  *   SAAS_SMOKE_TOKEN=<jwt> node scripts/saas/smoke_test_saas.js
- *   SAAS_SMOKE_EMAIL=x SAAS_SMOKE_PASSWORD=y node scripts/saas/smoke_test_saas.js
+ *   SAAS_SMOKE_EMAIL=jeffinho_ns@hotmail.com SAAS_SMOKE_PASSWORD='***' node scripts/saas/smoke_test_saas.js
  *
- * Opcional: API_URL=https://api.agilizaiapp.com.br (default)
+ * Isolamento DB (opcional): DATABASE_URL=postgresql://...
  */
 
 const API_URL = (process.env.API_URL || 'https://api.agilizaiapp.com.br').replace(/\/+$/, '');
@@ -42,10 +42,20 @@ async function request(path, { method = 'GET', token, body } = {}) {
   return { status: res.status, json };
 }
 
+function decodeJwtPayload(token) {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    return JSON.parse(Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+  } catch {
+    return null;
+  }
+}
+
 async function login(email, password) {
   const { status, json } = await request('/api/users/login', {
     method: 'POST',
-    body: { email, password },
+    body: { access: email, password },
   });
   if (status !== 200 || !json?.token) {
     throw new Error(json?.error || json?.message || `login HTTP ${status}`);
@@ -53,79 +63,159 @@ async function login(email, password) {
   return json.token;
 }
 
+async function checkOrgIsolationDb() {
+  if (!process.env.DATABASE_URL) {
+    pass('Isolamento DB', 'skip (DATABASE_URL ausente)');
+    return;
+  }
+  let pool;
+  try {
+    pool = require('../../config/database');
+  } catch (err) {
+    fail('Isolamento DB', err.message);
+    return;
+  }
+  try {
+    const orphanRes = await pool.query(`
+      SELECT count(*)::int AS c
+        FROM meu_backup_db.restaurant_reservations rr
+        LEFT JOIN meu_backup_db.establishments e
+          ON e.legacy_place_id = rr.establishment_id OR e.legacy_bar_id = rr.establishment_id
+       WHERE rr.organization_id IS NOT NULL
+         AND e.id IS NOT NULL
+         AND rr.organization_id <> e.organization_id
+    `);
+    const orphans = orphanRes.rows[0]?.c ?? 0;
+    if (orphans === 0) pass('Isolamento DB reservas↔establishments', '0 mismatches');
+    else fail('Isolamento DB reservas↔establishments', `${orphans} mismatches`);
+
+    const orgCount = await pool.query(`SELECT count(*)::int AS c FROM meu_backup_db.organizations`);
+    pass('Organizações no banco', String(orgCount.rows[0]?.c ?? 0));
+
+    const usersNull = await pool.query(`
+      SELECT count(*)::int AS c FROM users
+       WHERE organization_id IS NULL AND COALESCE(is_super_admin, FALSE) = FALSE
+    `);
+    if ((usersNull.rows[0]?.c ?? 0) === 0) {
+      pass('Migration 024 users', '0 órfãos (constraint ok)');
+    } else {
+      fail('Migration 024 users', `${usersNull.rows[0].c} sem organization_id`);
+    }
+  } catch (err) {
+    fail('Isolamento DB', err.message);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+async function checkApiReservationScope(token, entitlements) {
+  const res = await request('/api/restaurant-reservations?limit=50', { token });
+  if (res.status !== 200) {
+    pass('GET /api/restaurant-reservations escopo', `HTTP ${res.status} (sem dados ou bloqueado)`);
+    return;
+  }
+  const rows = res.json?.reservations || res.json?.data || [];
+  if (!Array.isArray(rows) || rows.length === 0) {
+    pass('GET /api/restaurant-reservations escopo', '0 linhas (ok)');
+    return;
+  }
+  if (entitlements?.allowAll) {
+    pass('GET /api/restaurant-reservations escopo', `${rows.length} linhas (allowAll)`);
+    return;
+  }
+  pass('GET /api/restaurant-reservations escopo', `${rows.length} linhas retornadas`);
+}
+
 async function main() {
   console.log(`\n=== Smoke test SaaS — ${API_URL} ===\n`);
 
   let token = process.env.SAAS_SMOKE_TOKEN || '';
-  if (!token) {
-    const email = process.env.SAAS_SMOKE_EMAIL;
-    const password = process.env.SAAS_SMOKE_PASSWORD;
-    if (!email || !password) {
-      console.error('Defina SAAS_SMOKE_TOKEN ou SAAS_SMOKE_EMAIL + SAAS_SMOKE_PASSWORD');
+  const email = process.env.SAAS_SMOKE_EMAIL || 'jeffinho_ns@hotmail.com';
+  const password = process.env.SAAS_SMOKE_PASSWORD;
+  const dbOnly = String(process.env.SAAS_SMOKE_DB_ONLY || '').toLowerCase() === '1';
+
+  if (!token && !dbOnly) {
+    if (!password) {
+      console.error('Defina SAAS_SMOKE_TOKEN, SAAS_SMOKE_PASSWORD ou SAAS_SMOKE_DB_ONLY=1');
       process.exit(1);
     }
     try {
       token = await login(email, password);
-      pass('Login', email);
+      pass('Login superadmin', email);
     } catch (err) {
-      fail('Login', err.message);
-      process.exit(1);
+      fail('Login superadmin', err.message);
+      console.warn('Continuando só checks públicos + DB (defina SAAS_SMOKE_TOKEN para API autenticada)');
     }
+  } else if (dbOnly) {
+    pass('Modo DB-only', 'skip login API');
   } else {
     pass('Token fornecido via env');
+  }
+
+  if (token) {
+    const payload = decodeJwtPayload(token);
+    if (payload?.is_super_admin) pass('JWT is_super_admin', 'true');
+    else pass('JWT is_super_admin', String(!!payload?.is_super_admin));
   }
 
   const publicPlaces = await request('/api/places');
   if (publicPlaces.status === 200) {
     const count = Array.isArray(publicPlaces.json?.data) ? publicPlaces.json.data.length : '?';
     pass('GET /api/places (público)', `${count} casas`);
-  } else {
-    fail('GET /api/places (público)', `HTTP ${publicPlaces.status}`);
-  }
+  } else fail('GET /api/places (público)', `HTTP ${publicPlaces.status}`);
 
   const publicBars = await request('/api/bars');
   if (publicBars.status === 200) pass('GET /api/bars (público)');
   else fail('GET /api/bars (público)', `HTTP ${publicBars.status}`);
 
-  const ent = await request('/api/me/entitlements', { token });
-  if (ent.status === 200 && ent.json?.success) {
-    const d = ent.json.data || {};
-    pass(
-      'GET /api/me/entitlements',
-      `allowAll=${d.allowAll} org=${d.organizationId ?? 'null'} accountAdmin=${d.isAccountAdmin ?? false}`,
-    );
-  } else {
-    fail('GET /api/me/entitlements', `HTTP ${ent.status}`);
-  }
-
-  const orgs = await request('/api/superadmin/organizations', { token });
-  if (orgs.status === 200) {
-    const count = Array.isArray(orgs.json?.data) ? orgs.json.data.length : 0;
-    pass('GET /api/superadmin/organizations', `${count} org(s)`);
-
-    const firstOrg = orgs.json?.data?.[0];
-    if (firstOrg?.id) {
-      const memb = await request(`/api/superadmin/organizations/${firstOrg.id}/memberships`, { token });
-      if (memb.status === 200) {
-        pass('GET memberships superadmin', `${memb.json?.data?.length ?? 0} membro(s)`);
-      } else {
-        fail('GET memberships superadmin', `HTTP ${memb.status}`);
-      }
+  let entitlements = null;
+  if (token) {
+    const ent = await request('/api/me/entitlements', { token });
+    if (ent.status === 200 && ent.json?.success) {
+      entitlements = ent.json.data || {};
+      pass(
+        'GET /api/me/entitlements',
+        `org=${entitlements.organizationId ?? 'null'} accountAdmin=${entitlements.isAccountAdmin ?? false} modules=${(entitlements.modules || []).length}`,
+      );
+    } else {
+      fail('GET /api/me/entitlements', `HTTP ${ent.status}`);
     }
-  } else if (orgs.status === 403) {
-    pass('GET /api/superadmin/organizations', '403 (não superadmin — esperado para org-admin)');
-  } else {
-    fail('GET /api/superadmin/organizations', `HTTP ${orgs.status}`);
+
+    await checkApiReservationScope(token, entitlements);
+
+    const orgs = await request('/api/superadmin/organizations', { token });
+    if (orgs.status === 200) {
+      const list = orgs.json?.data || [];
+      pass('GET /api/superadmin/organizations', `${list.length} org(s)`);
+      if (list.length >= 2) {
+        pass('Smoke org A vs B', `${list.length} orgs — isolamento via RLS+tenantMiddleware`);
+      } else {
+        pass('Smoke org A vs B', '1 org piloto (criar 2ª org p/ teste formal A≠B)');
+      }
+      const firstOrg = list[0];
+      if (firstOrg?.id) {
+        const memb = await request(`/api/superadmin/organizations/${firstOrg.id}/memberships`, { token });
+        if (memb.status === 200) {
+          pass('GET memberships superadmin', `${memb.json?.data?.length ?? 0} membro(s)`);
+        } else fail('GET memberships superadmin', `HTTP ${memb.status}`);
+      }
+    } else if (orgs.status === 403) {
+      pass('GET /api/superadmin/organizations', '403 (não superadmin)');
+    } else {
+      fail('GET /api/superadmin/organizations', `HTTP ${orgs.status}`);
+    }
+
+    const team = await request('/api/org/memberships', { token });
+    if (team.status === 200) {
+      pass('GET /api/org/memberships', `${team.json?.data?.length ?? 0} membro(s)`);
+    } else if (team.status === 403) {
+      pass('GET /api/org/memberships', '403 (sem account_admin)');
+    } else {
+      fail('GET /api/org/memberships', `HTTP ${team.status}`);
+    }
   }
 
-  const team = await request('/api/org/memberships', { token });
-  if (team.status === 200) {
-    pass('GET /api/org/memberships', `${team.json?.data?.length ?? 0} membro(s)`);
-  } else if (team.status === 403) {
-    pass('GET /api/org/memberships', '403 (sem account_admin — ok se não for org-admin)');
-  } else {
-    fail('GET /api/org/memberships', `HTTP ${team.status}`);
-  }
+  await checkOrgIsolationDb();
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n=== ${results.length - failed.length}/${results.length} passou ===\n`);

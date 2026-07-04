@@ -1,22 +1,35 @@
+'use strict';
+
 const { Pool } = require('pg');
 
-// Usar DATABASE_URL se disponível (produção), senão usar string hardcoded (desenvolvimento)
-const connectionString = process.env.DATABASE_URL || 'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+/**
+ * Pool PostgreSQL — exige DATABASE_URL (sem credenciais no código).
+ * Local: export DATABASE_URL=postgresql://...
+ * Render/prod: variável injetada pelo painel.
+ */
+function requireDatabaseUrl() {
+  const url = process.env.DATABASE_URL;
+  if (!url || !String(url).trim()) {
+    throw new Error(
+      'DATABASE_URL não definida. Configure no Render ou export DATABASE_URL antes de iniciar a API.',
+    );
+  }
+  return url;
+}
+
+const connectionString = requireDatabaseUrl();
 const isLocalDatabase = /localhost|127\.0\.0\.1/i.test(connectionString);
 
 const pool = new Pool({
-  connectionString: connectionString,
+  connectionString,
   max: 10,
   idleTimeoutMillis: 30000,
-  // Render/Postgres remoto: 2s era curto demais e gerava 500 em rotas com queries paralelas.
   connectionTimeoutMillis: 15000,
-  ssl: process.env.DATABASE_URL && !isLocalDatabase ? { rejectUnauthorized: false } : false,
-  // search_path no handshake (evita corrida do handler async em pool.on('connect')).
+  ssl: !isLocalDatabase ? { rejectUnauthorized: false } : false,
   options:
     '-c search_path=meu_backup_db,public -c timezone=America/Sao_Paulo',
 });
 
-// Erro em cliente ocioso não deve derrubar o processo (comum após redeploy do Render).
 pool.on('error', (err) => {
   console.error('Unexpected error on idle pool client:', err.message);
 });

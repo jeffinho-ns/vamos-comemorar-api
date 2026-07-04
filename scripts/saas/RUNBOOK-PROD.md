@@ -59,7 +59,18 @@ node scripts/saas/compare_establishments_read_sources.js --api
 
 ## 7. Smoke test
 
-- Login analista restrito → sidebar sem módulos bloqueados
-- `/documentacao` → seção **Materiais SaaS**
-- `/superadmin/billing` → resumo do mês
-- Impersonate + auditoria
+```bash
+# Público + DB (sem senha)
+DATABASE_URL=... SAAS_SMOKE_DB_ONLY=1 node scripts/saas/smoke_test_saas.js
+
+# Autenticado (token do login no browser → localStorage authToken)
+SAAS_SMOKE_TOKEN=<jwt> node scripts/saas/smoke_test_saas.js
+```
+
+## 8. Migration 024 (users.organization_id)
+
+Aplicada em prod 2026-07-03. Pré-requisito: `users.organization_id` backfill (0 órfãos).
+
+```bash
+SAAS_MIGRATE_CONFIRM=apply node scripts/saas/run-saas-migrations.js
+```

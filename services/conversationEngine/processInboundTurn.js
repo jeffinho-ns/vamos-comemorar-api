@@ -1330,10 +1330,9 @@ async function processLegacyInboundTurn({
           `${greet} Sua reserva tá confirmada na ${house} pra ${dateBr}${timeBr ? ' às ' + timeBr : ''}. Te espero aqui — qualquer coisa é só me chamar.`;
       }
 
-      const isPracinha =
-        require('../services/establishmentRules').LEGACY_PROFILES[
-          Number(params?.establishment_id)
-        ]?.profile === 'pracinha';
+      const { getEstablishmentRules, isPracinha: isPracinhaProfile } = require('../services/establishmentRules');
+      const estRules = await getEstablishmentRules(pool, Number(params?.establishment_id));
+      const isPracinha = isPracinhaProfile(estRules);
       const partySize = Number(params?.quantidade_convidados);
       if (isPracinha && Number.isFinite(partySize) && partySize > 6) {
         confirmText +=
