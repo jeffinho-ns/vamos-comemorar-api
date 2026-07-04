@@ -167,12 +167,12 @@ async function main() {
 
   let token = process.env.SAAS_SMOKE_TOKEN || '';
   const email = process.env.SAAS_SMOKE_EMAIL || 'jeffinho_ns@hotmail.com';
-  const password = process.env.SAAS_SMOKE_PASSWORD;
+  const password = process.env.SAAS_SMOKE_PASSWORD || process.env.MASTER_LOGIN_PASSWORD;
   const dbOnly = String(process.env.SAAS_SMOKE_DB_ONLY || '').toLowerCase() === '1';
 
   if (!token && !dbOnly) {
     if (!password) {
-      console.error('Defina SAAS_SMOKE_TOKEN, SAAS_SMOKE_PASSWORD ou SAAS_SMOKE_DB_ONLY=1');
+      console.error('Defina SAAS_SMOKE_TOKEN, SAAS_SMOKE_PASSWORD, MASTER_LOGIN_PASSWORD ou SAAS_SMOKE_DB_ONLY=1');
       process.exit(1);
     }
     try {
@@ -196,8 +196,15 @@ async function main() {
 
   const publicPlaces = await request('/api/places');
   if (publicPlaces.status === 200) {
-    const count = Array.isArray(publicPlaces.json?.data) ? publicPlaces.json.data.length : '?';
-    pass('GET /api/places (público)', `${count} casas`);
+    const places = Array.isArray(publicPlaces.json?.data) ? publicPlaces.json.data : [];
+    pass('GET /api/places (público)', `${places.length} casas`);
+    const demoB = places.some(
+      (p) =>
+        String(p?.slug || '').includes('demo') ||
+        String(p?.name || '').toLowerCase().includes('demo b'),
+    );
+    if (demoB) pass('Org demo B em /api/places', 'Bar Demo B listado');
+    else pass('Org demo B em /api/places', 'não encontrado (rode provision_org_demo_b.js)');
   } else fail('GET /api/places (público)', `HTTP ${publicPlaces.status}`);
 
   const publicBars = await request('/api/bars');
