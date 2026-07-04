@@ -3,6 +3,7 @@ const authenticateToken = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const { canReadEstablishment, denyIfCannotReadEstablishment } = require('../tenancy/queryScope');
 const { buildDefaultWeekly } = require('../services/operationalHours/defaultWeeklySchedule');
 
@@ -11,6 +12,7 @@ module.exports = (pool) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
   router.use(requireModule('reservas'));
+  router.use(reservasPermissionMiddleware);
 
   const toLabel = (start, end) => `${start}–${end}`;
 

@@ -11,6 +11,7 @@ const { sendFlyersForEvent } = require('../services/flyer/flyerService');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const {
   establishmentScopeClause,
   canReadEstablishment,
@@ -26,6 +27,7 @@ module.exports = (pool) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
   router.use(requireModule('reservas'));
+  router.use(reservasPermissionMiddleware);
   let reservationPolicyTableReady = false;
   const ensureReservationPolicyTable = async () => {
     if (reservationPolicyTableReady) return;

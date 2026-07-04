@@ -5,6 +5,7 @@ const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const {
   establishmentScopeClause,
   canReadEstablishment,
@@ -44,6 +45,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
   router.use(requireModule('reservas'));
+  router.use(reservasPermissionMiddleware);
   /**
    * @route   GET /api/admin/guest-lists
    * @desc    Lista todas as reservas GRANDES futuras com listas de convidados

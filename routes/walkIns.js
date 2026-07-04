@@ -5,6 +5,7 @@ const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const {
   establishmentScopeClause,
   canReadEstablishment,
@@ -15,6 +16,7 @@ module.exports = (pool) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
   router.use(requireModule('reservas'));
+  router.use(reservasPermissionMiddleware);
 
   /**
    * @route   GET /api/walk-ins

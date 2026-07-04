@@ -5,6 +5,8 @@ const express = require('express');
 const auth = require('../middleware/auth'); 
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const { resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
 // A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
 // const qrcode = require('qrcode');
@@ -16,6 +18,8 @@ module.exports = (pool) => {
     // INERTE enquanto SAAS_MODE != observe/on — não bloqueia nada (ver tenancy/README.md).
     router.use(optionalAuth);
     router.use(tenantMiddleware());
+    router.use(requireModule('reservas'));
+    router.use(reservasPermissionMiddleware);
 
     // ==========================================================================================
     // FUNÇÃO AUXILIAR: Verifica e Ativa Brindes
