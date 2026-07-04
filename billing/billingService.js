@@ -141,7 +141,7 @@ async function getOrganizationDetail(pool, organizationId) {
 
   const [establishments, modules, invoices, events] = await Promise.all([
     pool.query(
-      `SELECT id, slug, name, status, legacy_place_id, legacy_bar_id
+      `SELECT id, slug, name, status, legacy_place_id, legacy_bar_id, config
          FROM meu_backup_db.establishments WHERE organization_id = $1 ORDER BY name`,
       [organizationId],
     ),

@@ -5,6 +5,7 @@ const { superAdminRouter } = require('../middleware/requireSuperAdmin');
 const billing = require('../billing/billingService');
 const training = require('../billing/trainingService');
 const impersonate = require('../billing/impersonateService');
+const establishmentConfig = require('../billing/establishmentConfigService');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -267,6 +268,46 @@ module.exports = (pool) => {
       res.json({ success: true, data: rows });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/establishments/:id/config', async (req, res) => {
+    try {
+      const establishmentId = Number(req.params.id);
+      if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+        return res.status(400).json({ success: false, error: 'ID inválido.' });
+      }
+      const detail = await establishmentConfig.getEstablishmentConfigDetail(pool, establishmentId);
+      if (!detail) {
+        return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado.' });
+      }
+      res.json({ success: true, data: detail });
+    } catch (err) {
+      console.error('[superadmin/establishments/config GET]', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.patch('/establishments/:id/config', async (req, res) => {
+    try {
+      const establishmentId = Number(req.params.id);
+      if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+        return res.status(400).json({ success: false, error: 'ID inválido.' });
+      }
+      const detail = await establishmentConfig.patchEstablishmentConfig(
+        pool,
+        establishmentId,
+        req.body,
+        req.user,
+        requestMeta(req),
+      );
+      if (!detail) {
+        return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado.' });
+      }
+      res.json({ success: true, data: detail });
+    } catch (err) {
+      console.error('[superadmin/establishments/config PATCH]', err.message);
+      res.status(400).json({ success: false, error: err.message });
     }
   });
 

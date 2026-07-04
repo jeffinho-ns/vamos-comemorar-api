@@ -201,6 +201,10 @@ function usesExtendedGuestListWindow(rules) {
   return isRooftop(rules) || rules?.events?.extendedGuestListWindow === true;
 }
 
+function previewMergedRules(config, establishmentName, operationalId) {
+  return normalizeRules(config || {}, establishmentName, operationalId);
+}
+
 async function listOperationalMappings(pool) {
   const { rows } = await pool.query(
     `SELECT legacy_place_id, legacy_bar_id, name, config
@@ -233,5 +237,6 @@ module.exports = {
   usesTableOverlapBlocking,
   usesExtendedGuestListWindow,
   listOperationalMappings,
+  previewMergedRules,
   LEGACY_PROFILES,
 };
