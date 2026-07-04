@@ -18,6 +18,7 @@ const {
 } = require('../tenancy/queryScope');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
 const establishmentRules = require('../services/establishmentRules');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -909,6 +910,11 @@ module.exports = (pool) => {
         });
       }
 
+      const organizationIdForInsert = await resolveOrganizationIdForEstablishment(
+        pool,
+        establishmentIdNumber,
+      );
+
       const createEstRules = await establishmentRules.getEstablishmentRules(
         pool,
         establishmentIdNumber,
@@ -1264,8 +1270,8 @@ module.exports = (pool) => {
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, table_number,
           status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area,
-          area_display_name, has_bistro_table
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
+          area_display_name, has_bistro_table, organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
       `;
 
       // Garantir que todos os parâmetros sejam válidos (usar variáveis convertidas)
@@ -1288,7 +1294,8 @@ module.exports = (pool) => {
         evento_id || null,
         blocks_entire_area || false,
         (typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null,
-        has_bistro_table || false
+        has_bistro_table || false,
+        organizationIdForInsert,
       ];
 
       console.log('📝 Parâmetros de inserção:', insertParams);
@@ -1321,8 +1328,9 @@ module.exports = (pool) => {
             INSERT INTO waitlist (
               establishment_id, preferred_date, preferred_area_id, preferred_table_number,
               client_name, client_phone, client_email, number_of_people, 
-              preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
+              preferred_time, status, position, estimated_wait_time, notes, has_bistro_table,
+              organization_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
           `;
           
           const waitlistParams = [
@@ -1339,7 +1347,8 @@ module.exports = (pool) => {
             position,
             estimatedWaitTime,
             `Reserva de Espera Antecipada (ID: ${reservationId}) - ${finalNotes}`,
-            has_bistro_table || false
+            has_bistro_table || false,
+            organizationIdForInsert,
           ];
           
           const waitlistResult = await pool.query(waitlistQuery, waitlistParams);
@@ -1484,9 +1493,9 @@ module.exports = (pool) => {
 
           // Criar a guest list vinculada à reserva
           const glResult = await pool.query(
-            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-             VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
-            [reservationId, eventType, token, expiresAt]
+            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id)
+             VALUES ($1, 'restaurant', $2, $3, $4, $5, $6) RETURNING id`,
+            [reservationId, eventType, token, expiresAt, establishmentIdNumber, organizationIdForInsert]
           );
           const guestListId = glResult.rows[0].id;
 
@@ -1501,8 +1510,8 @@ module.exports = (pool) => {
             if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
               const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
               await pool.query(
-                `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
-                [guestListId, client_name || 'Dono da reserva', ownerQrToken]
+                `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) VALUES ($1, $2, NULL, TRUE, $3, $4)`,
+                [guestListId, client_name || 'Dono da reserva', ownerQrToken, organizationIdForInsert]
               );
             }
           } catch (err) {
@@ -2068,6 +2077,11 @@ module.exports = (pool) => {
 
       const reservation = reservationResult.rows[0];
       const reservationData = reservation;
+      const addGlEstablishmentId = Number(reservationData.establishment_id);
+      const addGlOrganizationId =
+        (await resolveOrganizationIdForEstablishment(pool, addGlEstablishmentId)) ??
+        reservationData.organization_id ??
+        null;
 
       console.log('✅ [POST /add-guest-list] Reserva encontrada:', {
         id: reservation.id,
@@ -2172,9 +2186,16 @@ module.exports = (pool) => {
       });
 
       const glResult = await pool.query(
-        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-         VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
-        [reservationId, validEventType, token, expiresAt]
+        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id)
+         VALUES ($1, 'restaurant', $2, $3, $4, $5, $6) RETURNING id`,
+        [
+          reservationId,
+          validEventType,
+          token,
+          expiresAt,
+          addGlEstablishmentId || null,
+          addGlOrganizationId,
+        ]
       );
       const guestListId = glResult.rows[0].id;
       
@@ -2191,8 +2212,8 @@ module.exports = (pool) => {
         if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
           const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
           await pool.query(
-            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
-            [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken]
+            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) VALUES ($1, $2, NULL, TRUE, $3, $4)`,
+            [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken, addGlOrganizationId]
           );
         }
       } catch (err) {

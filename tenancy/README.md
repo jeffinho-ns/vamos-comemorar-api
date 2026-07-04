@@ -52,20 +52,36 @@ No login (`routes/users.js`, `routes/auth.js`), o token passa a incluir:
 
 Tokens antigos (7d) continuam válidos; `tenantMiddleware` revalida escopo via DB e loga divergência JWT vs DB em `observe`.
 
-## RLS piloto (`restaurant_reservations`)
+## RLS (`restaurant_reservations` + lote operacional)
 
 | `SAAS_RLS_MODE` | Comportamento |
 |-----------------|---------------|
 | `off` (padrão) | Sem policies ativas na prática (pool não seta session vars). |
-| `on` | `pool.query` em SQL com `restaurant_reservations` usa `SET LOCAL app.current_org` ou `app.bypass_rls` (admin). |
+| `on` | `pool.query` em SQL que toca tabelas RLS usa `SET LOCAL app.current_org` ou `app.bypass_rls` (admin). |
 
-Migration: `migrations/saas/008_rls_restaurant_reservations.sql`.
+Migrations:
+- `008_rls_restaurant_reservations.sql`
+- `014_rls_operational_tables.sql` — `guest_lists`, `waitlist`, `walk_ins`, `large_reservations`, `birthday_reservations`, `restaurant_reservation_blocks`
+- `016_rls_guests.sql` — RLS em `guests`
 
-**Ordem recomendada:** staging → aplicar 008 → `SAAS_RLS_MODE=on` no Render → validar `/health` (`saas.rlsMode`) → analista restrito → produção.
+Tabelas monitoradas: `tenancy/rlsTables.js`. Validação: `scripts/saas/validate_rls_operational.sql`.
+
+**Ordem recomendada:** staging → aplicar 008/014 → `SAAS_RLS_MODE=on` no Render → validar `/health` (`saas.rlsMode`) → analista restrito → produção.
 
 Runbook detalhado: `scripts/saas/go_live_rls_production.md`.
 
 **Anônimo / sem org na sessão:** policies são fail-open (mesmo comportamento legado).
+
+**Linhas com `organization_id` NULL:** ainda visíveis a todos os tenants (fail-open até backfill 100%). Rodar contagem pós-014 antes de remover essa cláusula.
+
+## Leitura places/bars via establishments
+
+| `ESTABLISHMENTS_READ_SOURCE` | GET `/api/places` e `/api/bars` |
+|------------------------------|-----------------------------------|
+| `legacy` (padrão) | Tabelas `places` / `bars` |
+| `establishments` | `services/establishmentLegacyAdapter.js` (IDs operacionais preservados) |
+
+Paridade: `node scripts/saas/compare_establishments_read_sources.js`. Views: migration 013/015 (`places_compat`, `bars_compat`).
 
 ## Por que produção permanece segura em `observe`
 - `observe` **nunca bloqueia** — só loga `[tenant:observe] BLOQUEARIA...`.

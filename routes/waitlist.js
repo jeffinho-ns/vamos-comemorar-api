@@ -11,6 +11,7 @@ const {
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
 const establishmentRules = require('../services/establishmentRules');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 const toMinutes = (timeStr) => {
   const [h, m] = String(timeStr || '').split(':').map(Number);
@@ -293,6 +294,10 @@ module.exports = (pool) => {
       }
 
       const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+      const organizationIdForInsert = await resolveOrganizationIdForEstablishment(
+        pool,
+        establishmentIdNum,
+      );
 
       const preferredDate = preferred_date || new Date().toISOString().split('T')[0];
       const preferredTime = preferred_time && String(preferred_time).trim() !== '' ? preferred_time : null;
@@ -333,14 +338,16 @@ module.exports = (pool) => {
         INSERT INTO waitlist (
           establishment_id, preferred_date, preferred_area_id, preferred_table_number,
           client_name, client_phone, client_email, number_of_people, 
-          preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
+          preferred_time, status, position, estimated_wait_time, notes, has_bistro_table,
+          organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
       `;
       
       const params = [
         establishment_id, preferredDate, preferred_area_id || null, preferred_table_number || null,
         client_name, client_phone, client_email, number_of_people,
-        preferredTime, status, position, estimatedWaitTime, notes, has_bistro_table || false
+        preferredTime, status, position, estimatedWaitTime, notes, has_bistro_table || false,
+        organizationIdForInsert,
       ];
       
       const result = await pool.query(query, params);

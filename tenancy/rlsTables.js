@@ -8,6 +8,7 @@
 const RLS_SCOPED_TABLES = [
   'restaurant_reservations',
   'guest_lists',
+  'guests',
   'waitlist',
   'walk_ins',
   'large_reservations',

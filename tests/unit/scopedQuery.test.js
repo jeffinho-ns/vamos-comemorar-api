@@ -10,5 +10,6 @@ test('targetsRlsScopedTable detecta tabelas RLS', () => {
     true,
   );
   assert.equal(targetsRlsScopedTable('SELECT * FROM guest_lists'), true);
+  assert.equal(targetsRlsScopedTable('SELECT * FROM guests'), true);
   assert.equal(targetsRlsScopedTable('SELECT * FROM users'), false);
 });

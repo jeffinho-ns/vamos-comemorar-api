@@ -11,6 +11,7 @@ const {
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
 const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 async function resolveGuestListEstablishmentId(pool, listId) {
   const result = await pool.query(
@@ -397,6 +398,11 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return;
       }
 
+      const organizationIdForInsert = await resolveOrganizationIdForEstablishment(
+        pool,
+        Number(establishment_id),
+      );
+
       const crypto = require('crypto');
       const token = crypto.randomBytes(24).toString('hex');
 
@@ -416,17 +422,17 @@ module.exports = (pool, checkAndAwardGifts = null) => {
       const reservationResult = await pool.query(
         `INSERT INTO large_reservations (
           establishment_id, client_name, reservation_date, reservation_time, 
-          number_of_people, status, origin, created_by
-        ) VALUES ($1, $2, $3, '18:00:00', 11, 'NOVA', 'ADMIN', $4) RETURNING id`, // Pessoas >= 11 para ser grande
-        [establishment_id, client_name, reservation_date, createdBy]
+          number_of_people, status, origin, created_by, organization_id
+        ) VALUES ($1, $2, $3, '18:00:00', 11, 'NOVA', 'ADMIN', $4, $5) RETURNING id`, // Pessoas >= 11 para ser grande
+        [establishment_id, client_name, reservation_date, createdBy, organizationIdForInsert]
       );
       const reservationId = reservationResult.rows[0].id;
 
       // 2. Cria a lista de convidados vinculada à reserva
       const result = await pool.query(
-        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-         VALUES ($1, 'large', $2, $3, $4) RETURNING id`,
-        [reservationId, event_type || null, token, expiresAt]
+        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id)
+         VALUES ($1, 'large', $2, $3, $4, $5, $6) RETURNING id`,
+        [reservationId, event_type || null, token, expiresAt, establishment_id, organizationIdForInsert]
       );
       const guestListId = result.rows[0].id;
 
