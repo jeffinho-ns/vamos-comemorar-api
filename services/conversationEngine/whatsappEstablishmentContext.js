@@ -2,7 +2,7 @@
 
 const {
   getOperationalIdForProfile,
-} = require('../tenancy/operationalProfileIds');
+} = require('../../tenancy/operationalProfileIds');
 
 /**
  * Estabelecimento padrão do canal WhatsApp (ex.: número exclusivo do HighLine).
