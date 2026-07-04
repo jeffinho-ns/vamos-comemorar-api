@@ -5,6 +5,7 @@ const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 const authorizeRoles = require('../middleware/authorize');
 const bcrypt = require('bcryptjs');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
   /**
@@ -628,6 +629,10 @@ module.exports = (pool) => {
         const cleanFotoUrl = foto_url && foto_url.trim() !== '' ? foto_url : null;
         const cleanInstagram = instagram && instagram.trim() !== '' ? instagram : null;
         const cleanEstablishmentId = establishment_id && establishment_id !== 0 ? establishment_id : null;
+        const organizationIdForInsert = await resolveOrganizationIdForEstablishment(
+          pool,
+          cleanEstablishmentId,
+        );
         
         let result;
         try {
@@ -637,8 +642,9 @@ module.exports = (pool) => {
               `INSERT INTO promoters (
                 nome, apelido, email, telefone, whatsapp, codigo_identificador, 
                 tipo_categoria, comissao_percentual, link_convite, observacoes,
-                establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
+                establishment_id, foto_url, instagram, data_cadastro, status, ativo, user_id,
+                organization_id
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14, $15) RETURNING promoter_id`,
               [
                 nome, 
                 cleanApelido, 
@@ -653,7 +659,8 @@ module.exports = (pool) => {
                 cleanEstablishmentId, 
                 cleanFotoUrl, 
                 cleanInstagram, 
-                userId
+                userId,
+                organizationIdForInsert,
               ]
             );
           } else {
@@ -662,8 +669,9 @@ module.exports = (pool) => {
               `INSERT INTO promoters (
                 nome, apelido, email, telefone, whatsapp, codigo_identificador, 
                 tipo_categoria, comissao_percentual, link_convite, observacoes,
-                establishment_id, foto_url, instagram, data_cadastro, status, ativo
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE) RETURNING promoter_id`,
+                establishment_id, foto_url, instagram, data_cadastro, status, ativo,
+                organization_id
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_DATE, 'Ativo', TRUE, $14) RETURNING promoter_id`,
               [
                 nome, 
                 cleanApelido, 
@@ -677,7 +685,8 @@ module.exports = (pool) => {
                 cleanObservacoes,
                 cleanEstablishmentId, 
                 cleanFotoUrl, 
-                cleanInstagram
+                cleanInstagram,
+                organizationIdForInsert,
               ]
             );
           }

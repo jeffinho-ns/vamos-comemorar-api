@@ -5,6 +5,7 @@ const express = require('express');
 const auth = require('../middleware/auth'); 
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const { resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
 // A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
 // const qrcode = require('qrcode');
 
@@ -102,9 +103,11 @@ router.post('/', async (req, res) => {
         try {
             await client.query('BEGIN');
 
-            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id';
+            const organizationIdForInsert = await resolveOrganizationIdForUser(pool, req.user);
+
+            const sqlReserva = 'INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite, organization_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
             const reservaResult = await client.query(sqlReserva, [
-                userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite
+                userId, tipoReserva, nomeLista, dataReserva, eventoId, quantidadeConvidados, codigoConvite, organizationIdForInsert
             ]);
             const reservaId = reservaResult.rows[0].id;
 
@@ -502,9 +505,10 @@ router.post('/camarote', auth, async (req, res) => {
         // 1. Criar registro na tabela 'reservas' primeiro (necessário para id_reserva NOT NULL)
         // Usar 'NORMAL' como tipo_reserva (valor válido do enum: 'ANIVERSARIO', 'PROMOTER', 'NORMAL')
         console.log('📝 Criando registro na tabela reservas...');
+        const organizationIdForInsert = await resolveOrganizationIdForUser(pool, req.user);
         const sqlReserva = `
-            INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite, organization_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
         `;
         const reservaParams = [
@@ -514,7 +518,8 @@ router.post('/camarote', auth, async (req, res) => {
             dataReservaFinal,
             null, // evento_id
             maximo_pessoas || 0,
-            null // codigo_convite
+            null, // codigo_convite
+            organizationIdForInsert,
         ];
         
         console.log('📋 Parâmetros reserva:', reservaParams);

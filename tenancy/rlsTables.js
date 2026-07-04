@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Tabelas com RLS tenant (migration 008 + 014).
+ * Tabelas com RLS tenant (migrations 008, 014, 016, 017).
  * poolRlsWrap aplica set_config quando SAAS_RLS_MODE=on e a query toca alguma delas.
  */
 
@@ -14,6 +14,11 @@ const RLS_SCOPED_TABLES = [
   'large_reservations',
   'birthday_reservations',
   'restaurant_reservation_blocks',
+  'reservas',
+  'reservas_camarote',
+  'promoters',
+  'promoter_eventos',
+  'promoter_convidados',
 ];
 
 const RLS_TABLE_PATTERNS = RLS_SCOPED_TABLES.map(

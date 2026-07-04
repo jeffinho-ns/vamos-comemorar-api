@@ -129,6 +129,46 @@ const STEPS = [
          AND o.slug = 'grupo-ideia-um'
     `,
   },
+  {
+    name: 'promoter_eventos (via promoters)',
+    sql: `
+      UPDATE promoter_eventos pe
+         SET organization_id = p.organization_id
+        FROM promoters p
+       WHERE pe.organization_id IS NULL
+         AND pe.promoter_id = p.promoter_id
+         AND p.organization_id IS NOT NULL
+    `,
+  },
+  {
+    name: 'promoter_convidados (via promoters)',
+    sql: `
+      UPDATE promoter_convidados pc
+         SET organization_id = p.organization_id
+        FROM promoters p
+       WHERE pc.organization_id IS NULL
+         AND pc.promoter_id = p.promoter_id
+         AND p.organization_id IS NOT NULL
+    `,
+  },
+  {
+    name: 'promoter_eventos órfãos → org piloto',
+    sql: `
+      UPDATE promoter_eventos pe
+         SET organization_id = o.id
+        FROM organizations o
+       WHERE pe.organization_id IS NULL AND o.slug = 'grupo-ideia-um'
+    `,
+  },
+  {
+    name: 'promoter_convidados órfãos → org piloto',
+    sql: `
+      UPDATE promoter_convidados pc
+         SET organization_id = o.id
+        FROM organizations o
+       WHERE pc.organization_id IS NULL AND o.slug = 'grupo-ideia-um'
+    `,
+  },
 ];
 
 async function countNulls() {
@@ -138,6 +178,10 @@ async function countNulls() {
     'restaurant_reservation_blocks',
     'guest_lists',
     'guests',
+    'promoter_eventos',
+    'promoter_convidados',
+    'reservas',
+    'promoters',
   ];
   const counts = {};
   for (const t of tables) {

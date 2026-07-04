@@ -21,6 +21,19 @@ async function resolveOrganizationIdForEstablishment(pool, establishmentId) {
   return orgId != null ? Number(orgId) : null;
 }
 
+/** Org do JWT ou org piloto (single-tenant legado). */
+async function resolveOrganizationIdForUser(pool, user) {
+  const fromToken = Number(user?.organization_id);
+  if (Number.isFinite(fromToken) && fromToken > 0) return fromToken;
+
+  const { rows } = await pool.query(
+    `SELECT id FROM organizations WHERE slug = 'grupo-ideia-um' LIMIT 1`,
+  );
+  const orgId = rows[0]?.id;
+  return orgId != null ? Number(orgId) : null;
+}
+
 module.exports = {
   resolveOrganizationIdForEstablishment,
+  resolveOrganizationIdForUser,
 };

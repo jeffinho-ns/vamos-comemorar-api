@@ -44,3 +44,7 @@ temp/
 
 
 
+
+# Cursor/ECC: nao versionar segredos e estado local (mcp.json.example fica versionado)
+.cursor/mcp.json
+.cursor/ecc-install-state.json

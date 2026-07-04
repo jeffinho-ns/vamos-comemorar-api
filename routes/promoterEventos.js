@@ -162,11 +162,17 @@ module.exports = (pool) => {
       }
       
       // Inserir relacionamento
+      const promoterOrgResult = await pool.query(
+        'SELECT organization_id FROM promoters WHERE promoter_id = $1 LIMIT 1',
+        [promoter_id],
+      );
+      const organizationIdForInsert = promoterOrgResult.rows[0]?.organization_id ?? null;
+
       const result = await pool.query(
         `INSERT INTO promoter_eventos 
-         (promoter_id, evento_id, data_evento, funcao, observacoes, status)
-         VALUES ($1, $2, $3, $4, $5, 'ativo') RETURNING id`,
-        [promoter_id, evento_id, data_evento, funcao, observacoes]
+         (promoter_id, evento_id, data_evento, funcao, observacoes, status, organization_id)
+         VALUES ($1, $2, $3, $4, $5, 'ativo', $6) RETURNING id`,
+        [promoter_id, evento_id, data_evento, funcao, observacoes, organizationIdForInsert]
       );
       
       console.log('✅ Relacionamento criado com ID:', result.rows[0].id);
