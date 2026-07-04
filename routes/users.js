@@ -28,10 +28,11 @@ const ENUM_TO_ROLE = {};
 Object.keys(ROLE_TO_ENUM).forEach((k) => {
   ENUM_TO_ROLE[ROLE_TO_ENUM[k]] = k;
 });
-ENUM_TO_ROLE["Atendente"] = "atendente";
+ENUM_TO_ROLE["Atendente"] = "recepcao";
 // Se o banco tiver role "Promoter-list", normalizar para o frontend
 ENUM_TO_ROLE["Promoter-list"] = "promoter-list";
-if (ROLE_TO_ENUM.recepção) ENUM_TO_ROLE["Recepção"] = "recepcao";
+ENUM_TO_ROLE["Recepção"] = "recepcao";
+ENUM_TO_ROLE["recepção"] = "recepcao";
 
 const PROMOTER_ONLY_EMAILS = new Set([
   "montoya@ideiaum.com.br",
@@ -114,7 +115,14 @@ function enumDbCandidatesForRole(role) {
 }
 function roleFromEnum(enumValue) {
   if (!enumValue) return "cliente";
-  return ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
+  const mapped = ENUM_TO_ROLE[enumValue] || String(enumValue).toLowerCase();
+  const n = String(mapped)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  if (n === "recepcao" || n === "atendente") return "recepcao";
+  return mapped;
 }
 
 // Função auxiliar para adicionar a URL completa das imagens ao objeto do usuário
