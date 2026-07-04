@@ -241,7 +241,14 @@ router.get('/', async (req, res) => {
     const client = await pool.connect();
     try {
       // Uma conexão, queries em série (client pg não suporta paralelo na mesma conexão).
-      const placesResult = await client.query(`
+      const {
+        shouldReadFromEstablishments,
+        listPlacesFromEstablishments,
+      } = require('../services/establishmentLegacyAdapter');
+
+      const placesResult = shouldReadFromEstablishments()
+        ? { rows: await listPlacesFromEstablishments(client) }
+        : await client.query(`
           SELECT 
             id, slug, name, email, description, logo, street, number, 
             latitude, longitude, status, visible 
@@ -295,17 +302,28 @@ router.get('/:id', async (req, res) => {
     const client = await pool.connect();
     try {
       const { id } = req.params;
-      const placeResult = await client.query(`
+      const {
+        shouldReadFromEstablishments,
+        getPlaceFromEstablishments,
+      } = require('../services/establishmentLegacyAdapter');
+
+      const placeRow = shouldReadFromEstablishments()
+        ? await getPlaceFromEstablishments(client, id)
+        : (
+            await client.query(`
         SELECT 
           id, slug, name, email, description, logo, street, number, 
           latitude, longitude, status, visible 
         FROM places
         WHERE id = $1
-      `, [id]);
+      `, [id])
+          ).rows[0];
 
-      if (placeResult.rows.length === 0) {
+      if (!placeRow) {
         return res.status(404).json({ error: 'Lugar não encontrado' });
       }
+
+      const placeResult = { rows: [placeRow] };
 
       const commoditiesResult = await client.query(`
         SELECT 

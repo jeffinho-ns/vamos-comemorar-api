@@ -121,7 +121,14 @@ module.exports = (pool) => {
     // Rota para listar todos os estabelecimentos
     router.get('/', async (req, res) => {
         try {
-            const result = await pool.query('SELECT * FROM bars');
+            const {
+                shouldReadFromEstablishments,
+                listBarsFromEstablishments,
+            } = require('../services/establishmentLegacyAdapter');
+
+            const result = shouldReadFromEstablishments()
+                ? { rows: await listBarsFromEstablishments(pool) }
+                : await pool.query('SELECT * FROM bars');
             const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
             res.json(barsFormatted);
         } catch (error) {
@@ -134,11 +141,21 @@ module.exports = (pool) => {
     router.get('/:id', async (req, res) => {
         const { id } = req.params;
         try {
-            const result = await pool.query('SELECT * FROM bars WHERE id = $1', [id]);
-            if (result.rows.length === 0) {
+            const {
+                shouldReadFromEstablishments,
+                getBarFromEstablishments,
+            } = require('../services/establishmentLegacyAdapter');
+
+            const barRow = shouldReadFromEstablishments()
+                ? await getBarFromEstablishments(pool, id)
+                : (
+                    await pool.query('SELECT * FROM bars WHERE id = $1', [id])
+                  ).rows[0];
+
+            if (!barRow) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
-            const bar = normalizeBarFields(result.rows[0]);
+            const bar = normalizeBarFields(barRow);
             res.json(bar);
         } catch (error) {
             console.error('Erro ao buscar estabelecimento:', error);
