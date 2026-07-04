@@ -2,6 +2,7 @@
 
 const { establishmentScopeClause, canReadEstablishment } = require('../tenancy/queryScope');
 const establishmentRules = require('../services/establishmentRules');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 /**
  * Controller para gerenciamento de Eventos e Listas
@@ -615,12 +616,14 @@ class EventosController {
         });
       }
       
+      const orgId = await resolveOrganizationIdForEstablishment(this.pool, establishment_id);
+
       const result = await this.pool.query(`
         INSERT INTO eventos (
           nome_do_evento, data_do_evento, hora_do_evento, tipo_evento,
           dia_da_semana, descricao, casa_do_evento, local_do_evento,
-          promoter_criador_id, id_place, categoria, usado_para_listas
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE) RETURNING id
+          promoter_criador_id, id_place, categoria, usado_para_listas, organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, $12) RETURNING id
       `, [
         nome, 
         tipo_evento === 'unico' ? data_evento : null,
@@ -632,7 +635,8 @@ class EventosController {
         local_evento,
         promoter_criador_id, 
         establishment_id,
-        categoria
+        categoria,
+        orgId,
       ]);
       
       const novoEventoResult = await this.pool.query(`

@@ -7,6 +7,7 @@ const authorizeRoles = require('../middleware/authorize');
 const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
+const requirePermission = require('../tenancy/requirePermission');
 const EventosController = require('../controllers/EventosController');
 
 module.exports = (pool, checkAndAwardPromoterGifts = null) => {
@@ -14,6 +15,13 @@ module.exports = (pool, checkAndAwardPromoterGifts = null) => {
   router.use(optionalAuth);
   router.use(tenantMiddleware());
   router.use(requireModule('eventos'));
+  router.use((req, res, next) => {
+    if (!req.user) return next();
+    const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+      ? 'eventos:update'
+      : 'eventos:read';
+    return requirePermission(perm)(req, res, next);
+  });
 
   /**
    * @route   GET /api/v1/eventos/todos

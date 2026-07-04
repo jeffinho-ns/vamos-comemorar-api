@@ -2,6 +2,11 @@
 
 const express = require('express');
 const auth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const requirePermission = require('../tenancy/requirePermission');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 // Helper function to calculate distance between two lat/lon points in km
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -20,6 +25,17 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // Recebe checkAndAwardBrindes como argumento
 module.exports = (pool, checkAndAwardBrindes) => {
     const router = express.Router();
+
+    router.use(optionalAuth);
+    router.use(tenantMiddleware());
+    router.use(requireModule('eventos'));
+    router.use((req, res, next) => {
+        if (!req.user) return next();
+        const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+            ? 'eventos:update'
+            : 'eventos:read';
+        return requirePermission(perm)(req, res, next);
+    });
 
     // URL base das imagens (FTP - usado apenas para URLs legadas durante migração)
     const BASE_IMAGE_URL = 'https://grupoideiaum.com.br/cardapio-agilizaiapp/';
@@ -176,6 +192,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 await client.query('ROLLBACK');
                 return res.status(400).json({ message: 'Nome do evento e casa do evento são obrigatórios.' });
             }
+
+            const orgId = await resolveOrganizationIdForEstablishment(pool, id_place);
             
             const insertQuery = `
                 INSERT INTO eventos (
@@ -183,8 +201,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                     local_do_evento, categoria, mesas, valor_da_mesa, brinde,
                     numero_de_convidados, descricao, valor_da_entrada,
                     imagem_do_evento, imagem_do_combo, observacao,
-                    tipo_evento, dia_da_semana, id_place, criado_por
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
+                    tipo_evento, dia_da_semana, id_place, criado_por, organization_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id
             `;
             const insertParams = [
                 casa_do_evento, nome_do_evento,
@@ -193,7 +211,8 @@ module.exports = (pool, checkAndAwardBrindes) => {
                 numero_de_convidados, descricao, valor_da_entrada,
                 imagem_do_evento || null, imagem_do_combo || null, observacao,
                 tipo_evento, tipo_evento === 'semanal' ? dia_da_semana : null,
-                id_place, req.user.id // Adiciona o ID do usuário que criou o evento
+                id_place, req.user.id,
+                orgId,
             ];
 
             const result = await client.query(insertQuery, insertParams);

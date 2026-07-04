@@ -27,6 +27,10 @@ const RLS_SCOPED_TABLES = [
   'whatsapp_messages',
   'whatsapp_campaigns',
   'establishment_faq',
+  'eventos',
+  'listas',
+  'listas_convidados',
+  'users',
 ];
 
 const RLS_TABLE_PATTERNS = RLS_SCOPED_TABLES.map(

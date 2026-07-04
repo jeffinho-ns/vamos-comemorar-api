@@ -69,13 +69,16 @@ Migrations:
 - `020_role_permissions_seed.sql` — matriz de fábrica role → permissions por org
 - `021_rls_cardapio_whatsapp.sql` — RLS `menu_items`, whatsapp_*, `establishment_faq`
 
+- `022_add_organization_id_eventos.sql` — `organization_id` em `eventos`
+- `023_rls_eventos_listas_users.sql` — RLS eventos, listas, users
+
 **Provisionamento (Bloco A):** `billing/provisioningOperational.js` — nova org cria place+bar+legacy IDs+área+mesas+FAQ.
 
-**Backfill WhatsApp/cardápio:** `scripts/saas/backfill_organization_id_whatsapp.js`
+**Backfill:** `backfill_organization_id_whatsapp.js`, `backfill_organization_id_events_users.js`
 
-**checkins:** tabela/coluna `organization_id` inexistente no banco atual — fora do escopo RLS até migration aditiva futura.
+**Check-ins:** sem tabela `checkins`; enforce via rotas + RLS em `guests`/`guest_lists`.
 
-Tabelas monitoradas: `tenancy/rlsTables.js` (**21 tabelas**). Validação: `scripts/saas/validate_rls_operational.sql`.
+Tabelas monitoradas: `tenancy/rlsTables.js` (**25 tabelas**). Validação: `scripts/saas/validate_rls_operational.sql`.
 
 **Ordem recomendada:** staging → aplicar 008/014 → `SAAS_RLS_MODE=on` no Render → validar `/health` (`saas.rlsMode`) → analista restrito → produção.
 

@@ -3,6 +3,9 @@
 
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
 
 /**
  * Função auxiliar: Calcula a distância entre duas coordenadas usando a fórmula de Haversine
@@ -26,6 +29,10 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 module.exports = (pool) => {
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+  router.use(requireModule('checkin'));
+
   /**
    * @route   POST /api/checkins/self-validate
    * @desc    Valida e realiza check-in automático de convidado via QR Code com validação de geolocalização

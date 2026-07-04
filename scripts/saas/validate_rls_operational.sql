@@ -31,7 +31,11 @@ UNION ALL SELECT 'whatsapp_contacts', count(*) FROM whatsapp_contacts WHERE orga
 UNION ALL SELECT 'whatsapp_conversations', count(*) FROM whatsapp_conversations WHERE organization_id IS NULL
 UNION ALL SELECT 'whatsapp_messages', count(*) FROM whatsapp_messages WHERE organization_id IS NULL
 UNION ALL SELECT 'whatsapp_campaigns', count(*) FROM whatsapp_campaigns WHERE organization_id IS NULL
-UNION ALL SELECT 'establishment_faq', count(*) FROM establishment_faq WHERE organization_id IS NULL;
+UNION ALL SELECT 'establishment_faq', count(*) FROM establishment_faq WHERE organization_id IS NULL
+UNION ALL SELECT 'eventos', count(*) FROM eventos WHERE organization_id IS NULL
+UNION ALL SELECT 'listas', count(*) FROM listas WHERE organization_id IS NULL
+UNION ALL SELECT 'listas_convidados', count(*) FROM listas_convidados WHERE organization_id IS NULL
+UNION ALL SELECT 'users', count(*) FROM users WHERE organization_id IS NULL;
 
 \echo '=== NOT NULL constraints em organization_id (tabelas RLS core 019) ==='
 SELECT c.table_name, c.is_nullable

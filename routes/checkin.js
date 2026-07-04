@@ -1,6 +1,10 @@
 // Em /routes/checkin.js
 
 const express = require('express');
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const requirePermission = require('../tenancy/requirePermission');
 const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
 
 // Função auxiliar para verificar e notificar sobre brindes
@@ -38,6 +42,14 @@ async function verificarBrindes(reservaId, db, io) {
 
 module.exports = (db) => {
     const router = express.Router();
+
+    router.use(optionalAuth);
+    router.use(tenantMiddleware());
+    router.use(requireModule('checkin'));
+    router.use((req, res, next) => {
+        if (!req.user) return next();
+        return requirePermission('checkin:update')(req, res, next);
+    });
 
     /**
      * @route   POST /api/checkin
