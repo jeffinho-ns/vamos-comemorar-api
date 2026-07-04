@@ -7,6 +7,8 @@ const path = require("path");
 const authenticateToken = require("../middleware/auth");
 const { buildTokenPayload } = require("../tenancy/jwtClaims");
 const { endImpersonation } = require("../billing/impersonateService");
+const { queryWithRlsContext } = require("../tenancy/scopedQuery");
+const { resolveOrganizationIdForUser } = require("../tenancy/resolveOrganizationId");
 
 const router = express.Router();
 const baseUrl =
@@ -211,12 +213,28 @@ module.exports = (pool, upload) => {
     const roleCandidates = enumDbCandidatesForRole(role);
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const organizationId = await resolveOrganizationIdForUser(pool, actor || {});
+    const rlsCtx =
+      actor?.is_super_admin === true
+        ? { isAdmin: true }
+        : organizationId
+          ? { organizationId }
+          : null;
+
+    if (!rlsCtx) {
+      return res.status(503).json({
+        error: "Organização indisponível para cadastro de usuário.",
+      });
+    }
+
     let result;
     let lastError = null;
     for (const roleValue of roleCandidates) {
       try {
-        result = await pool.query(
-          `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, role`,
+        result = await queryWithRlsContext(
+          pool,
+          rlsCtx,
+          `INSERT INTO users (name, email, cpf, password, foto_perfil, telefone, role, organization_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, role`,
           [
             name.trim(),
             email.trim().toLowerCase(),
@@ -225,6 +243,7 @@ module.exports = (pool, upload) => {
             profileImageUrl || null,
             telefone || null,
             roleValue,
+            organizationId,
           ],
         );
         lastError = null;
@@ -253,7 +272,16 @@ module.exports = (pool, upload) => {
               : "Dados duplicados. Verifique os campos.",
           });
         }
-        throw error;
+        if (error.code === "42501") {
+          console.error("Cadastro usuário: violação RLS:", msg);
+          return res.status(500).json({
+            error: "Erro ao cadastrar usuário (permissão).",
+          });
+        }
+        console.error("Erro ao cadastrar usuário:", error);
+        return res.status(500).json({
+          error: msg || "Erro ao cadastrar usuário",
+        });
       }
     }
 

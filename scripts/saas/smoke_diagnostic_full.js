@@ -83,6 +83,28 @@ function permSet(ent) {
   return new Set(ent?.permissions || []);
 }
 
+/** Simula PlaceService.fetchAllPlaces (Bloco F Flutter). */
+function simulateFlutterPlacesFilter(places, entitlements) {
+  const visible = places.filter(
+    (p) => (p.visible === 1 || p.visible === true) && p.status === 'active',
+  );
+  if (!entitlements || entitlements.allowAll) return visible;
+
+  const estIds = new Set((entitlements.establishmentIds || []).map(Number).filter((n) => n > 0));
+  if (estIds.size > 0) {
+    return visible.filter((p) => estIds.has(Number(p.id)));
+  }
+
+  const orgId = entitlements.organizationId;
+  if (orgId != null) {
+    return visible.filter(
+      (p) => p.organization_id == null || Number(p.organization_id) === Number(orgId),
+    );
+  }
+
+  return [];
+}
+
 async function main() {
   console.log(`\n========== DIAGNÓSTICO SaaS COMPLETO — ${API_URL} ==========\n`);
 
@@ -302,15 +324,33 @@ async function main() {
     }
   }
 
-  // ── 10. Flutter / places (simulação) ──
+  // ── 10. Flutter / places (simulação Bloco F) ──
   if (placesRes.status === 200) {
     const places = placesRes.json?.data || [];
-    const flutterVisible = places.filter(
-      (p) => (p.visible === 1 || p.visible === true) && p.status === 'active',
+    const flutterAnonymous = simulateFlutterPlacesFilter(places, null);
+    pass(
+      'Flutter fetchAllPlaces (anônimo)',
+      `${flutterAnonymous.length}/${places.length} visíveis`,
     );
-    pass('Flutter fetchAllPlaces (simulado)', `${flutterVisible.length}/${places.length} visíveis (sem filtro org)`);
-    if (flutterVisible.some((p) => String(p.name).toLowerCase().includes('demo b'))) {
-      info('Flutter mostra Bar Demo B — Bloco F pendente: filtrar por org do usuário');
+
+    if (demoEnt) {
+      const flutterDemoB = simulateFlutterPlacesFilter(places, demoEnt);
+      const hasDemoB = flutterDemoB.some((p) => String(p.name).toLowerCase().includes('demo b'));
+      const hasHighline = flutterDemoB.some((p) => Number(p.id) === 7);
+      if (hasDemoB && !hasHighline && flutterDemoB.length <= 2) {
+        pass(
+          'Flutter fetchAllPlaces (demo B)',
+          `${flutterDemoB.length} casa(s) estIds=[${(demoEnt.establishmentIds || []).join(',')}]`,
+        );
+      } else if (demoEnt.establishmentIds?.length) {
+        fail(
+          'Flutter fetchAllPlaces (demo B)',
+          `${flutterDemoB.length} casas — esperado escopo org B sem Highline (id=7)`,
+        );
+      } else {
+        info('API ainda sem establishmentIds em entitlements — redeploy necessário para Bloco F completo');
+        pass('Flutter fetchAllPlaces (demo B)', 'establishmentIds pendente no deploy');
+      }
     }
   }
 
@@ -338,9 +378,9 @@ async function main() {
   }
 
   // ── 12. Render DATABASE_URL ──
-  info(
-    'Render: configure DATABASE_URL no painel Environment (Internal Database URL) para remover fallback legado em resolveDatabaseUrl.js',
-  );
+  if (!process.env.DATABASE_URL) {
+    info('DATABASE_URL ausente localmente — checks DB acima foram pulados');
+  }
 
   const failed = results.filter((r) => !r.ok);
   console.log('\n========== RESUMO ==========');

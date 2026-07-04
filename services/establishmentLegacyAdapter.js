@@ -27,7 +27,8 @@ const PLACES_FROM_ESTABLISHMENTS_SQL = `
     e.latitude,
     e.longitude,
     COALESCE(p.status::text, e.status, 'active') AS status,
-    COALESCE(e.visible, p.visible, TRUE) AS visible
+    COALESCE(e.visible, p.visible, TRUE) AS visible,
+    e.organization_id AS organization_id
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
   WHERE e.legacy_place_id IS NOT NULL
@@ -47,7 +48,8 @@ const PLACE_BY_LEGACY_ID_SQL = `
     e.latitude,
     e.longitude,
     COALESCE(p.status::text, e.status, 'active') AS status,
-    COALESCE(e.visible, p.visible, TRUE) AS visible
+    COALESCE(e.visible, p.visible, TRUE) AS visible,
+    e.organization_id AS organization_id
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
   WHERE e.legacy_place_id = $1

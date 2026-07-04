@@ -33,7 +33,7 @@ module.exports = (pool) => {
         SELECT 
           wi.*,
           ra.name as area_name,
-          ra.establishment_id,
+          wi.establishment_id,
           u.name as created_by_name
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
@@ -60,7 +60,7 @@ module.exports = (pool) => {
       }
 
       {
-        const scope = establishmentScopeClause(req, 'ra.establishment_id', paramIndex);
+        const scope = establishmentScopeClause(req, 'wi.establishment_id', paramIndex);
         if (scope.sql) {
           query += scope.sql;
           params.push(...scope.params);
@@ -109,7 +109,7 @@ module.exports = (pool) => {
         SELECT 
           wi.*,
           ra.name as area_name,
-          ra.establishment_id,
+          wi.establishment_id,
           u.name as created_by_name
         FROM walk_ins wi
         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
@@ -234,9 +234,8 @@ module.exports = (pool) => {
       
       // Verificar se o passante existe
       const existingWalkInResult = await pool.query(
-        `SELECT wi.id, ra.establishment_id
+        `SELECT wi.id, wi.establishment_id
            FROM walk_ins wi
-           LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
           WHERE wi.id = $1`,
         [id]
       );
@@ -305,9 +304,8 @@ module.exports = (pool) => {
       
       // Verificar se o passante existe
       const existingWalkInResult = await pool.query(
-        `SELECT wi.id, ra.establishment_id
+        `SELECT wi.id, wi.establishment_id
            FROM walk_ins wi
-           LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
           WHERE wi.id = $1`,
         [id]
       );
@@ -346,11 +344,10 @@ module.exports = (pool) => {
    */
   router.get('/stats/active', async (req, res) => {
     try {
-      const scope = establishmentScopeClause(req, 'ra.establishment_id', 1);
+      const scope = establishmentScopeClause(req, 'wi.establishment_id', 1);
       const activeWalkInsResult = await pool.query(
         `SELECT COUNT(*) as count
          FROM walk_ins wi
-         LEFT JOIN restaurant_areas ra ON wi.area_id = ra.id
          WHERE wi.status = 'ATIVO'${scope.sql}`,
         [...scope.params]
       );

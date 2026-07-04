@@ -31,6 +31,7 @@ async function resolveEntitlements(pool, user) {
         modules: [],
         permissions: [],
         organizationId: null,
+        establishmentIds: scope.establishmentIds || [],
         legacyScoped: true,
       };
     }
@@ -103,6 +104,7 @@ async function resolveEntitlements(pool, user) {
     modules,
     permissions,
     organizationId: orgId,
+    establishmentIds: scope.establishmentIds || [],
     legacyScoped,
     isAccountAdmin,
   };
