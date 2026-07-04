@@ -22,7 +22,7 @@ nas rotas de reserva; comportamento controlado por `SAAS_MODE`.
 | `tenantMiddleware.js` | Injeta `req.tenant`; valida establishment do request contra o escopo. |
 | `jwtClaims.js` | `buildTokenPayload` — JWT com `organization_id`, `organization_ids`, `is_super_admin`. |
 | `requestContext.js` | AsyncLocalStorage — contexto de org por request (RLS). |
-| `scopedQuery.js` / `poolRlsWrap.js` | `SET LOCAL app.current_org` / `app.bypass_rls` em queries a `restaurant_reservations`. |
+| `scopedQuery.js` / `poolRlsWrap.js` | `SET LOCAL app.current_org` / `app.bypass_rls` em queries às tabelas RLS (`tenancy/rlsTables.js`). |
 | `requireModule.js` | Gate de módulo contratado (receita). |
 | `requirePermission.js` | Gate de permissão `modulo:acao` (RBAC). |
 | `meEntitlementsRouter.js` | `GET /api/me/entitlements` (read-only). |

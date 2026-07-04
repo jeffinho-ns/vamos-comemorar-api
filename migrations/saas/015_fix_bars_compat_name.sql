@@ -1,36 +1,11 @@
--- ============================================================================
--- SaaS Multi-Tenant — 013: views de compatibilidade places/bars
--- ----------------------------------------------------------------------------
--- Views SOMENTE LEITURA para validar paridade establishments ↔ legado.
--- Não substituem as tabelas places/bars; API continua escrevendo no legado
--- até fase Contract. Rodar via scripts/saas/run-saas-migrations.js.
--- ============================================================================
-
+-- Corrige bars_compat: nome operacional vem de bars (paridade com GET /api/bars legacy)
 SET search_path TO meu_backup_db, public;
-
-CREATE OR REPLACE VIEW places_compat AS
-SELECT
-  e.legacy_place_id AS id,
-  COALESCE(p.slug, e.slug) AS slug,
-  e.name,
-  e.email,
-  e.description,
-  e.logo,
-  e.street,
-  e.number,
-  e.latitude,
-  e.longitude,
-  COALESCE(p.status::text, e.status, 'active') AS status,
-  COALESCE(e.visible, p.visible, TRUE) AS visible
-FROM establishments e
-LEFT JOIN places p ON p.id = e.legacy_place_id
-WHERE e.legacy_place_id IS NOT NULL;
 
 CREATE OR REPLACE VIEW bars_compat AS
 SELECT
   e.legacy_bar_id AS id,
   COALESCE(b.slug, e.slug) AS slug,
-  e.name,
+  COALESCE(b.name, e.name) AS name,
   e.description,
   e.logo_url AS logourl,
   e.cover_image_url AS coverimageurl,

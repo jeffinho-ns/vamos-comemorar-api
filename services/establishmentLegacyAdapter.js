@@ -26,7 +26,7 @@ const PLACES_FROM_ESTABLISHMENTS_SQL = `
     e.number,
     e.latitude,
     e.longitude,
-    COALESCE(p.status, e.status, 'active') AS status,
+    COALESCE(p.status::text, e.status, 'active') AS status,
     COALESCE(e.visible, p.visible, TRUE) AS visible
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
@@ -46,7 +46,7 @@ const PLACE_BY_LEGACY_ID_SQL = `
     e.number,
     e.latitude,
     e.longitude,
-    COALESCE(p.status, e.status, 'active') AS status,
+    COALESCE(p.status::text, e.status, 'active') AS status,
     COALESCE(e.visible, p.visible, TRUE) AS visible
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
@@ -58,7 +58,7 @@ const BARS_FROM_ESTABLISHMENTS_SQL = `
   SELECT
     e.legacy_bar_id AS id,
     COALESCE(b.slug, e.slug) AS slug,
-    e.name,
+    COALESCE(b.name, e.name) AS name,
     e.description,
     e.logo_url AS logourl,
     e.cover_image_url AS coverimageurl,
@@ -80,7 +80,7 @@ const BARS_FROM_ESTABLISHMENTS_SQL = `
     COALESCE(e.theme->>'menu_category_bg_color', b.menu_category_bg_color) AS menu_category_bg_color,
     COALESCE(e.theme->>'menu_subcategory_bg_color', b.menu_subcategory_bg_color) AS menu_subcategory_bg_color,
     COALESCE(e.theme->>'mobile_sidebar_bg_color', b.mobile_sidebar_bg_color) AS mobile_sidebar_bg_color,
-    COALESCE(e.theme->'custom_seals', b.custom_seals) AS custom_seals
+    COALESCE(e.theme->'custom_seals', b.custom_seals::jsonb) AS custom_seals
   FROM establishments e
   LEFT JOIN bars b ON b.id = e.legacy_bar_id
   WHERE e.legacy_bar_id IS NOT NULL
@@ -91,7 +91,7 @@ const BAR_BY_LEGACY_ID_SQL = `
   SELECT
     e.legacy_bar_id AS id,
     COALESCE(b.slug, e.slug) AS slug,
-    e.name,
+    COALESCE(b.name, e.name) AS name,
     e.description,
     e.logo_url AS logourl,
     e.cover_image_url AS coverimageurl,
@@ -113,7 +113,7 @@ const BAR_BY_LEGACY_ID_SQL = `
     COALESCE(e.theme->>'menu_category_bg_color', b.menu_category_bg_color) AS menu_category_bg_color,
     COALESCE(e.theme->>'menu_subcategory_bg_color', b.menu_subcategory_bg_color) AS menu_subcategory_bg_color,
     COALESCE(e.theme->>'mobile_sidebar_bg_color', b.mobile_sidebar_bg_color) AS mobile_sidebar_bg_color,
-    COALESCE(e.theme->'custom_seals', b.custom_seals) AS custom_seals
+    COALESCE(e.theme->'custom_seals', b.custom_seals::jsonb) AS custom_seals
   FROM establishments e
   LEFT JOIN bars b ON b.id = e.legacy_bar_id
   WHERE e.legacy_bar_id = $1

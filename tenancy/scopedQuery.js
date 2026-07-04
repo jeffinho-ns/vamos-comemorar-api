@@ -6,11 +6,7 @@
 
 const { isRlsEnforced } = require('./featureFlags');
 
-const RESERVATIONS_TABLE_RE = /\brestaurant_reservations\b/i;
-
-function targetsRestaurantReservations(sql) {
-  return RESERVATIONS_TABLE_RE.test(String(sql || ''));
-}
+const { targetsRlsScopedTable } = require('./rlsTables');
 
 /**
  * @param {import('pg').Pool} pool
@@ -48,7 +44,7 @@ async function queryWithRlsContext(pool, ctx, text, params) {
  * @param {Function} originalQuery bound pool.query
  */
 async function maybeScopedQuery(pool, ctx, text, params, originalQuery) {
-  if (!isRlsEnforced() || !ctx || !targetsRestaurantReservations(text)) {
+  if (!isRlsEnforced() || !ctx || !targetsRlsScopedTable(text)) {
     return originalQuery(text, params);
   }
   if (!ctx.isAdmin && !ctx.organizationId) {
@@ -58,7 +54,7 @@ async function maybeScopedQuery(pool, ctx, text, params, originalQuery) {
 }
 
 module.exports = {
-  targetsRestaurantReservations,
   queryWithRlsContext,
   maybeScopedQuery,
+  targetsRlsScopedTable,
 };

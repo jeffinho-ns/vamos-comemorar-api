@@ -2,12 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { targetsRestaurantReservations } = require('../../tenancy/scopedQuery');
+const { targetsRlsScopedTable } = require('../../tenancy/rlsTables');
 
-test('targetsRestaurantReservations detecta tabela alvo', () => {
+test('targetsRlsScopedTable detecta tabelas RLS', () => {
   assert.equal(
-    targetsRestaurantReservations('SELECT * FROM restaurant_reservations WHERE id = $1'),
+    targetsRlsScopedTable('SELECT * FROM restaurant_reservations WHERE id = $1'),
     true,
   );
-  assert.equal(targetsRestaurantReservations('SELECT * FROM users'), false);
+  assert.equal(targetsRlsScopedTable('SELECT * FROM guest_lists'), true);
+  assert.equal(targetsRlsScopedTable('SELECT * FROM users'), false);
 });
