@@ -45,7 +45,8 @@ module.exports = (pool, app) => {
 
   router.use(auth);
   router.use(authorize(...allowedRoles));
-  router.use(tenantMiddleware());
+  // establishment_id na query é filtro de inbox/CRM — a rota valida o escopo.
+  router.use(tenantMiddleware({ ignoreQueryEstablishmentId: true }));
   router.use(requireModule('whatsapp'));
   router.use((req, res, next) => {
     const perm = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
@@ -59,32 +60,43 @@ module.exports = (pool, app) => {
     return role === 'admin' || role === 'administrador';
   }
 
-  async function loadUserScope(user) {
-    const highlineOnlyIds = getWhatsappHighlineOnlyEstablishmentIds(user);
-    if (highlineOnlyIds) {
-      return { isAdmin: false, allowedEstablishmentIds: highlineOnlyIds };
-    }
-    if (isSaasEnforced() || isSaasObserving()) {
-      const scope = await loadTenantScope(pool, user);
-      return {
-        isAdmin: scope.isAdmin,
-        allowedEstablishmentIds: scope.establishmentIds,
-      };
-    }
-    if (isAdminRole(user)) {
-      return { isAdmin: true, allowedEstablishmentIds: [] };
-    }
+  async function loadUepWhatsappEstablishmentIds(userId) {
     const result = await pool.query(
       `SELECT DISTINCT establishment_id
        FROM user_establishment_permissions
        WHERE user_id = $1
          AND is_active = TRUE
          AND can_manage_reservations = TRUE`,
-      [user.id]
+      [userId],
     );
-    const allowedEstablishmentIds = result.rows
+    return result.rows
       .map((r) => Number(r.establishment_id))
       .filter((v) => Number.isFinite(v) && v > 0);
+  }
+
+  async function loadUserScope(user) {
+    const highlineOnlyIds = getWhatsappHighlineOnlyEstablishmentIds(user);
+    if (highlineOnlyIds) {
+      return { isAdmin: false, allowedEstablishmentIds: highlineOnlyIds };
+    }
+    if (isAdminRole(user)) {
+      return { isAdmin: true, allowedEstablishmentIds: [] };
+    }
+
+    let allowedEstablishmentIds = [];
+    if (isSaasEnforced() || isSaasObserving()) {
+      const scope = await loadTenantScope(pool, user);
+      if (scope.isAdmin) {
+        return { isAdmin: true, allowedEstablishmentIds: [] };
+      }
+      allowedEstablishmentIds = [...(scope.establishmentIds || [])];
+    }
+
+    const uepIds = await loadUepWhatsappEstablishmentIds(user.id);
+    allowedEstablishmentIds = [
+      ...new Set([...allowedEstablishmentIds, ...uepIds]),
+    ];
+
     return { isAdmin: false, allowedEstablishmentIds };
   }
 

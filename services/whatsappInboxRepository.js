@@ -118,6 +118,24 @@ async function assignConversation(pool, waId, userId) {
   return getConversationByWaId(pool, waId);
 }
 
+async function resolveOrganizationIdForConversation(pool, conversationId) {
+  const r = await pool.query(
+    `SELECT c.organization_id AS conv_org_id,
+            e.organization_id AS est_org_id
+       FROM whatsapp_conversations c
+       LEFT JOIN meu_backup_db.establishments e
+         ON e.legacy_place_id = c.establishment_id
+         OR e.legacy_bar_id = c.establishment_id
+      WHERE c.id = $1
+      LIMIT 1`,
+    [conversationId],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  const org = Number(row.conv_org_id) || Number(row.est_org_id);
+  return Number.isFinite(org) && org > 0 ? org : null;
+}
+
 async function insertMessage(
   pool,
   {
@@ -133,10 +151,21 @@ async function insertMessage(
     mediaPublicId,
   }
 ) {
+  const organizationId = await resolveOrganizationIdForConversation(pool, conversationId);
+  let resolvedOrgId = organizationId;
+  if (!resolvedOrgId) {
+    const ctx = await pool.query(
+      `SELECT NULLIF(current_setting('app.current_org', true), '')::integer AS org_id`,
+    );
+    const fromSession = Number(ctx.rows[0]?.org_id);
+    if (Number.isFinite(fromSession) && fromSession > 0) {
+      resolvedOrgId = fromSession;
+    }
+  }
   const r = await pool.query(
     `INSERT INTO whatsapp_messages
-       (conversation_id, direction, body, intent, suggested_reply, raw_payload, message_type, media_url, media_mime, media_public_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (conversation_id, direction, body, intent, suggested_reply, raw_payload, message_type, media_url, media_mime, media_public_id, organization_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id, conversation_id, direction, body, intent, suggested_reply,
                message_type, media_url, media_mime, created_at`,
     [
@@ -150,6 +179,7 @@ async function insertMessage(
       mediaUrl || null,
       mediaMime || null,
       mediaPublicId || null,
+      resolvedOrgId,
     ]
   );
   await pool.query(

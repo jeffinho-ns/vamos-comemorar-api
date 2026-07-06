@@ -26,9 +26,13 @@ function getPool(req) {
 }
 
 /** Lê o establishment_id pretendido da requisição (query/body/params). */
-function readRequestedEstablishmentId(req) {
+function readRequestedEstablishmentId(req, options = {}) {
+  const fromQuery =
+    !options.ignoreQueryEstablishmentId &&
+    req.query &&
+    (req.query.establishment_id || req.query.establishmentId);
   const raw =
-    (req.query && (req.query.establishment_id || req.query.establishmentId)) ??
+    fromQuery ??
     (req.body && (req.body.establishment_id || req.body.establishmentId)) ??
     (req.params && (req.params.establishment_id || req.params.id_place));
   const id = Number(raw);
@@ -36,7 +40,7 @@ function readRequestedEstablishmentId(req) {
 }
 
 function tenantMiddleware(options = {}) {
-  const { requireEstablishment = false } = options;
+  const { requireEstablishment = false, ignoreQueryEstablishmentId = false } = options;
 
   return async function tenant(req, res, next) {
     // Desligado: não faz absolutamente nada.
@@ -60,7 +64,7 @@ function tenantMiddleware(options = {}) {
       return res.status(500).json({ success: false, error: 'Falha ao resolver tenant.' });
     }
 
-    const requestedEst = readRequestedEstablishmentId(req);
+    const requestedEst = readRequestedEstablishmentId(req, { ignoreQueryEstablishmentId });
     const tokenOrgId = Number(req.user.organization_id);
     const primaryOrganizationId =
       scope.organizationIds[0] ??
