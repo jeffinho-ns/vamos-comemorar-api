@@ -23,6 +23,7 @@ const {
   defaultTemplateName,
   defaultTemplateLanguage,
   formatCampaignDeliveryError,
+  isWithinSessionWindow,
 } = require('../services/campaignDeliveryService');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -666,35 +667,55 @@ module.exports = (pool, app) => {
   });
 
   router.post('/conversations/:waId/send', async (req, res) => {
-    const { waId } = req.params;
+    const rawWaId = String(req.params.waId || '').trim();
+    const normalizedTo =
+      inbox.normalizeWaId(rawWaId) || rawWaId.replace(/\D/g, '');
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
     if (!text) {
       return res.status(400).json({ message: 'text é obrigatório' });
     }
+    if (!normalizedTo || normalizedTo.length < 12) {
+      return res.status(400).json({ message: 'Número WhatsApp inválido para envio.' });
+    }
     try {
       const scope = await loadUserScope(req.user);
-      let conv = await inbox.getConversationByWaId(pool, waId);
+      let conv =
+        (await inbox.getConversationByWaId(pool, normalizedTo)) ||
+        (rawWaId !== normalizedTo
+          ? await inbox.getConversationByWaId(pool, rawWaId)
+          : null);
       if (!conv) {
         if (!scope.isAdmin) {
           return res.status(404).json({ message: 'Conversa não encontrada' });
         }
-        conv = await inbox.upsertConversation(pool, { waId, contactName: null });
+        conv = await inbox.upsertConversation(pool, {
+          waId: normalizedTo,
+          contactName: null,
+        });
       } else if (!canAccessEstablishment(scope, conv.establishment_id)) {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
-      const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, waId);
+      const inSessionWindow = await isWithinSessionWindow(pool, normalizedTo);
+      if (!inSessionWindow) {
+        return res.status(400).json({
+          code: 'OUTSIDE_24H_WINDOW',
+          message:
+            'Este cliente está fora da janela de 24h da Meta. Para receber texto livre, ele precisa ter enviado uma mensagem nas últimas 24 horas. Peça para ele mandar um "oi" no WhatsApp ou use campanha com template aprovado.',
+        });
+      }
+
+      const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, conv.wa_id);
       let sendResult;
-      let queuedFallback = null;
       try {
-        sendResult = await sendMessage(waId, text);
+        sendResult = await sendMessage(normalizedTo, text);
       } catch (sendError) {
         if (!isWhatsAppTransientError(sendError)) {
           throw sendError;
         }
 
-        queuedFallback = await enqueueWhatsAppOutbound({
-          to: waId,
+        const queuedFallback = await enqueueWhatsAppOutbound({
+          to: normalizedTo,
           text,
           meta: {
             source: 'admin_manual_send_transient_fallback',
@@ -710,30 +731,39 @@ module.exports = (pool, app) => {
             original_error: buildPublicWhatsAppErrorMessage(sendError),
           };
         } else {
-          sendResult = {
-            queued: true,
-            mode: 'local_best_effort',
-            reason: queuedFallback.reason || 'queue_unavailable',
-            original_error: buildPublicWhatsAppErrorMessage(sendError),
-          };
+          throw sendError;
         }
       }
+
+      const metaMessageId = sendResult?.messages?.[0]?.id
+        ? String(sendResult.messages[0].id)
+        : null;
+      if (!sendResult?.queued && !metaMessageId) {
+        throw new Error(
+          'A Meta não confirmou o envio (sem ID de mensagem). A mensagem não foi entregue ao cliente.',
+        );
+      }
+
+      const deliveryPayload = sendResult?.queued
+        ? sendResult
+        : {
+            ...sendResult,
+            delivery_status: 'accepted',
+            meta_message_id: metaMessageId,
+          };
+
       const saved = await inbox.insertMessage(pool, {
         conversationId: conv.id,
         direction: 'outbound',
         body: text,
         intent: null,
         suggestedReply: null,
-        rawPayload: sendResult || null,
+        rawPayload: deliveryPayload,
       });
 
-      if (sendResult?.mode === 'local_best_effort') {
-        scheduleBestEffortWhatsAppRetry(waId, text, saved.id);
-      }
-
       const updatedConv = wasHumanTakeoverActive
-        ? await inbox.setHumanTakeoverUntilManualResume(pool, waId)
-        : await inbox.getConversationByWaId(pool, waId);
+        ? await inbox.setHumanTakeoverUntilManualResume(pool, conv.wa_id)
+        : await inbox.getConversationByWaId(pool, conv.wa_id);
       emitInbox({
         type: 'outbound',
         conversation: updatedConv,
@@ -743,16 +773,17 @@ module.exports = (pool, app) => {
       return res.json({
         ok: true,
         message: saved,
-        whatsapp: sendResult,
+        whatsapp: deliveryPayload,
         conversation: updatedConv,
         ai_paused: wasHumanTakeoverActive,
         pending_delivery: Boolean(sendResult?.queued),
+        meta_message_id: metaMessageId,
       });
     } catch (e) {
       console.error('[whatsappAdmin] send:', e);
       const isTransient = isWhatsAppTransientError(e);
-      return res.status(isTransient ? 503 : 500).json({
-        message: buildPublicWhatsAppErrorMessage(e),
+      return res.status(isTransient ? 503 : 400).json({
+        message: formatCampaignDeliveryError(e),
         transient: isTransient,
       });
     }

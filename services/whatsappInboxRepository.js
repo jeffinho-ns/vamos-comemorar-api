@@ -604,9 +604,9 @@ async function listMessages(pool, conversationId, limit = 500) {
   // Antes era ORDER BY created_at ASC LIMIT 300, o que retornava as mais ANTIGAS
   // — mensagens novas sumiam quando a conversa passava de 300 trocas.
   const r = await pool.query(
-    `SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, created_at
+    `SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, raw_payload, created_at
        FROM (
-         SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, created_at
+         SELECT id, direction, body, intent, suggested_reply, message_type, media_url, media_mime, raw_payload, created_at
            FROM whatsapp_messages
           WHERE conversation_id = $1
           ORDER BY created_at DESC, id DESC
