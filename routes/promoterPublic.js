@@ -436,7 +436,7 @@ module.exports = (pool) => {
         if (evento_id) {
           // Buscar lista do promoter para este evento
           const listasResult = await pool.query(
-            `SELECT lista_id FROM meu_backup_db.listas 
+            `SELECT lista_id, organization_id FROM meu_backup_db.listas 
              WHERE promoter_responsavel_id = $1 AND evento_id = $2
              LIMIT 1`,
             [promoter.promoter_id, evento_id]
@@ -444,6 +444,11 @@ module.exports = (pool) => {
 
           if (listasResult.rows.length > 0) {
             const lista_id = listasResult.rows[0].lista_id;
+            // organization_id é obrigatório para o convidado ficar visível na leitura
+            // com contexto de tenant (página de check-ins). Usa o da lista; senão, o do promoter.
+            const listaOrgId = listasResult.rows[0].organization_id != null
+              ? listasResult.rows[0].organization_id
+              : orgId;
 
             // Verificar se já existe na lista (evitar duplicatas)
             // Se WhatsApp foi fornecido, verificar por nome e telefone, senão apenas por nome
@@ -466,18 +471,33 @@ module.exports = (pool) => {
               try {
                 await pool.query(
                   `INSERT INTO meu_backup_db.listas_convidados (
-                    lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip, vip_tipo
-                  ) VALUES ($1, $2, $3, 'Pendente', $4, $5)`,
-                  [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue, vipTipoValue]
+                    lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip, vip_tipo, organization_id
+                  ) VALUES ($1, $2, $3, 'Pendente', $4, $5, $6)`,
+                  [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue, vipTipoValue, listaOrgId]
                 );
               } catch (listaInsertErr) {
                 if (listaInsertErr.code === '42703') {
-                  await pool.query(
-                    `INSERT INTO meu_backup_db.listas_convidados (
-                      lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip
-                    ) VALUES ($1, $2, $3, 'Pendente', $4)`,
-                    [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue]
-                  );
+                  // Fallback: coluna vip_tipo (ou outra) ausente — mantém organization_id
+                  try {
+                    await pool.query(
+                      `INSERT INTO meu_backup_db.listas_convidados (
+                        lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip, organization_id
+                      ) VALUES ($1, $2, $3, 'Pendente', $4, $5)`,
+                      [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue, listaOrgId]
+                    );
+                  } catch (listaInsertErr2) {
+                    if (listaInsertErr2.code === '42703') {
+                      // Banco legado sem organization_id
+                      await pool.query(
+                        `INSERT INTO meu_backup_db.listas_convidados (
+                          lista_id, nome_convidado, telefone_convidado, status_checkin, is_vip
+                        ) VALUES ($1, $2, $3, 'Pendente', $4)`,
+                        [lista_id, nome.trim(), whatsappValue || null, !!vipTipoValue]
+                      );
+                    } else {
+                      throw listaInsertErr2;
+                    }
+                  }
                 } else {
                   throw listaInsertErr;
                 }
