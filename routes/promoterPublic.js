@@ -189,7 +189,7 @@ module.exports = (pool) => {
       let promotersResult;
       try {
         promotersResult = await pool.query(
-          `SELECT promoter_id, nome, establishment_id 
+          `SELECT promoter_id, nome, establishment_id, organization_id 
            FROM meu_backup_db.promoters 
            WHERE codigo_identificador = $1 AND ativo = TRUE AND status::TEXT = 'Ativo'
            LIMIT 1`,
@@ -199,7 +199,7 @@ module.exports = (pool) => {
       } catch (queryError) {
         console.log('⚠️ [CONVIDADO] Erro na primeira tentativa, tentando sem cast:', queryError.message);
         promotersResult = await pool.query(
-          `SELECT promoter_id, nome, establishment_id 
+          `SELECT promoter_id, nome, establishment_id, organization_id 
            FROM meu_backup_db.promoters 
            WHERE codigo_identificador = $1 AND ativo = TRUE
            LIMIT 1`,
@@ -220,7 +220,9 @@ module.exports = (pool) => {
       }
 
       const promoter = promotersResult.rows[0];
-      console.log('✅ [CONVIDADO] Promoter encontrado:', promoter.promoter_id);
+      // organization_id do promoter (obrigatório após migração multi-tenant 019: coluna NOT NULL)
+      const orgId = promoter.organization_id != null ? promoter.organization_id : null;
+      console.log('✅ [CONVIDADO] Promoter encontrado:', promoter.promoter_id, 'org:', orgId);
 
       // Validar limite VIP Noite Tuda (vip_tipo M/F)
       if (vipTipoValue) {
@@ -353,17 +355,17 @@ module.exports = (pool) => {
           try {
             result = await pool.query(
               `INSERT INTO meu_backup_db.promoter_convidados (
-                promoter_id, nome, whatsapp, evento_id, status, vip_tipo
-              ) VALUES ($1, $2, NULL, $3, 'pendente', $4) RETURNING id`,
-              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue]
+                promoter_id, nome, whatsapp, evento_id, status, vip_tipo, organization_id
+              ) VALUES ($1, $2, NULL, $3, 'pendente', $4, $5) RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue, orgId]
             );
             console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (usando NULL para WhatsApp):', result.rows[0].id);
           } catch (nullError) {
             if (nullError.code === '42703') {
               result = await pool.query(
-                `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status)
-                 VALUES ($1, $2, NULL, $3, 'pendente') RETURNING id`,
-                [promoter.promoter_id, nome.trim(), evento_id || null]
+                `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status, organization_id)
+                 VALUES ($1, $2, NULL, $3, 'pendente', $4) RETURNING id`,
+                [promoter.promoter_id, nome.trim(), evento_id || null, orgId]
               );
               console.log('✅ [CONVIDADO] Convidado adicionado (NULL WhatsApp, tabela sem vip_tipo):', result.rows[0].id);
             } else {
@@ -387,17 +389,18 @@ module.exports = (pool) => {
               whatsapp,
               evento_id,
               status,
-              vip_tipo
-            ) VALUES ($1, $2, $3, $4, 'pendente', $5) RETURNING id`,
-            [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null, vipTipoValue]
+              vip_tipo,
+              organization_id
+            ) VALUES ($1, $2, $3, $4, 'pendente', $5, $6) RETURNING id`,
+            [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null, vipTipoValue, orgId]
           );
           console.log('✅ [CONVIDADO] Convidado adicionado com sucesso:', result.rows[0].id);
         } catch (insertError) {
           if (insertError.code === '42703') {
             result = await pool.query(
-              `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status)
-               VALUES ($1, $2, $3, $4, 'pendente') RETURNING id`,
-              [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null]
+              `INSERT INTO meu_backup_db.promoter_convidados (promoter_id, nome, whatsapp, evento_id, status, organization_id)
+               VALUES ($1, $2, $3, $4, 'pendente', $5) RETURNING id`,
+              [promoter.promoter_id, nome.trim(), whatsappForInsert, evento_id || null, orgId]
             );
             console.log('✅ [CONVIDADO] Convidado adicionado (tabela sem vip_tipo):', result.rows[0].id);
           } else if (insertError.code === '23505') {
@@ -416,9 +419,10 @@ module.exports = (pool) => {
                 whatsapp,
                 evento_id,
                 status,
-                vip_tipo
-              ) VALUES ($1, $2, '', $3, 'pendente', $4) RETURNING id`,
-              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue]
+                vip_tipo,
+                organization_id
+              ) VALUES ($1, $2, '', $3, 'pendente', $4, $5) RETURNING id`,
+              [promoter.promoter_id, nome.trim(), evento_id || null, vipTipoValue, orgId]
             );
             console.log('✅ [CONVIDADO] Convidado adicionado com sucesso (sem WhatsApp):', result.rows[0].id);
           } else {
