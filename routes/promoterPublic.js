@@ -435,12 +435,49 @@ module.exports = (pool) => {
       try {
         if (evento_id) {
           // Buscar lista do promoter para este evento
-          const listasResult = await pool.query(
+          let listasResult = await pool.query(
             `SELECT lista_id, organization_id FROM meu_backup_db.listas 
              WHERE promoter_responsavel_id = $1 AND evento_id = $2
              LIMIT 1`,
             [promoter.promoter_id, evento_id]
           );
+
+          // Auto-correção: se o promoter está vinculado ao evento mas ainda não
+          // existe lista (ex.: vínculo criado antes da correção de organization_id),
+          // cria a lista agora para o convidado ficar visível no check-in.
+          if (listasResult.rows.length === 0) {
+            const vinculoResult = await pool.query(
+              `SELECT 1 FROM meu_backup_db.promoter_eventos 
+               WHERE promoter_id = $1 AND evento_id = $2 LIMIT 1`,
+              [promoter.promoter_id, evento_id]
+            );
+            if (vinculoResult.rows.length > 0) {
+              const nomeLista = `Lista de ${promoter.nome}`;
+              try {
+                listasResult = await pool.query(
+                  `INSERT INTO meu_backup_db.listas 
+                   (evento_id, promoter_responsavel_id, nome, tipo, observacoes, organization_id)
+                   VALUES ($1, $2, $3, 'Promoter', 'Lista criada automaticamente', $4)
+                   RETURNING lista_id, organization_id`,
+                  [evento_id, promoter.promoter_id, nomeLista, orgId]
+                );
+              } catch (createListaErr) {
+                if (createListaErr.code === '42703') {
+                  const novaLista = await pool.query(
+                    `INSERT INTO meu_backup_db.listas 
+                     (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
+                     VALUES ($1, $2, $3, 'Promoter', 'Lista criada automaticamente')
+                     RETURNING lista_id`,
+                    [evento_id, promoter.promoter_id, nomeLista]
+                  );
+                  listasResult = { rows: [{ lista_id: novaLista.rows[0].lista_id, organization_id: null }] };
+                } else {
+                  throw createListaErr;
+                }
+              }
+              console.log(`✅ [CONVIDADO] Lista criada automaticamente para promoter ${promoter.promoter_id} no evento ${evento_id}`);
+            }
+          }
 
           if (listasResult.rows.length > 0) {
             const lista_id = listasResult.rows[0].lista_id;
