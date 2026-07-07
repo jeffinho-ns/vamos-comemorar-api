@@ -266,7 +266,35 @@ async function provisionOperationalEstablishment(client, { org, slug, establishm
   };
 }
 
+/**
+ * Define módulos habilitados por estabelecimento (establishment_modules).
+ * @param {'cardapio_only'|'full_ops'} mode
+ */
+async function seedEstablishmentModules(client, establishmentId, mode = 'full_ops') {
+  const cardapioOnly = mode === 'cardapio_only';
+  await client.query(
+    `INSERT INTO meu_backup_db.establishment_modules (establishment_id, module_id, is_enabled)
+     SELECT $1::integer, m.id, CASE WHEN $2::boolean THEN (m.key = 'cardapio') ELSE TRUE END
+       FROM meu_backup_db.modules m
+      WHERE m.is_active = TRUE
+     ON CONFLICT (establishment_id, module_id)
+     DO UPDATE SET is_enabled = EXCLUDED.is_enabled`,
+    [establishmentId, cardapioOnly],
+  );
+}
+
+function normalizeEstablishmentSlug(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 module.exports = {
   STARTER_FAQ_TOPICS,
   provisionOperationalEstablishment,
+  seedEstablishmentModules,
+  normalizeEstablishmentSlug,
 };

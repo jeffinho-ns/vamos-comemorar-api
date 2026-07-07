@@ -5,7 +5,11 @@ const ManualPaymentProvider = require('./ManualPaymentProvider');
 const {
   seedOrganizationTrainingMaterials,
 } = require('./onboardingTemplates');
-const { provisionOperationalEstablishment } = require('./provisioningOperational');
+const {
+  provisionOperationalEstablishment,
+  seedEstablishmentModules,
+  normalizeEstablishmentSlug,
+} = require('./provisioningOperational');
 const { seedFactoryRoles, seedRolePermissionsForOrg } = require('./rolePermissionMatrix');
 
 const ACTIVE_SUB_STATUSES = ['active', 'trialing'];
@@ -871,6 +875,106 @@ async function listOrganizationEstablishments(pool, organizationId) {
   return rows;
 }
 
+async function assertEstablishmentSlugAvailable(client, slug) {
+  const checks = await Promise.all([
+    client.query(
+      `SELECT 1 FROM meu_backup_db.establishments WHERE slug = $1 LIMIT 1`,
+      [slug],
+    ),
+    client.query(`SELECT 1 FROM places WHERE slug = $1 LIMIT 1`, [slug]),
+    client.query(`SELECT 1 FROM bars WHERE slug = $1 LIMIT 1`, [slug]),
+  ]);
+  if (checks.some((r) => r.rows.length > 0)) {
+    throw new Error(`Slug "${slug}" já está em uso. Escolha outro identificador.`);
+  }
+}
+
+/**
+ * Adiciona um estabelecimento operacional a uma organização já existente.
+ */
+async function provisionEstablishmentInOrganization(pool, organizationId, input, actorUserId) {
+  const name = String(input?.name || input?.establishmentName || '').trim();
+  const slugRaw = String(input?.slug || '').trim();
+  const slug = normalizeEstablishmentSlug(slugRaw || name);
+  const profile = String(input?.profile || 'generic').trim() || 'generic';
+  const cardapioOnly = input?.cardapioOnly === true || input?.cardapio_only === true;
+
+  if (!name) throw new Error('Nome do estabelecimento é obrigatório.');
+  if (!slug) throw new Error('Slug do estabelecimento é obrigatório.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const orgRes = await client.query(
+      `SELECT id, slug, name FROM meu_backup_db.organizations WHERE id = $1 LIMIT 1`,
+      [organizationId],
+    );
+    if (!orgRes.rows.length) throw new Error('Organização não encontrada.');
+    const org = orgRes.rows[0];
+
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [String(org.id)]);
+    await assertEstablishmentSlugAvailable(client, slug);
+
+    const operational = await provisionOperationalEstablishment(client, {
+      org,
+      slug,
+      establishmentName: name,
+    });
+
+    const moduleMode = cardapioOnly ? 'cardapio_only' : 'full_ops';
+    await seedEstablishmentModules(client, operational.establishmentId, moduleMode);
+
+    if (profile && profile !== 'generic') {
+      await client.query(
+        `UPDATE meu_backup_db.establishments
+            SET config = COALESCE(config, '{}'::jsonb) || $2::jsonb,
+                updated_at = now()
+          WHERE id = $1`,
+        [operational.establishmentId, JSON.stringify({ profile })],
+      );
+    }
+
+    await client.query(
+      `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
+       VALUES ($1, 'establishment.provisioned', $2::jsonb)`,
+      [
+        org.id,
+        JSON.stringify({
+          actorUserId,
+          establishmentId: operational.establishmentId,
+          name,
+          slug,
+          profile,
+          cardapioOnly,
+          legacyPlaceId: operational.legacyPlaceId,
+          legacyBarId: operational.legacyBarId,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      organizationId: org.id,
+      establishmentId: operational.establishmentId,
+      name,
+      slug,
+      profile,
+      cardapioOnly,
+      legacyPlaceId: operational.legacyPlaceId,
+      legacyBarId: operational.legacyBarId,
+      areaId: operational.areaId,
+      areaName: operational.areaName,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -894,4 +998,5 @@ module.exports = {
   updateOrganizationMembership,
   listOrganizationRoles,
   listOrganizationEstablishments,
+  provisionEstablishmentInOrganization,
 };

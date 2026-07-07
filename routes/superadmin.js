@@ -67,6 +67,25 @@ module.exports = (pool) => {
     }
   });
 
+  router.post('/organizations/:id/establishments', async (req, res) => {
+    try {
+      const organizationId = Number(req.params.id);
+      if (!Number.isFinite(organizationId) || organizationId <= 0) {
+        return res.status(400).json({ success: false, error: 'ID da organização inválido.' });
+      }
+      const result = await billing.provisionEstablishmentInOrganization(
+        pool,
+        organizationId,
+        req.body,
+        req.user.id,
+      );
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin/organizations/:id/establishments POST]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.patch('/organizations/:id', async (req, res) => {
     try {
       const org = await billing.updateOrganization(
