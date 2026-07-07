@@ -1787,6 +1787,12 @@ class EventosController {
           WHERE l2.promoter_responsavel_id = p.promoter_id 
             AND (l2.evento_id = $1 OR ($2::DATE IS NOT NULL AND l2.evento_id IS NULL AND COALESCE(l2.created_at, l2.created_at)::DATE = $2::DATE))
         )
+        OR EXISTS (
+          SELECT 1
+          FROM promoter_eventos pe
+          WHERE pe.promoter_id = p.promoter_id
+            AND pe.evento_id = $1
+        )
         GROUP BY p.promoter_id, p.nome, p.email, p.telefone, p.tipo_categoria
         ORDER BY p.nome ASC
       `, [eventoId, eventoInfo.data_evento || null]);

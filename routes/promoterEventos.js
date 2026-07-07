@@ -198,11 +198,27 @@ module.exports = (pool) => {
         if (listaExistenteResult.rows.length === 0) {
           // Criar nova lista para o promoter
           const nomeLista = `Lista de ${promoterCheckResult.rows[0].nome}`;
-          const listaResult = await pool.query(`
-            INSERT INTO listas 
-            (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
-            VALUES ($1, $2, $3, 'Promoter', $4) RETURNING lista_id
-          `, [evento_id, promoter_id, nomeLista, observacoes || 'Lista criada automaticamente']);
+          // organization_id é obrigatório para passar no RLS (SET LOCAL app.current_org)
+          // quando o usuário logado é admin de uma organização (não super admin).
+          let listaResult;
+          try {
+            listaResult = await pool.query(`
+              INSERT INTO listas 
+              (evento_id, promoter_responsavel_id, nome, tipo, observacoes, organization_id)
+              VALUES ($1, $2, $3, 'Promoter', $4, $5) RETURNING lista_id
+            `, [evento_id, promoter_id, nomeLista, observacoes || 'Lista criada automaticamente', organizationIdForInsert]);
+          } catch (listaColError) {
+            // Fallback para bancos sem a coluna organization_id em listas
+            if (listaColError.code === '42703') {
+              listaResult = await pool.query(`
+                INSERT INTO listas 
+                (evento_id, promoter_responsavel_id, nome, tipo, observacoes)
+                VALUES ($1, $2, $3, 'Promoter', $4) RETURNING lista_id
+              `, [evento_id, promoter_id, nomeLista, observacoes || 'Lista criada automaticamente']);
+            } else {
+              throw listaColError;
+            }
+          }
           
           listaId = listaResult.rows[0].lista_id;
           console.log('✅ Lista criada automaticamente com ID:', listaId);
