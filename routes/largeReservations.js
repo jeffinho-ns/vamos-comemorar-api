@@ -12,6 +12,7 @@ const {
   canReadEstablishment,
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -364,6 +365,11 @@ module.exports = (pool) => {
         });
       }
 
+      // organization_id obrigatório (RLS NOT NULL) — derivado do estabelecimento operacional.
+      const organizationIdForInsert =
+        (await resolveOrganizationIdForEstablishment(pool, establishmentIdNumber)) ??
+        (req.tenant?.primaryOrganizationId ?? null);
+
       // Inserção no Banco de Dados
       // Primeiro tenta com todos os campos (incluindo event_type e evento_id)
       let insertQuery = `
@@ -371,8 +377,8 @@ module.exports = (pool) => {
           client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
           reservation_time, number_of_people, area_id, selected_tables,
           status, origin, notes, admin_notes, created_by, establishment_id,
-          event_type, evento_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id
+          event_type, evento_id, organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
       `;
 
       // ### CORREÇÃO DEFINITIVA AQUI ###
@@ -394,7 +400,8 @@ module.exports = (pool) => {
         created_by || null,
         establishmentIdNumber,
         event_type || null,
-        evento_id || null
+        evento_id || null,
+        organizationIdForInsert
       ];
       
       console.log('📝 Tentando inserir com todos os campos. Params:', insertParams.map((p, i) => `$${i+1}=${p}`).join(', '));
@@ -428,8 +435,9 @@ module.exports = (pool) => {
             INSERT INTO large_reservations (
               client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
               reservation_time, number_of_people, area_id, selected_tables,
-              status, origin, notes, admin_notes, created_by, establishment_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id
+              status, origin, notes, admin_notes, created_by, establishment_id,
+              organization_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id
           `;
           insertParams = [
             client_name,
@@ -446,7 +454,8 @@ module.exports = (pool) => {
             notes || null,
             admin_notes || null,
             created_by || null,
-            establishmentIdNumber
+            establishmentIdNumber,
+            organizationIdForInsert
           ];
           console.log('📝 Tentando inserir sem event_type/evento_id com params:', insertParams.map((p, i) => `$${i+1}=${p}`).join(', '));
           try {
@@ -625,8 +634,8 @@ module.exports = (pool) => {
           });
 
           await pool.query(
-            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at) VALUES ($1, $2, $3, $4, $5)`,
-            [reservationId, 'large', detectedEventType, token, expiresAt]
+            `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [reservationId, 'large', detectedEventType, token, expiresAt, establishmentIdNumber, organizationIdForInsert]
           );
           const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
           guestListLink = `${baseUrl}/lista/${token}`;
@@ -1119,10 +1128,15 @@ module.exports = (pool) => {
       reservationDateObj.setHours(23, 59, 59, 0); // Final do dia
       const expiresAt = reservationDateObj.toISOString().slice(0, 19).replace('T', ' ');
 
+      const guestListOrgId =
+        (reservationData.organization_id ?? null) ??
+        (await resolveOrganizationIdForEstablishment(pool, reservationData.establishment_id)) ??
+        (req.tenant?.primaryOrganizationId ?? null);
+
       const glResult = await pool.query(
-        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-         VALUES ($1, 'large', $2, $3, $4) RETURNING id`,
-        [id, validEventType, token, expiresAt]
+        `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id)
+         VALUES ($1, 'large', $2, $3, $4, $5, $6) RETURNING id`,
+        [id, validEventType, token, expiresAt, reservationData.establishment_id ?? null, guestListOrgId]
       );
       const guestListId = glResult.rows[0].id;
 
@@ -1137,8 +1151,8 @@ module.exports = (pool) => {
         if (hasQr.rows.length > 0 && hasOwner.rows.length > 0) {
           const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
           await pool.query(
-            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)`,
-            [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken]
+            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) VALUES ($1, $2, NULL, TRUE, $3, $4)`,
+            [guestListId, reservationData.client_name || 'Dono da reserva', ownerQrToken, guestListOrgId]
           );
         }
       } catch (err) {

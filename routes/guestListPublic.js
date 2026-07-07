@@ -16,6 +16,7 @@ module.exports = (pool) => {
 
       const listsResult = await pool.query(
         `SELECT gl.id, gl.reservation_id, gl.reservation_type, gl.event_type, gl.expires_at,
+                gl.organization_id,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid
          FROM guest_lists gl
          WHERE gl.shareable_link_token = $1
@@ -120,9 +121,9 @@ module.exports = (pool) => {
           if (!hasOwnerGuest) {
             const ownerQrToken = 'vc_guest_' + crypto.randomBytes(24).toString('hex');
             const ins = await pool.query(
-              `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, NULL, TRUE, $3)
+              `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) VALUES ($1, $2, NULL, TRUE, $3, $4)
                RETURNING id, name, qr_code_token, is_owner`,
-              [list.id, (ownerName || '').trim() || 'Dono da reserva', ownerQrToken]
+              [list.id, (ownerName || '').trim() || 'Dono da reserva', ownerQrToken, list.organization_id ?? null]
             );
             const row = ins.rows[0];
             if (row) {
@@ -203,7 +204,7 @@ module.exports = (pool) => {
 
       // Verificar se a lista existe e não expirou
       const listsResult = await pool.query(
-        `SELECT gl.id, gl.expires_at,
+        `SELECT gl.id, gl.expires_at, gl.organization_id,
                 CASE WHEN gl.expires_at >= NOW() THEN 1 ELSE 0 END AS is_valid
          FROM guest_lists gl
          WHERE gl.shareable_link_token = $1
@@ -232,8 +233,8 @@ module.exports = (pool) => {
 
       // Adicionar o convidado
       const result = await pool.query(
-        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3) RETURNING id',
-        [list.id, name.trim(), whatsapp || null]
+        'INSERT INTO guests (guest_list_id, name, whatsapp, organization_id) VALUES ($1, $2, $3, $4) RETURNING id',
+        [list.id, name.trim(), whatsapp || null, list.organization_id ?? null]
       );
       const guestId = result.rows[0].id;
 

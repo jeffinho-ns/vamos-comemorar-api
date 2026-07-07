@@ -8,6 +8,7 @@ const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const { establishmentScopeClause } = require('../tenancy/queryScope');
+const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -129,6 +130,14 @@ module.exports = (pool) => {
         estabelecimento_nome: placeCheck.rows[0].name
       });
 
+      // organization_id obrigatório (RLS NOT NULL) — derivado do estabelecimento operacional,
+      // com fallback para o tenant do usuário autenticado e, por fim, org piloto (fluxo público
+      // anônimo). Fecha o risco de 23502 caso o place não esteja mapeado em establishments.
+      const organizationIdForInsert =
+        (await resolveOrganizationIdForEstablishment(pool, placeId)) ??
+        (req.tenant?.primaryOrganizationId ?? null) ??
+        (await resolveOrganizationIdForUser(pool, req.user));
+
       // Preparar dados para salvar (incluindo decoracao_preco, bebidas_completas, comidas_completas)
       const decoracaoPrecoValue = decoracao_preco ? parseFloat(decoracao_preco) : null;
       const bebidasCompletasJson = bebidas_completas && Array.isArray(bebidas_completas) ? JSON.stringify(bebidas_completas) : null;
@@ -181,8 +190,9 @@ module.exports = (pool) => {
           lista_presentes,
           documento,
           whatsapp,
-          email
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38) RETURNING id
+          email,
+          organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39) RETURNING id
       `;
 
       // placeId já está convertido para número acima, usar diretamente
@@ -225,6 +235,7 @@ module.exports = (pool) => {
         documento || null,
         whatsapp || null,
         email || null,
+        organizationIdForInsert,
       ];
 
       console.log('🔍 Parâmetros para INSERT:');
@@ -276,8 +287,9 @@ module.exports = (pool) => {
             lista_presentes,
             documento,
             whatsapp,
-            email
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) RETURNING id
+            email,
+            organization_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35) RETURNING id
         `;
         const insertParamsFallback = [
           user_id || 1,
@@ -314,6 +326,7 @@ module.exports = (pool) => {
           documento || null,
           whatsapp || null,
           email || null,
+          organizationIdForInsert,
         ];
         result = await client.query(sqlInsertFallback, insertParamsFallback);
       }
@@ -403,8 +416,8 @@ module.exports = (pool) => {
             INSERT INTO restaurant_reservations (
               client_name, client_phone, client_email, reservation_date, reservation_time,
               number_of_people, area_id, status, origin, notes, establishment_id,
-              created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+              organization_id, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
             RETURNING id
           `;
 
@@ -420,6 +433,7 @@ module.exports = (pool) => {
             restaurantReservationData.origin,
             restaurantReservationData.notes,
             restaurantReservationData.establishment_id,
+            organizationIdForInsert,
           ];
 
           const restaurantResult = await client.query(restaurantInsert, restaurantParams);
@@ -441,8 +455,9 @@ module.exports = (pool) => {
             // Inserir na tabela guest_lists (correta) vinculada à reserva de restaurante
             const guestListInsert = `
               INSERT INTO guest_lists (
-                reservation_id, reservation_type, event_type, shareable_link_token, expires_at
-              ) VALUES ($1, $2, $3, $4, $5)
+                reservation_id, reservation_type, event_type, shareable_link_token, expires_at,
+                establishment_id, organization_id
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7)
               RETURNING id
             `;
             
@@ -451,7 +466,9 @@ module.exports = (pool) => {
               'restaurant', // Tipo de reserva
               'aniversario', // Tipo de evento
               shareableLinkToken,
-              expiresAt
+              expiresAt,
+              placeId,
+              organizationIdForInsert,
             ];
 
             const guestListResult = await client.query(guestListInsert, guestListParams);
@@ -462,15 +479,16 @@ module.exports = (pool) => {
 
             // Criar convidado inicial (aniversariante) na tabela guests
             const guestInsert = `
-              INSERT INTO guests (guest_list_id, name, whatsapp)
-              VALUES ($1, $2, $3)
+              INSERT INTO guests (guest_list_id, name, whatsapp, organization_id)
+              VALUES ($1, $2, $3, $4)
               RETURNING id
             `;
             
             const guestResult = await client.query(guestInsert, [
               guestListId,
               aniversariante_nome || 'Aniversariante',
-              whatsapp || null
+              whatsapp || null,
+              organizationIdForInsert,
             ]);
             
             console.log('✅ Convidado inicial (aniversariante) criado na lista com ID:', guestResult.rows[0].id);

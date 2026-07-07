@@ -191,7 +191,7 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return res.status(400).json({ success: false, error: 'Nome é obrigatório' });
       }
 
-      const listsResult = await pool.query('SELECT id FROM guest_lists WHERE id = $1 LIMIT 1', [list_id]);
+      const listsResult = await pool.query('SELECT id, organization_id FROM guest_lists WHERE id = $1 LIMIT 1', [list_id]);
       if (listsResult.rows.length === 0) {
         return res.status(404).json({ success: false, error: 'Lista não encontrada' });
       }
@@ -201,9 +201,10 @@ module.exports = (pool, checkAndAwardGifts = null) => {
         return;
       }
 
+      const guestOrgId = listsResult.rows[0].organization_id ?? null;
       const result = await pool.query(
-        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3) RETURNING id',
-        [list_id, name.trim(), whatsapp || null]
+        'INSERT INTO guests (guest_list_id, name, whatsapp, organization_id) VALUES ($1, $2, $3, $4) RETURNING id',
+        [list_id, name.trim(), whatsapp || null, guestOrgId]
       );
 
       res.status(201).json({ success: true, guest: { id: result.rows[0].id, name: name.trim(), whatsapp: whatsapp || null } });

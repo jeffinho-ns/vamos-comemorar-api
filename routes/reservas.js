@@ -7,7 +7,7 @@ const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
-const { resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
+const { resolveOrganizationIdForUser, resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 // A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
 // const qrcode = require('qrcode');
 
@@ -510,6 +510,11 @@ router.post('/camarote', auth, async (req, res) => {
         // Usar 'NORMAL' como tipo_reserva (valor válido do enum: 'ANIVERSARIO', 'PROMOTER', 'NORMAL')
         console.log('📝 Criando registro na tabela reservas...');
         const organizationIdForInsert = await resolveOrganizationIdForUser(pool, req.user);
+        // Para os registros vinculados ao estabelecimento do camarote (restaurant_reservations,
+        // guest_lists, guests, camarote_convidados), o org correto é o do ESTABELECIMENTO (idPlace),
+        // não o do usuário — evita gravar no tenant errado / invisibilidade sob RLS.
+        const camaroteOrgId =
+          (await resolveOrganizationIdForEstablishment(pool, idPlace)) ?? organizationIdForInsert;
         const sqlReserva = `
             INSERT INTO reservas (user_id, tipo_reserva, nome_lista, data_reserva, evento_id, quantidade_convidados, codigo_convite, organization_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -538,8 +543,9 @@ router.post('/camarote', auth, async (req, res) => {
                 id_reserva, id_camarote, nome_cliente, telefone, cpf_cnpj, email, data_nascimento,
                 maximo_pessoas, entradas_unisex_free, entradas_masculino_free, entradas_feminino_free,
                 valor_camarote, valor_consumacao, valor_pago, valor_sinal, prazo_sinal_dias,
-                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id
+                solicitado_por, observacao, status_reserva, tag, hora_reserva, data_reserva, data_expiracao,
+                organization_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) RETURNING id
         `;
         
         const camaroteParams = [
@@ -565,7 +571,8 @@ router.post('/camarote', auth, async (req, res) => {
             tag || null, 
             horaReservaFinal,
             dataReservaFinal,
-            dataExpiracaoFinal
+            dataExpiracaoFinal,
+            camaroteOrgId,
         ];
         
         console.log('📋 Parâmetros camarote:', camaroteParams);
@@ -580,8 +587,8 @@ router.post('/camarote', auth, async (req, res) => {
             for (const convidado of lista_convidados) {
                 if (convidado.nome && convidado.nome.trim()) {
                     await client.query(
-                        'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)',
-                        [reservaCamaroteId, convidado.nome.trim(), convidado.email || null]
+                        'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email, organization_id) VALUES ($1, $2, $3, $4)',
+                        [reservaCamaroteId, convidado.nome.trim(), convidado.email || null, camaroteOrgId]
                     );
                 }
             }
@@ -636,13 +643,13 @@ router.post('/camarote', auth, async (req, res) => {
                     client_name, client_phone, client_email, data_nascimento_cliente, reservation_date,
                     reservation_time, number_of_people, area_id, table_number,
                     status, origin, notes, created_by, establishment_id, evento_id, blocks_entire_area,
-                    area_display_name, has_bistro_table
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
+                    area_display_name, has_bistro_table, organization_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
             `;
             const rrParamsFull = [
                 nome_cliente, telefone || null, email || null, data_nascimento || null,
                 dataReservaFinal, horaReservaFinal || '20:00:00', maximoPessoas, null, nomeCamarote,
-                'confirmed', 'CAMAROTE', notesRR, userId, idPlace, null, false, null, false
+                'confirmed', 'CAMAROTE', notesRR, userId, idPlace, null, false, null, false, camaroteOrgId
             ];
             try {
                 rrResult = await client.query(insertRRFull, rrParamsFull);
@@ -653,11 +660,12 @@ router.post('/camarote', auth, async (req, res) => {
                     rrResult = await client.query(`
                         INSERT INTO restaurant_reservations (
                             client_name, client_phone, client_email, reservation_date, reservation_time,
-                            number_of_people, table_number, status, origin, notes, created_by, establishment_id
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+                            number_of_people, table_number, status, origin, notes, created_by, establishment_id,
+                            organization_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id
                     `, [
                         nome_cliente, telefone || null, email || null, dataReservaFinal, horaReservaFinal || '20:00:00',
-                        maximoPessoas, nomeCamarote, 'confirmed', 'CAMAROTE', notesRR, userId, idPlace
+                        maximoPessoas, nomeCamarote, 'confirmed', 'CAMAROTE', notesRR, userId, idPlace, camaroteOrgId
                     ]);
                 } else {
                     throw insertErr;
@@ -679,23 +687,23 @@ router.post('/camarote', auth, async (req, res) => {
             const expiresAt = expirationDate.toISOString().slice(0, 19).replace('T', ' ');
 
             const glResult = await client.query(
-                `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at)
-                 VALUES ($1, 'restaurant', $2, $3, $4) RETURNING id`,
-                [restaurantReservationId, null, token, expiresAt]
+                `INSERT INTO guest_lists (reservation_id, reservation_type, event_type, shareable_link_token, expires_at, establishment_id, organization_id)
+                 VALUES ($1, 'restaurant', $2, $3, $4, $5, $6) RETURNING id`,
+                [restaurantReservationId, null, token, expiresAt, idPlace, camaroteOrgId]
             );
             const guestListId = glResult.rows[0]?.id;
             if (guestListId) {
                 try {
                     await client.query(
-                        'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)',
-                        [guestListId, nome_cliente || 'Cliente', null]
+                        'INSERT INTO guests (guest_list_id, name, whatsapp, organization_id) VALUES ($1, $2, $3, $4)',
+                        [guestListId, nome_cliente || 'Cliente', null, camaroteOrgId]
                     );
                     if (lista_convidados && Array.isArray(lista_convidados)) {
                         for (const c of lista_convidados) {
                             if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
                                 await client.query(
-                                    'INSERT INTO guests (guest_list_id, name, whatsapp) VALUES ($1, $2, $3)',
-                                    [guestListId, c.nome.trim(), null]
+                                    'INSERT INTO guests (guest_list_id, name, whatsapp, organization_id) VALUES ($1, $2, $3, $4)',
+                                    [guestListId, c.nome.trim(), null, camaroteOrgId]
                                 );
                             }
                         }
@@ -704,16 +712,16 @@ router.post('/camarote', auth, async (req, res) => {
                     console.warn('Erro ao inserir guests (tentando colunas extras):', guestErr.message);
                     try {
                         await client.query(
-                            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) 
-                             VALUES ($1, $2, $3, $4, $5)`,
-                            [guestListId, nome_cliente || 'Cliente', null, true, 'vc_guest_' + crypto.randomBytes(24).toString('hex')]
+                            `INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) 
+                             VALUES ($1, $2, $3, $4, $5, $6)`,
+                            [guestListId, nome_cliente || 'Cliente', null, true, 'vc_guest_' + crypto.randomBytes(24).toString('hex'), camaroteOrgId]
                         );
                         if (lista_convidados && Array.isArray(lista_convidados)) {
                             for (const c of lista_convidados) {
                                 if (c.nome && c.nome.trim() && c.nome.trim() !== nome_cliente) {
                                     await client.query(
-                                        'INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token) VALUES ($1, $2, $3, $4, $5)',
-                                        [guestListId, c.nome.trim(), null, false, null]
+                                        'INSERT INTO guests (guest_list_id, name, whatsapp, is_owner, qr_code_token, organization_id) VALUES ($1, $2, $3, $4, $5, $6)',
+                                        [guestListId, c.nome.trim(), null, false, null, camaroteOrgId]
                                     );
                                 }
                             }
@@ -803,7 +811,16 @@ router.post('/camarote/:id_reserva_camarote/convidado', auth, async (req, res) =
     const { id_reserva_camarote } = req.params;
     const { nome, email } = req.body;
     try {
-        await pool.query('INSERT INTO camarote_convidados (id_reserva_camarote, nome, email) VALUES ($1, $2, $3)', [id_reserva_camarote, nome, email]);
+        // Herdar organization_id da reserva de camarote (visibilidade sob RLS)
+        const rcOrg = await pool.query(
+            'SELECT organization_id FROM reservas_camarote WHERE id = $1 LIMIT 1',
+            [id_reserva_camarote]
+        );
+        const convidadoOrgId = rcOrg.rows[0]?.organization_id ?? null;
+        await pool.query(
+            'INSERT INTO camarote_convidados (id_reserva_camarote, nome, email, organization_id) VALUES ($1, $2, $3, $4)',
+            [id_reserva_camarote, nome, email, convidadoOrgId]
+        );
         res.status(201).json({ message: 'Convidado adicionado com sucesso!' });
     } catch (error) {
         console.error('Erro ao adicionar convidado:', error);

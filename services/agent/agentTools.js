@@ -14,6 +14,7 @@ const {
   normalizeCanonicalEstablishmentId,
 } = require('../whatsappReservationService');
 const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
+const { resolveOrganizationIdForEstablishment } = require('../../tenancy/resolveOrganizationId');
 const {
   isHighlineEstablishment,
   resolveHighlineSubarea,
@@ -983,12 +984,18 @@ async function criarListaEspera(pool, args = {}, runtimeContext = {}) {
     area_resolvida: subarea?.label || String(args.area_preferida || '').trim() || null,
   });
 
+  const organizationIdForInsert = await resolveOrganizationIdForEstablishment(
+    pool,
+    establishmentId,
+  );
+
   const insertResult = await pool.query(
     `INSERT INTO waitlist (
        establishment_id, preferred_date, preferred_area_id, preferred_table_number,
        client_name, client_phone, client_email, number_of_people,
-       preferred_time, status, position, estimated_wait_time, notes, has_bistro_table
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'AGUARDANDO',$10,$11,$12,FALSE)
+       preferred_time, status, position, estimated_wait_time, notes, has_bistro_table,
+       organization_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'AGUARDANDO',$10,$11,$12,FALSE,$13)
      RETURNING id, position, preferred_date, preferred_time, status`,
     [
       establishmentId,
@@ -1007,6 +1014,7 @@ async function criarListaEspera(pool, args = {}, runtimeContext = {}) {
       position,
       estimatedWaitTime,
       notes,
+      organizationIdForInsert,
     ]
   );
 

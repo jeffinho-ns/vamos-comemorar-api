@@ -11,6 +11,7 @@ const {
   canReadEstablishment,
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
+const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -162,7 +163,8 @@ module.exports = (pool) => {
         table_number,
         status = 'ATIVO',
         notes,
-        created_by
+        created_by,
+        establishment_id
       } = req.body;
       
       // Validações básicas
@@ -172,17 +174,39 @@ module.exports = (pool) => {
           error: 'Campos obrigatórios: client_name, area_id'
         });
       }
-      
+
+      // organization_id obrigatório (RLS NOT NULL). Áreas são globais (sem vínculo
+      // confiável de establishment), então derivamos do estabelecimento informado
+      // (se houver) ou do tenant do usuário autenticado.
+      const establishmentIdNumber =
+        establishment_id != null && !isNaN(Number(establishment_id)) ? Number(establishment_id) : null;
+
+      // Segurança: se um establishment foi informado no body, exigir que esteja no escopo
+      // do requisitante (impede injeção cross-tenant). Fail-open quando SAAS off; bloqueia
+      // acesso cruzado quando SAAS on — mesma política do PUT/DELETE desta rota.
+      if (
+        establishmentIdNumber != null &&
+        !denyIfCannotReadEstablishment(req, res, establishmentIdNumber, 'Estabelecimento inválido ou fora do escopo.')
+      ) {
+        return;
+      }
+
+      // Sem fallback para org piloto: para requisição anônima sem establishment resolvível,
+      // fecha (org null → NOT NULL falha) em vez de gravar no tenant errado.
+      const organizationIdForInsert =
+        (await resolveOrganizationIdForEstablishment(pool, establishmentIdNumber)) ??
+        (req.tenant?.primaryOrganizationId ?? null);
+
       const query = `
         INSERT INTO walk_ins (
           client_name, client_phone, number_of_people, area_id, 
-          table_number, status, notes, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+          table_number, status, notes, created_by, establishment_id, organization_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id
       `;
       
       const params = [
         client_name, client_phone, number_of_people, area_id,
-        table_number, status, notes, created_by
+        table_number, status, notes, created_by, establishmentIdNumber, organizationIdForInsert
       ];
       
       const result = await pool.query(query, params);
