@@ -86,6 +86,88 @@ module.exports = (pool) => {
     }
   });
 
+  router.get('/organizations/:id/establishment-permissions', async (req, res) => {
+    try {
+      const rows = await billing.listOrganizationEstablishmentPermissions(
+        pool,
+        Number(req.params.id),
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/organizations/:id/establishment-permissions', async (req, res) => {
+    try {
+      const row = await billing.upsertOrganizationEstablishmentPermission(
+        pool,
+        Number(req.params.id),
+        req.body,
+        req.user.id,
+      );
+      res.status(201).json({ success: true, data: row });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/organizations/:id/establishment-permissions/:permId', async (req, res) => {
+    try {
+      await billing.deleteOrganizationEstablishmentPermission(
+        pool,
+        Number(req.params.id),
+        Number(req.params.permId),
+        req.user.id,
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/establishments/:id/modules', async (req, res) => {
+    try {
+      const rows = await billing.getEstablishmentModules(pool, Number(req.params.id));
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/establishments/:id/modules/:moduleKey', async (req, res) => {
+    try {
+      await billing.setEstablishmentModule(
+        pool,
+        Number(req.params.id),
+        req.params.moduleKey,
+        req.body.is_enabled !== false,
+        req.user.id,
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/establishments/:id/modules', async (req, res) => {
+    try {
+      const keys = req.body.enabledModules;
+      if (!Array.isArray(keys)) {
+        return res.status(400).json({ success: false, error: 'enabledModules deve ser um array.' });
+      }
+      await billing.setEstablishmentModulesBulk(
+        pool,
+        Number(req.params.id),
+        keys,
+        req.user.id,
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.patch('/organizations/:id', async (req, res) => {
     try {
       const org = await billing.updateOrganization(

@@ -144,7 +144,7 @@ async function getOrganizationDetail(pool, organizationId) {
   );
   if (!orgResult.rows.length) return null;
 
-  const [establishments, modules, invoices, events] = await Promise.all([
+  const [establishments, modules, invoices, events, moduleCatalog] = await Promise.all([
     pool.query(
       `SELECT id, slug, name, status, legacy_place_id, legacy_bar_id, config
          FROM meu_backup_db.establishments WHERE organization_id = $1 ORDER BY name`,
@@ -193,12 +193,16 @@ async function getOrganizationDetail(pool, organizationId) {
         ORDER BY created_at DESC LIMIT 20`,
       [organizationId],
     ),
+    pool.query(
+      `SELECT key, name FROM meu_backup_db.modules WHERE is_active = TRUE ORDER BY key`,
+    ),
   ]);
 
   return {
     organization: orgResult.rows[0],
     establishments: establishments.rows,
     modules: modules.rows,
+    moduleCatalog: moduleCatalog.rows,
     invoices: invoices.rows,
     billingEvents: events.rows,
   };
@@ -898,6 +902,12 @@ async function provisionEstablishmentInOrganization(pool, organizationId, input,
   const slug = normalizeEstablishmentSlug(slugRaw || name);
   const profile = String(input?.profile || 'generic').trim() || 'generic';
   const cardapioOnly = input?.cardapioOnly === true || input?.cardapio_only === true;
+  let enabledModules = null;
+  if (Array.isArray(input?.enabledModules) && input.enabledModules.length) {
+    enabledModules = input.enabledModules.map(String);
+  } else if (cardapioOnly) {
+    enabledModules = ['cardapio'];
+  }
 
   if (!name) throw new Error('Nome do estabelecimento é obrigatório.');
   if (!slug) throw new Error('Slug do estabelecimento é obrigatório.');
@@ -922,8 +932,7 @@ async function provisionEstablishmentInOrganization(pool, organizationId, input,
       establishmentName: name,
     });
 
-    const moduleMode = cardapioOnly ? 'cardapio_only' : 'full_ops';
-    await seedEstablishmentModules(client, operational.establishmentId, moduleMode);
+    await seedEstablishmentModules(client, operational.establishmentId, enabledModules);
 
     if (profile && profile !== 'generic') {
       await client.query(
@@ -947,6 +956,7 @@ async function provisionEstablishmentInOrganization(pool, organizationId, input,
           slug,
           profile,
           cardapioOnly,
+          enabledModules,
           legacyPlaceId: operational.legacyPlaceId,
           legacyBarId: operational.legacyBarId,
         }),
@@ -962,6 +972,7 @@ async function provisionEstablishmentInOrganization(pool, organizationId, input,
       slug,
       profile,
       cardapioOnly,
+      enabledModules,
       legacyPlaceId: operational.legacyPlaceId,
       legacyBarId: operational.legacyBarId,
       areaId: operational.areaId,
@@ -973,6 +984,244 @@ async function provisionEstablishmentInOrganization(pool, organizationId, input,
   } finally {
     client.release();
   }
+}
+
+async function resolveCanonicalEstablishment(pool, organizationId, establishmentId) {
+  const estId = Number(establishmentId);
+  if (!Number.isFinite(estId) || estId <= 0) {
+    throw new Error('ID do estabelecimento inválido.');
+  }
+  const { rows } = await pool.query(
+    `SELECT id, name, legacy_place_id, legacy_bar_id
+       FROM meu_backup_db.establishments
+      WHERE id = $1 AND organization_id = $2
+      LIMIT 1`,
+    [estId, organizationId],
+  );
+  if (!rows.length) throw new Error('Estabelecimento não pertence a esta organização.');
+  return rows[0];
+}
+
+async function getEstablishmentModules(pool, establishmentId) {
+  const estId = Number(establishmentId);
+  const { rows } = await pool.query(
+    `SELECT m.key, m.name, COALESCE(em.is_enabled, FALSE) AS is_enabled
+       FROM meu_backup_db.modules m
+       LEFT JOIN meu_backup_db.establishment_modules em
+         ON em.module_id = m.id AND em.establishment_id = $1
+      WHERE m.is_active = TRUE
+      ORDER BY m.key`,
+    [estId],
+  );
+  return rows;
+}
+
+async function setEstablishmentModule(pool, establishmentId, moduleKey, isEnabled, actorUserId) {
+  const estId = Number(establishmentId);
+  const mod = await pool.query(
+    `SELECT id FROM meu_backup_db.modules WHERE key = $1 AND is_active = TRUE LIMIT 1`,
+    [moduleKey],
+  );
+  if (!mod.rows.length) throw new Error(`Módulo '${moduleKey}' não encontrado`);
+
+  await pool.query(
+    `INSERT INTO meu_backup_db.establishment_modules (establishment_id, module_id, is_enabled)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (establishment_id, module_id)
+     DO UPDATE SET is_enabled = EXCLUDED.is_enabled`,
+    [estId, mod.rows[0].id, !!isEnabled],
+  );
+
+  const orgRes = await pool.query(
+    `SELECT organization_id FROM meu_backup_db.establishments WHERE id = $1`,
+    [estId],
+  );
+  const orgId = orgRes.rows[0]?.organization_id;
+  if (orgId) {
+    await logBillingEvent(pool, orgId, 'establishment.module_updated', {
+      actorUserId,
+      establishmentId: estId,
+      moduleKey,
+      isEnabled: !!isEnabled,
+    });
+  }
+}
+
+async function setEstablishmentModulesBulk(pool, establishmentId, enabledModuleKeys, actorUserId) {
+  const estId = Number(establishmentId);
+  if (!Array.isArray(enabledModuleKeys) || !enabledModuleKeys.length) {
+    throw new Error('Selecione ao menos um módulo.');
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await seedEstablishmentModules(client, estId, enabledModuleKeys.map(String));
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const orgRes = await pool.query(
+    `SELECT organization_id FROM meu_backup_db.establishments WHERE id = $1`,
+    [estId],
+  );
+  const orgId = orgRes.rows[0]?.organization_id;
+  if (orgId) {
+    await logBillingEvent(pool, orgId, 'establishment.modules_bulk_updated', {
+      actorUserId,
+      establishmentId: estId,
+      enabledModules: enabledModuleKeys,
+    });
+  }
+}
+
+async function listOrganizationEstablishmentPermissions(pool, organizationId) {
+  const { rows } = await pool.query(
+    `SELECT uep.*,
+            u.name AS user_name,
+            p.name AS establishment_name,
+            e.id AS canonical_establishment_id
+       FROM user_establishment_permissions uep
+       JOIN users u ON u.id = uep.user_id
+       JOIN places p ON p.id = uep.establishment_id
+       JOIN meu_backup_db.establishments e
+         ON e.organization_id = $1
+        AND e.legacy_place_id = uep.establishment_id
+      ORDER BY p.name, u.name`,
+    [organizationId],
+  );
+  return rows;
+}
+
+async function upsertOrganizationEstablishmentPermission(pool, organizationId, input, actorUserId) {
+  const est = await resolveCanonicalEstablishment(
+    pool,
+    organizationId,
+    input.canonicalEstablishmentId ?? input.establishmentId,
+  );
+  const placeId = est.legacy_place_id;
+  if (!placeId) throw new Error('Estabelecimento sem place operacional vinculado.');
+
+  const userEmail = String(input.userEmail || input.user_email || '').trim().toLowerCase();
+  let userId = input.userId != null ? Number(input.userId) : null;
+
+  if (!userId && userEmail) {
+    const userRes = await pool.query(`SELECT id, email FROM users WHERE LOWER(email) = $1`, [
+      userEmail,
+    ]);
+    if (!userRes.rows.length) throw new Error('Usuário não encontrado');
+    userId = userRes.rows[0].id;
+  }
+  if (!userId) throw new Error('userEmail ou userId é obrigatório');
+
+  const userRow = await pool.query(`SELECT id, email FROM users WHERE id = $1`, [userId]);
+  if (!userRow.rows.length) throw new Error('Usuário não encontrado');
+  const emailForRow = userRow.rows[0].email;
+
+  await pool.query(
+    `UPDATE users SET organization_id = $1 WHERE id = $2 AND organization_id IS NULL`,
+    [organizationId, userId],
+  );
+
+  const perm = input.permissions || input;
+  const { rows } = await pool.query(
+    `INSERT INTO user_establishment_permissions (
+       user_id, user_email, establishment_id,
+       can_edit_os, can_edit_operational_detail,
+       can_view_os, can_download_os, can_view_operational_detail,
+       can_create_os, can_create_operational_detail,
+       can_manage_reservations, can_manage_checkins, can_view_reports,
+       can_create_edit_reservations,
+       can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
+       is_active, created_by
+     ) VALUES (
+       $1, $2, $3,
+       $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+     )
+     ON CONFLICT (user_id, establishment_id)
+     DO UPDATE SET
+       user_email = EXCLUDED.user_email,
+       can_edit_os = EXCLUDED.can_edit_os,
+       can_edit_operational_detail = EXCLUDED.can_edit_operational_detail,
+       can_view_os = EXCLUDED.can_view_os,
+       can_download_os = EXCLUDED.can_download_os,
+       can_view_operational_detail = EXCLUDED.can_view_operational_detail,
+       can_create_os = EXCLUDED.can_create_os,
+       can_create_operational_detail = EXCLUDED.can_create_operational_detail,
+       can_manage_reservations = EXCLUDED.can_manage_reservations,
+       can_manage_checkins = EXCLUDED.can_manage_checkins,
+       can_view_reports = EXCLUDED.can_view_reports,
+       can_create_edit_reservations = EXCLUDED.can_create_edit_reservations,
+       can_view_cardapio = EXCLUDED.can_view_cardapio,
+       can_create_cardapio = EXCLUDED.can_create_cardapio,
+       can_edit_cardapio = EXCLUDED.can_edit_cardapio,
+       can_delete_cardapio = EXCLUDED.can_delete_cardapio,
+       is_active = EXCLUDED.is_active,
+       updated_by = $20,
+       updated_at = CURRENT_TIMESTAMP
+     RETURNING *`,
+    [
+      userId,
+      emailForRow,
+      placeId,
+      !!perm.can_edit_os,
+      !!perm.can_edit_operational_detail,
+      perm.can_view_os !== false,
+      perm.can_download_os !== false,
+      perm.can_view_operational_detail !== false,
+      !!perm.can_create_os,
+      !!perm.can_create_operational_detail,
+      !!perm.can_manage_reservations,
+      !!perm.can_manage_checkins,
+      !!perm.can_view_reports,
+      perm.can_create_edit_reservations !== false,
+      perm.can_view_cardapio !== false,
+      perm.can_create_cardapio !== false,
+      perm.can_edit_cardapio !== false,
+      perm.can_delete_cardapio !== false,
+      perm.is_active !== false,
+      actorUserId,
+    ],
+  );
+
+  await logBillingEvent(pool, organizationId, 'establishment_permission.upserted', {
+    actorUserId,
+    permissionId: rows[0].id,
+    userId,
+    placeId,
+    canonicalEstablishmentId: est.id,
+  });
+
+  return rows[0];
+}
+
+async function deleteOrganizationEstablishmentPermission(
+  pool,
+  organizationId,
+  permissionId,
+  actorUserId,
+) {
+  const check = await pool.query(
+    `SELECT uep.id
+       FROM user_establishment_permissions uep
+       JOIN meu_backup_db.establishments e
+         ON e.organization_id = $1
+        AND e.legacy_place_id = uep.establishment_id
+      WHERE uep.id = $2
+      LIMIT 1`,
+    [organizationId, permissionId],
+  );
+  if (!check.rows.length) throw new Error('Permissão não encontrada nesta organização.');
+
+  await pool.query(`DELETE FROM user_establishment_permissions WHERE id = $1`, [permissionId]);
+
+  await logBillingEvent(pool, organizationId, 'establishment_permission.deleted', {
+    actorUserId,
+    permissionId,
+  });
 }
 
 module.exports = {
@@ -999,4 +1248,10 @@ module.exports = {
   listOrganizationRoles,
   listOrganizationEstablishments,
   provisionEstablishmentInOrganization,
+  getEstablishmentModules,
+  setEstablishmentModule,
+  setEstablishmentModulesBulk,
+  listOrganizationEstablishmentPermissions,
+  upsertOrganizationEstablishmentPermission,
+  deleteOrganizationEstablishmentPermission,
 };

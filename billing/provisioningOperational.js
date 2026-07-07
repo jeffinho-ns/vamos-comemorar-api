@@ -268,18 +268,22 @@ async function provisionOperationalEstablishment(client, { org, slug, establishm
 
 /**
  * Define módulos habilitados por estabelecimento (establishment_modules).
- * @param {'cardapio_only'|'full_ops'} mode
+ * @param {string[]|null} enabledModuleKeys — null = todos os módulos ativos; array = só os listados.
  */
-async function seedEstablishmentModules(client, establishmentId, mode = 'full_ops') {
-  const cardapioOnly = mode === 'cardapio_only';
+async function seedEstablishmentModules(client, establishmentId, enabledModuleKeys = null) {
+  const keys = Array.isArray(enabledModuleKeys) ? enabledModuleKeys.filter(Boolean) : null;
+  if (keys && keys.length === 0) {
+    throw new Error('Selecione ao menos um módulo para o estabelecimento.');
+  }
   await client.query(
     `INSERT INTO meu_backup_db.establishment_modules (establishment_id, module_id, is_enabled)
-     SELECT $1::integer, m.id, CASE WHEN $2::boolean THEN (m.key = 'cardapio') ELSE TRUE END
+     SELECT $1::integer, m.id,
+            CASE WHEN $2::text[] IS NULL THEN TRUE ELSE (m.key = ANY($2::text[])) END
        FROM meu_backup_db.modules m
       WHERE m.is_active = TRUE
      ON CONFLICT (establishment_id, module_id)
      DO UPDATE SET is_enabled = EXCLUDED.is_enabled`,
-    [establishmentId, cardapioOnly],
+    [establishmentId, keys],
   );
 }
 
