@@ -1,6 +1,9 @@
 const { parsePtBrDateFromText } = require('../conversationEngine/helpers');
 const { looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
-const { isInformationalFaqTurn } = require('./faqTopicCanonical');
+const {
+  isInformationalFaqTurn,
+  looksLikeEventProgramQuestion,
+} = require('./faqTopicCanonical');
 const {
   buildCollectBundlePrompt,
   BUNDLE_FIELD_ORDER,
@@ -319,7 +322,14 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   const dateParsed = parsePtBrDateFromText(text);
-  if (dateParsed?.iso && !hasFieldValue(workingState, 'reservation_date')) {
+  const informationalDateQuestion =
+    (isInformationalFaqTurn(text) || looksLikeEventProgramQuestion(text)) &&
+    !looksLikeReservationIntent(text);
+  if (
+    dateParsed?.iso &&
+    !hasFieldValue(workingState, 'reservation_date') &&
+    !informationalDateQuestion
+  ) {
     patch.reservation_date = dateParsed.iso;
     patch.reservation_date_confirmed = true;
     patch.pending_reservation_date_iso = null;
@@ -423,7 +433,12 @@ function shouldAutoRunAvailabilityCheck(
   messageHistory = []
 ) {
   if (!canAutoCheckAvailability(workingState, context)) return false;
-  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) return false;
+  if (
+    (isInformationalFaqTurn(userText) || looksLikeEventProgramQuestion(userText)) &&
+    !looksLikeReservationIntent(userText)
+  ) {
+    return false;
+  }
   if (looksLikeTimeOnlyAnswer(userText, workingState, messageHistory)) return false;
 
   const fingerprint = buildAvailabilityFingerprint(workingState, context);
@@ -446,6 +461,23 @@ function buildAvailabilityCheckedPatch(workingState = {}, context = {}, toolResu
   const fingerprint = buildAvailabilityFingerprint(workingState, context);
   if (!fingerprint || !toolResult || toolResult.ok === false) return {};
   return { availability_checked_for: fingerprint };
+}
+
+function scrubReservationStateForInformationalTurn(workingState = {}) {
+  const next = { ...(workingState && typeof workingState === 'object' ? workingState : {}) };
+  for (const key of [
+    'reservation_date',
+    'reservation_date_confirmed',
+    'pending_reservation_date_iso',
+    'pending_reservation_date_label',
+    'reservation_time',
+    'quantidade_convidados',
+    'availability_checked_for',
+    'availability_time_checked_for',
+  ]) {
+    delete next[key];
+  }
+  return next;
 }
 
 function inferAvailabilityCheckedFromHistory(workingState = {}, messageHistory = [], context = {}) {
@@ -525,6 +557,7 @@ module.exports = {
   buildAvailabilityCheckedPatch,
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
+  scrubReservationStateForInformationalTurn,
   assistantAskedForReservationTime,
   looksLikeAdEntryGreeting,
   detectOpeningGreeting,

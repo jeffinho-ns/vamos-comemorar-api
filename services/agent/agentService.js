@@ -8,10 +8,14 @@ const {
 const {
   isInformationalFaqTurn,
   looksLikeReservationPushOnly,
+  looksLikeEventProgramQuestion,
+  looksLikeEntryPricingQuestion,
+  looksLikeMusicStyleQuestion,
 } = require('./faqTopicCanonical');
 const {
   prefetchEstablishmentFaqs,
   loadRelevantFaqsForEstablishment,
+  loadFaqsMatchingDateMention,
   detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
@@ -27,7 +31,7 @@ const {
   loadActiveSettings: loadActiveAssistantSettings,
   loadExternalLinksBlock,
 } = require('./assistantSettingsService');
-const { buildReservationDateHint } = require('./reservationDateHint');
+const { buildReservationDateHint, looksLikeReservationIntent } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
   isReservationFunnelInProgress,
@@ -39,12 +43,15 @@ const {
   buildAvailabilityCheckedPatch,
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
+  scrubReservationStateForInformationalTurn,
   looksLikeAdEntryGreeting,
   detectOpeningGreeting,
   detectClientCorrectingPreviousReply,
   isFirstUserMessageInConversation,
   extractFirstName,
 } = require('./reservationFunnel');
+const { buildAgentReservationOperatingBlock } = require('./reservationOperatingContext');
+const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -957,7 +964,76 @@ async function tryFaqFirstReply({
   if (!faqEntries.length && topicHints.length) {
     faqEntries = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
   }
+
+  let dateFaqs = [];
+  try {
+    dateFaqs = await loadFaqsMatchingDateMention(
+      pool,
+      establishmentId,
+      userText,
+      messageHistory
+    );
+    if (dateFaqs.length) {
+      const byTopic = new Map(faqEntries.map((entry) => [entry.topic, entry]));
+      for (const entry of dateFaqs) byTopic.set(entry.topic, entry);
+      faqEntries = [...byTopic.values()];
+    }
+  } catch (_error) {
+    // segue com o que já tinha
+  }
+
+  const focusDate = resolveDateFromConversation(userText, messageHistory);
+  let hasDateSpecificContext = dateFaqs.length > 0;
+  if (focusDate?.ok && focusDate.iso) {
+    try {
+      const operatingBlock = await buildAgentReservationOperatingBlock(
+        pool,
+        establishmentId,
+        context.lockedEstablishmentName || '',
+        focusDate.iso
+      );
+      if (operatingBlock) {
+        hasDateSpecificContext = true;
+        faqEntries.unshift({
+          topic: 'agenda_oficial_data_foco',
+          answer: operatingBlock,
+          updatedAt: Date.now(),
+        });
+      }
+    } catch (_error) {
+      // ignore
+    }
+  }
+
+  if (hasDateSpecificContext) {
+    faqEntries = faqEntries.filter((entry) => entry.topic !== 'dias_horarios_funcionamento');
+  }
+
+  const informationalNoReservation =
+    !looksLikeReservationIntent(userText) &&
+    (looksLikeEventProgramQuestion(userText) ||
+      looksLikeEntryPricingQuestion(userText) ||
+      looksLikeMusicStyleQuestion(userText));
+
   if (!faqEntries.length) {
+    if (looksLikeEventProgramQuestion(userText)) {
+      console.warn(
+        `[agentService] FAQ-first evento sem registros establishment_id=${establishmentId}`
+      );
+      return {
+        replyText:
+          'Boa! Deixa eu confirmar a programação desse dia com a equipe e já te respondo, tá?',
+        workingState: scrubReservationStateForInformationalTurn(
+          mergeWorkingState(memory.workingState || {}, {
+            establishment_id: establishmentId,
+          })
+        ),
+        toolTrace: [],
+        preReservationResult: null,
+        guestListLink: null,
+        faqFirst: true,
+      };
+    }
     console.warn(
       `[agentService] FAQ-first sem registros establishment_id=${establishmentId} topics=${topicHints.join(',')}`
     );
@@ -969,11 +1045,14 @@ async function tryFaqFirstReply({
     faqEntries,
     establishmentName: context.lockedEstablishmentName || '',
     messageHistory,
+    eventProgramOnly: informationalNoReservation,
   });
+
+  const cleanedState = scrubReservationStateForInformationalTurn(memory.workingState || {});
 
   return {
     replyText,
-    workingState: mergeWorkingState(memory.workingState || {}, {
+    workingState: mergeWorkingState(cleanedState, {
       establishment_id: establishmentId,
     }),
     toolTrace: (topicHints.length ? topicHints : faqEntries.map((e) => e.topic)).map((topic) => ({
@@ -1089,6 +1168,8 @@ async function runAgentTurn({
   workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
   const currentTurnIsFaq = shouldPrioritizeFaqForCurrentTurn(userText);
+  const informationalOnly =
+    currentTurnIsFaq && !looksLikeReservationIntent(userText);
 
   if (currentTurnIsFaq && process.env.OPENAI_API_KEY) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
@@ -1219,9 +1300,10 @@ async function runAgentTurn({
   // criar_pre_reserva, forçamos diretamente a chamada da função — evita o
   // modelo gerar texto solto antes ("Sua reserva foi confirmada!") sem chamar
   // a tool. Caso contrário, deixa o modelo decidir (auto).
-  const initialToolChoice = reservationFunnelIsComplete(workingState)
-    ? { type: 'function', function: { name: 'criar_pre_reserva' } }
-    : 'auto';
+  const initialToolChoice =
+    !informationalOnly && reservationFunnelIsComplete(workingState)
+      ? { type: 'function', function: { name: 'criar_pre_reserva' } }
+      : 'auto';
 
   let assistantMessage = await requestAssistantCompletion(messages, tools, initialToolChoice);
   let guard = 0;
@@ -1232,6 +1314,22 @@ async function runAgentTurn({
     messages.push(assistantMessage);
     let executedAnyTool = false;
     for (const toolCall of assistantMessage.tool_calls) {
+      const toolName = toolCall?.function?.name || '';
+      if (
+        informationalOnly &&
+        (toolName === 'criar_pre_reserva' || toolName === 'verificar_disponibilidade')
+      ) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            ok: false,
+            error:
+              'O cliente só fez uma pergunta informativa sobre o evento. Responda com a programação/FAQ — não inicie reserva nem verifique disponibilidade.',
+          }),
+        });
+        continue;
+      }
       const fingerprint = toolCallFingerprint(toolCall);
       if (seenToolFingerprints.has(fingerprint) || toolTraceHasFingerprint(toolTrace, fingerprint)) {
         console.warn(
@@ -1307,15 +1405,17 @@ async function runAgentTurn({
   workingState = ensured.workingState;
   let toolTraceFinal = ensured.toolTrace;
 
-  const forcedCreate = await forceCreatePreReservaIfReady({
-    pool,
-    workingState,
-    context,
-    runtimeContext,
-    toolTrace: toolTraceFinal,
-    messages,
-    tools,
-  });
+  const forcedCreate = informationalOnly
+    ? { workingState, toolTrace: toolTraceFinal, replyText: null, toolResult: null }
+    : await forceCreatePreReservaIfReady({
+        pool,
+        workingState,
+        context,
+        runtimeContext,
+        toolTrace: toolTraceFinal,
+        messages,
+        tools,
+      });
   workingState = forcedCreate.workingState;
   toolTraceFinal = forcedCreate.toolTrace;
   if (forcedCreate.toolResult?.ok) {

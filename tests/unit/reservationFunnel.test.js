@@ -55,6 +55,25 @@ test('parseReservationFieldsFromUserText extrai data e 60 pessoas (caso print)',
   assert.match(patch.reservation_date, /^2026-06-19$/);
 });
 
+test('parseReservationFieldsFromUserText não extrai data em pergunta sobre evento', () => {
+  const patch = parseReservationFieldsFromUserText('O que vai ter no dia 08/07?', {});
+  assert.equal(patch.reservation_date, undefined);
+});
+
+test('shouldAutoRunAvailabilityCheck não roda em pergunta sobre programação do dia', () => {
+  assert.equal(
+    shouldAutoRunAvailabilityCheck(
+      { establishment_id: 7, reservation_date: '2026-07-08' },
+      { lockedEstablishmentId: 7 },
+      [],
+      '',
+      'O que vai ter no dia 08/07?',
+      []
+    ),
+    false
+  );
+});
+
 test('looksLikeDeferredAvailabilityCheck detecta promessa sem retorno', () => {
   const text =
     'Perfeito! Vou verificar a disponibilidade para o dia 19/06 para 60 pessoas no HighLine. Um momento, por favor.';

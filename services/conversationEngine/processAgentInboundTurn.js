@@ -1,12 +1,13 @@
 const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
-const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
-const { buildReservationDateHint } = require('../agent/reservationDateHint');
+const { runAgentTurn, getReferenceDateIso, shouldPrioritizeFaqForCurrentTurn } = require('../agent/agentService');
+const { buildReservationDateHint, looksLikeReservationIntent } = require('../agent/reservationDateHint');
 const {
   parseReservationFieldsFromUserText,
   mergeContactHintsIntoWorkingState,
 } = require('../agent/reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
+const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const { mergeWorkingState } = require('../agent/agentMemoryService');
 const {
   getMemory,
@@ -298,9 +299,15 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   };
 
   const focusDateIso =
-    memoryForTurn.workingState?.reservation_date ||
-    memoryForTurn.workingState?.pending_reservation_date_iso ||
-    null;
+    (() => {
+      const fromConversation = resolveDateFromConversation(incomingText, messageHistory);
+      if (fromConversation?.ok && fromConversation.iso) return fromConversation.iso;
+      return (
+        memoryForTurn.workingState?.reservation_date ||
+        memoryForTurn.workingState?.pending_reservation_date_iso ||
+        null
+      );
+    })();
 
   let reservationOperatingBlock = '';
   if (lockedEstablishmentId && pool) {
@@ -417,7 +424,14 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       }
     }
 
-    if (agentResult.guestListLink) {
+    if (
+      agentResult.guestListLink &&
+      !agentResult.faqFirst &&
+      !(
+        shouldPrioritizeFaqForCurrentTurn(incomingText) &&
+        !looksLikeReservationIntent(incomingText)
+      )
+    ) {
       const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink);
       await outboundGateway.sendText(waId, linkMsg);
       await persistOutbound(linkMsg, 'GUEST_LIST_LINK');

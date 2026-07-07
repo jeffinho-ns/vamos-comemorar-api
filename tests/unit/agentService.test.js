@@ -37,6 +37,7 @@ test('pergunta de estacionamento tem prioridade de FAQ mesmo com contexto de res
     true
   );
   assert.equal(shouldPrioritizeFaqForCurrentTurn('quero fazer uma reserva no Highline'), false);
+  assert.equal(shouldPrioritizeFaqForCurrentTurn('O que vai ter no dia 08/07?'), true);
 });
 
 test('synthesizeReplyFromToolTrace monta horários disponíveis', () => {

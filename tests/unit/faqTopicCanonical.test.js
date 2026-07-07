@@ -41,6 +41,9 @@ test('detectFaqTopicsFromUserText detecta benefícios de aniversário', () => {
 test('isInformationalFaqTurn reconhece dúvidas operacionais', () => {
   assert.equal(isInformationalFaqTurn('qual o horário no sábado?'), true);
   assert.equal(isInformationalFaqTurn('quais as vantagens para aniversariante?'), true);
+  assert.equal(isInformationalFaqTurn('O que vai ter no dia 08/07?'), true);
+  assert.equal(isInformationalFaqTurn('Qual a entrada na véspera de feriado?'), true);
+  assert.equal(isInformationalFaqTurn('Quem é o DJ na quarta?'), true);
 });
 
 test('looksLikeReservationPushOnly não bloqueia FAQ quando há pergunta mista', () => {

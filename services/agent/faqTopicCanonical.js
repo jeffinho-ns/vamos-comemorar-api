@@ -160,6 +160,32 @@ function looksLikeMusicStyleQuestion(text) {
   return /\b(musica|dj|house|open format|brasilidades|programacao)\b/.test(normalized);
 }
 
+/** Pergunta sobre programação/evento de um dia — sem intenção de reservar. */
+function looksLikeEventProgramQuestion(text) {
+  const normalized = normalizeInboundText(text);
+  if (!normalized) return false;
+
+  const asksProgram =
+    /\b(o que vai ter|o que tem|o que rola|que vai ter|que tem|programacao|atracao|atracoes|line[- ]?up|quem toca|qual (e )?o dj|dj da (noite|festa)|evento do dia|festa do dia|comemoracao do dia)\b/.test(
+      normalized
+    );
+  if (asksProgram) return true;
+
+  const hasDateMention =
+    /\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/.test(normalized) ||
+    /\b(dia\s+\d{1,2}|no dia\s+\d{1,2})\b/.test(normalized);
+  if (
+    hasDateMention &&
+    /\b(no dia|dia \d|para o dia|do dia|nesse dia|nessa data|em \d{1,2}[\/\-])\b/.test(
+      normalized
+    ) &&
+    !looksLikeReservationPushOnly(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function extractPartySizeFromText(text) {
   const normalized = normalizeInboundText(text);
   if (!normalized) return null;
@@ -200,7 +226,18 @@ function detectFaqTopicsFromUserText(text) {
   if (looksLikeBirthdayBenefitsQuestion(text)) {
     topics.push('beneficios_aniversario');
   }
-  if (looksLikeOperatingHoursQuestion(text) || looksLikeMusicStyleQuestion(text)) {
+  if (looksLikeEventProgramQuestion(text)) {
+    topics.push('evento');
+  }
+  if (/\b(vespera|véspera|pre[- ]?feriado|feriado|feriados)\b/.test(normalized)) {
+    topics.push('evento');
+    topics.push('valores_entrada');
+  }
+  if (looksLikeMusicStyleQuestion(text) || /\b(quem (e|é) o dj|dj na|dj no)\b/.test(normalized)) {
+    topics.push('evento');
+    topics.push('dias_horarios_funcionamento');
+  }
+  if (looksLikeOperatingHoursQuestion(text)) {
     topics.push('dias_horarios_funcionamento');
   }
   if (looksLikeEntryPricingQuestion(text) || looksLikeSaturdayQuestion(text)) {
@@ -245,9 +282,15 @@ function isInformationalFaqTurn(text) {
   const normalized = normalizeInboundText(text);
   if (!normalized) return false;
 
+  if (looksLikeEventProgramQuestion(text)) return true;
+
   if (detectFaqTopicsFromUserText(text).length > 0) return true;
 
-  if (/\b(como funciona|me conta|me fala|quais? sao|o que tem|informac|duvida)\b/.test(normalized)) {
+  if (
+    /\b(como funciona|me conta|me fala|quais? sao|o que tem|o que vai ter|o que rola|que vai ter|informac|duvida|programacao)\b/.test(
+      normalized
+    )
+  ) {
     return true;
   }
   if (looksLikeSaturdayQuestion(text)) return true;
@@ -290,4 +333,5 @@ module.exports = {
   looksLikeSaturdayQuestion,
   looksLikeEntryPricingQuestion,
   looksLikeReservationPushOnly,
+  looksLikeEventProgramQuestion,
 };

@@ -3,7 +3,9 @@ const { buildFaqTopicCandidates, getDefaultFaqAnswer } = require('./agentTools')
 const {
   detectFaqTopicsFromConversation,
   extractPartySizeFromText,
+  looksLikeEventProgramQuestion,
 } = require('./faqTopicCanonical');
+const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
   FAQ_MAX_CHARS_PER_TURN,
   FAQ_CORE_FALLBACK_TOPICS,
@@ -112,6 +114,125 @@ async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxCha
       updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
     });
     totalChars += piece.length + 2;
+  }
+
+  return entries;
+}
+
+function buildDateSearchPatterns(isoDate) {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return [];
+  const [y, m, d] = isoDate.split('-');
+  const day = String(Number(d));
+  const month = String(Number(m));
+  return [
+    ...new Set([
+      `${d}/${m}`,
+      `${d}-${m}`,
+      `${day}/${month}`,
+      `${day}-${month}`,
+      `${d}/${m}/${y}`,
+      isoDate,
+    ]),
+  ];
+}
+
+/**
+ * Busca FAQs customizadas que mencionam a data citada pelo cliente (ex.: 08/07)
+ * ou cadastradas na categoria "evento".
+ */
+async function loadFaqsMatchingDateMention(
+  pool,
+  establishmentId,
+  userText,
+  messageHistory = []
+) {
+  const establishment = Number(establishmentId);
+  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+
+  const parsed = resolveDateFromConversation(String(userText || ''), messageHistory);
+  const patterns = parsed?.ok && parsed.iso ? buildDateSearchPatterns(parsed.iso) : [];
+  const entries = [];
+  const seenTopics = new Set();
+
+  const pushRow = (row) => {
+    const topic = String(row.topic || '').trim();
+    const answer = String(row.answer || '').trim();
+    if (!topic || !answer || seenTopics.has(topic)) return;
+    seenTopics.add(topic);
+    entries.push({
+      topic,
+      answer,
+      updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+    });
+  };
+
+  if (patterns.length) {
+    const orClauses = patterns.map((_, i) => `(topic ILIKE $${i + 2} OR answer ILIKE $${i + 2})`);
+    const params = [establishment, ...patterns.map((p) => `%${p}%`)];
+    try {
+      const result = await pool.query(
+        `SELECT topic, answer, updated_at
+           FROM establishment_faq
+          WHERE establishment_id = $1
+            AND is_active = TRUE
+            AND COALESCE(TRIM(answer), '') <> ''
+            AND (${orClauses.join(' OR ')})
+          ORDER BY updated_at DESC NULLS LAST`,
+        params
+      );
+      for (const row of result.rows || []) pushRow(row);
+    } catch (error) {
+      console.warn('[faqPrefetchService] falha busca FAQ por data:', error.message);
+    }
+  }
+
+  if (looksLikeEventProgramQuestion(userText)) {
+    try {
+      const eventResult = await pool.query(
+        `SELECT topic, answer, updated_at
+           FROM establishment_faq
+          WHERE establishment_id = $1
+            AND is_active = TRUE
+            AND COALESCE(TRIM(answer), '') <> ''
+            AND (category = 'evento' OR topic ILIKE '%evento%')
+          ORDER BY updated_at DESC NULLS LAST
+          LIMIT 8`,
+        [establishment]
+      );
+      for (const row of eventResult.rows || []) pushRow(row);
+    } catch (error) {
+      console.warn('[faqPrefetchService] falha busca FAQ evento:', error.message);
+    }
+  }
+
+  const normalized = String(userText || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/\b(vespera|pre[- ]?feriado|feriado)\b/.test(normalized)) {
+    try {
+      const holidayResult = await pool.query(
+        `SELECT topic, answer, updated_at
+           FROM establishment_faq
+          WHERE establishment_id = $1
+            AND is_active = TRUE
+            AND COALESCE(TRIM(answer), '') <> ''
+            AND (
+              category = 'evento'
+              OR topic ILIKE '%evento%'
+              OR topic ILIKE '%feriado%'
+              OR answer ILIKE '%vespera%'
+              OR answer ILIKE '%véspera%'
+              OR answer ILIKE '%pre%feriado%'
+            )
+          ORDER BY updated_at DESC NULLS LAST
+          LIMIT 6`,
+        [establishment]
+      );
+      for (const row of holidayResult.rows || []) pushRow(row);
+    } catch (error) {
+      console.warn('[faqPrefetchService] falha busca FAQ feriado:', error.message);
+    }
   }
 
   return entries;
@@ -247,6 +368,7 @@ async function generateFaqGroundedReply({
   faqEntries = [],
   establishmentName = '',
   messageHistory = [],
+  eventProgramOnly = false,
 }) {
   const question = String(userQuestion || '').trim();
   const faqText = buildFaqKnowledgeBlock(faqEntries, establishmentName);
@@ -273,7 +395,7 @@ REGRAS:
 - Responda a PERGUNTA ATUAL. O histórico recente é só contexto; não continue fluxo antigo de reserva se a pergunta atual for operacional.
 - Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).
 - Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
-- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.
+${eventProgramOnly ? '- O cliente só perguntou sobre o evento/programação — NÃO ofereça reserva, horário nem link de lista nesta resposta.' : '- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.'}
 - Não invente datas. Máximo 1 emoji discreto se couber.
 
 ${faqText}`,
@@ -307,6 +429,7 @@ module.exports = {
   prefetchEstablishmentFaqs,
   loadAllActiveFaqsForEstablishment,
   loadRelevantFaqsForEstablishment,
+  loadFaqsMatchingDateMention,
   detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
