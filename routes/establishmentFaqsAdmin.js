@@ -1,6 +1,9 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { queryWithRlsContext } = require('../tenancy/scopedQuery');
+const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
+const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 const { canonicalizeAdminFaqTopic } = require('../services/agent/faqTopicCanonical');
@@ -46,8 +49,20 @@ function mapFaqRow(row) {
 }
 
 async function establishmentExists(pool, establishmentId) {
-  const result = await pool.query('SELECT id FROM places WHERE id = $1 LIMIT 1', [establishmentId]);
+  const result = await pool.query(
+    `SELECT id FROM places WHERE id = $1
+      UNION ALL
+     SELECT legacy_place_id AS id FROM establishments
+      WHERE legacy_place_id = $1 OR id = $1
+     LIMIT 1`,
+    [establishmentId],
+  );
   return Boolean(result.rows[0]);
+}
+
+async function resolveOrgForEstablishment(pool, establishmentId) {
+  const fromEst = await resolveOrganizationIdForEstablishment(pool, establishmentId);
+  return fromEst;
 }
 
 module.exports = (pool) => {
@@ -107,11 +122,25 @@ module.exports = (pool) => {
           return res.status(404).json({ success: false, message: 'Estabelecimento não encontrado.' });
         }
 
-        const result = await pool.query(
-          `INSERT INTO establishment_faq (establishment_id, topic, answer, category, is_active, updated_at)
-           VALUES ($1, $2, $3, $4, TRUE, NOW())
+        let organizationId = await resolveOrgForEstablishment(pool, establishmentId);
+        if (!organizationId) {
+          organizationId = await resolveOrganizationIdForUser(pool, req.user);
+        }
+        const rlsCtx = rlsContextFromRequest(req, organizationId);
+        if (!rlsCtx) {
+          return res.status(503).json({
+            success: false,
+            message: 'Organização indisponível para criar FAQ.',
+          });
+        }
+
+        const result = await queryWithRlsContext(
+          pool,
+          rlsCtx,
+          `INSERT INTO establishment_faq (establishment_id, topic, answer, category, is_active, organization_id, updated_at)
+           VALUES ($1, $2, $3, $4, TRUE, $5, NOW())
            RETURNING id, establishment_id, topic, answer, category, is_active, updated_at, created_at`,
-          [establishmentId, topic, answer, category]
+          [establishmentId, topic, answer, category, organizationId],
         );
 
         return res.status(201).json({ success: true, data: mapFaqRow(result.rows[0]) });
@@ -152,7 +181,7 @@ module.exports = (pool) => {
         }
 
         const existing = await pool.query(
-          `SELECT id, establishment_id, topic, answer, category, is_active
+          `SELECT id, establishment_id, organization_id, topic, answer, category, is_active
              FROM establishment_faq
             WHERE id = $1 AND establishment_id = $2
             LIMIT 1`,
@@ -164,10 +193,24 @@ module.exports = (pool) => {
 
         const nextTopic = topic !== null ? topic : existing.rows[0].topic;
         const nextAnswer = answer !== null ? answer : existing.rows[0].answer;
-        const nextCategory = category !== null ? category : existing.rows[0].category || 'geral';
+        const nextCategory =
+          category !== null ? category : existing.rows[0].category || 'geral';
         const nextActive = isActive !== undefined ? isActive : existing.rows[0].is_active;
 
-        const result = await pool.query(
+        const organizationId =
+          existing.rows[0].organization_id ??
+          (await resolveOrgForEstablishment(pool, establishmentId));
+        const rlsCtx = rlsContextFromRequest(req, organizationId);
+        if (!rlsCtx) {
+          return res.status(503).json({
+            success: false,
+            message: 'Organização indisponível para atualizar FAQ.',
+          });
+        }
+
+        const result = await queryWithRlsContext(
+          pool,
+          rlsCtx,
           `UPDATE establishment_faq
               SET topic = $1,
                   answer = $2,
@@ -176,7 +219,7 @@ module.exports = (pool) => {
                   updated_at = NOW()
             WHERE id = $5 AND establishment_id = $6
             RETURNING id, establishment_id, topic, answer, category, is_active, updated_at, created_at`,
-          [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId]
+          [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId],
         );
 
         return res.json({ success: true, data: mapFaqRow(result.rows[0]) });

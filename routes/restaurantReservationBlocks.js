@@ -8,6 +8,9 @@ const {
   establishmentScopeClause,
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
+const { queryWithRlsContext } = require('../tenancy/scopedQuery');
+const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
+const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -33,6 +36,10 @@ module.exports = (pool) => {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+
+    await pool.query(
+      'ALTER TABLE restaurant_reservation_blocks ADD COLUMN IF NOT EXISTS organization_id INT NULL',
+    );
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_reservation_blocks_estab_date
@@ -132,49 +139,48 @@ module.exports = (pool) => {
 
       const userId = req.user?.id || null;
 
+      let organizationId = await resolveOrganizationIdForEstablishment(
+        pool,
+        establishment_id,
+      );
+      if (!organizationId) {
+        organizationId = await resolveOrganizationIdForUser(pool, req.user);
+      }
+      const rlsCtx = rlsContextFromRequest(req, organizationId);
+      if (!rlsCtx) {
+        return res.status(503).json({
+          success: false,
+          error: 'Organização indisponível para criar bloqueio.',
+        });
+      }
+
+      const insertSql = `INSERT INTO restaurant_reservation_blocks (
+            establishment_id, area_id, start_datetime, end_datetime,
+            reason, recurrence_type, recurrence_weekday, max_people_capacity, created_by, organization_id
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          RETURNING *`;
+      const insertParams = [
+        establishment_id,
+        area_id || null,
+        start_datetime,
+        end_datetime,
+        reason,
+        recurrence_type,
+        recurrence_weekday,
+        max_people_capacity,
+        userId,
+        organizationId,
+      ];
+
       let result;
       try {
-        result = await pool.query(
-          `INSERT INTO restaurant_reservation_blocks (
-            establishment_id, area_id, start_datetime, end_datetime,
-            reason, recurrence_type, recurrence_weekday, max_people_capacity, created_by
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-          RETURNING *`,
-          [
-            establishment_id,
-            area_id || null,
-            start_datetime,
-            end_datetime,
-            reason,
-            recurrence_type,
-            recurrence_weekday,
-            max_people_capacity,
-            userId,
-          ]
-        );
+        result = await queryWithRlsContext(pool, rlsCtx, insertSql, insertParams);
       } catch (error) {
         // Se a tabela não existir (erro 42P01), cria e tenta de novo
         if (error.code === '42P01') {
           console.warn('Tabela restaurant_reservation_blocks não encontrada. Criando automaticamente...');
           await ensureBlocksTableExists();
-          result = await pool.query(
-            `INSERT INTO restaurant_reservation_blocks (
-              establishment_id, area_id, start_datetime, end_datetime,
-              reason, recurrence_type, recurrence_weekday, max_people_capacity, created_by
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-            RETURNING *`,
-            [
-              establishment_id,
-              area_id || null,
-              start_datetime,
-              end_datetime,
-              reason,
-              recurrence_type,
-              recurrence_weekday,
-              max_people_capacity,
-              userId,
-            ]
-          );
+          result = await queryWithRlsContext(pool, rlsCtx, insertSql, insertParams);
         } else {
           throw error;
         }
