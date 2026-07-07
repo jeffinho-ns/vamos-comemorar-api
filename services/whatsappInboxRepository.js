@@ -499,6 +499,25 @@ async function listConversations(pool, options = {}) {
             END AS has_unread`
       : `FALSE AS never_opened_by_me, FALSE AS has_unread`;
 
+  const orderClause =
+    readUserParam != null
+      ? `ORDER BY
+            CASE
+              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 5
+              WHEN irs.conversation_id IS NULL THEN 0
+              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id)
+                   AND lm.direction = 'inbound' THEN 1
+              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id) THEN 2
+              WHEN lm.direction = 'outbound'
+                   AND (lm.intent IN ('AGENT_REPLY', 'PROCESS_RESERVATION', 'OPERATIONAL_INFO', 'GUEST_LIST_LINK', 'recovery_followup')
+                        OR (lm.intent IS NULL OR lm.intent = '')) THEN 3
+              ELSE 4
+            END ASC,
+            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
+            c.id DESC`
+      : `ORDER BY GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
+              c.id DESC`;
+
   const r = await pool.query(
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
             c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
@@ -524,8 +543,7 @@ async function listConversations(pool, options = {}) {
        LIMIT 1
      ) lm ON true
      ${whereClause}
-     ORDER BY GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
-              c.id DESC
+     ${orderClause}
      LIMIT $${idx}`,
     params
   );
