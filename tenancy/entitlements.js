@@ -113,7 +113,12 @@ async function resolveEntitlements(pool, user) {
 function hasModule(entitlements, moduleKey) {
   if (!entitlements) return false;
   if (entitlements.allowAll || entitlements.legacyScoped) return true;
-  return entitlements.modules.includes(moduleKey);
+  if (entitlements.modules.includes(moduleKey)) return true;
+  const prefix = `${moduleKey}:`;
+  return (
+    Array.isArray(entitlements.permissions) &&
+    entitlements.permissions.some((p) => String(p).startsWith(prefix))
+  );
 }
 
 function hasPermission(entitlements, permissionKey) {
