@@ -1224,6 +1224,89 @@ async function deleteOrganizationEstablishmentPermission(
   });
 }
 
+const FULL_ESTABLISHMENT_PERMISSION_FLAGS = Object.freeze({
+  can_edit_os: true,
+  can_edit_operational_detail: true,
+  can_view_os: true,
+  can_download_os: true,
+  can_view_operational_detail: true,
+  can_create_os: true,
+  can_create_operational_detail: true,
+  can_manage_reservations: true,
+  can_manage_checkins: true,
+  can_view_reports: true,
+  can_create_edit_reservations: true,
+  can_view_cardapio: true,
+  can_create_cardapio: true,
+  can_edit_cardapio: true,
+  can_delete_cardapio: true,
+  is_active: true,
+});
+
+/** Concede acesso operacional completo a todas as casas da org, sem super admin. */
+async function provisionUserFullOrganizationAccess(pool, organizationId, input, actorUserId) {
+  const userEmail = String(input.userEmail || input.user_email || '').trim().toLowerCase();
+  if (!userEmail) throw new Error('userEmail é obrigatório');
+
+  const userRes = await pool.query(`SELECT id, email FROM users WHERE LOWER(email) = $1`, [
+    userEmail,
+  ]);
+  if (!userRes.rows.length) throw new Error('Usuário não encontrado');
+  const userId = userRes.rows[0].id;
+
+  await pool.query(
+    `UPDATE users
+        SET is_super_admin = FALSE,
+            organization_id = COALESCE(organization_id, $1)
+      WHERE id = $2`,
+    [organizationId, userId],
+  );
+
+  await createOrganizationMembership(
+    pool,
+    organizationId,
+    { userId, roleKey: 'account_admin', isActive: true },
+    actorUserId,
+  );
+
+  const establishments = await listOrganizationEstablishments(pool, organizationId);
+  const granted = [];
+  for (const est of establishments) {
+    if (!est.legacy_place_id) continue;
+    const row = await upsertOrganizationEstablishmentPermission(
+      pool,
+      organizationId,
+      {
+        userEmail,
+        canonicalEstablishmentId: est.id,
+        ...FULL_ESTABLISHMENT_PERMISSION_FLAGS,
+      },
+      actorUserId,
+    );
+    granted.push({
+      canonicalEstablishmentId: est.id,
+      establishmentName: est.name,
+      placeId: est.legacy_place_id,
+      permissionId: row.id,
+    });
+  }
+
+  await logBillingEvent(pool, organizationId, 'user.full_org_access_provisioned', {
+    actorUserId,
+    userId,
+    userEmail,
+    establishmentsGranted: granted.length,
+  });
+
+  return {
+    userId,
+    userEmail,
+    isSuperAdmin: false,
+    roleKey: 'account_admin',
+    establishmentsGranted: granted,
+  };
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -1254,4 +1337,5 @@ module.exports = {
   listOrganizationEstablishmentPermissions,
   upsertOrganizationEstablishmentPermission,
   deleteOrganizationEstablishmentPermission,
+  provisionUserFullOrganizationAccess,
 };

@@ -279,6 +279,20 @@ module.exports = (pool) => {
     }
   });
 
+  router.post('/organizations/:id/users/full-access', async (req, res) => {
+    try {
+      const result = await billing.provisionUserFullOrganizationAccess(
+        pool,
+        Number(req.params.id),
+        req.body,
+        req.user.id,
+      );
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/organizations/:id/memberships', async (req, res) => {
     try {
       const memberships = await billing.listOrganizationMemberships(pool, Number(req.params.id));

@@ -4,7 +4,6 @@
  */
 const DEFAULT_SUPER_ADMIN_EMAILS = [
   'jeffinho_ns@hotmail.com',
-  'teste@teste',
 ];
 
 function loadSuperAdminEmails() {
@@ -26,8 +25,7 @@ function isSuperAdminEmail(email) {
 }
 
 function isSuperAdminUser(req) {
-  const role = (req.user?.role || '').toLowerCase().trim();
-  if (role === 'admin') return true;
+  if (req.user?.is_super_admin === true) return true;
   const email = (req.user?.email || '').trim().toLowerCase();
   return isSuperAdminEmail(email);
 }
