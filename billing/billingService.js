@@ -1135,11 +1135,12 @@ async function upsertOrganizationEstablishmentPermission(pool, organizationId, i
        can_create_os, can_create_operational_detail,
        can_manage_reservations, can_manage_checkins, can_view_reports,
        can_create_edit_reservations,
+       can_manage_whatsapp, can_configure_ia,
        can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
        is_active, created_by
      ) VALUES (
        $1, $2, $3,
-       $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+       $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
      )
      ON CONFLICT (user_id, establishment_id)
      DO UPDATE SET
@@ -1155,12 +1156,14 @@ async function upsertOrganizationEstablishmentPermission(pool, organizationId, i
        can_manage_checkins = EXCLUDED.can_manage_checkins,
        can_view_reports = EXCLUDED.can_view_reports,
        can_create_edit_reservations = EXCLUDED.can_create_edit_reservations,
+       can_manage_whatsapp = EXCLUDED.can_manage_whatsapp,
+       can_configure_ia = EXCLUDED.can_configure_ia,
        can_view_cardapio = EXCLUDED.can_view_cardapio,
        can_create_cardapio = EXCLUDED.can_create_cardapio,
        can_edit_cardapio = EXCLUDED.can_edit_cardapio,
        can_delete_cardapio = EXCLUDED.can_delete_cardapio,
        is_active = EXCLUDED.is_active,
-       updated_by = $20,
+       updated_by = $22,
        updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
     [
@@ -1178,6 +1181,10 @@ async function upsertOrganizationEstablishmentPermission(pool, organizationId, i
       !!perm.can_manage_checkins,
       !!perm.can_view_reports,
       perm.can_create_edit_reservations !== false,
+      perm.can_manage_whatsapp != null
+        ? !!perm.can_manage_whatsapp
+        : !!perm.can_manage_reservations,
+      !!perm.can_configure_ia,
       perm.can_view_cardapio !== false,
       perm.can_create_cardapio !== false,
       perm.can_edit_cardapio !== false,
@@ -1236,6 +1243,8 @@ const FULL_ESTABLISHMENT_PERMISSION_FLAGS = Object.freeze({
   can_manage_checkins: true,
   can_view_reports: true,
   can_create_edit_reservations: true,
+  can_manage_whatsapp: true,
+  can_configure_ia: true,
   can_view_cardapio: true,
   can_create_cardapio: true,
   can_edit_cardapio: true,

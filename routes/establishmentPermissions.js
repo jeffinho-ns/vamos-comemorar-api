@@ -202,6 +202,8 @@ module.exports = (pool) => {
         can_manage_checkins,
         can_view_reports,
         can_create_edit_reservations,
+        can_manage_whatsapp,
+        can_configure_ia,
         can_view_cardapio,
         can_create_cardapio,
         can_edit_cardapio,
@@ -239,10 +241,11 @@ module.exports = (pool) => {
           can_create_os, can_create_operational_detail,
           can_manage_reservations, can_manage_checkins, can_view_reports,
           can_create_edit_reservations,
+          can_manage_whatsapp, can_configure_ia,
           can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
           is_active, created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
         ) RETURNING *
       `;
       
@@ -261,6 +264,10 @@ module.exports = (pool) => {
         can_manage_checkins || false,
         can_view_reports || false,
         can_create_edit_reservations !== undefined ? can_create_edit_reservations : true,
+        can_manage_whatsapp != null
+          ? !!can_manage_whatsapp
+          : !!(can_manage_reservations || false),
+        !!can_configure_ia,
         can_view_cardapio !== undefined ? can_view_cardapio : true,
         can_create_cardapio !== undefined ? can_create_cardapio : true,
         can_edit_cardapio !== undefined ? can_edit_cardapio : true,
@@ -341,6 +348,8 @@ module.exports = (pool) => {
         can_manage_checkins,
         can_view_reports,
         can_create_edit_reservations,
+        can_manage_whatsapp,
+        can_configure_ia,
         can_view_cardapio,
         can_create_cardapio,
         can_edit_cardapio,
@@ -382,14 +391,16 @@ module.exports = (pool) => {
           can_manage_checkins = COALESCE($9, can_manage_checkins),
           can_view_reports = COALESCE($10, can_view_reports),
           can_create_edit_reservations = COALESCE($11, can_create_edit_reservations),
-          can_view_cardapio = COALESCE($12, can_view_cardapio),
-          can_create_cardapio = COALESCE($13, can_create_cardapio),
-          can_edit_cardapio = COALESCE($14, can_edit_cardapio),
-          can_delete_cardapio = COALESCE($15, can_delete_cardapio),
-          is_active = COALESCE($16, is_active),
-          updated_by = $17,
+          can_manage_whatsapp = COALESCE($12, can_manage_whatsapp),
+          can_configure_ia = COALESCE($13, can_configure_ia),
+          can_view_cardapio = COALESCE($14, can_view_cardapio),
+          can_create_cardapio = COALESCE($15, can_create_cardapio),
+          can_edit_cardapio = COALESCE($16, can_edit_cardapio),
+          can_delete_cardapio = COALESCE($17, can_delete_cardapio),
+          is_active = COALESCE($18, is_active),
+          updated_by = $19,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $18
+        WHERE id = $20
         RETURNING *
       `;
       
@@ -405,6 +416,8 @@ module.exports = (pool) => {
         can_manage_checkins,
         can_view_reports,
         can_create_edit_reservations,
+        can_manage_whatsapp,
+        can_configure_ia,
         can_view_cardapio,
         can_create_cardapio,
         can_edit_cardapio,
