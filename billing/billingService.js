@@ -1096,6 +1096,123 @@ async function listOrganizationEstablishmentPermissions(pool, organizationId) {
   return rows;
 }
 
+const UEP_MERGEABLE_FIELDS = [
+  'can_edit_os',
+  'can_edit_operational_detail',
+  'can_view_os',
+  'can_download_os',
+  'can_view_operational_detail',
+  'can_create_os',
+  'can_create_operational_detail',
+  'can_manage_reservations',
+  'can_manage_checkins',
+  'can_view_reports',
+  'can_create_edit_reservations',
+  'can_manage_whatsapp',
+  'can_configure_ia',
+  'can_view_cardapio',
+  'can_create_cardapio',
+  'can_edit_cardapio',
+  'can_delete_cardapio',
+];
+
+function resolveUepFieldValue(field, perm) {
+  switch (field) {
+    case 'can_view_os':
+    case 'can_download_os':
+    case 'can_view_operational_detail':
+    case 'can_create_edit_reservations':
+    case 'can_view_cardapio':
+    case 'can_create_cardapio':
+    case 'can_edit_cardapio':
+    case 'can_delete_cardapio':
+      return perm[field] !== false;
+    case 'can_manage_whatsapp':
+      if (perm.can_manage_whatsapp != null) return !!perm.can_manage_whatsapp;
+      return !!perm.can_manage_reservations;
+    case 'can_configure_ia':
+      return !!perm.can_configure_ia;
+    default:
+      return !!perm[field];
+  }
+}
+
+function buildResolvedUepValues(perm, existing, merge) {
+  const resolved = {};
+  for (const field of UEP_MERGEABLE_FIELDS) {
+    if (merge && existing && !Object.prototype.hasOwnProperty.call(perm, field)) {
+      resolved[field] = !!existing[field];
+      if (
+        field === 'can_view_os' ||
+        field === 'can_download_os' ||
+        field === 'can_view_operational_detail' ||
+        field === 'can_create_edit_reservations' ||
+        field === 'can_view_cardapio' ||
+        field === 'can_create_cardapio' ||
+        field === 'can_edit_cardapio' ||
+        field === 'can_delete_cardapio'
+      ) {
+        resolved[field] = existing[field] !== false;
+      }
+    } else {
+      resolved[field] = resolveUepFieldValue(field, perm);
+    }
+  }
+  resolved.is_active = perm.is_active !== false;
+  return resolved;
+}
+
+async function ensureEstablishmentMembershipForUep(
+  pool,
+  organizationId,
+  userId,
+  canonicalEstablishmentId,
+  actorUserId,
+) {
+  const orgWide = await pool.query(
+    `SELECT 1 FROM meu_backup_db.memberships
+      WHERE user_id = $1 AND organization_id = $2
+        AND establishment_id IS NULL AND is_active = TRUE`,
+    [userId, organizationId],
+  );
+  if (orgWide.rows.length) return;
+
+  const scoped = await pool.query(
+    `SELECT 1 FROM meu_backup_db.memberships
+      WHERE user_id = $1 AND organization_id = $2
+        AND establishment_id = $3 AND is_active = TRUE`,
+    [userId, organizationId, canonicalEstablishmentId],
+  );
+  if (scoped.rows.length) return;
+
+  const userRes = await pool.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+  const roleNorm = String(userRes.rows[0]?.role || 'recepcao')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const roleKeyByUser = {
+    admin: 'account_admin',
+    gerente: 'gerente_bar',
+    promoter: 'promoter',
+    hostess: 'hostess',
+    recepcao: 'recepcao',
+    atendente: 'recepcao',
+  };
+  const roleKey = roleKeyByUser[roleNorm] || 'recepcao';
+
+  await createOrganizationMembership(
+    pool,
+    organizationId,
+    {
+      userId,
+      roleKey,
+      establishmentId: canonicalEstablishmentId,
+      isActive: true,
+    },
+    actorUserId,
+  );
+}
+
 async function upsertOrganizationEstablishmentPermission(pool, organizationId, input, actorUserId) {
   const est = await resolveCanonicalEstablishment(
     pool,
@@ -1127,6 +1244,14 @@ async function upsertOrganizationEstablishmentPermission(pool, organizationId, i
   );
 
   const perm = input.permissions || input;
+  const merge = input.merge === true;
+  const existingRes = await pool.query(
+    `SELECT * FROM user_establishment_permissions WHERE user_id = $1 AND establishment_id = $2`,
+    [userId, placeId],
+  );
+  const existing = existingRes.rows[0] || null;
+  const resolved = buildResolvedUepValues(perm, existing, merge);
+
   const { rows } = await pool.query(
     `INSERT INTO user_establishment_permissions (
        user_id, user_email, establishment_id,
@@ -1170,28 +1295,34 @@ async function upsertOrganizationEstablishmentPermission(pool, organizationId, i
       userId,
       emailForRow,
       placeId,
-      !!perm.can_edit_os,
-      !!perm.can_edit_operational_detail,
-      perm.can_view_os !== false,
-      perm.can_download_os !== false,
-      perm.can_view_operational_detail !== false,
-      !!perm.can_create_os,
-      !!perm.can_create_operational_detail,
-      !!perm.can_manage_reservations,
-      !!perm.can_manage_checkins,
-      !!perm.can_view_reports,
-      perm.can_create_edit_reservations !== false,
-      perm.can_manage_whatsapp != null
-        ? !!perm.can_manage_whatsapp
-        : !!perm.can_manage_reservations,
-      !!perm.can_configure_ia,
-      perm.can_view_cardapio !== false,
-      perm.can_create_cardapio !== false,
-      perm.can_edit_cardapio !== false,
-      perm.can_delete_cardapio !== false,
-      perm.is_active !== false,
+      resolved.can_edit_os,
+      resolved.can_edit_operational_detail,
+      resolved.can_view_os,
+      resolved.can_download_os,
+      resolved.can_view_operational_detail,
+      resolved.can_create_os,
+      resolved.can_create_operational_detail,
+      resolved.can_manage_reservations,
+      resolved.can_manage_checkins,
+      resolved.can_view_reports,
+      resolved.can_create_edit_reservations,
+      resolved.can_manage_whatsapp,
+      resolved.can_configure_ia,
+      resolved.can_view_cardapio,
+      resolved.can_create_cardapio,
+      resolved.can_edit_cardapio,
+      resolved.can_delete_cardapio,
+      resolved.is_active,
       actorUserId,
     ],
+  );
+
+  await ensureEstablishmentMembershipForUep(
+    pool,
+    organizationId,
+    userId,
+    est.id,
+    actorUserId,
   );
 
   await logBillingEvent(pool, organizationId, 'establishment_permission.upserted', {

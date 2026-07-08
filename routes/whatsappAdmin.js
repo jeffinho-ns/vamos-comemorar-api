@@ -67,7 +67,7 @@ module.exports = (pool, app) => {
        FROM user_establishment_permissions
        WHERE user_id = $1
          AND is_active = TRUE
-         AND can_manage_reservations = TRUE`,
+         AND (can_manage_whatsapp = TRUE OR can_manage_reservations = TRUE)`,
       [userId],
     );
     return result.rows

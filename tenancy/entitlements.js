@@ -12,6 +12,7 @@
 
 const { isSaasEnforced } = require('./featureFlags');
 const { isAdminRole, loadUserScope } = require('./tenantScope');
+const { loadUepRbacPermissions } = require('./uepToRbacPermissions');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
@@ -98,6 +99,11 @@ async function resolveEntitlements(pool, user) {
     permissions.length === 0 &&
     Array.isArray(scope.establishmentIds) &&
     scope.establishmentIds.length > 0;
+
+  const uepPermissions = await loadUepRbacPermissions(pool, user.id);
+  if (uepPermissions.length > 0) {
+    permissions = [...new Set([...permissions, ...uepPermissions])];
+  }
 
   return {
     allowAll: false,
