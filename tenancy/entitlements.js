@@ -112,7 +112,7 @@ async function resolveEntitlements(pool, user) {
 
 function hasModule(entitlements, moduleKey) {
   if (!entitlements) return false;
-  if (entitlements.allowAll) return true;
+  if (entitlements.allowAll || entitlements.legacyScoped) return true;
   return entitlements.modules.includes(moduleKey);
 }
 
