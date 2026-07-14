@@ -2,19 +2,39 @@
  * Persistência da Central WhatsApp (conversas + mensagens).
  */
 
+async function resolveOrganizationIdForEstablishment(pool, establishmentId) {
+  const placeId = Number(establishmentId);
+  if (!Number.isFinite(placeId) || placeId <= 0) return null;
+  const r = await pool.query(
+    `SELECT organization_id
+       FROM meu_backup_db.establishments
+      WHERE legacy_place_id = $1 OR legacy_bar_id = $1
+      ORDER BY CASE WHEN legacy_place_id = $1 THEN 0 ELSE 1 END
+      LIMIT 1`,
+    [placeId],
+  );
+  const org = Number(r.rows[0]?.organization_id);
+  return Number.isFinite(org) && org > 0 ? org : null;
+}
+
 async function upsertConversation(pool, { waId, contactName, establishmentId = null }) {
   const name = contactName || null;
+  const orgId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
   const r = await pool.query(
-    `INSERT INTO whatsapp_conversations (wa_id, contact_name, establishment_id, updated_at)
-     VALUES ($1, $2, $3, NOW())
+    `INSERT INTO whatsapp_conversations (wa_id, contact_name, establishment_id, organization_id, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
      ON CONFLICT (wa_id) DO UPDATE SET
        contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_conversations.contact_name),
        -- Preserva a casa já vinculada (ex.: Highline). Campanhas/outbound não devem
        -- reatribuir conversas existentes para outro estabelecimento.
        establishment_id = COALESCE(whatsapp_conversations.establishment_id, EXCLUDED.establishment_id),
+       organization_id = COALESCE(
+         whatsapp_conversations.organization_id,
+         EXCLUDED.organization_id
+       ),
        updated_at = NOW()
-     RETURNING id, wa_id, contact_name, establishment_id, status, assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
-    [waId, name, establishmentId]
+     RETURNING id, wa_id, contact_name, establishment_id, organization_id, status, assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
+    [waId, name, establishmentId, orgId]
   );
   return r.rows[0];
 }
@@ -83,12 +103,14 @@ async function setConversationEstablishment(pool, waId, establishmentId) {
     return getConversationByWaId(pool, waId);
   }
 
+  const orgId = await resolveOrganizationIdForEstablishment(pool, normalizedId);
   await pool.query(
     `UPDATE whatsapp_conversations
      SET establishment_id = $2,
+         organization_id = COALESCE($3, organization_id),
          updated_at = NOW()
      WHERE wa_id = $1`,
-    [waId, normalizedId]
+    [waId, normalizedId, orgId]
   );
   return getConversationByWaId(pool, waId);
 }
@@ -132,8 +154,19 @@ async function resolveOrganizationIdForConversation(pool, conversationId) {
   );
   const row = r.rows[0];
   if (!row) return null;
-  const org = Number(row.conv_org_id) || Number(row.est_org_id);
-  return Number.isFinite(org) && org > 0 ? org : null;
+  const convOrg = Number(row.conv_org_id);
+  if (Number.isFinite(convOrg) && convOrg > 0) return convOrg;
+  const estOrg = Number(row.est_org_id);
+  if (Number.isFinite(estOrg) && estOrg > 0) {
+    await pool.query(
+      `UPDATE whatsapp_conversations
+          SET organization_id = $2
+        WHERE id = $1 AND organization_id IS NULL`,
+      [conversationId, estOrg],
+    );
+    return estOrg;
+  }
+  return null;
 }
 
 async function insertMessage(
@@ -209,15 +242,16 @@ async function upsertContact(
     grantMarketingOptIn = false,
   }
 ) {
+  const orgId = await resolveOrganizationIdForEstablishment(pool, lastEstablishmentId);
   const r = await pool.query(
     `INSERT INTO whatsapp_contacts (
        wa_id, contact_name, client_email, birth_date, last_establishment_id, last_reservation_id,
-       marketing_opt_in, marketing_opt_in_at, last_seen_at, updated_at
+       marketing_opt_in, marketing_opt_in_at, last_seen_at, updated_at, organization_id
      )
      VALUES (
        $1, $2, $3, $4, $5, $6,
        $7, CASE WHEN $7 THEN NOW() ELSE NULL END,
-       NOW(), NOW()
+       NOW(), NOW(), $8
      )
      ON CONFLICT (wa_id) DO UPDATE SET
        contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
@@ -225,6 +259,7 @@ async function upsertContact(
        birth_date = COALESCE(EXCLUDED.birth_date, whatsapp_contacts.birth_date),
        last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
        last_reservation_id = COALESCE(EXCLUDED.last_reservation_id, whatsapp_contacts.last_reservation_id),
+       organization_id = COALESCE(whatsapp_contacts.organization_id, EXCLUDED.organization_id),
        marketing_opt_in = CASE
          WHEN $7 THEN TRUE
          ELSE whatsapp_contacts.marketing_opt_in
@@ -245,6 +280,7 @@ async function upsertContact(
       lastEstablishmentId,
       lastReservationId,
       Boolean(grantMarketingOptIn),
+      orgId,
     ]
   );
   return r.rows[0];
@@ -328,17 +364,19 @@ async function importContacts(
 
     const existing = await pool.query(`SELECT id FROM whatsapp_contacts WHERE wa_id = $1`, [waId]);
     const isNew = existing.rows.length === 0;
+    const orgId = await resolveOrganizationIdForEstablishment(pool, estId);
 
     await pool.query(
       `INSERT INTO whatsapp_contacts (
          wa_id, contact_name, client_email, last_establishment_id, marketing_opt_in, marketing_opt_in_at,
-         contact_status, tags, last_seen_at, updated_at
+         contact_status, tags, last_seen_at, updated_at, organization_id
        )
-       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN NOW() ELSE NULL END, $6, $7, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, CASE WHEN $5 THEN NOW() ELSE NULL END, $6, $7, NOW(), NOW(), $8)
        ON CONFLICT (wa_id) DO UPDATE SET
          contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
          client_email = COALESCE(EXCLUDED.client_email, whatsapp_contacts.client_email),
          last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
+         organization_id = COALESCE(whatsapp_contacts.organization_id, EXCLUDED.organization_id),
          marketing_opt_in = CASE
            WHEN EXCLUDED.marketing_opt_in THEN TRUE
            ELSE whatsapp_contacts.marketing_opt_in
@@ -367,6 +405,7 @@ async function importContacts(
           ? row.contact_status.trim()
           : 'new',
         tags,
+        orgId,
       ]
     );
 
@@ -503,19 +542,24 @@ async function listConversations(pool, options = {}) {
     readUserParam != null
       ? `ORDER BY
             CASE
-              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 5
-              WHEN irs.conversation_id IS NULL THEN 0
+              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 0
               WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id)
                    AND lm.direction = 'inbound' THEN 1
-              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id) THEN 2
+              WHEN irs.conversation_id IS NULL THEN 2
+              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id) THEN 3
               WHEN lm.direction = 'outbound'
                    AND (lm.intent IN ('AGENT_REPLY', 'PROCESS_RESERVATION', 'OPERATIONAL_INFO', 'GUEST_LIST_LINK', 'recovery_followup')
-                        OR (lm.intent IS NULL OR lm.intent = '')) THEN 3
-              ELSE 4
+                        OR (lm.intent IS NULL OR lm.intent = '')) THEN 4
+              ELSE 5
             END ASC,
             GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
             c.id DESC`
-      : `ORDER BY GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
+      : `ORDER BY
+            CASE
+              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 0
+              ELSE 1
+            END ASC,
+            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
               c.id DESC`;
 
   const r = await pool.query(

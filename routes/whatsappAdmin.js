@@ -80,7 +80,8 @@ module.exports = (pool, app) => {
     if (highlineOnlyIds) {
       return { isAdmin: false, allowedEstablishmentIds: highlineOnlyIds };
     }
-    if (isAdminRole(user)) {
+    // Super Admin SaaS: vision global no inbox (bypass RLS).
+    if (user?.is_super_admin === true) {
       return { isAdmin: true, allowedEstablishmentIds: [] };
     }
 
@@ -93,10 +94,17 @@ module.exports = (pool, app) => {
       allowedEstablishmentIds = [...(scope.establishmentIds || [])];
     }
 
+    // Account admin / role admin da org: ver todas as casas do escopo tenant + UEP.
+    // Não tratar role=admin legado como bypass global do WhatsApp (só is_super_admin).
     const uepIds = await loadUepWhatsappEstablishmentIds(user.id);
     allowedEstablishmentIds = [
       ...new Set([...allowedEstablishmentIds, ...uepIds]),
     ];
+
+    // Fallback legado: role admin sem memberships/UEP ainda vê tudo (modo pré-SaaS).
+    if (allowedEstablishmentIds.length === 0 && isAdminRole(user)) {
+      return { isAdmin: true, allowedEstablishmentIds: [] };
+    }
 
     return { isAdmin: false, allowedEstablishmentIds };
   }
