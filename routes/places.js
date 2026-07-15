@@ -247,12 +247,21 @@ router.get('/', async (req, res) => {
       } = require('../services/establishmentLegacyAdapter');
 
       // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
+      // enabled_modules: NULL = sem configuração (tudo liberado); array = só o que está habilitado.
       const placesResult = shouldReadFromEstablishments()
         ? { rows: await listPlacesFromEstablishments(client) }
         : await client.query(`
           SELECT 
             p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
-            p.latitude, p.longitude, p.status, p.visible 
+            p.latitude, p.longitude, p.status, p.visible,
+            (
+              SELECT CASE WHEN COUNT(*) = 0 THEN NULL
+                          ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
+                FROM meu_backup_db.establishments e
+                JOIN meu_backup_db.establishment_modules em ON em.establishment_id = e.id
+                JOIN meu_backup_db.modules m ON m.id = em.module_id AND m.is_active = TRUE
+               WHERE e.legacy_place_id = p.id
+            ) AS enabled_modules
           FROM places p
           WHERE NOT EXISTS (
             SELECT 1 FROM meu_backup_db.establishments e

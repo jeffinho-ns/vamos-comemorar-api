@@ -14,6 +14,17 @@ function shouldReadFromEstablishments() {
   return establishmentsReadSource() === 'establishments';
 }
 
+// NULL = sem configuração de módulos (tudo liberado); array = só o que está habilitado.
+const ENABLED_MODULES_SQL = `
+  (
+    SELECT CASE WHEN COUNT(*) = 0 THEN NULL
+                ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
+      FROM establishment_modules em
+      JOIN modules m ON m.id = em.module_id AND m.is_active = TRUE
+     WHERE em.establishment_id = e.id
+  ) AS enabled_modules
+`;
+
 const PLACES_FROM_ESTABLISHMENTS_SQL = `
   SELECT
     e.legacy_place_id AS id,
@@ -28,7 +39,8 @@ const PLACES_FROM_ESTABLISHMENTS_SQL = `
     e.longitude,
     COALESCE(p.status::text, e.status, 'active') AS status,
     COALESCE(e.visible, p.visible, TRUE) AS visible,
-    e.organization_id AS organization_id
+    e.organization_id AS organization_id,
+    ${ENABLED_MODULES_SQL}
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
   WHERE e.legacy_place_id IS NOT NULL
@@ -83,7 +95,8 @@ const BARS_FROM_ESTABLISHMENTS_SQL = `
     COALESCE(e.theme->>'menu_category_bg_color', b.menu_category_bg_color) AS menu_category_bg_color,
     COALESCE(e.theme->>'menu_subcategory_bg_color', b.menu_subcategory_bg_color) AS menu_subcategory_bg_color,
     COALESCE(e.theme->>'mobile_sidebar_bg_color', b.mobile_sidebar_bg_color) AS mobile_sidebar_bg_color,
-    COALESCE(e.theme->'custom_seals', b.custom_seals::jsonb) AS custom_seals
+    COALESCE(e.theme->'custom_seals', b.custom_seals::jsonb) AS custom_seals,
+    ${ENABLED_MODULES_SQL}
   FROM establishments e
   LEFT JOIN bars b ON b.id = e.legacy_bar_id
   WHERE e.legacy_bar_id IS NOT NULL

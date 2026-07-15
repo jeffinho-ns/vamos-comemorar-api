@@ -127,10 +127,20 @@ module.exports = (pool) => {
             } = require('../services/establishmentLegacyAdapter');
 
             // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
+            // enabled_modules: NULL = sem configuração (tudo liberado); array = só o que está habilitado.
             const result = shouldReadFromEstablishments()
                 ? { rows: await listBarsFromEstablishments(pool) }
                 : await pool.query(`
-                    SELECT * FROM bars b
+                    SELECT b.*,
+                      (
+                        SELECT CASE WHEN COUNT(*) = 0 THEN NULL
+                                    ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
+                          FROM meu_backup_db.establishments e
+                          JOIN meu_backup_db.establishment_modules em ON em.establishment_id = e.id
+                          JOIN meu_backup_db.modules m ON m.id = em.module_id AND m.is_active = TRUE
+                         WHERE e.legacy_bar_id = b.id
+                      ) AS enabled_modules
+                    FROM bars b
                     WHERE NOT EXISTS (
                       SELECT 1 FROM meu_backup_db.establishments e
                        WHERE e.legacy_bar_id = b.id AND e.status = 'archived'
