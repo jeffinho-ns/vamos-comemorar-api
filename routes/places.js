@@ -246,13 +246,18 @@ router.get('/', async (req, res) => {
         listPlacesFromEstablishments,
       } = require('../services/establishmentLegacyAdapter');
 
+      // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
       const placesResult = shouldReadFromEstablishments()
         ? { rows: await listPlacesFromEstablishments(client) }
         : await client.query(`
           SELECT 
-            id, slug, name, email, description, logo, street, number, 
-            latitude, longitude, status, visible 
-          FROM places
+            p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
+            p.latitude, p.longitude, p.status, p.visible 
+          FROM places p
+          WHERE NOT EXISTS (
+            SELECT 1 FROM meu_backup_db.establishments e
+             WHERE e.legacy_place_id = p.id AND e.status = 'archived'
+          )
         `);
       const commoditiesResult = await client.query(`
           SELECT 

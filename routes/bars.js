@@ -126,9 +126,16 @@ module.exports = (pool) => {
                 listBarsFromEstablishments,
             } = require('../services/establishmentLegacyAdapter');
 
+            // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
             const result = shouldReadFromEstablishments()
                 ? { rows: await listBarsFromEstablishments(pool) }
-                : await pool.query('SELECT * FROM bars');
+                : await pool.query(`
+                    SELECT * FROM bars b
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM meu_backup_db.establishments e
+                       WHERE e.legacy_bar_id = b.id AND e.status = 'archived'
+                    )
+                `);
             const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
             res.json(barsFormatted);
         } catch (error) {

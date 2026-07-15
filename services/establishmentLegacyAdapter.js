@@ -32,6 +32,7 @@ const PLACES_FROM_ESTABLISHMENTS_SQL = `
   FROM establishments e
   LEFT JOIN places p ON p.id = e.legacy_place_id
   WHERE e.legacy_place_id IS NOT NULL
+    AND COALESCE(e.status, 'active') <> 'archived'
   ORDER BY e.legacy_place_id
 `;
 
@@ -86,6 +87,7 @@ const BARS_FROM_ESTABLISHMENTS_SQL = `
   FROM establishments e
   LEFT JOIN bars b ON b.id = e.legacy_bar_id
   WHERE e.legacy_bar_id IS NOT NULL
+    AND COALESCE(e.status, 'active') <> 'archived'
   ORDER BY e.legacy_bar_id
 `;
 
