@@ -6,6 +6,7 @@ const router = express.Router();
 const pool = require("../config/database");
 const passport = require("passport");
 const { buildTokenPayload } = require("../tenancy/jwtClaims");
+const { isUserOrganizationSuspended } = require("../tenancy/organizationSuspension");
 
 require("../middleware/passport");
 
@@ -64,6 +65,13 @@ router.post("/login", async (req, res) => {
       );
 
       user = { id: insertResult.rows[0].id, nome, email, role: "Cliente", provider };
+    }
+
+    if (!user.is_super_admin && (await isUserOrganizationSuspended(pool, user.id))) {
+      return res.status(403).json({
+        message:
+          "Acesso suspenso. Entre em contato com o suporte para regularizar sua assinatura.",
+      });
     }
 
     const token = await generateToken(user);

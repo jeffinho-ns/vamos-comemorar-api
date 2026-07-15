@@ -9,6 +9,7 @@ const { buildTokenPayload } = require("../tenancy/jwtClaims");
 const { endImpersonation } = require("../billing/impersonateService");
 const { queryWithRlsContext } = require("../tenancy/scopedQuery");
 const { resolveOrganizationIdForUser } = require("../tenancy/resolveOrganizationId");
+const { isUserOrganizationSuspended } = require("../tenancy/organizationSuspension");
 
 const router = express.Router();
 const baseUrl =
@@ -590,6 +591,13 @@ module.exports = (pool, upload) => {
 
       if (!isPasswordValid) {
         return res.status(401).json({ error: "Credenciais inválidas" });
+      }
+
+      if (!user.is_super_admin && (await isUserOrganizationSuspended(pool, user.id))) {
+        return res.status(403).json({
+          error:
+            "Acesso suspenso. Entre em contato com o suporte para regularizar sua assinatura.",
+        });
       }
 
       const normalizedUserEmail = String(user.email || "")

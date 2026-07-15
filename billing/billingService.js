@@ -437,6 +437,57 @@ async function recordManualPayment(pool, invoiceId, data, actorUserId) {
   return { payment: payRes.rows[0], invoiceStatus: newStatus };
 }
 
+async function suspendOrganization(pool, organizationId, actorUserId) {
+  const orgRes = await pool.query(
+    `SELECT id, name, status FROM meu_backup_db.organizations WHERE id = $1`,
+    [organizationId],
+  );
+  if (!orgRes.rows.length) throw new Error('Organização não encontrada.');
+  const org = orgRes.rows[0];
+  if (org.status === 'suspended') {
+    throw new Error('Esta organização já está suspensa.');
+  }
+
+  await pool.query(
+    `UPDATE meu_backup_db.organizations
+        SET status = 'suspended', updated_at = now()
+      WHERE id = $1`,
+    [organizationId],
+  );
+
+  await logBillingEvent(pool, organizationId, 'organization.suspended', {
+    actorUserId,
+    previousStatus: org.status,
+  });
+
+  return { organizationId: org.id, status: 'suspended', name: org.name };
+}
+
+async function reactivateOrganization(pool, organizationId, actorUserId) {
+  const orgRes = await pool.query(
+    `SELECT id, name, status FROM meu_backup_db.organizations WHERE id = $1`,
+    [organizationId],
+  );
+  if (!orgRes.rows.length) throw new Error('Organização não encontrada.');
+  const org = orgRes.rows[0];
+  if (org.status !== 'suspended') {
+    throw new Error('Esta organização não está suspensa.');
+  }
+
+  await pool.query(
+    `UPDATE meu_backup_db.organizations
+        SET status = 'active', updated_at = now()
+      WHERE id = $1`,
+    [organizationId],
+  );
+
+  await logBillingEvent(pool, organizationId, 'organization.reactivated', {
+    actorUserId,
+  });
+
+  return { organizationId: org.id, status: 'active', name: org.name };
+}
+
 async function markSubscriptionPastDue(pool, organizationId, actorUserId) {
   await pool.query(
     `UPDATE meu_backup_db.subscriptions SET status = 'past_due', updated_at = now()
@@ -873,6 +924,7 @@ async function listOrganizationEstablishments(pool, organizationId) {
     `SELECT id, name, slug, legacy_place_id, legacy_bar_id
        FROM meu_backup_db.establishments
       WHERE organization_id = $1
+        AND COALESCE(status, 'active') <> 'archived'
       ORDER BY name`,
     [organizationId],
   );
@@ -992,7 +1044,7 @@ async function resolveCanonicalEstablishment(pool, organizationId, establishment
     throw new Error('ID do estabelecimento inválido.');
   }
   const { rows } = await pool.query(
-    `SELECT id, name, legacy_place_id, legacy_bar_id
+    `SELECT id, name, slug, status, legacy_place_id, legacy_bar_id
        FROM meu_backup_db.establishments
       WHERE id = $1 AND organization_id = $2
       LIMIT 1`,
@@ -1000,6 +1052,401 @@ async function resolveCanonicalEstablishment(pool, organizationId, establishment
   );
   if (!rows.length) throw new Error('Estabelecimento não pertence a esta organização.');
   return rows[0];
+}
+
+async function safeCount(client, sql, params) {
+  try {
+    const { rows } = await client.query(sql, params);
+    return Number(rows[0]?.count || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+/**
+ * Resumo do que será afetado ao arquivar um estabelecimento.
+ * Usado pelo Super Admin para mostrar o impacto antes da confirmação.
+ */
+async function getEstablishmentUsageSummary(pool, organizationId, establishmentId) {
+  const est = await resolveCanonicalEstablishment(pool, organizationId, establishmentId);
+  const legacyIds = [est.legacy_place_id, est.legacy_bar_id]
+    .map(Number)
+    .filter((v) => Number.isFinite(v) && v > 0);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+      String(organizationId),
+    ]);
+
+    const [uepUsers, activeMemberships, reservations, conversations, menuItems] =
+      await Promise.all([
+        legacyIds.length
+          ? safeCount(
+              client,
+              `SELECT COUNT(DISTINCT user_id) AS count
+                 FROM user_establishment_permissions
+                WHERE establishment_id = ANY($1::int[]) AND is_active = TRUE`,
+              [legacyIds],
+            )
+          : Promise.resolve(0),
+        safeCount(
+          client,
+          `SELECT COUNT(*) AS count
+             FROM meu_backup_db.memberships
+            WHERE establishment_id = $1 AND is_active = TRUE`,
+          [est.id],
+        ),
+        est.legacy_place_id
+          ? safeCount(
+              client,
+              `SELECT COUNT(*) AS count
+                 FROM restaurant_reservations
+                WHERE establishment_id = $1`,
+              [est.legacy_place_id],
+            )
+          : Promise.resolve(0),
+        est.legacy_place_id
+          ? safeCount(
+              client,
+              `SELECT COUNT(*) AS count
+                 FROM whatsapp_conversations
+                WHERE establishment_id = $1`,
+              [est.legacy_place_id],
+            )
+          : Promise.resolve(0),
+        est.legacy_bar_id
+          ? safeCount(
+              client,
+              `SELECT COUNT(*) AS count
+                 FROM menu_items
+                WHERE barid = $1 AND deleted_at IS NULL`,
+              [est.legacy_bar_id],
+            )
+          : Promise.resolve(0),
+      ]);
+
+    await client.query('COMMIT');
+
+    return {
+      establishment: {
+        id: est.id,
+        name: est.name,
+        slug: est.slug,
+        status: est.status,
+        legacyPlaceId: est.legacy_place_id,
+        legacyBarId: est.legacy_bar_id,
+      },
+      usage: {
+        usersWithAccess: uepUsers,
+        activeMemberships,
+        reservations,
+        whatsappConversations: conversations,
+        menuItems,
+      },
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * "Exclui" um estabelecimento de forma segura (soft delete):
+ * marca como archived, esconde do público e desativa acessos vinculados.
+ * Todo o histórico (reservas, conversas, cardápio) é preservado e a
+ * operação pode ser desfeita com restoreEstablishment.
+ */
+async function archiveEstablishment(pool, organizationId, establishmentId, actorUserId) {
+  const est = await resolveCanonicalEstablishment(pool, organizationId, establishmentId);
+  if (est.status === 'archived') {
+    throw new Error('Este estabelecimento já está arquivado.');
+  }
+  const legacyIds = [est.legacy_place_id, est.legacy_bar_id]
+    .map(Number)
+    .filter((v) => Number.isFinite(v) && v > 0);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+      String(organizationId),
+    ]);
+
+    await client.query(
+      `UPDATE meu_backup_db.establishments
+          SET status = 'archived', updated_at = now()
+        WHERE id = $1`,
+      [est.id],
+    );
+
+    // Esconde o place das listagens públicas (sem apagar nada).
+    if (est.legacy_place_id) {
+      const hasVisible = await client.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'meu_backup_db'
+            AND table_name = 'places' AND column_name = 'visible'
+          LIMIT 1`,
+      );
+      if (hasVisible.rows.length) {
+        await client.query(`UPDATE places SET visible = FALSE WHERE id = $1`, [
+          est.legacy_place_id,
+        ]);
+      }
+    }
+
+    const membershipsRes = await client.query(
+      `UPDATE meu_backup_db.memberships
+          SET is_active = FALSE
+        WHERE establishment_id = $1 AND is_active = TRUE
+        RETURNING id`,
+      [est.id],
+    );
+
+    let uepIds = [];
+    if (legacyIds.length) {
+      const uepRes = await client.query(
+        `UPDATE user_establishment_permissions
+            SET is_active = FALSE
+          WHERE establishment_id = ANY($1::int[]) AND is_active = TRUE
+          RETURNING id`,
+        [legacyIds],
+      );
+      uepIds = uepRes.rows.map((r) => r.id);
+    }
+
+    const deactivatedMembershipIds = membershipsRes.rows.map((r) => r.id);
+
+    await client.query(
+      `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
+       VALUES ($1, 'establishment.archived', $2::jsonb)`,
+      [
+        organizationId,
+        JSON.stringify({
+          actorUserId,
+          establishmentId: est.id,
+          name: est.name,
+          legacyPlaceId: est.legacy_place_id,
+          legacyBarId: est.legacy_bar_id,
+          deactivatedMembershipIds,
+          deactivatedUepIds: uepIds,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      establishmentId: est.id,
+      name: est.name,
+      status: 'archived',
+      deactivatedMemberships: deactivatedMembershipIds.length,
+      deactivatedPermissions: uepIds.length,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Desfaz o arquivamento: reativa o estabelecimento e devolve os acessos
+ * (memberships e UEP) que foram desativados no arquivamento mais recente.
+ */
+async function restoreEstablishment(pool, organizationId, establishmentId, actorUserId) {
+  const est = await resolveCanonicalEstablishment(pool, organizationId, establishmentId);
+  if (est.status !== 'archived') {
+    throw new Error('Este estabelecimento não está arquivado.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+      String(organizationId),
+    ]);
+
+    await client.query(
+      `UPDATE meu_backup_db.establishments
+          SET status = 'active', updated_at = now()
+        WHERE id = $1`,
+      [est.id],
+    );
+
+    if (est.legacy_place_id) {
+      const hasVisible = await client.query(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'meu_backup_db'
+            AND table_name = 'places' AND column_name = 'visible'
+          LIMIT 1`,
+      );
+      if (hasVisible.rows.length) {
+        await client.query(`UPDATE places SET visible = TRUE WHERE id = $1`, [
+          est.legacy_place_id,
+        ]);
+      }
+    }
+
+    // Recupera os acessos desativados no último arquivamento deste estabelecimento.
+    const eventRes = await client.query(
+      `SELECT payload
+         FROM meu_backup_db.billing_events
+        WHERE organization_id = $1
+          AND event_type = 'establishment.archived'
+          AND (payload->>'establishmentId')::int = $2
+        ORDER BY id DESC
+        LIMIT 1`,
+      [organizationId, est.id],
+    );
+    const payload = eventRes.rows[0]?.payload || {};
+    const membershipIds = Array.isArray(payload.deactivatedMembershipIds)
+      ? payload.deactivatedMembershipIds.map(Number).filter(Number.isFinite)
+      : [];
+    const uepIds = Array.isArray(payload.deactivatedUepIds)
+      ? payload.deactivatedUepIds.map(Number).filter(Number.isFinite)
+      : [];
+
+    let restoredMemberships = 0;
+    if (membershipIds.length) {
+      const res = await client.query(
+        `UPDATE meu_backup_db.memberships
+            SET is_active = TRUE
+          WHERE id = ANY($1::int[])`,
+        [membershipIds],
+      );
+      restoredMemberships = res.rowCount || 0;
+    }
+
+    let restoredPermissions = 0;
+    if (uepIds.length) {
+      const res = await client.query(
+        `UPDATE user_establishment_permissions
+            SET is_active = TRUE
+          WHERE id = ANY($1::int[])`,
+        [uepIds],
+      );
+      restoredPermissions = res.rowCount || 0;
+    }
+
+    await client.query(
+      `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
+       VALUES ($1, 'establishment.restored', $2::jsonb)`,
+      [
+        organizationId,
+        JSON.stringify({
+          actorUserId,
+          establishmentId: est.id,
+          name: est.name,
+          restoredMemberships,
+          restoredPermissions,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      establishmentId: est.id,
+      name: est.name,
+      status: 'active',
+      restoredMemberships,
+      restoredPermissions,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Atualiza nome e/ou perfil operacional de um estabelecimento, mantendo
+ * os registros legados (places/bars) consistentes com a tabela canônica.
+ */
+async function updateEstablishmentInfo(pool, organizationId, establishmentId, input, actorUserId) {
+  const name = input?.name != null ? String(input.name).trim() : '';
+  const profile = input?.profile != null ? String(input.profile).trim() : '';
+  if (!name && !profile) {
+    throw new Error('Informe ao menos um campo para atualizar (name ou profile).');
+  }
+
+  const est = await resolveCanonicalEstablishment(pool, organizationId, establishmentId);
+  if (est.status === 'archived') {
+    throw new Error('Este estabelecimento está arquivado. Restaure-o antes de editar.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+      String(organizationId),
+    ]);
+
+    if (name) {
+      await client.query(
+        `UPDATE meu_backup_db.establishments
+            SET name = $2, updated_at = now()
+          WHERE id = $1`,
+        [est.id, name],
+      );
+      if (est.legacy_place_id) {
+        await client.query(`UPDATE places SET name = $2 WHERE id = $1`, [
+          est.legacy_place_id,
+          name,
+        ]);
+      }
+      if (est.legacy_bar_id) {
+        await client.query(`UPDATE bars SET name = $2 WHERE id = $1`, [
+          est.legacy_bar_id,
+          name,
+        ]);
+      }
+    }
+
+    if (profile) {
+      await client.query(
+        `UPDATE meu_backup_db.establishments
+            SET config = COALESCE(config, '{}'::jsonb) || $2::jsonb,
+                updated_at = now()
+          WHERE id = $1`,
+        [est.id, JSON.stringify({ profile })],
+      );
+    }
+
+    await client.query(
+      `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
+       VALUES ($1, 'establishment.updated', $2::jsonb)`,
+      [
+        organizationId,
+        JSON.stringify({
+          actorUserId,
+          establishmentId: est.id,
+          previousName: est.name,
+          name: name || est.name,
+          profile: profile || null,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      establishmentId: est.id,
+      name: name || est.name,
+      profile: profile || null,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function getEstablishmentModules(pool, establishmentId) {
@@ -1461,6 +1908,8 @@ module.exports = {
   createInvoice,
   recordManualPayment,
   markSubscriptionPastDue,
+  suspendOrganization,
+  reactivateOrganization,
   provisionOrganization,
   listPlans,
   getBillingSummaryByMonth,
@@ -1471,6 +1920,10 @@ module.exports = {
   listOrganizationRoles,
   listOrganizationEstablishments,
   provisionEstablishmentInOrganization,
+  getEstablishmentUsageSummary,
+  archiveEstablishment,
+  restoreEstablishment,
+  updateEstablishmentInfo,
   getEstablishmentModules,
   setEstablishmentModule,
   setEstablishmentModulesBulk,

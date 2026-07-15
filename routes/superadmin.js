@@ -86,6 +86,65 @@ module.exports = (pool) => {
     }
   });
 
+  router.get('/organizations/:id/establishments/:estId/usage', async (req, res) => {
+    try {
+      const summary = await billing.getEstablishmentUsageSummary(
+        pool,
+        Number(req.params.id),
+        Number(req.params.estId),
+      );
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.patch('/organizations/:id/establishments/:estId', async (req, res) => {
+    try {
+      const result = await billing.updateEstablishmentInfo(
+        pool,
+        Number(req.params.id),
+        Number(req.params.estId),
+        req.body,
+        req.user.id,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin establishments update]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/organizations/:id/establishments/:estId/archive', async (req, res) => {
+    try {
+      const result = await billing.archiveEstablishment(
+        pool,
+        Number(req.params.id),
+        Number(req.params.estId),
+        req.user.id,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin establishments archive]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/organizations/:id/establishments/:estId/restore', async (req, res) => {
+    try {
+      const result = await billing.restoreEstablishment(
+        pool,
+        Number(req.params.id),
+        Number(req.params.estId),
+        req.user.id,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin establishments restore]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/organizations/:id/establishment-permissions', async (req, res) => {
     try {
       const rows = await billing.listOrganizationEstablishmentPermissions(
@@ -224,6 +283,26 @@ module.exports = (pool) => {
     }
   });
 
+  router.post('/organizations/:id/suspend', async (req, res) => {
+    try {
+      const result = await billing.suspendOrganization(pool, Number(req.params.id), req.user.id);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin organizations suspend]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/organizations/:id/reactivate', async (req, res) => {
+    try {
+      const result = await billing.reactivateOrganization(pool, Number(req.params.id), req.user.id);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin organizations reactivate]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/organizations/:id/past-due', async (req, res) => {
     try {
       await billing.markSubscriptionPastDue(pool, Number(req.params.id), req.user.id);
@@ -311,6 +390,21 @@ module.exports = (pool) => {
         req.user.id,
       );
       res.status(201).json({ success: true, data: membership });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.patch('/organizations/:id/memberships/:membershipId', async (req, res) => {
+    try {
+      const membership = await billing.updateOrganizationMembership(
+        pool,
+        Number(req.params.id),
+        Number(req.params.membershipId),
+        req.body,
+        req.user.id,
+      );
+      res.json({ success: true, data: membership });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
     }
