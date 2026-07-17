@@ -10,12 +10,18 @@ const { isSaasEnforced } = require('../tenancy/featureFlags');
 const {
   getEstablishmentRules,
   buildAreasNameFilterSql,
+  buildAreasScopeSql,
   areaAllowedForRules,
+  areaAllowedForEstablishment,
 } = require('../services/establishmentRules');
 
 async function areasFilterForEstablishment(pool, establishmentId) {
   const rules = await getEstablishmentRules(pool, establishmentId);
-  return buildAreasNameFilterSql(rules);
+  // Aditivo: áreas próprias (establishment_id) + legadas globais (nome).
+  return buildAreasScopeSql(rules, establishmentId, {
+    nameColumn: 'ra.name',
+    establishmentColumn: 'ra.establishment_id',
+  });
 }
 
 async function areasScopeSql(pool, req, establishmentIdFromQuery) {
@@ -44,7 +50,7 @@ async function areasScopeSql(pool, req, establishmentIdFromQuery) {
   return `(${parts.map((p) => `(${p})`).join(' OR ')})`;
 }
 
-async function areaAllowedForScope(pool, req, areaName) {
+async function areaAllowedForScope(pool, req, area) {
   const tenant = req && req.tenant;
   if (!isSaasEnforced() || !tenant || tenant.isAdmin) return true;
   const ids = Array.isArray(tenant.establishmentIds)
@@ -53,9 +59,23 @@ async function areaAllowedForScope(pool, req, areaName) {
   if (ids.length === 0) return false;
   for (const id of ids) {
     const rules = await getEstablishmentRules(pool, id);
-    if (areaAllowedForRules(rules, areaName)) return true;
+    if (areaAllowedForEstablishment(rules, area, id)) return true;
   }
   return false;
+}
+
+// Carrega uma área com dono e verifica se pertence ao estabelecimento informado.
+async function loadAreaOwnedByEstablishment(pool, areaId, establishmentId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM restaurant_areas WHERE id = $1',
+    [areaId],
+  );
+  const area = rows[0] || null;
+  if (!area) return { area: null, ownedByEstablishment: false, isLegacy: false };
+  const isLegacy = area.establishment_id == null;
+  const ownedByEstablishment =
+    !isLegacy && Number(area.establishment_id) === Number(establishmentId);
+  return { area, ownedByEstablishment, isLegacy };
 }
 
 module.exports = (pool) => {
@@ -154,7 +174,7 @@ module.exports = (pool) => {
         });
       }
 
-      if (!(await areaAllowedForScope(pool, req, areasResult.rows[0].name))) {
+      if (!(await areaAllowedForScope(pool, req, areasResult.rows[0]))) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
@@ -187,7 +207,8 @@ module.exports = (pool) => {
         description,
         capacity_lunch = 0,
         capacity_dinner = 0,
-        is_active = 1
+        is_active = 1,
+        establishment_id,
       } = req.body;
       
       // Validações básicas
@@ -197,29 +218,42 @@ module.exports = (pool) => {
           error: 'Campo obrigatório: name'
         });
       }
+
+      // establishment_id é obrigatório para áreas próprias (novas). Áreas legadas
+      // globais (establishment_id NULL) não são criadas por esta rota de admin.
+      const establishmentIdNumber =
+        establishment_id != null && String(establishment_id).trim() !== ''
+          ? Number(establishment_id)
+          : null;
+      if (establishmentIdNumber == null || !Number.isFinite(establishmentIdNumber) || establishmentIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: establishment_id (área deve pertencer a um estabelecimento).'
+        });
+      }
       
-      // Verificar se já existe uma área com o mesmo nome
+      // Nome deve ser único DENTRO do estabelecimento (permite nomes iguais em casas diferentes).
       const existingAreaResult = await pool.query(
-        'SELECT id FROM restaurant_areas WHERE name = $1',
-        [name]
+        'SELECT id FROM restaurant_areas WHERE name = $1 AND establishment_id = $2 AND is_active = TRUE',
+        [name, establishmentIdNumber]
       );
       
       if (existingAreaResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
-          error: 'Já existe uma área com este nome'
+          error: 'Já existe uma área com este nome neste estabelecimento'
         });
       }
       
       const query = `
         INSERT INTO restaurant_areas (
-          name, description, capacity_lunch, capacity_dinner, is_active
-        ) VALUES ($1, $2, $3, $4, $5) RETURNING id
+          name, description, capacity_lunch, capacity_dinner, is_active, establishment_id
+        ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
       `;
       
       // Converter is_active para boolean (PostgreSQL)
       const isActiveBoolean = is_active === 1 || is_active === true || is_active === '1';
-      const params = [name, description, capacity_lunch, capacity_dinner, isActiveBoolean];
+      const params = [name, description, capacity_lunch, capacity_dinner, isActiveBoolean, establishmentIdNumber];
       
       const result = await pool.query(query, params);
       
@@ -257,33 +291,59 @@ module.exports = (pool) => {
         description,
         capacity_lunch,
         capacity_dinner,
-        is_active
+        is_active,
+        establishment_id,
       } = req.body;
-      
-      // Verificar se a área existe
-      const existingAreaResult = await pool.query(
-        'SELECT id FROM restaurant_areas WHERE id = $1',
-        [id]
+
+      const establishmentIdNumber =
+        establishment_id != null && String(establishment_id).trim() !== ''
+          ? Number(establishment_id)
+          : null;
+      if (establishmentIdNumber == null || !Number.isFinite(establishmentIdNumber) || establishmentIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: establishment_id.'
+        });
+      }
+
+      const { area, ownedByEstablishment, isLegacy } = await loadAreaOwnedByEstablishment(
+        pool,
+        id,
+        establishmentIdNumber,
       );
-      
-      if (existingAreaResult.rows.length === 0) {
+
+      if (!area) {
+        return res.status(404).json({
+          success: false,
+          error: 'Área não encontrada'
+        });
+      }
+
+      if (isLegacy) {
+        return res.status(403).json({
+          success: false,
+          error: 'Esta é uma área padrão do sistema (compartilhada) e não pode ser editada. Crie uma área própria do estabelecimento.'
+        });
+      }
+
+      if (!ownedByEstablishment) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'
         });
       }
       
-      // Verificar se já existe outra área com o mesmo nome
+      // Verificar se já existe outra área com o mesmo nome NO MESMO estabelecimento
       if (name) {
         const duplicateAreaResult = await pool.query(
-          'SELECT id FROM restaurant_areas WHERE name = $1 AND id != $2',
-          [name, id]
+          'SELECT id FROM restaurant_areas WHERE name = $1 AND establishment_id = $2 AND id != $3 AND is_active = TRUE',
+          [name, establishmentIdNumber, id]
         );
         
         if (duplicateAreaResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
-            error: 'Já existe uma área com este nome'
+            error: 'Já existe uma área com este nome neste estabelecimento'
           });
         }
       }
@@ -336,14 +396,40 @@ module.exports = (pool) => {
   router.delete('/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      
-      // Verificar se a área existe
-      const existingAreaResult = await pool.query(
-        'SELECT id FROM restaurant_areas WHERE id = $1',
-        [id]
+
+      const establishmentIdRaw = req.query.establishment_id ?? req.body?.establishment_id;
+      const establishmentIdNumber =
+        establishmentIdRaw != null && String(establishmentIdRaw).trim() !== ''
+          ? Number(establishmentIdRaw)
+          : null;
+      if (establishmentIdNumber == null || !Number.isFinite(establishmentIdNumber) || establishmentIdNumber <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Campo obrigatório: establishment_id.'
+        });
+      }
+
+      const { area, ownedByEstablishment, isLegacy } = await loadAreaOwnedByEstablishment(
+        pool,
+        id,
+        establishmentIdNumber,
       );
-      
-      if (existingAreaResult.rows.length === 0) {
+
+      if (!area) {
+        return res.status(404).json({
+          success: false,
+          error: 'Área não encontrada'
+        });
+      }
+
+      if (isLegacy) {
+        return res.status(403).json({
+          success: false,
+          error: 'Esta é uma área padrão do sistema (compartilhada) e não pode ser excluída.'
+        });
+      }
+
+      if (!ownedByEstablishment) {
         return res.status(404).json({
           success: false,
           error: 'Área não encontrada'

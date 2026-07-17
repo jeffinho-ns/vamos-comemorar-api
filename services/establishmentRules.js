@@ -170,6 +170,46 @@ function areaAllowedForRules(rules, areaName) {
   return !name.startsWith(exclude);
 }
 
+/**
+ * SQL de escopo de áreas por estabelecimento, ADITIVO ao legado:
+ *   - áreas próprias do estabelecimento (establishment_id = <id>), OU
+ *   - áreas legadas globais (establishment_id IS NULL) que passam no filtro por nome.
+ *
+ * `establishmentId` é coagido para Number e validado (seguro para inline no SQL).
+ */
+function buildAreasScopeSql(
+  rules,
+  establishmentId,
+  { nameColumn = 'name', establishmentColumn = 'establishment_id' } = {},
+) {
+  const nameFilter = buildAreasNameFilterSql(rules, nameColumn);
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) {
+    // Sem contexto de estabelecimento: mantém comportamento legado (só filtro por nome).
+    return nameFilter;
+  }
+  return `((${establishmentColumn} = ${id}) OR (${establishmentColumn} IS NULL AND (${nameFilter})))`;
+}
+
+/**
+ * Uma área é permitida para um estabelecimento se for própria dele (establishment_id = id)
+ * ou legada global (establishment_id NULL) permitida pelo filtro de nome.
+ */
+function areaAllowedForEstablishment(rules, area, establishmentId) {
+  if (!area) return false;
+  const id = Number(establishmentId);
+  const areaEstId =
+    area.establishment_id != null ? Number(area.establishment_id) : null;
+  if (areaEstId != null && Number.isFinite(id) && id > 0) {
+    return areaEstId === id;
+  }
+  if (areaEstId != null) {
+    // Área própria de OUTRO estabelecimento
+    return false;
+  }
+  return areaAllowedForRules(rules, area.name);
+}
+
 function usesTableOverlapBlocking(rules) {
   if (rules?.reservations?.tableBlocking === 'overlap') return true;
   if (rules?.reservations?.tableBlocking === 'full_day') return false;
@@ -212,7 +252,9 @@ module.exports = {
   getMaxPartySize,
   getCardapioBarId,
   buildAreasNameFilterSql,
+  buildAreasScopeSql,
   areaAllowedForRules,
+  areaAllowedForEstablishment,
   usesTableOverlapBlocking,
   usesExtendedGuestListWindow,
   listOperationalMappings,

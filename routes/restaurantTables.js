@@ -2,30 +2,50 @@
 
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const tenantMiddleware = require('../tenancy/tenantMiddleware');
+const requireModule = require('../tenancy/requireModule');
+const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const establishmentRules = require('../services/establishmentRules');
 
 module.exports = (pool) => {
+  // Segurança consistente com restaurant-areas. Anônimo (formulário público /reservar)
+  // continua passando em GET (requireModule/reservasPermission liberam sem token);
+  // POST/PUT/DELETE exigem permissão fina quando autenticado.
+  router.use(optionalAuth);
+  router.use(tenantMiddleware());
+  router.use(requireModule('reservas'));
+  router.use(reservasPermissionMiddleware);
+
   // Tabela restaurant_tables já deve existir no PostgreSQL
   async function ensureTablesSchema() {
     // Schema já existe no PostgreSQL
   }
 
-  // Lista mesas (opcionalmente por área)
+  // Lista mesas (opcionalmente por área e/ou estabelecimento)
   router.get('/', async (req, res) => {
     try {
       await ensureTablesSchema();
-      const { area_id } = req.query;
+      const { area_id, establishment_id } = req.query;
       const where = [];
       const params = [];
       let paramIndex = 1;
       if (area_id) {
-        where.push(`area_id = $${paramIndex++}`);
+        where.push(`rt.area_id = $${paramIndex++}`);
         params.push(area_id);
       }
+      if (establishment_id) {
+        // Mesas próprias do estabelecimento OU mesas legadas cuja área é visível ao estabelecimento.
+        where.push(
+          `(rt.establishment_id = $${paramIndex} OR rt.establishment_id IS NULL)`,
+        );
+        params.push(establishment_id);
+        paramIndex += 1;
+      }
       const query = `
-        SELECT * FROM restaurant_tables
+        SELECT rt.* FROM restaurant_tables rt
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY area_id ASC, CAST(table_number AS INTEGER) ASC, table_number ASC
+        ORDER BY rt.area_id ASC, CAST(rt.table_number AS INTEGER) ASC, rt.table_number ASC
       `;
       const rowsResult = await pool.query(query, params);
       const rows = rowsResult.rows;
@@ -100,14 +120,48 @@ module.exports = (pool) => {
   router.post('/', async (req, res) => {
     try {
       await ensureTablesSchema();
-      const { area_id, table_number, capacity, table_type, description, is_active } = req.body;
+      const { area_id, table_number, capacity, table_type, description, is_active, establishment_id } = req.body;
       if (!area_id || !table_number) {
         return res.status(400).json({ success: false, error: 'Campos obrigatórios: area_id, table_number' });
       }
+
+      // Deriva establishment_id da área quando não informado (mantém consistência).
+      let establishmentIdNumber =
+        establishment_id != null && String(establishment_id).trim() !== ''
+          ? Number(establishment_id)
+          : null;
+      const areaResult = await pool.query(
+        'SELECT id, establishment_id FROM restaurant_areas WHERE id = $1',
+        [area_id],
+      );
+      const area = areaResult.rows[0];
+      if (!area) {
+        return res.status(400).json({ success: false, error: 'area_id inválido' });
+      }
+      if (establishmentIdNumber == null && area.establishment_id != null) {
+        establishmentIdNumber = Number(area.establishment_id);
+      }
+      // Não permite criar mesa em área legada compartilhada (evita afetar outras casas).
+      if (area.establishment_id == null) {
+        return res.status(403).json({
+          success: false,
+          error: 'Não é possível adicionar mesas a uma área padrão do sistema. Crie uma área própria do estabelecimento.',
+        });
+      }
+      // Evita duplicidade de número de mesa na mesma área.
+      const dup = await pool.query(
+        'SELECT id FROM restaurant_tables WHERE area_id = $1 AND table_number = $2 AND is_active = TRUE',
+        [area_id, String(table_number)],
+      );
+      if (dup.rows.length > 0) {
+        return res.status(400).json({ success: false, error: 'Já existe uma mesa com este número nesta área' });
+      }
+
+      const isActiveValue = is_active === 0 || is_active === false || is_active === '0' ? false : true;
       const result = await pool.query(
-        `INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, description, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [area_id, String(table_number), capacity || 2, table_type || null, description || null, is_active ?? 1]
+        `INSERT INTO restaurant_tables (area_id, table_number, capacity, table_type, description, is_active, establishment_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [area_id, String(table_number), capacity || 2, table_type || null, description || null, isActiveValue, establishmentIdNumber]
       );
       const rowResult = await pool.query('SELECT * FROM restaurant_tables WHERE id = $1', [result.rows[0].id]);
       const row = rowResult.rows;
@@ -124,6 +178,22 @@ module.exports = (pool) => {
       await ensureTablesSchema();
       const { id } = req.params;
       const { area_id, table_number, capacity, table_type, description, is_active } = req.body;
+
+      // Protege mesas legadas compartilhadas (Highline/Justino usam área legada).
+      const currentResult = await pool.query(
+        'SELECT id, establishment_id FROM restaurant_tables WHERE id = $1',
+        [id],
+      );
+      const current = currentResult.rows[0];
+      if (!current) {
+        return res.status(404).json({ success: false, error: 'Mesa não encontrada' });
+      }
+      if (current.establishment_id == null) {
+        return res.status(403).json({
+          success: false,
+          error: 'Esta é uma mesa padrão do sistema (compartilhada) e não pode ser editada.',
+        });
+      }
 
       const updates = [];
       const params = [];
@@ -152,6 +222,20 @@ module.exports = (pool) => {
     try {
       await ensureTablesSchema();
       const { id } = req.params;
+      const currentResult = await pool.query(
+        'SELECT id, establishment_id FROM restaurant_tables WHERE id = $1',
+        [id],
+      );
+      const current = currentResult.rows[0];
+      if (!current) {
+        return res.status(404).json({ success: false, error: 'Mesa não encontrada' });
+      }
+      if (current.establishment_id == null) {
+        return res.status(403).json({
+          success: false,
+          error: 'Esta é uma mesa padrão do sistema (compartilhada) e não pode ser excluída.',
+        });
+      }
       await pool.query('DELETE FROM restaurant_tables WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (error) {

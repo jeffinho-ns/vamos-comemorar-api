@@ -406,11 +406,12 @@ async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   const id = establishmentId != null ? Number(establishmentId) : null;
   if (id != null && Number.isFinite(id) && id > 0) {
     const rules = await establishmentRules.getEstablishmentRules(pool, id);
-    whereParts.push(establishmentRules.buildAreasNameFilterSql(rules, 'name'));
+    // Aditivo: áreas próprias (establishment_id = id) + legadas globais por nome.
+    whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
   }
 
   const result = await pool.query(
-    `SELECT id, name
+    `SELECT id, name, establishment_id
        FROM restaurant_areas
       WHERE ${whereParts.join(' AND ')}
       ORDER BY name ASC
