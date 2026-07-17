@@ -406,8 +406,14 @@ async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   const id = establishmentId != null ? Number(establishmentId) : null;
   if (id != null && Number.isFinite(id) && id > 0) {
     const rules = await establishmentRules.getEstablishmentRules(pool, id);
-    // Aditivo: áreas próprias (establishment_id = id) + legadas globais por nome.
-    whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
+    // Self-managed (já possui áreas próprias): apenas as próprias.
+    // Caso contrário: catálogo legado por convenção de nome.
+    const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
+    if (hasOwned) {
+      whereParts.push(`establishment_id = ${id}`);
+    } else {
+      whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
+    }
   }
 
   const result = await pool.query(

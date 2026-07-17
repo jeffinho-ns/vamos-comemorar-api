@@ -13,15 +13,77 @@ const {
   buildAreasScopeSql,
   areaAllowedForRules,
   areaAllowedForEstablishment,
+  areasManagementFrozen,
+  establishmentHasOwnedAreas,
 } = require('../services/establishmentRules');
 
 async function areasFilterForEstablishment(pool, establishmentId) {
   const rules = await getEstablishmentRules(pool, establishmentId);
-  // Aditivo: áreas próprias (establishment_id) + legadas globais (nome).
+  // Self-managed (já tem áreas próprias): mostra SOMENTE as próprias.
+  // Caso contrário: catálogo legado por convenção de nome.
+  const hasOwned = await establishmentHasOwnedAreas(pool, establishmentId);
+  if (hasOwned) {
+    return `ra.establishment_id = ${Number(establishmentId)}`;
+  }
   return buildAreasScopeSql(rules, establishmentId, {
     nameColumn: 'ra.name',
     establishmentColumn: 'ra.establishment_id',
   });
+}
+
+/**
+ * Clona as áreas legadas visíveis (e suas mesas) para o estabelecimento,
+ * tornando-o autogerido. Idempotente: se já houver áreas próprias, não faz nada.
+ * Bloqueado para perfis congelados (Highline/Seu Justino).
+ */
+async function adoptLegacyAreasForEstablishment(pool, establishmentId, rules) {
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { adopted: 0, skipped: true };
+  }
+  if (areasManagementFrozen(rules)) {
+    return { adopted: 0, frozen: true };
+  }
+  if (await establishmentHasOwnedAreas(pool, id)) {
+    return { adopted: 0, alreadyOwned: true };
+  }
+
+  const nameFilter = buildAreasNameFilterSql(rules, 'name');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Clona áreas legadas -> próprias
+    const insertedAreas = await client.query(
+      `INSERT INTO restaurant_areas
+         (name, description, capacity_lunch, capacity_dinner, is_active, establishment_id)
+       SELECT name, description, capacity_lunch, capacity_dinner, TRUE, $1
+         FROM restaurant_areas
+        WHERE is_active = TRUE AND establishment_id IS NULL AND (${nameFilter})
+       RETURNING id`,
+      [id],
+    );
+
+    // Clona mesas legadas -> mesas próprias, casando pela nova área (mesmo nome).
+    await client.query(
+      `INSERT INTO restaurant_tables
+         (area_id, table_number, capacity, table_type, description, is_active, establishment_id)
+       SELECT na.id, t.table_number, t.capacity, t.table_type, t.description, TRUE, $1
+         FROM restaurant_tables t
+         JOIN restaurant_areas oa ON oa.id = t.area_id AND oa.establishment_id IS NULL
+         JOIN restaurant_areas na ON na.establishment_id = $1 AND na.name = oa.name AND na.is_active = TRUE
+        WHERE t.is_active = TRUE AND oa.is_active = TRUE AND (${buildAreasNameFilterSql(rules, 'oa.name')})`,
+      [id],
+    );
+
+    await client.query('COMMIT');
+    return { adopted: insertedAreas.rows.length };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function areasScopeSql(pool, req, establishmentIdFromQuery) {
@@ -200,6 +262,45 @@ module.exports = (pool) => {
    * @desc    Cria uma nova área
    * @access  Private
    */
+  /**
+   * @route POST /api/restaurant-areas/adopt
+   * @desc  Torna o estabelecimento autogerido: clona as áreas legadas visíveis
+   *        (e suas mesas) para áreas próprias editáveis. Idempotente.
+   */
+  router.post('/adopt', async (req, res) => {
+    try {
+      const establishmentIdRaw = req.body?.establishment_id ?? req.query.establishment_id;
+      const establishmentIdNumber =
+        establishmentIdRaw != null && String(establishmentIdRaw).trim() !== ''
+          ? Number(establishmentIdRaw)
+          : null;
+      if (establishmentIdNumber == null || !Number.isFinite(establishmentIdNumber) || establishmentIdNumber <= 0) {
+        return res.status(400).json({ success: false, error: 'Campo obrigatório: establishment_id.' });
+      }
+
+      const rules = await getEstablishmentRules(pool, establishmentIdNumber);
+      if (areasManagementFrozen(rules)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Este estabelecimento usa áreas fixas do sistema e não pode ser personalizado.',
+        });
+      }
+
+      const result = await adoptLegacyAreasForEstablishment(pool, establishmentIdNumber, rules);
+      return res.json({
+        success: true,
+        message:
+          result.alreadyOwned
+            ? 'Estabelecimento já está personalizado.'
+            : `Áreas personalizadas com sucesso (${result.adopted} área(s)).`,
+        ...result,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao adotar áreas do estabelecimento:', error);
+      return res.status(500).json({ success: false, error: 'Erro interno do servidor' });
+    }
+  });
+
   router.post('/', async (req, res) => {
     try {
       const {
@@ -231,6 +332,18 @@ module.exports = (pool) => {
           error: 'Campo obrigatório: establishment_id (área deve pertencer a um estabelecimento).'
         });
       }
+
+      const createRules = await getEstablishmentRules(pool, establishmentIdNumber);
+      if (areasManagementFrozen(createRules)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Este estabelecimento usa áreas fixas do sistema e não pode criar novas áreas.',
+        });
+      }
+
+      // Auto-adoção: ao criar a 1ª área própria, clona o catálogo legado antes,
+      // evitando que o estabelecimento perca as áreas atuais ao virar autogerido.
+      await adoptLegacyAreasForEstablishment(pool, establishmentIdNumber, createRules);
       
       // Nome deve ser único DENTRO do estabelecimento (permite nomes iguais em casas diferentes).
       const existingAreaResult = await pool.query(
@@ -306,6 +419,14 @@ module.exports = (pool) => {
         });
       }
 
+      const putRules = await getEstablishmentRules(pool, establishmentIdNumber);
+      if (areasManagementFrozen(putRules)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Este estabelecimento usa áreas fixas do sistema e não pode ser editado.',
+        });
+      }
+
       const { area, ownedByEstablishment, isLegacy } = await loadAreaOwnedByEstablishment(
         pool,
         id,
@@ -322,7 +443,7 @@ module.exports = (pool) => {
       if (isLegacy) {
         return res.status(403).json({
           success: false,
-          error: 'Esta é uma área padrão do sistema (compartilhada) e não pode ser editada. Crie uma área própria do estabelecimento.'
+          error: 'Personalize as áreas deste estabelecimento antes de editar (áreas padrão do sistema são compartilhadas).'
         });
       }
 
@@ -409,6 +530,14 @@ module.exports = (pool) => {
         });
       }
 
+      const delRules = await getEstablishmentRules(pool, establishmentIdNumber);
+      if (areasManagementFrozen(delRules)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Este estabelecimento usa áreas fixas do sistema e não pode ser editado.',
+        });
+      }
+
       const { area, ownedByEstablishment, isLegacy } = await loadAreaOwnedByEstablishment(
         pool,
         id,
@@ -425,7 +554,7 @@ module.exports = (pool) => {
       if (isLegacy) {
         return res.status(403).json({
           success: false,
-          error: 'Esta é uma área padrão do sistema (compartilhada) e não pode ser excluída.'
+          error: 'Personalize as áreas deste estabelecimento antes de excluir (áreas padrão do sistema são compartilhadas).'
         });
       }
 

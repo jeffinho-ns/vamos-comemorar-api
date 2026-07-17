@@ -192,6 +192,30 @@ function buildAreasScopeSql(
 }
 
 /**
+ * Estabelecimentos cujo gerenciamento de áreas é CONGELADO (subáreas fixas no
+ * código): Highline e Seu Justino. Para esses, não permitimos adoção/CRUD de
+ * áreas próprias, preservando a lógica operacional existente.
+ */
+function areasManagementFrozen(rules) {
+  return ['highline', 'seu_justino'].includes(rules?.profile);
+}
+
+/**
+ * Um estabelecimento é "autogerido" (self-managed) quando já possui áreas
+ * próprias (establishment_id = id). Nesse caso passa a ver/editar SOMENTE as
+ * suas áreas; caso contrário, usa o catálogo legado por convenção de nome.
+ */
+async function establishmentHasOwnedAreas(pool, establishmentId) {
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const { rows } = await pool.query(
+    'SELECT 1 FROM restaurant_areas WHERE establishment_id = $1 AND is_active = TRUE LIMIT 1',
+    [id],
+  );
+  return rows.length > 0;
+}
+
+/**
  * Uma área é permitida para um estabelecimento se for própria dele (establishment_id = id)
  * ou legada global (establishment_id NULL) permitida pelo filtro de nome.
  */
@@ -255,6 +279,8 @@ module.exports = {
   buildAreasScopeSql,
   areaAllowedForRules,
   areaAllowedForEstablishment,
+  areasManagementFrozen,
+  establishmentHasOwnedAreas,
   usesTableOverlapBlocking,
   usesExtendedGuestListWindow,
   listOperationalMappings,
