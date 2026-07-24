@@ -2022,8 +2022,8 @@ async function createSuperAdminUser(pool, input, actorUserId) {
 
   const hash = bcrypt.hashSync(password, 10);
   const ins = await pool.query(
-    `INSERT INTO users (name, email, password, role, is_super_admin)
-     VALUES ($1, $2, $3, 'admin', TRUE)
+    `INSERT INTO users (name, email, password, cpf, role, is_super_admin)
+     VALUES ($1, $2, $3, '', 'admin', TRUE)
      RETURNING id, email`,
     [name, email, hash],
   );
