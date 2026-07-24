@@ -122,6 +122,7 @@ async function listOrganizations(pool) {
         ORDER BY id DESC LIMIT 1
      ) s ON TRUE
      LEFT JOIN meu_backup_db.plans p ON p.id = s.plan_id
+     WHERE o.status <> 'canceled'
      ORDER BY o.name`,
   );
   return rows;
@@ -486,6 +487,104 @@ async function reactivateOrganization(pool, organizationId, actorUserId) {
   });
 
   return { organizationId: org.id, status: 'active', name: org.name };
+}
+
+/**
+ * Exclui uma organização (soft delete completo):
+ * arquiva todas as casas, marca a org como 'canceled', desativa todos os
+ * memberships e cancela a assinatura. Todo o histórico é preservado.
+ */
+async function deleteOrganization(pool, organizationId, actorUserId) {
+  const orgRes = await pool.query(
+    `SELECT id, name, status FROM meu_backup_db.organizations WHERE id = $1`,
+    [organizationId],
+  );
+  if (!orgRes.rows.length) throw new Error('Organização não encontrada.');
+  const org = orgRes.rows[0];
+  if (org.status === 'canceled') {
+    throw new Error('Esta organização já foi excluída.');
+  }
+
+  const estRes = await pool.query(
+    `SELECT id FROM meu_backup_db.establishments
+      WHERE organization_id = $1
+        AND COALESCE(status, 'active') <> 'archived'`,
+    [organizationId],
+  );
+
+  let archivedEstablishments = 0;
+  for (const est of estRes.rows) {
+    try {
+      await archiveEstablishment(pool, organizationId, est.id, actorUserId);
+      archivedEstablishments += 1;
+    } catch (err) {
+      // Corrida benigna: outro processo pode ter arquivado no meio do loop.
+      console.warn(
+        `[deleteOrganization] Falha ao arquivar estabelecimento ${est.id} da org ${organizationId}:`,
+        err.message,
+      );
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+      String(organizationId),
+    ]);
+
+    await client.query(
+      `UPDATE meu_backup_db.organizations
+          SET status = 'canceled', updated_at = now()
+        WHERE id = $1`,
+      [organizationId],
+    );
+
+    const membershipsRes = await client.query(
+      `UPDATE meu_backup_db.memberships
+          SET is_active = FALSE
+        WHERE organization_id = $1 AND is_active = TRUE
+        RETURNING id`,
+      [organizationId],
+    );
+
+    const subsRes = await client.query(
+      `UPDATE meu_backup_db.subscriptions
+          SET status = 'canceled', updated_at = now()
+        WHERE organization_id = $1
+        RETURNING id`,
+      [organizationId],
+    );
+
+    await client.query(
+      `INSERT INTO meu_backup_db.billing_events (organization_id, event_type, payload)
+       VALUES ($1, 'organization.deleted', $2::jsonb)`,
+      [
+        organizationId,
+        JSON.stringify({
+          actorUserId,
+          previousStatus: org.status,
+          archivedEstablishments,
+          deactivatedMemberships: membershipsRes.rowCount || 0,
+          canceledSubscriptions: subsRes.rowCount || 0,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return {
+    organizationId: org.id,
+    name: org.name,
+    status: 'canceled',
+    archivedEstablishments,
+  };
 }
 
 async function markSubscriptionPastDue(pool, organizationId, actorUserId) {
@@ -1894,6 +1993,46 @@ async function provisionUserFullOrganizationAccess(pool, organizationId, input, 
   };
 }
 
+/**
+ * Cria um novo super admin ou promove um usuário existente (pelo email).
+ * Se o usuário já existe, apenas seta is_super_admin = TRUE (sem tocar na senha).
+ */
+async function createSuperAdminUser(pool, input, actorUserId) {
+  const email = String(input?.email || '').trim().toLowerCase();
+  if (!email) throw new Error('email é obrigatório.');
+
+  const existing = await pool.query(
+    `SELECT id, email FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+    [email],
+  );
+
+  if (existing.rows.length) {
+    const userId = existing.rows[0].id;
+    await pool.query(`UPDATE users SET is_super_admin = TRUE WHERE id = $1`, [userId]);
+    console.log(
+      `[createSuperAdminUser] Usuário ${userId} (${email}) promovido a super admin por ${actorUserId}`,
+    );
+    return { userId, email, created: false, promoted: true };
+  }
+
+  const name = String(input?.name || '').trim();
+  const password = String(input?.password || '');
+  if (!name) throw new Error('name é obrigatório para criar um novo super admin.');
+  if (password.length < 8) throw new Error('password deve ter no mínimo 8 caracteres.');
+
+  const hash = bcrypt.hashSync(password, 10);
+  const ins = await pool.query(
+    `INSERT INTO users (name, email, password, role, is_super_admin)
+     VALUES ($1, $2, $3, 'admin', TRUE)
+     RETURNING id, email`,
+    [name, email, hash],
+  );
+  console.log(
+    `[createSuperAdminUser] Super admin ${ins.rows[0].id} (${email}) criado por ${actorUserId}`,
+  );
+  return { userId: ins.rows[0].id, email, created: true };
+}
+
 module.exports = {
   centsToBrl,
   logBillingEvent,
@@ -1910,6 +2049,8 @@ module.exports = {
   markSubscriptionPastDue,
   suspendOrganization,
   reactivateOrganization,
+  deleteOrganization,
+  createSuperAdminUser,
   provisionOrganization,
   listPlans,
   getBillingSummaryByMonth,

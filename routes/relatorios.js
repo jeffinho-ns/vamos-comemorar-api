@@ -21,6 +21,11 @@ module.exports = (pool) => {
         LEFT JOIN bars b ON b.id = e.id_place
         LEFT JOIN places p ON p.id = e.id_place
         WHERE e.id_place IS NOT NULL AND (b.name IS NOT NULL OR p.name IS NOT NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM meu_backup_db.establishments est
+             WHERE est.status = 'archived'
+               AND (est.legacy_place_id = p.id OR est.legacy_bar_id = b.id)
+          )
         ORDER BY nome
       `);
       const estabelecimentos = (r.rows || []).map((row) => ({ id: row.id, nome: row.nome }));

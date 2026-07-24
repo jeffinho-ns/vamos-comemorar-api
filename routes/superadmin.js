@@ -303,6 +303,26 @@ module.exports = (pool) => {
     }
   });
 
+  router.delete('/organizations/:id', async (req, res) => {
+    try {
+      const result = await billing.deleteOrganization(pool, Number(req.params.id), req.user.id);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin organizations delete]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/super-admins', async (req, res) => {
+    try {
+      const result = await billing.createSuperAdminUser(pool, req.body, req.user.id);
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      console.error('[superadmin super-admins POST]', err.message);
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/organizations/:id/past-due', async (req, res) => {
     try {
       await billing.markSubscriptionPastDue(pool, Number(req.params.id), req.user.id);

@@ -1184,7 +1184,14 @@ module.exports = (pool) => {
     router.get('/bars', async (req, res) => {
         try {
             const apiBaseUrl = getPublicApiBaseUrl(req);
-            const result = await pool.query('SELECT * FROM bars');
+            // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
+            const result = await pool.query(`
+                SELECT * FROM bars b
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM meu_backup_db.establishments e
+                   WHERE e.legacy_bar_id = b.id AND e.status = 'archived'
+                )
+            `);
             const barsFormatted = await Promise.all(
                 result.rows.map((bar) => resolveBarImagesForClient(apiBaseUrl, bar))
             );

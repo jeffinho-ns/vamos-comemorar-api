@@ -135,7 +135,15 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
 async function loadAiCatalogLight(pool) {
   let establishments = [];
   try {
-    const places = await pool.query(`SELECT id, name FROM places ORDER BY name ASC`);
+    // Estabelecimentos arquivados no Super Admin não entram no catálogo da IA.
+    const places = await pool.query(`
+      SELECT id, name FROM places p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM meu_backup_db.establishments e
+         WHERE e.legacy_place_id = p.id AND e.status = 'archived'
+      )
+      ORDER BY name ASC
+    `);
     establishments = (places.rows || []).map((r) => ({
       id: r.id,
       name: r.name,
@@ -165,8 +173,14 @@ async function loadAiCatalogLight(pool) {
 async function loadAiCatalog(pool) {
   let establishments = [];
   try {
+    // Estabelecimentos arquivados no Super Admin não entram no catálogo da IA.
     const places = await pool.query(
-      `SELECT id, name FROM places ORDER BY name ASC`
+      `SELECT id, name FROM places p
+       WHERE NOT EXISTS (
+         SELECT 1 FROM meu_backup_db.establishments e
+          WHERE e.legacy_place_id = p.id AND e.status = 'archived'
+       )
+       ORDER BY name ASC`
     );
     establishments = (places.rows || []).map((r) => ({
       id: r.id,
