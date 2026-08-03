@@ -704,7 +704,11 @@ module.exports = (pool, app) => {
         return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
       }
 
-      const inSessionWindow = await isWithinSessionWindow(pool, normalizedTo);
+      const inSessionWindow = await isWithinSessionWindow(pool, conv.wa_id, {
+        conversationId: conv.id,
+        normalizedWaId: normalizedTo,
+        alternateWaId: rawWaId,
+      });
       if (!inSessionWindow) {
         return res.status(400).json({
           code: 'OUTSIDE_24H_WINDOW',
@@ -713,7 +717,7 @@ module.exports = (pool, app) => {
         });
       }
 
-      const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, conv.wa_id);
+      // Envio pelo painel = atendimento humano: pausa a IA para não haver resposta dupla.
       let sendResult;
       try {
         sendResult = await sendMessage(normalizedTo, text);
@@ -769,9 +773,10 @@ module.exports = (pool, app) => {
         rawPayload: deliveryPayload,
       });
 
-      const updatedConv = wasHumanTakeoverActive
-        ? await inbox.setHumanTakeoverUntilManualResume(pool, conv.wa_id)
-        : await inbox.getConversationByWaId(pool, conv.wa_id);
+      const updatedConv = await inbox.setHumanTakeoverUntilManualResume(
+        pool,
+        conv.wa_id,
+      );
       emitInbox({
         type: 'outbound',
         conversation: updatedConv,
@@ -783,7 +788,7 @@ module.exports = (pool, app) => {
         message: saved,
         whatsapp: deliveryPayload,
         conversation: updatedConv,
-        ai_paused: wasHumanTakeoverActive,
+        ai_paused: true,
         pending_delivery: Boolean(sendResult?.queued),
         meta_message_id: metaMessageId,
       });
@@ -804,7 +809,9 @@ module.exports = (pool, app) => {
     '/conversations/:waId/send-image',
     uploadImage.single('image'),
     async (req, res) => {
-      const { waId } = req.params;
+      const rawWaId = String(req.params.waId || '').trim();
+      const normalizedTo =
+        inbox.normalizeWaId(rawWaId) || rawWaId.replace(/\D/g, '');
       const file = req.file;
       const caption = typeof req.body?.caption === 'string' ? req.body.caption.trim() : '';
 
@@ -815,28 +822,50 @@ module.exports = (pool, app) => {
       if (!mime.startsWith('image/')) {
         return res.status(400).json({ message: 'Apenas arquivos de imagem são permitidos.' });
       }
+      if (!normalizedTo || normalizedTo.length < 12) {
+        return res.status(400).json({ message: 'Número WhatsApp inválido para envio.' });
+      }
 
       try {
         const scope = await loadUserScope(req.user);
-        let conv = await inbox.getConversationByWaId(pool, waId);
+        let conv =
+          (await inbox.getConversationByWaId(pool, normalizedTo)) ||
+          (rawWaId !== normalizedTo
+            ? await inbox.getConversationByWaId(pool, rawWaId)
+            : null);
         if (!conv) {
           if (!scope.isAdmin) {
             return res.status(404).json({ message: 'Conversa não encontrada' });
           }
-          conv = await inbox.upsertConversation(pool, { waId, contactName: null });
+          conv = await inbox.upsertConversation(pool, {
+            waId: normalizedTo,
+            contactName: null,
+          });
         } else if (!canAccessEstablishment(scope, conv.establishment_id)) {
           return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
         }
 
+        const inSessionWindow = await isWithinSessionWindow(pool, conv.wa_id, {
+          conversationId: conv.id,
+          normalizedWaId: normalizedTo,
+          alternateWaId: rawWaId,
+        });
+        if (!inSessionWindow) {
+          return res.status(400).json({
+            code: 'OUTSIDE_24H_WINDOW',
+            message:
+              'Este cliente está fora da janela de 24h da Meta. Para receber mídia livre, ele precisa ter enviado uma mensagem nas últimas 24 horas.',
+          });
+        }
+
         const ext = (mime.split('/')[1] || 'jpg').split(';')[0];
-        const fileName = `wpp_${waId}_${Date.now()}.${ext}`;
+        const fileName = `wpp_${normalizedTo}_${Date.now()}.${ext}`;
         const uploaded = await cloudinaryService.uploadFile(fileName, file.buffer, {
           folder: 'whatsapp-outbound',
         });
         const secureUrl = uploaded.secureUrl;
 
-        const wasHumanTakeoverActive = await inbox.isHumanTakeoverActive(pool, waId);
-        const sendResult = await sendImage(waId, { link: secureUrl, caption });
+        const sendResult = await sendImage(normalizedTo, { link: secureUrl, caption });
 
         const saved = await inbox.insertMessage(pool, {
           conversationId: conv.id,
@@ -851,9 +880,10 @@ module.exports = (pool, app) => {
           rawPayload: sendResult || null,
         });
 
-        const updatedConv = wasHumanTakeoverActive
-          ? await inbox.setHumanTakeoverUntilManualResume(pool, waId)
-          : await inbox.getConversationByWaId(pool, waId);
+        const updatedConv = await inbox.setHumanTakeoverUntilManualResume(
+          pool,
+          conv.wa_id,
+        );
         emitInbox({
           type: 'outbound',
           conversation: updatedConv,
@@ -865,18 +895,18 @@ module.exports = (pool, app) => {
           message: saved,
           whatsapp: sendResult,
           conversation: updatedConv,
-          ai_paused: wasHumanTakeoverActive,
+          ai_paused: true,
         });
       } catch (e) {
         console.error('[whatsappAdmin] send-image:', e);
         const isTransient = isWhatsAppTransientError(e);
-        return res.status(isTransient ? 503 : 500).json({
-          message: buildPublicWhatsAppErrorMessage(e),
+        return res.status(isTransient ? 503 : 400).json({
+          message: formatCampaignDeliveryError(e),
           transient: isTransient,
         });
+      }
     }
-  });
-
+  );
   router.post('/conversations/:waId/status', async (req, res) => {
     const { waId } = req.params;
     const status = String(req.body?.status || '').trim();

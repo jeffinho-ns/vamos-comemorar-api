@@ -76,17 +76,41 @@ function sanitizeTemplateParameterText(value) {
     .trim();
 }
 
-async function isWithinSessionWindow(pool, waId) {
-  if (!pool || !waId) return false;
+async function isWithinSessionWindow(pool, waId, options = {}) {
+  if (!pool) return false;
+
+  const conversationId = Number(options.conversationId);
+  if (Number.isFinite(conversationId) && conversationId > 0) {
+    const byConversation = await pool.query(
+      `SELECT 1
+         FROM whatsapp_messages m
+        WHERE m.conversation_id = $1
+          AND m.direction = 'inbound'
+          AND m.created_at > NOW() - INTERVAL '${SESSION_WINDOW_HOURS} hours'
+        LIMIT 1`,
+      [conversationId]
+    );
+    if (byConversation.rows.length > 0) return true;
+  }
+
+  const candidates = [
+    ...new Set(
+      [waId, options.alternateWaId, options.normalizedWaId]
+        .map((value) => String(value || '').replace(/\D/g, ''))
+        .filter((digits) => digits.length >= 12)
+    ),
+  ];
+  if (candidates.length === 0) return false;
+
   const r = await pool.query(
     `SELECT 1
        FROM whatsapp_conversations cv
        JOIN whatsapp_messages m ON m.conversation_id = cv.id
-      WHERE cv.wa_id = $1
+      WHERE cv.wa_id = ANY($1::text[])
         AND m.direction = 'inbound'
         AND m.created_at > NOW() - INTERVAL '${SESSION_WINDOW_HOURS} hours'
       LIMIT 1`,
-    [waId]
+    [candidates]
   );
   return r.rows.length > 0;
 }

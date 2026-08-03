@@ -9,6 +9,7 @@ const {
   formatCampaignDeliveryError,
   resolveEffectiveDeliveryMode,
   sanitizeTemplateParameterText,
+  isWithinSessionWindow,
 } = require('../../services/campaignDeliveryService');
 const { WhatsAppApiError } = require('../../services/whatsappService');
 
@@ -91,4 +92,46 @@ test('formatCampaignDeliveryError traduz template inexistente', () => {
   });
   const msg = formatCampaignDeliveryError(err);
   assert.match(msg, /Template Meta não encontrado/);
+});
+
+test('isWithinSessionWindow usa conversation_id quando informado', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      if (String(sql).includes('conversation_id')) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const ok = await isWithinSessionWindow(pool, '5511888777666', {
+    conversationId: 42,
+    normalizedWaId: '5511888777666',
+  });
+  assert.equal(ok, true);
+  assert.equal(calls[0].params[0], 42);
+});
+
+test('isWithinSessionWindow aceita wa_id alternativo quando conversation não acha', async () => {
+  let call = 0;
+  const pool = {
+    query: async (_sql, params) => {
+      call += 1;
+      if (call === 1) {
+        assert.equal(params[0], 7);
+        return { rows: [] };
+      }
+      assert.ok(params[0].includes('5511888777666'));
+      assert.ok(params[0].includes('5511999998888'));
+      return { rows: [{ '?column?': 1 }] };
+    },
+  };
+  const ok = await isWithinSessionWindow(pool, '5511888777666', {
+    conversationId: 7,
+    normalizedWaId: '5511999998888',
+    alternateWaId: '5511888777666',
+  });
+  assert.equal(ok, true);
+  assert.equal(call, 2);
 });

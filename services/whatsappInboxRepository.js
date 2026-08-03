@@ -542,11 +542,11 @@ async function listConversations(pool, options = {}) {
     readUserParam != null
       ? `ORDER BY
             CASE
-              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 0
               WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id)
-                   AND lm.direction = 'inbound' THEN 1
-              WHEN irs.conversation_id IS NULL THEN 2
-              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id) THEN 3
+                   AND lm.direction = 'inbound' THEN 0
+              WHEN irs.conversation_id IS NULL THEN 1
+              WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id) THEN 2
+              WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 3
               WHEN lm.direction = 'outbound'
                    AND (lm.intent IN ('AGENT_REPLY', 'PROCESS_RESERVATION', 'OPERATIONAL_INFO', 'GUEST_LIST_LINK', 'recovery_followup')
                         OR (lm.intent IS NULL OR lm.intent = '')) THEN 4

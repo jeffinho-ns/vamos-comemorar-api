@@ -44,7 +44,11 @@ function requirePermission(permissionKey) {
       );
       return next();
     }
-    return res.status(403).json({ success: false, error: `Sem permissão: ${permissionKey}.` });
+    return res.status(403).json({
+      success: false,
+      error: `Sem permissão: ${permissionKey}.`,
+      message: `Sem permissão: ${permissionKey}.`,
+    });
   };
 }
 
