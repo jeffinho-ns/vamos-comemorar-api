@@ -309,22 +309,32 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   }
 
-  // Números habilitados: quando a casa desativa a IA globalmente, só números da
-  // allow-list recebem resposta automática. Default = liberado (gate inerte).
+  // Kill-switch / modo piloto por casa (Configurações de IA).
+  // Desligada = ninguém. Ligada + allow-list = só esses números. Ligada sem lista = todos.
   if (lockedEstablishmentId) {
     try {
       const accessGate = await loadInboundAccessGate(pool, lockedEstablishmentId);
+      const senderDigits = String(waId || '').replace(/\D/g, '');
       if (accessGate && accessGate.aiGloballyEnabled === false) {
-        const senderDigits = String(waId || '').replace(/\D/g, '');
-        if (!accessGate.allowedNumbers.has(senderDigits)) {
-          console.log(
-            `[agentEngine] IA desativada globalmente para establishment_id=${lockedEstablishmentId}; número ${senderDigits} fora da allow-list — IA não responde.`
-          );
-          return;
-        }
+        console.log(
+          `[agentEngine] IA desligada para establishment_id=${lockedEstablishmentId}; waId=${senderDigits} — sem resposta automática.`
+        );
+        return;
+      }
+      if (
+        accessGate &&
+        accessGate.aiGloballyEnabled !== false &&
+        accessGate.allowedNumbers instanceof Set &&
+        accessGate.allowedNumbers.size > 0 &&
+        !accessGate.allowedNumbers.has(senderDigits)
+      ) {
+        console.log(
+          `[agentEngine] modo piloto ativo establishment_id=${lockedEstablishmentId}; número ${senderDigits} fora da allow-list — IA não responde.`
+        );
+        return;
       }
     } catch (gateError) {
-      console.warn('[agentEngine] falha ao avaliar números habilitados:', gateError.message);
+      console.warn('[agentEngine] falha ao avaliar gate de IA:', gateError.message);
     }
   }
 

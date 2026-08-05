@@ -257,8 +257,10 @@ async function loadExternalLinksBlock(pool, establishmentId) {
 }
 
 /**
- * Gate de números habilitados: quando a IA está desativada globalmente para a
- * casa, só números na allow-list recebem resposta da IA. Default = liberado.
+ * Gate de atendimento automático por casa:
+ * - ai_globally_enabled = false → IA silenciosa para todos
+ * - ai_globally_enabled = true + allow-list vazia → responde a todos
+ * - ai_globally_enabled = true + allow-list preenchida → modo piloto (só esses números)
  */
 async function loadInboundAccessGate(pool, establishmentId) {
   const id = Number(establishmentId);
@@ -280,7 +282,8 @@ async function loadInboundAccessGate(pool, establishmentId) {
       settingsRes.rows[0] === undefined ? true : Boolean(settingsRes.rows[0].ai_globally_enabled);
 
     const allowedNumbers = new Set();
-    if (!aiGloballyEnabled) {
+    // Allow-list só importa com a IA ligada (modo piloto). Desligada = ninguém.
+    if (aiGloballyEnabled) {
       const numbersRes = await pool.query(
         `SELECT phone_e164 FROM ai_allowed_numbers WHERE establishment_id = $1`,
         [id]
