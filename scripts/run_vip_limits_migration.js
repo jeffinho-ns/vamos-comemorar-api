@@ -7,14 +7,8 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
-const connectionString = process.env.DATABASE_URL
-  || process.env.POSTGRES_URL
-  || 'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
-
-if (!connectionString) {
-  console.error('❌ DATABASE_URL não definida. Configure no .env');
-  process.exit(1);
-}
+const { requireDatabaseUrl } = require('../config/resolveDatabaseUrl');
+const connectionString = requireDatabaseUrl();
 
 const pool = new Pool({
   connectionString,

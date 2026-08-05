@@ -23,7 +23,7 @@ Execute esta migração SQL no banco de dados PostgreSQL de produção:
 **Opção 2: Via psql (linha de comando)**
 ```bash
 # Conectar ao banco
-psql "postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer"
+psql "postgresql://USER:PASSWORD@HOST/agilizaidb?sslmode=prefer"
 
 # Depois executar o conteúdo do arquivo SQL
 \i migrations/create_gift_rules_system_postgresql.sql

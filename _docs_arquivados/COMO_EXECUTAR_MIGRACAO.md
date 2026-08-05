@@ -56,7 +56,7 @@ O script vai:
 # Conecte ao MySQL
 mysql -u u621081794_vamos -p u621081794_vamos
 
-# Quando pedir, digite a senha: @123Mudar!@
+# Quando pedir, digite a senha: YOUR_PASSWORD
 
 # Execute o arquivo de migração
 source /caminho/para/vamos-comemorar-api/migrations/habilitar-eventos-para-listas.sql

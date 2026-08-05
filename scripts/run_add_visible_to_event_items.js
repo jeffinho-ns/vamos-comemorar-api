@@ -5,6 +5,7 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+const { requireDatabaseUrl } = require('../config/resolveDatabaseUrl');
 
 async function runMigration() {
   let pool;
@@ -16,12 +17,11 @@ async function runMigration() {
     // Conectar ao banco de dados
     console.log('🔗 Conectando ao banco de dados PostgreSQL...');
     
-    const connectionString = process.env.DATABASE_URL || 
-      'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+    const connectionString = requireDatabaseUrl();
     
     pool = new Pool({
       connectionString: connectionString,
-      ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+      ssl: connectionString.includes('render.com') ? { rejectUnauthorized: false } : undefined,
     });
 
     // Testar conexão

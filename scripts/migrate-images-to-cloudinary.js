@@ -28,9 +28,9 @@ const cloudinaryService = require('../services/cloudinaryService');
 
 // Configurações FTP (para download das imagens antigas)
 const FTP_CONFIG = {
-  host: process.env.FTP_HOST || '195.35.41.247',
-  user: process.env.FTP_USER || 'u621081794',
-  password: process.env.FTP_PASSWORD || 'Jeffl1ma!@',
+  host: process.env.FTP_HOST || '',
+  user: process.env.FTP_USER || '',
+  password: process.env.FTP_PASSWORD || '',
   secure: false,
   port: 21,
   remoteDirectory: process.env.FTP_ROOT_PATH || '/public_html/cardapio-agilizaiapp/',

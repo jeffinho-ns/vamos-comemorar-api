@@ -6,18 +6,17 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
+const { requireDatabaseUrl } = require('../config/resolveDatabaseUrl');
 
 async function main() {
   const targetEmail = 'analista@seujustino.com';
   const establishmentId = 1; // Seu Justino (places.id)
 
-  const connectionString =
-    process.env.DATABASE_URL ||
-    'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+  const connectionString = requireDatabaseUrl();
 
   const pool = new Pool({
     connectionString,
-    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+    ssl: connectionString.includes('render.com') ? { rejectUnauthorized: false } : undefined,
   });
 
   const client = await pool.connect();

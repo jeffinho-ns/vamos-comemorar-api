@@ -1,5 +1,6 @@
-# Configuração para Deploy no Render
-# Sistema de Reservas do Restaurante
+# Configuração Blueprint do Render — vamos-comemorar-api
+# Segredos NÃO vão neste arquivo. Cadastre-os em:
+# Render Dashboard → Web Service → Environment
 
 services:
   - type: web
@@ -14,20 +15,28 @@ services:
         value: production
       - key: PORT
         value: 10000
-      # Preferir vincular o Postgres ao web service (injeta DATABASE_URL automaticamente).
-      # Se o serviço foi criado manualmente, cole a Internal Database URL aqui:
+      # Preferir vincular o Postgres ao serviço (injeta DATABASE_URL).
+      # Se o serviço foi criado manualmente, defina no painel Environment:
       - key: DATABASE_URL
-        value: postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer
+        sync: false
       - key: FTP_HOST
-        value: 195.35.41.247
+        sync: false
       - key: FTP_USER
-        value: u621081794
+        sync: false
       - key: FTP_PASSWORD
-        value: "Jeffl1ma!@"
-      # ⚠️ TEMPORÁRIO: Validação de geolocalização desabilitada para testes
-      # REMOVER ESTA LINHA APÓS OS TESTES!
-      - key: SKIP_GEO_VALIDATION
-        value: "true"
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
     disk:
       name: uploads
       mountPath: /opt/render/project/src/uploads

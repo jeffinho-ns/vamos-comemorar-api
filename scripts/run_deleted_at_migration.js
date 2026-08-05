@@ -7,7 +7,8 @@ const path = require('path');
 require('dotenv').config();
 
 // Usar a mesma configuração do config/database.js
-const connectionString = process.env.DATABASE_URL || 'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+const { requireDatabaseUrl } = require('../config/resolveDatabaseUrl');
+const connectionString = requireDatabaseUrl();
 
 const pool = new Pool({
   connectionString: connectionString,

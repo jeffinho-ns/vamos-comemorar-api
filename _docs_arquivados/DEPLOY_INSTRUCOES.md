@@ -47,13 +47,13 @@ PUBLIC_BASE_URL=https://agilizaiapp.com.br
 # Configurações do banco de dados MySQL
 DB_HOST=193.203.175.55
 DB_USER=u621081794_vamos
-DB_PASSWORD=@123Mudar!@
+DB_PASSWORD=YOUR_PASSWORD
 DB_NAME=u621081794_vamos
 
 # Configurações FTP (opcional, para upload de imagens)
 FTP_HOST=195.35.41.247
 FTP_USER=u621081794
-FTP_PASSWORD=Jeffl1ma!@
+FTP_PASSWORD=YOUR_PASSWORD
 
 # Porta do servidor (Render define automaticamente)
 PORT=10000

@@ -3,6 +3,7 @@
 
 const { Pool } = require('pg');
 require('dotenv').config();
+const { requireDatabaseUrl } = require('../config/resolveDatabaseUrl');
 
 async function verifyTables() {
   let pool;
@@ -10,12 +11,11 @@ async function verifyTables() {
   try {
     console.log('🔍 Verificando tabelas do sistema de Executive Events...\n');
 
-    const connectionString = process.env.DATABASE_URL || 
-      'postgresql://agilizaidb_user:9leBZwUgynZN5pnHPsqEJDW1tkE6LWjZ@dpg-d4bmh07diees73db68cg-a.oregon-postgres.render.com/agilizaidb?sslmode=prefer';
+    const connectionString = requireDatabaseUrl();
     
     pool = new Pool({
       connectionString: connectionString,
-      ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+      ssl: connectionString.includes('render.com') ? { rejectUnauthorized: false } : undefined,
     });
 
     // Verificar em todos os schemas

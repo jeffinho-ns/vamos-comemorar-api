@@ -67,7 +67,7 @@ MS_CLIENT_SECRET=seu_client_secret_aqui
 # FTP (mantido apenas para migração)
 FTP_HOST=195.35.41.247
 FTP_USER=u621081794
-FTP_PASSWORD=Jeffl1ma!@
+FTP_PASSWORD=YOUR_PASSWORD
 FTP_ROOT_PATH=/public_html/cardapio-agilizaiapp/
 ```
 
