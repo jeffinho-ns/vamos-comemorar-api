@@ -1,19 +1,35 @@
 /**
  * Prompt do agente conversacional — versão enxuta para reduzir tokens.
  * Conteúdo estático (cacheável) separado do dinâmico (FAQ, funil, memória).
+ *
+ * OpenAI Prompt Caching (prefixo mais longo idêntico entre requests):
+ * 1. system #1 = buildStatic — persona, escopo e comportamento por casa (só settings do DB)
+ * 2. system #2 = buildDynamic — data/hora, FAQ, funil, memória, regras operacionais do dia
+ * 3. histórico user/assistant
+ * Proibido no estático: timestamps, waId, memória, funil, FAQ, regras de data específica.
  */
 
 class AgentPromptBuilder {
+  /** Campos lidos por buildStatic — demais chaves do contexto são ignoradas de propósito. */
+  pickStaticPromptContext(context = {}) {
+    return {
+      assistantSettings: context.assistantSettings ?? null,
+      lockedEstablishmentId: context.lockedEstablishmentId ?? null,
+      lockedEstablishmentName: context.lockedEstablishmentName ?? null,
+    };
+  }
+
   build(context = {}) {
     return [this.buildStatic(context), this.buildDynamic(context)].filter(Boolean).join('\n\n');
   }
 
   /** Prefixo estável — maximiza Prompt Caching da OpenAI. */
   buildStatic(context = {}) {
+    const stable = this.pickStaticPromptContext(context);
     return [
-      this.buildPersonaBlock(context),
-      this.buildScopeNoticeBlock(context),
-      this.buildBehaviorBlock(context),
+      this.buildPersonaBlock(stable),
+      this.buildScopeNoticeBlock(stable),
+      this.buildBehaviorBlock(stable),
     ]
       .filter(Boolean)
       .join('\n\n');

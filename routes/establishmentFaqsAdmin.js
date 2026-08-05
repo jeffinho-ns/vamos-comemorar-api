@@ -7,6 +7,7 @@ const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 const { canonicalizeAdminFaqTopic } = require('../services/agent/faqTopicCanonical');
+const { invalidateFaqCache } = require('../services/agent/faqPrefetchService');
 
 function normalizeTopic(topic) {
   const raw = String(topic || '')
@@ -143,6 +144,7 @@ module.exports = (pool) => {
           [establishmentId, topic, answer, category, organizationId],
         );
 
+        invalidateFaqCache(establishmentId);
         return res.status(201).json({ success: true, data: mapFaqRow(result.rows[0]) });
       } catch (error) {
         if (String(error.message || '').includes('uq_establishment_faq_topic')) {
@@ -222,6 +224,7 @@ module.exports = (pool) => {
           [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId],
         );
 
+        invalidateFaqCache(establishmentId);
         return res.json({ success: true, data: mapFaqRow(result.rows[0]) });
       } catch (error) {
         if (String(error.message || '').includes('uq_establishment_faq_topic')) {
@@ -254,6 +257,7 @@ module.exports = (pool) => {
         if (!result.rows[0]) {
           return res.status(404).json({ success: false, message: 'FAQ não encontrada.' });
         }
+        invalidateFaqCache(establishmentId);
         return res.json({ success: true, data: { id: result.rows[0].id } });
       } catch (error) {
         console.error('[establishment-faqs] delete:', error.message);

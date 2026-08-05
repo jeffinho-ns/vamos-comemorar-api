@@ -15,8 +15,38 @@ const {
   applyOutputLimit,
 } = require('./openAiConfig');
 const { recordOpenAiUsageSafe } = require('./aiUsageRepository');
+const { filterFaqsForCustomerPrompt } = require('./faqPromptFilter');
+
+const FAQ_ANSWER_CACHE = new Map();
+const FAQ_ALL_ACTIVE_CACHE = new Map();
+const FAQ_CACHE_TTL_MS = Number(process.env.FAQ_CACHE_TTL_MS || 60_000);
 
 let openaiClient = null;
+
+function cloneFaqEntry(entry) {
+  if (!entry) return null;
+  return { ...entry };
+}
+
+function cloneFaqEntries(entries = []) {
+  return entries.map((entry) => ({ ...entry }));
+}
+
+function invalidateFaqCache(establishmentId) {
+  if (establishmentId === undefined) {
+    FAQ_ANSWER_CACHE.clear();
+    FAQ_ALL_ACTIVE_CACHE.clear();
+    return;
+  }
+  const id = Number(establishmentId);
+  const prefix = `${id}::`;
+  for (const key of FAQ_ANSWER_CACHE.keys()) {
+    if (key.startsWith(prefix)) {
+      FAQ_ANSWER_CACHE.delete(key);
+    }
+  }
+  FAQ_ALL_ACTIVE_CACHE.delete(id);
+}
 
 function getOpenAI() {
   if (!openaiClient) {
@@ -27,7 +57,7 @@ function getOpenAI() {
   return openaiClient;
 }
 
-async function fetchFaqAnswerForTopic(pool, establishmentId, topicHint) {
+async function fetchFaqAnswerForTopicFromDb(pool, establishmentId, topicHint) {
   const candidates = buildFaqTopicCandidates(topicHint);
   if (!candidates.length) return null;
 
@@ -56,6 +86,25 @@ async function fetchFaqAnswerForTopic(pool, establishmentId, topicHint) {
   return best;
 }
 
+async function fetchFaqAnswerForTopic(pool, establishmentId, topicHint) {
+  const establishment = Number(establishmentId);
+  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return null;
+
+  const topic = String(topicHint || '').trim();
+  if (!topic) return null;
+
+  const cacheKey = `${establishment}::${topic}`;
+  const now = Date.now();
+  const cached = FAQ_ANSWER_CACHE.get(cacheKey);
+  if (cached && now - cached.at < FAQ_CACHE_TTL_MS) {
+    return cloneFaqEntry(cached.value);
+  }
+
+  const value = await fetchFaqAnswerForTopicFromDb(pool, establishment, topicHint);
+  FAQ_ANSWER_CACHE.set(cacheKey, { at: now, value });
+  return cloneFaqEntry(value);
+}
+
 async function prefetchEstablishmentFaqs(pool, establishmentId, topicHints = []) {
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
@@ -80,10 +129,21 @@ async function prefetchEstablishmentFaqs(pool, establishmentId, topicHints = [])
  * Aplica um teto de tamanho para não estourar a janela de contexto da OpenAI;
  * quando estoura, mantém os tópicos mais recentemente atualizados primeiro.
  */
-async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxChars = 8000 } = {}) {
-  const establishment = Number(establishmentId);
-  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+function trimFaqsToMaxChars(entries, maxChars = 8000) {
+  const trimmed = [];
+  let totalChars = 0;
+  for (const entry of entries) {
+    const piece = `### ${entry.topic}\n${entry.answer}`;
+    if (totalChars + piece.length > maxChars && trimmed.length > 0) {
+      break;
+    }
+    trimmed.push(entry);
+    totalChars += piece.length + 2;
+  }
+  return trimmed;
+}
 
+async function loadAllActiveFaqsFromDb(pool, establishmentId) {
   let rows = [];
   try {
     const result = await pool.query(
@@ -93,7 +153,7 @@ async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxCha
           AND is_active = TRUE
           AND COALESCE(TRIM(answer), '') <> ''
         ORDER BY updated_at DESC NULLS LAST, topic ASC`,
-      [establishment]
+      [establishmentId]
     );
     rows = result.rows || [];
   } catch (error) {
@@ -102,24 +162,36 @@ async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxCha
   }
 
   const entries = [];
-  let totalChars = 0;
   for (const row of rows) {
     const topic = String(row.topic || '').trim();
     const answer = String(row.answer || '').trim();
     if (!topic || !answer) continue;
-    const piece = `### ${topic}\n${answer}`;
-    if (totalChars + piece.length > maxChars && entries.length > 0) {
-      break;
-    }
     entries.push({
       topic,
       answer,
       updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
     });
-    totalChars += piece.length + 2;
+  }
+  return entries;
+}
+
+async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxChars = 8000 } = {}) {
+  const establishment = Number(establishmentId);
+  if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+
+  const now = Date.now();
+  const cached = FAQ_ALL_ACTIVE_CACHE.get(establishment);
+  if (cached && now - cached.at < FAQ_CACHE_TTL_MS) {
+    return filterFaqsForCustomerPrompt(
+      trimFaqsToMaxChars(cloneFaqEntries(cached.entries), maxChars)
+    );
   }
 
-  return entries;
+  const entries = await loadAllActiveFaqsFromDb(pool, establishment);
+  FAQ_ALL_ACTIVE_CACHE.set(establishment, { at: now, entries });
+  return filterFaqsForCustomerPrompt(
+    trimFaqsToMaxChars(cloneFaqEntries(entries), maxChars)
+  );
 }
 
 function buildDateSearchPatterns(isoDate) {
@@ -321,13 +393,13 @@ async function loadRelevantFaqsForEstablishment(
       })
       .filter(Boolean);
     if (fallbackEntries.length > 0) {
-      return fallbackEntries;
+      return filterFaqsForCustomerPrompt(fallbackEntries);
     }
 
     entries = await loadAllActiveFaqsForEstablishment(pool, establishment, {
       maxChars: Math.min(maxChars, 1200),
     });
-    return entries;
+    return filterFaqsForCustomerPrompt(entries);
   }
 
   const budget = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : FAQ_MAX_CHARS_PER_TURN;
@@ -357,11 +429,12 @@ async function loadRelevantFaqsForEstablishment(
     totalChars += piece.length + 2;
   }
 
-  return trimmed;
+  return filterFaqsForCustomerPrompt(trimmed);
 }
 
 function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
-  if (!entries.length) return '';
+  const customerEntries = filterFaqsForCustomerPrompt(entries);
+  if (!customerEntries.length) return '';
   const houseLabel = establishmentName ? ` DA ${establishmentName.toUpperCase()}` : '';
   // Header agressivo de propósito: força a IA a tratar este bloco como o único
   // material com o qual ela foi treinada para atender. Sem isso, o LLM tende
@@ -371,7 +444,7 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
     `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (fonte oficial — prevalece sobre conhecimento geral):`,
     'Use só os fatos abaixo. Se não cobrir o tópico: "Boa, deixa eu confirmar com a equipe e te respondo já."',
   ].join('\n');
-  const body = entries
+  const body = customerEntries
     .map((entry) => `### ${entry.topic}\n${entry.answer}`)
     .join('\n\n');
   return `${header}\n\n${body}`;
@@ -458,4 +531,5 @@ module.exports = {
   generateFaqGroundedReply,
   resolveFaqTopicsForTurn,
   fetchFaqAnswerForTopic,
+  invalidateFaqCache,
 };

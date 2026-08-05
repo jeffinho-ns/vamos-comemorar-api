@@ -4,25 +4,16 @@ const {
   detectRelevantFaqTopics,
   loadRelevantFaqsForEstablishment,
 } = require('./faqPrefetchService');
+const {
+  isCustomerFacingFaqEntry,
+  stripMetaInstructionsFromAnswer,
+} = require('./faqPromptFilter');
 const { looksLikeReservationIntent } = require('./reservationDateHint');
 const { isInformationalFaqTurn } = require('./faqTopicCanonical');
 
 const OFFLINE_KNOWLEDGE_DIR = path.join(__dirname, '../../data/offline-knowledge');
 const OFFLINE_MAX_CHARS = 4000;
 const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
-
-const INTERNAL_FAQ_TOPICS = new Set([
-  'prioridade_treinamento_ia',
-  'tom_atendimento_humano',
-  'coleta_dados_progressiva_reserva',
-  'primeiro_contato_anuncio',
-  'subareas_canonicas_highline',
-  'controle_duplicidade_reservas',
-  'capacidade_diaria_highline',
-  'reserva_grupos_grandes_highline',
-  'reserva_areas_operacional_highline',
-  'valor_entrada_vs_caucao',
-]);
 
 /** Bidirectional topic aliases for offline pack / DB matching. */
 const TOPIC_ALIASES = {
@@ -46,26 +37,8 @@ function slugFromName(establishmentName) {
   return name.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
-function looksLikeInternalTrainingAnswer(answer) {
-  const text = String(answer || '').trim();
-  if (!text) return true;
-  return /^(REGRA|META-REGRA)\b/i.test(text);
-}
-
-function isCustomerFacingFaqEntry(entry) {
-  const topic = String(entry?.topic || '').trim();
-  const answer = String(entry?.answer || '').trim();
-  if (!topic || !answer) return false;
-  if (INTERNAL_FAQ_TOPICS.has(topic)) return false;
-  if (looksLikeInternalTrainingAnswer(answer)) return false;
-  return true;
-}
-
 function formatAnswerForWhatsApp(answer, establishmentName = '') {
-  let text = String(answer || '').trim();
-  text = text.replace(/^REGRA[^:\n]*:\s*/gim, '').trim();
-  text = text.replace(/^META-REGRA[^:\n]*:\s*/gim, '').trim();
-  text = text.replace(/\n{3,}/g, '\n\n');
+  let text = stripMetaInstructionsFromAnswer(answer);
   if (!text) return '';
   if (establishmentName && text.length < 420) {
     return text;
@@ -180,7 +153,7 @@ function pickBestOfflineAnswer(topicHints, entries) {
   const expandedHints = expandTopicHintsWithAliases(topicHints);
   const byTopic = new Map();
   for (const entry of entries) {
-    if (!isCustomerFacingFaqEntry(entry)) continue;
+    if (!isCustomerFacingFaqEntry(entry, { forOffline: true })) continue;
     const topic = String(entry.topic || '').trim();
     if (!topic || byTopic.has(topic)) continue;
     byTopic.set(topic, entry);
@@ -192,7 +165,7 @@ function pickBestOfflineAnswer(topicHints, entries) {
   }
 
   for (const entry of entries) {
-    if (isCustomerFacingFaqEntry(entry)) return entry;
+    if (isCustomerFacingFaqEntry(entry, { forOffline: true })) return entry;
   }
 
   return null;
@@ -233,7 +206,7 @@ async function tryOfflineKnowledgeReply(pool, {
     entries = await loadRelevantFaqsForEstablishment(pool, establishment, topicHints, {
       maxChars: OFFLINE_MAX_CHARS,
     });
-    entries = entries.filter(isCustomerFacingFaqEntry);
+    entries = entries.filter((entry) => isCustomerFacingFaqEntry(entry, { forOffline: true }));
     entries = expandEntriesWithTopicAliases(entries);
   }
 
@@ -244,7 +217,7 @@ async function tryOfflineKnowledgeReply(pool, {
         answer: String(item.answer || '').trim(),
         fromFile: true,
       }))
-      .filter(isCustomerFacingFaqEntry);
+      .filter((entry) => isCustomerFacingFaqEntry(entry, { forOffline: true }));
     entries = expandEntriesWithTopicAliases(entries);
     source = 'file';
   }

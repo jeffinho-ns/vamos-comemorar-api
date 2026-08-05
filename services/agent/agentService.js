@@ -79,10 +79,17 @@ function getReferenceDateIso() {
 }
 
 /**
- * Monta mensagens com prefixo estático cacheável (system #1) + sufixo dinâmico (system #2).
+ * Monta mensagens para a OpenAI com prefixo cacheável primeiro.
+ * Ordem fixa (não inverter nem mesclar): system estático → system dinâmico → histórico.
+ * A API cacheia o maior prefixo idêntico; o estático deve ser byte-a-byte igual entre turnos
+ * da mesma casa enquanto assistantSettings não mudarem.
  */
 function buildOpenAiMessages(messageHistory, staticSystemPrompt, dynamicSystemPrompt = '') {
-  const messages = [{ role: 'system', content: String(staticSystemPrompt || '').trim() }];
+  const staticContent = String(staticSystemPrompt || '').trim();
+  if (!staticContent) {
+    throw new Error('staticSystemPrompt é obrigatório para montar mensagens do agente.');
+  }
+  const messages = [{ role: 'system', content: staticContent }];
   const dynamic = String(dynamicSystemPrompt || '').trim();
   if (dynamic) {
     messages.push({ role: 'system', content: dynamic });
@@ -456,6 +463,12 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
           requestId: completion?.id ?? null,
           meta: { outputMode, toolChoice: toolChoice ?? null },
         });
+        const cachedTokens = Number(completion?.usage?.prompt_tokens_details?.cached_tokens);
+        if (Number.isFinite(cachedTokens) && cachedTokens > 0) {
+          console.debug(
+            `[agentService] OpenAI prompt cache hit: cached_tokens=${cachedTokens} model=${modelName}`
+          );
+        }
         const message = completion?.choices?.[0]?.message || null;
         const hasContent = Boolean(String(message?.content || '').trim());
         const hasToolCalls = Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
@@ -1314,7 +1327,12 @@ async function runAgentTurn({
     externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
   }
 
-  const promptContext = {
+  const staticPromptContext = promptBuilder.pickStaticPromptContext({
+    assistantSettings,
+    lockedEstablishmentId: context.lockedEstablishmentId,
+    lockedEstablishmentName: context.lockedEstablishmentName,
+  });
+  const dynamicPromptContext = {
     ...context,
     assistantSettings,
     externalLinksBlock,
@@ -1323,8 +1341,8 @@ async function runAgentTurn({
     reservationFunnelBlock,
     referenceDate: referenceDateIso,
   };
-  const staticSystemPrompt = promptBuilder.buildStatic(promptContext);
-  const dynamicSystemPrompt = promptBuilder.buildDynamic(promptContext);
+  const staticSystemPrompt = promptBuilder.buildStatic(staticPromptContext);
+  const dynamicSystemPrompt = promptBuilder.buildDynamic(dynamicPromptContext);
   const messages = buildOpenAiMessages(messageHistory, staticSystemPrompt, dynamicSystemPrompt);
   const tools = getAgentToolDefinitions();
 
@@ -1487,6 +1505,7 @@ async function runAgentTurn({
 
 module.exports = {
   runAgentTurn,
+  buildOpenAiMessages,
   getReferenceDateIso,
   synthesizeReplyFromToolTrace,
   synthesizeAvailabilityFromToolResult,
