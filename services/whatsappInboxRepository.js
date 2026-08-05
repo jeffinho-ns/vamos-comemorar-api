@@ -541,6 +541,7 @@ async function listConversations(pool, options = {}) {
   const orderClause =
     readUserParam != null
       ? `ORDER BY
+            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
             CASE
               WHEN lm.id IS NOT NULL AND (irs.last_read_message_id IS NULL OR lm.id > irs.last_read_message_id)
                    AND lm.direction = 'inbound' THEN 0
@@ -552,15 +553,14 @@ async function listConversations(pool, options = {}) {
                         OR (lm.intent IS NULL OR lm.intent = '')) THEN 4
               ELSE 5
             END ASC,
-            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
             c.id DESC`
       : `ORDER BY
+            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
             CASE
               WHEN c.human_takeover_until IS NOT NULL AND c.human_takeover_until > NOW() THEN 0
               ELSE 1
             END ASC,
-            GREATEST(COALESCE(lm.created_at, c.updated_at), c.updated_at) DESC,
-              c.id DESC`;
+            c.id DESC`;
 
   const r = await pool.query(
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
