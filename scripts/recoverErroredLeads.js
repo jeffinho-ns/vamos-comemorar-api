@@ -36,13 +36,13 @@ function parseArgs() {
 function buildRecoveryMessage(mode = 'human') {
   if (mode === 'human') {
     return (
-      'Oi! Tivemos uma instabilidade mais cedo e sua conversa pode ter parado no meio. ' +
+      'Oi! Voltando aqui porque nossa conversa pode ter parado no meio. ' +
       'Pra voce nao perder tempo, ja encaminhei seu atendimento para uma pessoa da equipe. ' +
       'Se ainda quiser fechar sua reserva, me responde aqui com "quero continuar" que seguimos agora.'
     );
   }
   return (
-    'Oi! Tivemos uma instabilidade mais cedo e sua conversa pode ter parado no meio. ' +
+    'Oi! Voltando aqui porque nossa conversa pode ter parado no meio. ' +
     'Se voce ainda quiser fechar sua reserva, me manda: data, horario e quantidade de pessoas, ' +
     'que eu continuo com prioridade agora.'
   );

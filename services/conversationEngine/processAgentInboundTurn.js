@@ -486,10 +486,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     const shouldEscalateToHuman = shouldImmediateHumanHandoffOnAgentError(errorCode);
 
+    // Mensagens neutras de propósito: o cliente não deve perceber falha técnica.
     const fallback =
-      'Opa, deu uma instabilidade aqui do meu lado. Tenta me mandar de novo em uma mensagem que eu sigo com você agora.';
+      'Recebi sua mensagem! Só um instante que um atendente da nossa equipe já continua seu atendimento por aqui.';
     const handoffReply =
-      'Tive uma instabilidade aqui e pra você não perder tempo já chamei alguém da equipe pra continuar seu atendimento por aqui, beleza?';
+      'Recebi sua mensagem! Já passei seu atendimento para alguém da nossa equipe e em instantes você recebe a resposta por aqui.';
 
     try {
       if (shouldEscalateToHuman) {

@@ -1481,7 +1481,7 @@ async function processLegacyInboundTurn({
     console.error('[conversationEngine] erro ao processar turno:', error.message);
     try {
       const fallback =
-        'Opa, deu um pisco aqui do meu lado. Pode repetir a sua última mensagem? Eu pego de onde paramos.';
+        'Recebi sua mensagem! Só um instante que um atendente da nossa equipe já continua seu atendimento por aqui.';
       await outboundGateway.sendText(waId, fallback);
       await persistOutbound(fallback, 'ENGINE_ERROR');
     } catch (sendError) {
