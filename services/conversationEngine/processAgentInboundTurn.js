@@ -40,7 +40,11 @@ const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentCo
 const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
 const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
+const { isOpenAiCircuitOpen, tripOpenAiCircuit } = require('../agent/openaiCircuitBreaker');
+const { tryOfflineKnowledgeReply } = require('../agent/offlineKnowledgeService');
 const B2B_THRESHOLD_PEOPLE = 60;
+const NEUTRAL_HANDOFF_REPLY =
+  'Recebi sua mensagem! Já passei seu atendimento para alguém da nossa equipe e em instantes você recebe a resposta por aqui.';
 const B2B_KEYWORDS = /\b(locac[aã]o|loca[cç][aã]o|exclusiv[ao]|privativ[ao]|formatura|formaturas|evento\s+corporativo|corporativ[ao]|empresa|empresarial|confraterniza[cç][aã]o|workshop|congresso|festa\s+de\s+formatura)\b/i;
 
 function detectB2BIntent(text) {
@@ -83,6 +87,55 @@ async function activateHumanTakeover(pool, waId, hours = 48) {
       WHERE wa_id = $1`,
     [waId, String(safeHours)]
   );
+}
+
+async function sendOfflineKnowledgeFallback({
+  pool,
+  waId,
+  persistOutbound,
+  establishmentId,
+  establishmentName,
+  userText,
+  messageHistory,
+  meta = {},
+  alwaysTakeover = true,
+}) {
+  const offlineResult = await tryOfflineKnowledgeReply(pool, {
+    establishmentId,
+    establishmentName,
+    userText,
+    messageHistory,
+  });
+
+  if (offlineResult.ok) {
+    if (alwaysTakeover) {
+      await activateHumanTakeover(pool, waId, 48);
+    }
+    await outboundGateway.sendText(waId, offlineResult.text);
+    await persistOutbound(offlineResult.text, 'OFFLINE_KNOWLEDGE', {
+      source: 'offline_knowledge',
+      topic: offlineResult.topic,
+      packSource: offlineResult.source,
+      ...meta,
+    });
+    console.log(
+      `[agentEngine] resposta offline enviada waId=${waId} topic=${offlineResult.topic} source=${offlineResult.source}`
+    );
+    return offlineResult;
+  }
+
+  if (alwaysTakeover) {
+    await activateHumanTakeover(pool, waId, 48);
+    await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
+    await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
+      source: 'offline_handoff',
+      offlineReason: offlineResult.reason,
+      ...meta,
+    });
+    console.warn(`[agentEngine] handoff offline waId=${waId} reason=${offlineResult.reason}`);
+  }
+
+  return offlineResult;
 }
 
 async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
@@ -323,9 +376,29 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   }
 
+  if (isOpenAiCircuitOpen()) {
+    try {
+      await sendOfflineKnowledgeFallback({
+        pool,
+        waId,
+        persistOutbound,
+        establishmentId: lockedEstablishmentId,
+        establishmentName: lockedEstablishmentName,
+        userText: incomingText,
+        messageHistory,
+        meta: { circuitOpen: true },
+      });
+    } catch (circuitFallbackError) {
+      console.error('[agentEngine] falha no fallback offline (circuit open):', circuitFallbackError.message);
+    }
+    return;
+  }
+
   let contextSummaryForTurn = memory.contextSummary || '';
   try {
-    const prepared = await prepareMessageHistoryForTurn(messageHistory, contextSummaryForTurn);
+    const prepared = await prepareMessageHistoryForTurn(messageHistory, contextSummaryForTurn, {
+      pool,
+    });
     messageHistory = prepared.messageHistory;
     contextSummaryForTurn = prepared.contextSummary;
     if (prepared.summarized) {
@@ -484,34 +557,63 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       console.warn('[agentEngine] falha ao medir AGENT_ERROR recente:', obsError.message);
     }
 
-    const shouldEscalateToHuman = shouldImmediateHumanHandoffOnAgentError(errorCode);
+    if (['OPENAI_QUOTA_EXCEEDED', 'OPENAI_MISSING_CREDENTIALS', 'OPENAI_AUTH'].includes(errorCode)) {
+      tripOpenAiCircuit(errorCode);
+    }
+
+    const shouldEscalateToHuman =
+      shouldImmediateHumanHandoffOnAgentError(errorCode) || errorCode === 'OPENAI_QUOTA_EXCEEDED';
 
     // Mensagens neutras de propósito: o cliente não deve perceber falha técnica.
     const fallback =
       'Recebi sua mensagem! Só um instante que um atendente da nossa equipe já continua seu atendimento por aqui.';
-    const handoffReply =
-      'Recebi sua mensagem! Já passei seu atendimento para alguém da nossa equipe e em instantes você recebe a resposta por aqui.';
 
     try {
+      const offlineResult = await sendOfflineKnowledgeFallback({
+        pool,
+        waId,
+        persistOutbound,
+        establishmentId: lockedEstablishmentId,
+        establishmentName: lockedEstablishmentName,
+        userText: incomingText,
+        messageHistory,
+        meta: {
+          source: 'agent_error_offline',
+          recentAgentErrors,
+          ...errorMeta,
+        },
+        alwaysTakeover: false,
+      });
+
+      if (offlineResult.ok) {
+        await activateHumanTakeover(pool, waId, 48);
+        console.warn(
+          `[agentEngine] FAQ offline após erro waId=${waId} errCode=${errorCode} topic=${offlineResult.topic}`
+        );
+        return;
+      }
+
       if (shouldEscalateToHuman) {
         await activateHumanTakeover(pool, waId, 48);
-        await outboundGateway.sendText(waId, handoffReply);
-        await persistOutbound(handoffReply, 'HUMAN_REQUESTED', {
+        await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
+        await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
           source: 'agent_error_guard',
           recentAgentErrors,
+          offlineReason: offlineResult.reason,
           ...errorMeta,
         });
         console.warn(
-          `[agentEngine] takeover por AGENT_ERROR em sequência waId=${waId} errCode=${errorCode} recent=${recentAgentErrors}`
+          `[agentEngine] takeover por AGENT_ERROR waId=${waId} errCode=${errorCode} recent=${recentAgentErrors}`
         );
-      } else {
-        await outboundGateway.sendText(waId, fallback);
-        await persistOutbound(fallback, 'AGENT_ERROR', {
-          source: 'agent_turn_catch',
-          ...errorMeta,
-        });
-        console.warn(`[agentEngine] fallback enviado waId=${waId} errCode=${errorCode}`);
+        return;
       }
+
+      await outboundGateway.sendText(waId, fallback);
+      await persistOutbound(fallback, 'AGENT_ERROR', {
+        source: 'agent_turn_catch',
+        ...errorMeta,
+      });
+      console.warn(`[agentEngine] fallback enviado waId=${waId} errCode=${errorCode}`);
     } catch (_sendError) {
       console.error('[agentEngine] falha ao enviar fallback:', _sendError.message);
     }

@@ -1,6 +1,6 @@
 /**
  * Configuração centralizada de modelos e janela de contexto.
- * Modelo homologado em produção: gpt-5.5 (ver agentService.js).
+ * Agente (tools/reservas): gpt-5.5. FAQ/resumos: modelo econômico (ver agentService.js).
  */
 
 function sanitizeOpenAiModelName(value, fallbackDefault) {
@@ -26,9 +26,13 @@ function sanitizeOpenAiModelName(value, fallbackDefault) {
 
 const MODEL_AGENT = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_MODEL, 'gpt-5.5');
 const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-4o');
+const MODEL_ECONOMY = sanitizeOpenAiModelName(
+  process.env.OPENAI_ECONOMY_MODEL,
+  'gpt-4o-mini'
+);
 
-const MAX_CONTEXT_MESSAGES = Number(process.env.MAX_CONTEXT_MESSAGES || 10);
-const FAQ_MAX_TOKENS_PER_TURN = Number(process.env.FAQ_MAX_TOKENS_PER_TURN || 800);
+const MAX_CONTEXT_MESSAGES = Number(process.env.MAX_CONTEXT_MESSAGES || 8);
+const FAQ_MAX_TOKENS_PER_TURN = Number(process.env.FAQ_MAX_TOKENS_PER_TURN || 600);
 const FAQ_MAX_CHARS_PER_TURN = FAQ_MAX_TOKENS_PER_TURN * 4;
 
 const AGENT_MAX_TOOL_ROUNDS = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 2);
@@ -37,28 +41,63 @@ const AGENT_MAX_TOOL_ROUNDS_FUNNEL = Number(process.env.AGENT_MAX_TOOL_ROUNDS_FU
 /** Tópicos FAQ mínimos quando nenhum tópico é detectado (fallback enxuto). */
 const FAQ_CORE_FALLBACK_TOPICS = [
   'dias_horarios_funcionamento',
+  'horario_funcionamento',
   'valores_entrada',
-  'tom_atendimento_humano',
+  'dress_code',
+  'cardapio',
 ];
 
 function getMaxContextMessages() {
   const n = Number(MAX_CONTEXT_MESSAGES);
-  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 32) : 10;
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 32) : 8;
 }
 
-/** Todas as tarefas usam o modelo homologado (gpt-5.5). */
-function getModelForTask(_task) {
+/** Agente com tools usa gpt-5.5; FAQ e resumos usam modelo econômico. */
+function getModelForTask(task) {
+  const t = String(task || '').toLowerCase();
+  if (t === 'faq' || t === 'summary' || t === 'history_summary') {
+    return MODEL_ECONOMY;
+  }
   return MODEL_AGENT;
 }
 
 /**
- * Sem limite de output — a API usa o default do modelo.
- * Garante que max_tokens / max_completion_tokens não sejam enviados.
+ * Aplica teto de tokens de conclusão conforme modo de saída.
+ * OPENAI_MAX_COMPLETION_TOKENS (env) substitui os defaults por modo.
  */
-function applyOutputLimit(payload) {
+function applyOutputLimit(payload, outputMode = 'conversational') {
   if (!payload || typeof payload !== 'object') return payload;
+
+  const globalOverride = Number(process.env.OPENAI_MAX_COMPLETION_TOKENS);
+  let limit;
+
+  if (Number.isFinite(globalOverride) && globalOverride > 0) {
+    limit = Math.floor(globalOverride);
+  } else {
+    const mode = String(outputMode || 'conversational').toLowerCase();
+    const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
+
+    if (mode === 'json' || mode === 'summary') {
+      limit = 220;
+    } else if (mode === 'agent' || hasTools) {
+      limit = 500;
+    } else {
+      limit = 400;
+    }
+  }
+
+  const model = String(payload.model || '').toLowerCase();
+  const isGpt5 = /^gpt-5/i.test(model);
+
   delete payload.max_tokens;
   delete payload.max_completion_tokens;
+
+  if (isGpt5) {
+    payload.max_completion_tokens = limit;
+  } else {
+    payload.max_tokens = limit;
+  }
+
   return payload;
 }
 
@@ -75,6 +114,7 @@ function getAgentToolRoundLimits(funnelActive = false) {
 module.exports = {
   MODEL_AGENT,
   MODEL_FALLBACK,
+  MODEL_ECONOMY,
   sanitizeOpenAiModelName,
   MAX_CONTEXT_MESSAGES,
   FAQ_MAX_TOKENS_PER_TURN,

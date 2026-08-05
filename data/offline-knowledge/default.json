@@ -1,0 +1,32 @@
+{
+  "establishmentId": null,
+  "slug": "default",
+  "name": "Estabelecimento",
+  "topics": [
+    {
+      "topic": "horario_funcionamento",
+      "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
+      "answer": "O horário de funcionamento pode variar conforme o dia e eventos especiais. Vou confirmar com a equipe e já te respondo 🙂"
+    },
+    {
+      "topic": "dias_horarios_funcionamento",
+      "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
+      "answer": "O horário de funcionamento pode variar conforme o dia e eventos especiais. Vou confirmar com a equipe e já te respondo 🙂"
+    },
+    {
+      "topic": "como_reservar",
+      "keywords": ["como reserv", "como faço reserva", "como faz reserva", "como funciona a reserva", "quero reservar"],
+      "answer": "Show! Pra reservar, me passa a data, quantas pessoas e seu nome completo — nossa equipe continua daqui por aqui mesmo e finaliza com você 🙂"
+    },
+    {
+      "topic": "dress_code",
+      "keywords": ["dress code", "traje", "roupa", "vestimenta"],
+      "answer": "O dress code é casual elegante. Se precisar de detalhes, a equipe te orienta na hora."
+    },
+    {
+      "topic": "cardapio",
+      "keywords": ["cardápio", "cardapio", "menu"],
+      "answer": "O cardápio digital está no link oficial da casa — se quiser, a equipe te manda por aqui também."
+    }
+  ]
+}

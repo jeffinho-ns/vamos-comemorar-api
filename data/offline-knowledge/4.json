@@ -1,0 +1,62 @@
+{
+  "establishmentId": 4,
+  "slug": "oh_fregues",
+  "name": "Oh Fregues",
+  "topics": [
+    {
+      "topic": "horario_funcionamento",
+      "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
+      "answer": "O Oh Fregues funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
+    },
+    {
+      "topic": "dias_horarios_funcionamento",
+      "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
+      "answer": "O Oh Fregues funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
+    },
+    {
+      "topic": "estacionamento",
+      "keywords": ["estacionamento", "estacionar", "valet", "manobrista", "carro"],
+      "answer": "A orientação de estacionamento pode variar conforme o dia e o evento. Posso confirmar com a equipe do Oh Fregues no dia da reserva."
+    },
+    {
+      "topic": "pets",
+      "keywords": ["pet", "pets", "cachorro", "animal"],
+      "answer": "A política de pets pode variar conforme a casa e o evento. Posso confirmar a orientação com a equipe no dia da reserva."
+    },
+    {
+      "topic": "musica",
+      "keywords": ["música", "musica", "dj", "programação"],
+      "answer": "A programação musical pode variar conforme evento e operação do dia. Posso alinhar o estilo do dia quando você confirmar a data."
+    },
+    {
+      "topic": "cardapio",
+      "keywords": ["cardápio", "cardapio", "menu"],
+      "answer": "O cardápio digital está em https://www.agilizaiapp.com.br/cardapio/ohfregues — se quiser, a equipe te manda por aqui também."
+    },
+    {
+      "topic": "dress_code",
+      "keywords": ["dress code", "traje", "roupa", "vestimenta"],
+      "answer": "O dress code é casual elegante — evite chinelas e bermudas rasgadas. Se precisar de detalhes, a equipe te orienta na hora."
+    },
+    {
+      "topic": "aniversarios",
+      "keywords": ["aniversário", "aniversario", "niver", "comemoração"],
+      "answer": "Comemoramos aniversários com atenção especial! Me conta a data, o horário e quantas pessoas pra eu orientar a melhor experiência."
+    },
+    {
+      "topic": "beneficios_aniversario",
+      "keywords": ["aniversário", "aniversario", "niver", "comemoração"],
+      "answer": "Comemoramos aniversários com atenção especial! Me conta a data, o horário e quantas pessoas pra eu orientar a melhor experiência."
+    },
+    {
+      "topic": "areas",
+      "keywords": ["área", "area", "ambiente", "mesa", "mesas"],
+      "answer": "O Oh Fregues possui áreas com ambientes distintos. Posso listar as opções ativas e ajudar a escolher a melhor experiência."
+    },
+    {
+      "topic": "como_reservar",
+      "keywords": ["como reserv", "como faço reserva", "como faz reserva", "como funciona a reserva"],
+      "answer": "Show! Pra reservar, me passa a data, quantas pessoas e seu nome completo — nossa equipe continua daqui por aqui mesmo e finaliza com você 🙂"
+    }
+  ]
+}

@@ -826,8 +826,13 @@ async function processLegacyInboundTurn({
           buildFaqKnowledgeBlock,
         } = require('../agent/faqPrefetchService');
         if (activeEstablishmentId) {
+          const establishmentNameForFaq =
+            linkedEstablishment?.name ||
+            (conversation?.establishment_name ? String(conversation.establishment_name) : '');
           const topicHints = detectRelevantFaqTopics(messageText, messageHistory, {
             funnelActive: true,
+            establishmentId: activeEstablishmentId,
+            establishmentName: establishmentNameForFaq,
           });
           const faqEntries = await loadRelevantFaqsForEstablishment(
             pool,
@@ -835,9 +840,6 @@ async function processLegacyInboundTurn({
             topicHints,
             { funnelActive: true }
           );
-          const establishmentNameForFaq =
-            linkedEstablishment?.name ||
-            (conversation?.establishment_name ? String(conversation.establishment_name) : '');
           faqKnowledgeBlock = buildFaqKnowledgeBlock(faqEntries, establishmentNameForFaq);
         }
       } catch (faqLoadError) {

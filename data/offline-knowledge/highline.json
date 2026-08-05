@@ -1,0 +1,48 @@
+{
+  "establishmentId": 7,
+  "slug": "highline",
+  "name": "HighLine",
+  "topics": [
+    {
+      "topic": "dias_horarios_funcionamento",
+      "answer": "Funcionamos sexta e sábado 🎉 Aos sábados abrimos às 16h e vamos até 4h — house, open format e brasilidades. O club abre à meia-noite. De segunda a quarta a casa fica fechada."
+    },
+    {
+      "topic": "valores_entrada",
+      "answer": "Com reserva e nome na lista (sexta e sábado, sujeito a alteração): até 18h todo mundo VIP ✨ Das 18h à meia-noite: R$60 seco ou R$160 consome. Depois da meia-noite: R$80 seco ou R$200 consome. A reserva de mesa normal não tem custo — só a entrada na casa."
+    },
+    {
+      "topic": "dress_code",
+      "answer": "O dress code é casual elegante — evite chinelos e bermudas rasgadas. Se quiser confirmar algum detalhe específico, a equipe te orienta na hora."
+    },
+    {
+      "topic": "estacionamento",
+      "answer": "O Highline não tem estacionamento próprio. Normalmente tem valet/manobrista pros clientes, conforme a operação do dia — se quiser, a equipe confirma a melhor orientação na data da reserva."
+    },
+    {
+      "topic": "como_reservar",
+      "keywords": ["como reserv", "como faço reserva", "como faz reserva", "como funciona a reserva"],
+      "answer": "Show! Pra reservar, me passa a data, quantas pessoas e seu nome completo — nossa equipe continua daqui por aqui mesmo e finaliza com você 🙂"
+    },
+    {
+      "topic": "cardapio",
+      "answer": "O cardápio digital está no link oficial da casa — se quiser, a equipe te manda por aqui também."
+    },
+    {
+      "topic": "regras_bolo",
+      "answer": "Pode levar bolo sim! Só precisa ter no máximo 2kg e trazer a nota fiscal de compra pra apresentar na entrada."
+    },
+    {
+      "topic": "beneficios_aniversario",
+      "answer": "Aniversariante ganha 2 VIPs e 2 drinks G&T (um pra você e outro pro acompanhante). Com 20+ convidados presentes: 1 garrafa Gin 142 ou Clericot. Com 30+: mesma garrafa + 1 drink cortesia. As cortesias por quantidade não são cumulativas."
+    },
+    {
+      "topic": "redes_sociais_fotos",
+      "answer": "Pra ver fotos e pegar a vibe do lugar, dá uma olhada no Instagram oficial: https://www.instagram.com/highlinebar/"
+    },
+    {
+      "topic": "areas_mesas_camarotes_diferenca",
+      "answer": "Reserva de mesa normal não tem custo. Rooftop VIP (100% consumível): Lounge 6 pessoas R$800, Bangalô 8 pessoas R$1.000. Camarotes no Club (abre 00h): 8 VIPs R$2.000 (reverte R$1.600 em consumação) ou 10 VIPs R$2.500 (reverte R$2.000). Valores sujeitos a alteração — a equipe confirma o pacote ideal pra você."
+    }
+  ]
+}

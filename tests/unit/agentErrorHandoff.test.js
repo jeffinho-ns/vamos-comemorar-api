@@ -41,6 +41,25 @@ test('handoff automático continua permitido para erro estrutural de configuraç
   }
 });
 
+test('quota/credenciais/auth disparam handoff mesmo com AGENT_ERROR_IMMEDIATE_HANDOFF desligado', () => {
+  const previous = process.env.AGENT_ERROR_IMMEDIATE_HANDOFF;
+  delete process.env.AGENT_ERROR_IMMEDIATE_HANDOFF;
+
+  try {
+    assert.equal(shouldImmediateHumanHandoffOnAgentError('OPENAI_QUOTA_EXCEEDED'), true);
+    assert.equal(shouldImmediateHumanHandoffOnAgentError('OPENAI_MISSING_CREDENTIALS'), true);
+    assert.equal(shouldImmediateHumanHandoffOnAgentError('OPENAI_AUTH'), true);
+    assert.equal(shouldImmediateHumanHandoffOnAgentError('OPENAI_MODEL_ACCESS'), false);
+    assert.equal(shouldImmediateHumanHandoffOnAgentError('OPENAI_TIMEOUT'), false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.AGENT_ERROR_IMMEDIATE_HANDOFF;
+    } else {
+      process.env.AGENT_ERROR_IMMEDIATE_HANDOFF = previous;
+    }
+  }
+});
+
 test('classificação identifica timeout da OpenAI como erro recuperável', () => {
   const error = new Error('OpenAI timeout após 25000ms');
   error.code = 'OPENAI_TIMEOUT';

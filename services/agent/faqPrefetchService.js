@@ -2,9 +2,11 @@ const OpenAI = require('openai');
 const { buildFaqTopicCandidates, getDefaultFaqAnswer } = require('./agentTools');
 const {
   detectFaqTopicsFromConversation,
+  expandFaqTopicSeedAliases,
   extractPartySizeFromText,
   looksLikeEventProgramQuestion,
 } = require('./faqTopicCanonical');
+const { isHighlineEstablishment } = require('./highlineReservationAreas');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
   FAQ_MAX_CHARS_PER_TURN,
@@ -12,6 +14,7 @@ const {
   getModelForTask,
   applyOutputLimit,
 } = require('./openAiConfig');
+const { recordOpenAiUsageSafe } = require('./aiUsageRepository');
 
 let openaiClient = null;
 
@@ -238,14 +241,23 @@ async function loadFaqsMatchingDateMention(
   return entries;
 }
 
+function isHighlineFaqContext(options = {}) {
+  if (options.highline === true) return true;
+  if (options.establishmentId != null && isHighlineEstablishment(options.establishmentId)) {
+    return true;
+  }
+  return /highline/i.test(String(options.establishmentName || ''));
+}
+
 /**
  * Detecta tópicos FAQ relevantes para o turno (não carrega a base inteira).
  */
 function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
   const { funnelActive = false } = options;
+  const isHighline = isHighlineFaqContext(options);
   const topics = detectFaqTopicsFromConversation(messageHistory, userText);
 
-  if (funnelActive) {
+  if (funnelActive && isHighline) {
     for (const topic of [
       'coleta_dados_progressiva_reserva',
       'reserva_areas_operacional_highline',
@@ -263,14 +275,16 @@ function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
       .map((m) => String(m.content || '').trim())
       .slice(-6),
   ];
-  for (const text of texts) {
-    const size = extractPartySizeFromText(text);
-    if (Number.isFinite(size) && size >= 16 && !topics.includes('reserva_grupos_grandes_highline')) {
-      topics.push('reserva_grupos_grandes_highline');
+  if (isHighline) {
+    for (const text of texts) {
+      const size = extractPartySizeFromText(text);
+      if (Number.isFinite(size) && size >= 16 && !topics.includes('reserva_grupos_grandes_highline')) {
+        topics.push('reserva_grupos_grandes_highline');
+      }
     }
   }
 
-  return [...new Set(topics.filter(Boolean))];
+  return expandFaqTopicSeedAliases([...new Set(topics.filter(Boolean))]);
 }
 
 /**
@@ -369,6 +383,8 @@ async function generateFaqGroundedReply({
   establishmentName = '',
   messageHistory = [],
   eventProgramOnly = false,
+  pool = null,
+  establishmentId = null,
 }) {
   const question = String(userQuestion || '').trim();
   const faqText = buildFaqKnowledgeBlock(faqEntries, establishmentName);
@@ -415,6 +431,13 @@ ${faqText}`,
   }
 
   const completion = await getOpenAI().chat.completions.create(payload);
+  await recordOpenAiUsageSafe(pool, {
+    path: 'faq_first',
+    establishmentId,
+    model: modelName,
+    usage: completion?.usage,
+    requestId: completion?.id ?? null,
+  });
 
   const reply = String(completion?.choices?.[0]?.message?.content || '').trim();
   if (!reply) throw new Error('Resposta FAQ vazia.');

@@ -44,17 +44,14 @@ function buildAgentRuntimeErrorMeta(error, errorCode) {
 }
 
 function shouldImmediateHumanHandoffOnAgentError(errorCode) {
-  const env = String(process.env.AGENT_ERROR_IMMEDIATE_HANDOFF ?? 'false')
-    .trim()
-    .toLowerCase();
+  const code = String(errorCode || '');
+  // Always escalate — next customer message will not fix these
+  if (['OPENAI_QUOTA_EXCEEDED', 'OPENAI_MISSING_CREDENTIALS', 'OPENAI_AUTH'].includes(code)) {
+    return true;
+  }
+  const env = String(process.env.AGENT_ERROR_IMMEDIATE_HANDOFF ?? 'false').trim().toLowerCase();
   if (!['1', 'true', 'yes', 'on'].includes(env)) return false;
-
-  // Erros transitórios da OpenAI não devem pausar a IA por 48h: isso derruba
-  // a conversão justamente quando o provedor oscila. Handoff automático fica
-  // restrito a problemas estruturais que a próxima mensagem não vai corrigir.
-  return ['OPENAI_MISSING_CREDENTIALS', 'OPENAI_AUTH', 'OPENAI_MODEL_ACCESS'].includes(
-    String(errorCode || '')
-  );
+  return ['OPENAI_MODEL_ACCESS'].includes(code);
 }
 
 module.exports = {

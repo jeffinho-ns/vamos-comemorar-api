@@ -103,7 +103,40 @@ const ADMIN_TOPIC_CANONICAL = {
   duplicidade: 'controle_duplicidade_reservas',
   duplicada: 'controle_duplicidade_reservas',
   duplicadas: 'controle_duplicidade_reservas',
+
+  // Variantes usadas no seedFaqs / casas legadas (mantém ambos reconhecíveis)
+  dias_horarios_funcionamento: 'dias_horarios_funcionamento',
 };
+
+/** Variantes de tópico no banco (seedFaqs) para o mesmo assunto canônico. */
+const FAQ_SEED_TOPIC_ALIASES = {
+  dias_horarios_funcionamento: ['dias_horarios_funcionamento', 'horario_funcionamento'],
+  horario_funcionamento: ['dias_horarios_funcionamento', 'horario_funcionamento'],
+  beneficios_aniversario: ['beneficios_aniversario', 'aniversarios', 'aniversario'],
+  areas_mesas_camarotes_diferenca: ['areas_mesas_camarotes_diferenca', 'areas', 'area'],
+  pet: ['pet', 'pets'],
+  cardapio: ['cardapio', 'menu'],
+  dress_code: ['dress_code', 'traje', 'vestimenta'],
+  estacionamento: ['estacionamento', 'valet'],
+  musica: ['musica'],
+};
+
+function expandFaqTopicSeedAliases(topics = []) {
+  const expanded = [];
+  for (const topic of topics || []) {
+    const key = normalizeTopicKey(topic);
+    if (!key) continue;
+    const aliases = FAQ_SEED_TOPIC_ALIASES[key];
+    if (aliases?.length) {
+      for (const alias of aliases) {
+        if (!expanded.includes(alias)) expanded.push(alias);
+      }
+    } else if (!expanded.includes(key)) {
+      expanded.push(key);
+    }
+  }
+  return expanded;
+}
 
 function normalizeTopicKey(topic) {
   return String(topic || '')
@@ -324,6 +357,7 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 module.exports = {
   canonicalizeAdminFaqTopic,
   normalizeTopicKey,
+  expandFaqTopicSeedAliases,
   extractPartySizeFromText,
   detectFaqTopicsFromUserText,
   detectFaqTopicsFromConversation,

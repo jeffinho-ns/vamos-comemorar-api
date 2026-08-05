@@ -4,6 +4,7 @@ const {
   getModelForTask,
   applyOutputLimit,
 } = require('./openAiConfig');
+const { recordOpenAiUsageSafe } = require('./aiUsageRepository');
 
 let openaiClient = null;
 
@@ -30,7 +31,7 @@ function formatHistoryForSummary(messages = []) {
  * Gera resumo compacto do histórico antigo (gpt-5.5) para substituir mensagens
  * que saíram da janela de contexto.
  */
-async function summarizeConversationHistory(olderMessages = [], existingSummary = '') {
+async function summarizeConversationHistory(olderMessages = [], existingSummary = '', { pool = null } = {}) {
   const transcript = formatHistoryForSummary(olderMessages);
   if (!transcript.trim()) {
     return String(existingSummary || '').trim();
@@ -67,6 +68,13 @@ async function summarizeConversationHistory(olderMessages = [], existingSummary 
 
   try {
     const completion = await getOpenAI().chat.completions.create(payload);
+    await recordOpenAiUsageSafe(pool, {
+      path: 'history_summary',
+      establishmentId: null,
+      model: modelName,
+      usage: completion?.usage,
+      requestId: completion?.id ?? null,
+    });
     const summary = String(completion?.choices?.[0]?.message?.content || '').trim();
     return summary || String(existingSummary || '').trim();
   } catch (error) {
@@ -78,7 +86,7 @@ async function summarizeConversationHistory(olderMessages = [], existingSummary 
 /**
  * Aplica janela de contexto + resumo incremental quando o histórico excede o limite.
  */
-async function prepareMessageHistoryForTurn(messageHistory = [], contextSummary = '') {
+async function prepareMessageHistoryForTurn(messageHistory = [], contextSummary = '', { pool = null } = {}) {
   const history = Array.isArray(messageHistory) ? messageHistory : [];
   const maxMessages = getMaxContextMessages();
 
@@ -92,7 +100,7 @@ async function prepareMessageHistoryForTurn(messageHistory = [], contextSummary 
 
   const older = history.slice(0, history.length - maxMessages);
   const recent = history.slice(-maxMessages);
-  const mergedSummary = await summarizeConversationHistory(older, contextSummary);
+  const mergedSummary = await summarizeConversationHistory(older, contextSummary, { pool });
 
   return {
     messageHistory: recent,

@@ -52,6 +52,8 @@ const {
 } = require('./reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('./reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
+const { recordOpenAiUsageSafe, runWithOpenAiUsageContext } = require('./aiUsageRepository');
+const { tripOpenAiCircuit } = require('./openaiCircuitBreaker');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -289,11 +291,15 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 }
 
 // ============================================================================
-// TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para este projeto
-// é o gpt-5.5 (flagship em maio/2026). Segue instruções e tom de voz MUITO
-// melhor que gpt-4o, com queda drástica em alucinação de datas/áreas/nomes
-// — exatamente os bugs que vimos em produção (data 2027, "Caro Jefferson",
-// "Terraço", "Bar Central"). Confirmado pelo commit 28f7406.
+// TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para o AGENTE
+// (tools, reservas, funil) é o gpt-5.5 (flagship em maio/2026). Segue
+// instruções e tom de voz MUITO melhor que gpt-4o, com queda drástica em
+// alucinação de datas/áreas/nomes — exatamente os bugs que vimos em produção
+// (data 2027, "Caro Jefferson", "Terraço", "Bar Central"). Confirmado pelo
+// commit 28f7406.
+//
+// FAQ e resumos de histórico usam modelo econômico (OPENAI_ECONOMY_MODEL,
+// default gpt-4o-mini) — ver getModelForTask em openAiConfig.js.
 //
 // NÃO faça downgrade para gpt-5.4 ou gpt-4o sem aprovação explícita —
 // regressão já foi medida em produção (Highline).
@@ -357,7 +363,6 @@ function isModelAccessError(error) {
 
 /** Erros 400 de compatibilidade (ex.: max_tokens no gpt-5.5) — tenta modelo fallback antes de falhar o turno. */
 function isOpenAiCompatError(error) {
-  if (isBillingOrQuotaError(error)) return true;
   if (isModelAccessError(error)) return true;
   const { status, detail } = normalizeOpenAiError(error);
   const text = String(detail || '').toLowerCase();
@@ -444,6 +449,13 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
           getOpenAI().chat.completions.create(payload),
           OPENAI_REQUEST_TIMEOUT_MS
         );
+        await recordOpenAiUsageSafe(null, {
+          path: 'agent',
+          model: modelName,
+          usage: completion?.usage,
+          requestId: completion?.id ?? null,
+          meta: { outputMode, toolChoice: toolChoice ?? null },
+        });
         const message = completion?.choices?.[0]?.message || null;
         const hasContent = Boolean(String(message?.content || '').trim());
         const hasToolCalls = Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
@@ -461,6 +473,9 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
         const { status, code, detail } = normalizeOpenAiError(error);
         const isLastAttempt = attempt >= maxRetries;
         if (!retryable || isLastAttempt) {
+          if (isBillingOrQuotaError(error)) {
+            tripOpenAiCircuit('quota');
+          }
           const enriched = new Error(
             `Falha na OpenAI: ${detail} (status=${status || 'n/a'} code=${code || 'n/a'} attempt=${attempt + 1}/${maxRetries + 1} model=${modelName})`
           );
@@ -951,7 +966,11 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const topicHints = detectRelevantFaqTopics(userText, messageHistory, { funnelActive: false });
+  const topicHints = detectRelevantFaqTopics(userText, messageHistory, {
+    funnelActive: false,
+    establishmentId: context.lockedEstablishmentId,
+    establishmentName: context.lockedEstablishmentName,
+  });
 
   let faqEntries = [];
   try {
@@ -1046,6 +1065,8 @@ async function tryFaqFirstReply({
     establishmentName: context.lockedEstablishmentName || '',
     messageHistory,
     eventProgramOnly: informationalNoReservation,
+    pool,
+    establishmentId,
   });
 
   const cleanedState = scrubReservationStateForInformationalTurn(memory.workingState || {});
@@ -1080,6 +1101,17 @@ async function runAgentTurn({
     throw new Error('messageHistory deve ser um array não vazio.');
   }
 
+  const ctxEstablishmentId = Number(context.lockedEstablishmentId);
+  return runWithOpenAiUsageContext(
+    {
+      pool,
+      establishmentId:
+        Number.isFinite(ctxEstablishmentId) && ctxEstablishmentId > 0 ? ctxEstablishmentId : null,
+      conversationId: runtimeContext?.conversationId ?? null,
+      waId: runtimeContext?.waId ?? null,
+      path: 'agent',
+    },
+    async () => {
   const lastUser = [...messageHistory].reverse().find((m) => m.role === 'user');
   const userText = String(lastUser?.content || '').trim();
   const referenceDateIso = getReferenceDateIso();
@@ -1211,7 +1243,11 @@ async function runAgentTurn({
       if (faqFirst) return faqFirst;
     }
   }
-  const topicHints = detectRelevantFaqTopics(userText, messageHistory, { funnelActive });
+  const topicHints = detectRelevantFaqTopics(userText, messageHistory, {
+    funnelActive,
+    establishmentId: context.lockedEstablishmentId,
+    establishmentName: context.lockedEstablishmentName,
+  });
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
 
@@ -1445,6 +1481,8 @@ async function runAgentTurn({
     preReservationResult,
     guestListLink,
   };
+    }
+  );
 }
 
 module.exports = {
