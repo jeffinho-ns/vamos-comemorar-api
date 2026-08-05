@@ -98,7 +98,8 @@ async function sendOfflineKnowledgeFallback({
   userText,
   messageHistory,
   meta = {},
-  alwaysTakeover = true,
+  takeoverOnSuccess = false,
+  handoffOnFailure = true,
 }) {
   const offlineResult = await tryOfflineKnowledgeReply(pool, {
     establishmentId,
@@ -108,7 +109,7 @@ async function sendOfflineKnowledgeFallback({
   });
 
   if (offlineResult.ok) {
-    if (alwaysTakeover) {
+    if (takeoverOnSuccess) {
       await activateHumanTakeover(pool, waId, 48);
     }
     await outboundGateway.sendText(waId, offlineResult.text);
@@ -116,15 +117,16 @@ async function sendOfflineKnowledgeFallback({
       source: 'offline_knowledge',
       topic: offlineResult.topic,
       packSource: offlineResult.source,
+      usedSettings: offlineResult.usedSettings,
       ...meta,
     });
     console.log(
-      `[agentEngine] resposta offline enviada waId=${waId} topic=${offlineResult.topic} source=${offlineResult.source}`
+      `[agentEngine] resposta offline enviada waId=${waId} topic=${offlineResult.topic} source=${offlineResult.source} usedSettings=${Boolean(offlineResult.usedSettings)}`
     );
     return offlineResult;
   }
 
-  if (alwaysTakeover) {
+  if (handoffOnFailure) {
     await activateHumanTakeover(pool, waId, 48);
     await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
     await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
@@ -387,6 +389,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         userText: incomingText,
         messageHistory,
         meta: { circuitOpen: true },
+        takeoverOnSuccess: false,
+        handoffOnFailure: true,
       });
     } catch (circuitFallbackError) {
       console.error('[agentEngine] falha no fallback offline (circuit open):', circuitFallbackError.message);
@@ -569,6 +573,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       'Recebi sua mensagem! Só um instante que um atendente da nossa equipe já continua seu atendimento por aqui.';
 
     try {
+      const errorHandoffOnFailure = shouldEscalateToHuman;
       const offlineResult = await sendOfflineKnowledgeFallback({
         pool,
         waId,
@@ -582,13 +587,20 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
           recentAgentErrors,
           ...errorMeta,
         },
-        alwaysTakeover: false,
+        takeoverOnSuccess: true,
+        handoffOnFailure: errorHandoffOnFailure,
       });
 
       if (offlineResult.ok) {
-        await activateHumanTakeover(pool, waId, 48);
         console.warn(
           `[agentEngine] FAQ offline após erro waId=${waId} errCode=${errorCode} topic=${offlineResult.topic}`
+        );
+        return;
+      }
+
+      if (errorHandoffOnFailure) {
+        console.warn(
+          `[agentEngine] handoff após falha offline waId=${waId} errCode=${errorCode} reason=${offlineResult.reason}`
         );
         return;
       }

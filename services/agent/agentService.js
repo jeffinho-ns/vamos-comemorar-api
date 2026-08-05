@@ -31,6 +31,11 @@ const {
   loadActiveSettings: loadActiveAssistantSettings,
   loadExternalLinksBlock,
 } = require('./assistantSettingsService');
+const {
+  formatTrainingReply,
+  shouldPreferDirectFaqReply,
+  pickBestFaqEntry,
+} = require('./trainingReplyFormatter');
 const { buildReservationDateHint, looksLikeReservationIntent } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
@@ -1072,6 +1077,45 @@ async function tryFaqFirstReply({
     return null;
   }
 
+  const settings = await loadActiveAssistantSettings(pool, establishmentId).catch(() => null);
+  const externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
+
+  const cleanedState = scrubReservationStateForInformationalTurn(memory.workingState || {});
+  const baseWorkingState = mergeWorkingState(cleanedState, {
+    establishment_id: establishmentId,
+  });
+  const buildFaqToolTrace = (entries, hints) =>
+    (hints.length ? hints : entries.map((entry) => entry.topic)).map((topic) => ({
+      name: 'consultar_faq_estabelecimento',
+      result: {
+        ok: true,
+        topic,
+        answer: entries.find((entry) => entry.topic === topic)?.answer || entries[0]?.answer,
+      },
+    }));
+
+  if (shouldPreferDirectFaqReply({ userText, faqEntries, topicHints })) {
+    const best = pickBestFaqEntry(faqEntries, topicHints);
+    const formatted = formatTrainingReply({
+      answer: best.answer,
+      topic: best.topic,
+      settings,
+      externalLinksBlock,
+      establishmentName: context.lockedEstablishmentName || '',
+      userText,
+      messageHistory,
+    });
+    return {
+      replyText: formatted.text,
+      workingState: baseWorkingState,
+      toolTrace: buildFaqToolTrace(faqEntries, topicHints),
+      preReservationResult: null,
+      guestListLink: null,
+      faqFirst: true,
+      faqDirect: true,
+    };
+  }
+
   const replyText = await generateFaqGroundedReply({
     userQuestion: userText,
     faqEntries,
@@ -1080,23 +1124,13 @@ async function tryFaqFirstReply({
     eventProgramOnly: informationalNoReservation,
     pool,
     establishmentId,
+    settings,
   });
-
-  const cleanedState = scrubReservationStateForInformationalTurn(memory.workingState || {});
 
   return {
     replyText,
-    workingState: mergeWorkingState(cleanedState, {
-      establishment_id: establishmentId,
-    }),
-    toolTrace: (topicHints.length ? topicHints : faqEntries.map((e) => e.topic)).map((topic) => ({
-      name: 'consultar_faq_estabelecimento',
-      result: {
-        ok: true,
-        topic,
-        answer: faqEntries.find((e) => e.topic === topic)?.answer || faqEntries[0]?.answer,
-      },
-    })),
+    workingState: baseWorkingState,
+    toolTrace: buildFaqToolTrace(faqEntries, topicHints),
     preReservationResult: null,
     guestListLink: null,
     faqFirst: true,

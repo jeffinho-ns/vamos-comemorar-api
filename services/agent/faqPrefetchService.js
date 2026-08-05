@@ -16,6 +16,9 @@ const {
 } = require('./openAiConfig');
 const { recordOpenAiUsageSafe } = require('./aiUsageRepository');
 const { filterFaqsForCustomerPrompt } = require('./faqPromptFilter');
+const { AgentPromptBuilder } = require('./AgentPromptBuilder');
+
+const faqPersonaBuilder = new AgentPromptBuilder();
 
 const FAQ_ANSWER_CACHE = new Map();
 const FAQ_ALL_ACTIVE_CACHE = new Map();
@@ -450,6 +453,46 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   return `${header}\n\n${body}`;
 }
 
+function buildFaqGroundedSystemPrompt({
+  faqText,
+  establishmentName = '',
+  eventProgramOnly = false,
+  settings = null,
+}) {
+  const personaBlock =
+    settings && settings.is_active
+      ? faqPersonaBuilder.buildPersonaBlock({
+          assistantSettings: settings,
+          lockedEstablishmentName: establishmentName,
+        })
+      : `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp. Tom caloroso e direto. Português do Brasil.`;
+
+  const emojiRule =
+    settings && settings.is_active
+      ? settings.use_emojis
+        ? '- Máximo 1 emoji discreto se couber.'
+        : '- Não use emojis.'
+      : '- Não invente datas. Máximo 1 emoji discreto se couber.';
+
+  const bulletRule =
+    settings && settings.is_active && settings.use_bullets
+      ? '- Pode usar bullets curtos se organizar melhor a resposta.'
+      : '- Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).';
+
+  return `${personaBlock}
+
+REGRAS FAQ:
+- Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
+- Responda a PERGUNTA ATUAL. O histórico recente é só contexto; não continue fluxo antigo de reserva se a pergunta atual for operacional.
+${bulletRule}
+- Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
+${eventProgramOnly ? '- O cliente só perguntou sobre o evento/programação — NÃO ofereça reserva, horário nem link de lista nesta resposta.' : '- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.'}
+${emojiRule}
+- Limite a resposta a no máximo 3 frases curtas, mesmo que a configuração peça respostas maiores.
+
+${faqText}`;
+}
+
 async function generateFaqGroundedReply({
   userQuestion,
   faqEntries = [],
@@ -458,6 +501,7 @@ async function generateFaqGroundedReply({
   eventProgramOnly = false,
   pool = null,
   establishmentId = null,
+  settings = null,
 }) {
   const question = String(userQuestion || '').trim();
   const faqText = buildFaqKnowledgeBlock(faqEntries, establishmentName);
@@ -477,17 +521,12 @@ async function generateFaqGroundedReply({
       messages: [
         {
           role: 'system',
-          content: `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp. Tom caloroso e direto. Português do Brasil.
-
-REGRAS:
-- Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
-- Responda a PERGUNTA ATUAL. O histórico recente é só contexto; não continue fluxo antigo de reserva se a pergunta atual for operacional.
-- Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).
-- Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
-${eventProgramOnly ? '- O cliente só perguntou sobre o evento/programação — NÃO ofereça reserva, horário nem link de lista nesta resposta.' : '- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.'}
-- Não invente datas. Máximo 1 emoji discreto se couber.
-
-${faqText}`,
+          content: buildFaqGroundedSystemPrompt({
+            faqText,
+            establishmentName,
+            eventProgramOnly,
+            settings,
+          }),
         },
       {
         role: 'user',
@@ -528,6 +567,7 @@ module.exports = {
   loadFaqsMatchingDateMention,
   detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
+  buildFaqGroundedSystemPrompt,
   generateFaqGroundedReply,
   resolveFaqTopicsForTurn,
   fetchFaqAnswerForTopic,

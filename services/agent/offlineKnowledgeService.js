@@ -10,6 +10,20 @@ const {
 } = require('./faqPromptFilter');
 const { looksLikeReservationIntent } = require('./reservationDateHint');
 const { isInformationalFaqTurn } = require('./faqTopicCanonical');
+const {
+  loadActiveSettings,
+  loadExternalLinksBlock,
+} = require('./assistantSettingsService');
+
+let formatTrainingReply;
+try {
+  formatTrainingReply = require('./trainingReplyFormatter').formatTrainingReply;
+} catch (_error) {
+  formatTrainingReply = ({ answer }) => ({
+    text: String(answer || '').trim(),
+    usedSettings: false,
+  });
+}
 
 const OFFLINE_KNOWLEDGE_DIR = path.join(__dirname, '../../data/offline-knowledge');
 const OFFLINE_MAX_CHARS = 4000;
@@ -244,7 +258,24 @@ async function tryOfflineKnowledgeReply(pool, {
     return { ok: false, reason: 'reservation_no_faq' };
   }
 
-  const text = formatAnswerForWhatsApp(best.answer, establishmentName);
+  const [settings, externalLinksBlock] = await Promise.all([
+    pool ? loadActiveSettings(pool, establishment).catch(() => null) : Promise.resolve(null),
+    pool
+      ? loadExternalLinksBlock(pool, establishment).catch(() => '')
+      : Promise.resolve(''),
+  ]);
+
+  const formatted = formatTrainingReply({
+    answer: best.answer,
+    topic: best.topic,
+    settings,
+    externalLinksBlock,
+    establishmentName: establishmentName || '',
+    userText: question,
+    messageHistory,
+  });
+
+  const text = String(formatted?.text || '').trim();
   if (!text) {
     return { ok: false, reason: 'empty_answer' };
   }
@@ -254,6 +285,7 @@ async function tryOfflineKnowledgeReply(pool, {
     text,
     topic: best.topic,
     source: best.fromFile ? 'file' : source,
+    usedSettings: Boolean(formatted?.usedSettings),
   };
 }
 
