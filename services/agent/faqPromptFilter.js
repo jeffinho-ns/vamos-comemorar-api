@@ -16,6 +16,8 @@ const INTERNAL_FAQ_TOPICS = new Set([
   'reserva_areas_operacional_highline',
   'reserva_grupos_grandes_highline',
   'horario_corte_chegada_reserva',
+  // Bloco interno de agenda (nunca resposta ao cliente).
+  'agenda_oficial_data_foco',
 ]);
 
 /** Tópicos com fato útil + meta — mantidos no prompt após limpar instruções à IA. */
@@ -36,7 +38,11 @@ function shouldIncludeMetaRules() {
 function looksLikeInternalTrainingAnswer(answer) {
   const text = String(answer || '').trim();
   if (!text) return true;
-  return /^(REGRA|META-REGRA)\b/i.test(text);
+  if (/^(REGRA|META-REGRA)\b/i.test(text)) return true;
+  if (/REGRAS DO PAINEL DE RESERVAS/i.test(text)) return true;
+  if (/override_capacidade\s*=/i.test(text)) return true;
+  if (/Hor[aá]rio semanal cadastrado/i.test(text)) return true;
+  return false;
 }
 
 function containsMetaRegraAsPrimaryContent(answer) {

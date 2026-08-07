@@ -167,6 +167,15 @@ function isReservationFunnelInProgress(workingState = {}, messageHistory = []) {
 }
 
 function shouldSkipFaqFirst(workingState = {}, messageHistory = [], userText = '') {
+  const text = String(userText || '');
+  const partyMatch = text.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i);
+  const bookingDataTurn =
+    Boolean(partyMatch) &&
+    (/\b\d{1,2}\s*(?:h|:|hrs?)\b/i.test(text) ||
+      /\bdia\s+\d{1,2}\b/i.test(text) ||
+      /\b\d{1,2}[\/\-]\d{1,2}\b/.test(text));
+  if (bookingDataTurn) return true;
+
   if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) {
     return false;
   }

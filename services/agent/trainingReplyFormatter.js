@@ -323,6 +323,15 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
   const question = String(userText || '').trim();
   if (!question) return false;
 
+  // Dados de reserva (data/hora/pessoas) → Camada 3 / funil, nunca FAQ direta.
+  const partyMatch = question.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i);
+  const hasBookingShape =
+    Boolean(partyMatch) &&
+    (/\b\d{1,2}\s*(?:h|:|hrs?)\b/i.test(question) ||
+      /\bdia\s+\d{1,2}\b/i.test(question) ||
+      /\b\d{1,2}[\/\-]\d{1,2}\b/.test(question));
+  if (hasBookingShape) return false;
+
   const reservationIntent = looksLikeReservationIntent(question);
   const informationalTurn = isInformationalFaqTurn(question);
 
@@ -338,6 +347,9 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
   const best = pickBestFaqEntry(customerFacing, topicHints);
   if (!best?.answer) return false;
   if (looksLikeMultiStepInstructions(best.answer)) return false;
+  if (/override_capacidade|Hor[aá]rio semanal cadastrado|REGRAS DO PAINEL/i.test(best.answer)) {
+    return false;
+  }
 
   const hints = Array.isArray(topicHints) ? topicHints.filter(Boolean) : [];
   if (hints.length >= 2) {

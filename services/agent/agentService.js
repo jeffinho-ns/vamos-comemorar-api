@@ -39,7 +39,7 @@ const {
   shouldPreferDirectFaqReply,
   pickBestFaqEntry,
 } = require('./trainingReplyFormatter');
-const { buildReservationDateHint, looksLikeReservationIntent } = require('./reservationDateHint');
+const { buildReservationDateHint, looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
   isReservationFunnelInProgress,
@@ -58,7 +58,6 @@ const {
   isFirstUserMessageInConversation,
   extractFirstName,
 } = require('./reservationFunnel');
-const { buildAgentReservationOperatingBlock } = require('./reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const { recordOpenAiUsageSafe, recordZeroTokenPath, runWithOpenAiUsageContext } = require('./aiUsageRepository');
 const { tripOpenAiCircuit } = require('./openaiCircuitBreaker');
@@ -66,6 +65,31 @@ const {
   tryDeterministicReservationClose,
   reservationFunnelIsComplete: isFunnelCompleteForDeterministic,
 } = require('./deterministicReservationClose');
+
+function looksLikeBookingDataTurn(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  const party = extractPartySizeFromText(raw);
+  const hasParty = Number.isFinite(party) && party > 0;
+  const hasTime = /\b\d{1,2}\s*(?:h|:|hrs?|horas?)\b/i.test(raw) || /\b\d{1,2}:\d{2}\b/.test(raw);
+  const hasDate =
+    /\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/.test(raw) ||
+    /\bdia\s+\d{1,2}\b/i.test(raw) ||
+    /\b(hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b/i.test(raw);
+  return hasParty && (hasTime || hasDate);
+}
+
+function looksLikeInternalOperatingLeak(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  return (
+    /REGRAS DO PAINEL DE RESERVAS/i.test(t) ||
+    /override_capacidade\s*=/i.test(t) ||
+    /Hor[aá]rio semanal cadastrado/i.test(t) ||
+    /Antes de prometer hor[aá]rio ou criar pr[eé]-reserva/i.test(t) ||
+    (/Estabelecimento:\s*.+\(id\s*\d+\)/i.test(t) && /Janelas liberadas|Fechado: fechado/i.test(t))
+  );
+}
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -774,6 +798,14 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
     return { text: safe, blocked: true, reason: 'forbidden_area_name' };
   }
 
+  if (looksLikeInternalOperatingLeak(text)) {
+    console.warn(
+      '[agentService] guard: bloqueado vazamento do bloco operacional interno pro WhatsApp.'
+    );
+    const safe = buildSafeFollowupQuestion(workingState);
+    return { text: safe, blocked: true, reason: 'operating_block_leak' };
+  }
+
   // Bloqueia plano de "fazer N reservas SEPARADAS" pro mesmo grupo.
   // PERMITE "combinar/juntar N mesas em uma reserva" (feature legítima do
   // modal /admin/restaurant-reservations "Reservar múltiplas mesas").
@@ -976,25 +1008,10 @@ async function tryFaqFirstReply({
 
   const focusDate = resolveDateFromConversation(userText, messageHistory);
   let hasDateSpecificContext = dateFaqs.length > 0;
+  // NÃO injeta o bloco operacional interno em faqEntries — ele vazava no WhatsApp
+  // via FAQ direta (Camada 1). O bloco já entra no prompt do agente (Camada 3).
   if (focusDate?.ok && focusDate.iso) {
-    try {
-      const operatingBlock = await buildAgentReservationOperatingBlock(
-        pool,
-        establishmentId,
-        context.lockedEstablishmentName || '',
-        focusDate.iso
-      );
-      if (operatingBlock) {
-        hasDateSpecificContext = true;
-        faqEntries.unshift({
-          topic: 'agenda_oficial_data_foco',
-          answer: operatingBlock,
-          updatedAt: Date.now(),
-        });
-      }
-    } catch (_error) {
-      // ignore
-    }
+    hasDateSpecificContext = true;
   }
 
   if (hasDateSpecificContext) {
@@ -1272,7 +1289,10 @@ async function runAgentTurn({
   let workingState = mergeWorkingState(
     memory.workingState || {},
     dateHint.patch || {},
-    parseReservationFieldsFromUserText(userText, memory.workingState || {}, messageHistory)
+    parseReservationFieldsFromUserText(userText, memory.workingState || {}, messageHistory),
+    Number.isFinite(Number(context.lockedEstablishmentId)) && Number(context.lockedEstablishmentId) > 0
+      ? { establishment_id: Number(context.lockedEstablishmentId) }
+      : {}
   );
   workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
@@ -1297,12 +1317,13 @@ async function runAgentTurn({
     }
   }
 
-  // Gate único FAQ-first (Camada 1/2). Funil ativo ou push de reserva → pula.
-  const skipFaq = areaAvailabilityQuestion
-    ? true
-    : currentTurnIsFaq
-      ? false
-      : shouldSkipFaqFirst(workingState, messageHistory, userText);
+  // Gate único FAQ-first (Camada 1/2).
+  // Funil / dados de reserva (data+pessoas+horário) SEMPRE vencem FAQ informativa —
+  // senão o bloco interno de agenda vaza pro WhatsApp (caso Carol / Jade).
+  const skipFaq =
+    areaAvailabilityQuestion ||
+    shouldSkipFaqFirst(workingState, messageHistory, userText) ||
+    looksLikeBookingDataTurn(userText);
 
   if (!skipFaq && process.env.OPENAI_API_KEY) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
@@ -1326,6 +1347,23 @@ async function runAgentTurn({
   if (funnelAdvance?.replyText && !reservationFunnelIsComplete(workingState)) {
     return {
       replyText: funnelAdvance.replyText,
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
+
+  // "Sim" / confirmação sem dados completos → pede o que falta (sem LLM caro).
+  if (
+    !informationalOnly &&
+    !areaAvailabilityQuestion &&
+    isAffirmativeConfirmation(userText) &&
+    isReservationFunnelInProgress(workingState, messageHistory) &&
+    !reservationFunnelIsComplete(workingState)
+  ) {
+    return {
+      replyText: buildNextFieldQuestion(workingState),
       workingState,
       toolTrace: [],
       preReservationResult: null,

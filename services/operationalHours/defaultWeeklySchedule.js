@@ -33,8 +33,10 @@ function applyPracinhaSchedule(setDay) {
 }
 
 function applyHighlineSchedule(setDay) {
-  setDay(5, '18:00', '23:30');
-  setDay(6, '14:00', '23:30');
+  // Sexta e sábado: casa abre à tarde/noite e segue até ~4h.
+  // Janela de reserva no painel precisa cobrir o horário real pedido pelo cliente (ex.: 20h).
+  setDay(5, '18:00', '04:00');
+  setDay(6, '16:00', '04:00');
 }
 
 function applyRooftopSchedule(setDay) {
