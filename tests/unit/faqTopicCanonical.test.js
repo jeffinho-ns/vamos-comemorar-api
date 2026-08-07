@@ -46,7 +46,20 @@ test('isInformationalFaqTurn reconhece dúvidas operacionais', () => {
   assert.equal(isInformationalFaqTurn('Quem é o DJ na quarta?'), true);
 });
 
-test('looksLikeReservationPushOnly não bloqueia FAQ quando há pergunta mista', () => {
-  const { looksLikeReservationPushOnly } = require('../../services/agent/faqTopicCanonical');
-  assert.equal(looksLikeReservationPushOnly('quero reservar para sábado'), true);
+test('looksLikeAreaAvailabilityQuestion detecta pergunta de áreas no dia', () => {
+  const { looksLikeAreaAvailabilityQuestion } = require('../../services/agent/faqTopicCanonical');
+  assert.equal(
+    looksLikeAreaAvailabilityQuestion(
+      'Preciso de uma informação, no Highline quais áreas está disponíveis no dia 08/08/2026 ?'
+    ),
+    true
+  );
+  assert.equal(looksLikeAreaAvailabilityQuestion('quais áreas têm vaga sábado?'), true);
+  assert.equal(looksLikeAreaAvailabilityQuestion('qual o valor do camarote?'), false);
+  assert.equal(looksLikeAreaAvailabilityQuestion('quero reservar para 10 pessoas'), false);
+});
+
+test('detectFaqTopicsFromUserText detecta áreas disponíveis', () => {
+  const topics = detectFaqTopicsFromUserText('quais áreas estão disponíveis no dia 08/08?');
+  assert.ok(topics.includes('reserva_areas_operacional_highline'));
 });

@@ -671,7 +671,12 @@ async function evaluateHighlineSubarea(pool, subarea, reservationDate, partySize
 async function consultHighlineReservationAreas(pool, args = {}) {
   const establishmentId = Number(args.estabelecimento_id);
   const reservationDate = String(args.data || '').slice(0, 10);
-  const partySize = Number(args.quantidade_pessoas) || 2;
+  const partyProvided =
+    args.quantidade_pessoas != null &&
+    args.quantidade_pessoas !== '' &&
+    Number.isFinite(Number(args.quantidade_pessoas)) &&
+    Number(args.quantidade_pessoas) > 0;
+  const partySize = partyProvided ? Number(args.quantidade_pessoas) : 2;
   const preferred = args.area_preferida ? resolveHighlineSubarea(args.area_preferida) : null;
 
   if (!isHighlineEstablishment(establishmentId)) {
@@ -741,6 +746,14 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     .map((e) => e.label)
     .slice(0, 4);
 
+  const areasComVaga = ranked.map((e) => ({
+    key: e.key,
+    label: e.label,
+    area_id: e.area_id,
+    mesas_livres: e.mesas_livres,
+    party_hint: e.party_hint,
+  }));
+
   const isLargeGroup = partySize >= HIGHLINE_LARGE_GROUP_MIN;
   const operacionaisComMesaLivre = evaluations.filter(
     (e) => e.mesas_livres > 0 && eligibleForRecommendation(e)
@@ -768,6 +781,7 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     estabelecimento_id: establishmentId,
     reservation_date: reservationDate,
     quantidade_pessoas: partySize,
+    consulta_exploratoria: !partyProvided,
     grupo_grande: isLargeGroup,
     fonte: 'admin/restaurant-reservations (subáreas e mesas dos modais Nova/Editar Reserva)',
     area_preferida_informada: preferred?.label || null,
@@ -785,13 +799,15 @@ async function consultHighlineReservationAreas(pool, args = {}) {
         }
       : null,
     alternativas_com_vaga: alternativas,
+    areas_com_vaga: areasComVaga,
+    areas_com_vaga_labels: areasComVaga.map((a) => a.label),
     areas: evaluations,
     proximo_passo: todasCheias
       ? 'Chamar criar_lista_espera e explicar que a Equipe de Hostess alocará quando houver mesa.'
       : recommended
         ? isLargeGroup
           ? 'Grupo grande: o backend combina várias mesas numa única reserva (como "Reservar múltiplas mesas" no painel), inclusive mesas de subáreas diferentes na mesma área (Deck/Rooftop). REGISTRE com criar_pre_reserva. Consulte reserva_grupos_grandes_highline na Base.'
-          : 'Confirmar área com o cliente e seguir com criar_pre_reserva (informar area com o label da subárea).'
+          : 'Liste as áreas com vaga (areas_com_vaga_labels). Pergunte quantas pessoas / se quer seguir com a reserva. NÃO invente horário nem chame criar_pre_reserva só porque o cliente perguntou as áreas.'
         : null,
   };
 }

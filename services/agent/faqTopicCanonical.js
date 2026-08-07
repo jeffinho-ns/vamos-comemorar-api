@@ -295,7 +295,7 @@ function detectFaqTopicsFromUserText(text) {
     topics.push('areas_mesas_camarotes_diferenca');
   }
   if (
-    /\b(deck|lista de espera|hostess|mesa disponivel|mesas disponiveis|qual area|onde sentar|subarea)\b/.test(
+    /\b(deck|lista de espera|hostess|mesa disponivel|mesas disponiveis|qual area|quais areas|areas disponiveis|area disponivel|onde sentar|subarea|bistro de espera|rotativo)\b/.test(
       normalized
     )
   ) {
@@ -330,6 +330,28 @@ function isInformationalFaqTurn(text) {
   return false;
 }
 
+/**
+ * Pergunta dinâmica de disponibilidade de áreas/mesas em uma data.
+ * NÃO deve ser respondida só com FAQ estática — exige consultar_areas_mesa_reserva.
+ */
+function looksLikeAreaAvailabilityQuestion(text) {
+  const normalized = normalizeInboundText(text);
+  if (!normalized) return false;
+  const asksAreas =
+    /\b(quais?\s+areas?|areas?\s+dispon|area\s+dispon|mesas?\s+dispon|onde\s+(sentar|ficar)|vaga\s+(na|nas|em)\s+area|disponibilidade\s+(de\s+)?(area|mesa)|qual\s+area\s+(tem|ta|esta))\b/.test(
+      normalized
+    );
+  if (!asksAreas) return false;
+  // Se for só preço de camarote/VIP, deixa no FAQ de pacotes.
+  if (
+    /\b(valor|preco|quanto custa|consumivel|pacote vip)\b/.test(normalized) &&
+    !/\b(dispon|vaga|livre)\b/.test(normalized)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function looksLikeReservationPushOnly(text) {
   const normalized = normalizeInboundText(text);
   return /\b(reservar|fazer reserva|quero reserva|nova reserva)\b/.test(normalized);
@@ -356,16 +378,19 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 
 module.exports = {
   canonicalizeAdminFaqTopic,
-  normalizeTopicKey,
   expandFaqTopicSeedAliases,
   extractPartySizeFromText,
+  normalizeTopicKey,
   detectFaqTopicsFromUserText,
   detectFaqTopicsFromConversation,
   isInformationalFaqTurn,
+  looksLikeAreaAvailabilityQuestion,
   looksLikeBirthdayBenefitsQuestion,
   looksLikeOperatingHoursQuestion,
-  looksLikeSaturdayQuestion,
-  looksLikeEntryPricingQuestion,
   looksLikeReservationPushOnly,
   looksLikeEventProgramQuestion,
+  looksLikeSaturdayQuestion,
+  looksLikeEntryPricingQuestion,
+  looksLikeMusicStyleQuestion,
+  normalizeInboundText,
 };

@@ -1,6 +1,6 @@
 const OpenAI = require('openai');
 const { AgentPromptBuilder } = require('./AgentPromptBuilder');
-const { getAgentToolDefinitions, executeAgentToolCall } = require('./agentTools');
+const { getAgentToolDefinitions, executeAgentToolCall, consultHighlineReservationAreas } = require('./agentTools');
 const {
   mergeWorkingState,
   extractWorkingStatePatchFromToolResult,
@@ -11,6 +11,8 @@ const {
   looksLikeEventProgramQuestion,
   looksLikeEntryPricingQuestion,
   looksLikeMusicStyleQuestion,
+  looksLikeAreaAvailabilityQuestion,
+  extractPartySizeFromText,
 } = require('./faqTopicCanonical');
 const {
   prefetchEstablishmentFaqs,
@@ -20,6 +22,7 @@ const {
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
 } = require('./faqPrefetchService');
+const { isHighlineEstablishment } = require('./highlineReservationAreas');
 const {
   MODEL_AGENT,
   MODEL_FALLBACK,
@@ -275,16 +278,28 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           'Olha, tá tudo cheio nesse dia. Posso te colocar na lista de espera — assim que abrir mesa eu te chamo aqui mesmo, beleza?'
         );
       }
-      if (result.area_recomendada?.label) {
-        const alt =
-          Array.isArray(result.alternativas_com_vaga) && result.alternativas_com_vaga.length
-            ? ` Também tem vaga em: ${result.alternativas_com_vaga.join(', ')}.`
-            : '';
+      const labels =
+        Array.isArray(result.areas_com_vaga_labels) && result.areas_com_vaga_labels.length
+          ? result.areas_com_vaga_labels
+          : [
+              result.area_recomendada?.label,
+              ...(Array.isArray(result.alternativas_com_vaga) ? result.alternativas_com_vaga : []),
+            ].filter(Boolean);
+      if (labels.length) {
+        const dateLabel = String(result.reservation_date || '').slice(0, 10);
+        const dateBit = dateLabel ? ` no dia ${dateLabel.split('-').reverse().join('/')}` : '';
+        const list =
+          labels.length === 1
+            ? labels[0]
+            : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`;
         const pessoas = Number(result.quantidade_pessoas);
-        if (result.grupo_grande || (Number.isFinite(pessoas) && pessoas >= 16)) {
-          return `Pra ${pessoas} pessoas a gente organiza em ${result.area_recomendada.label} juntando mesas — pode ser que não tenha cadeira pra todo mundo ao mesmo tempo, mas sua reserva segue normal e a equipe acomoda na chegada.${alt} Posso seguir com a reserva?`;
+        if (result.consulta_exploratoria || !Number.isFinite(pessoas) || pessoas <= 0) {
+          return `No Highline${dateBit} as áreas operacionais com vaga agora são: ${list}. Quantas pessoas vêm com você pra eu indicar a melhor?`;
         }
-        return `Pra ${result.quantidade_pessoas} pessoas, o que encaixa melhor é ${result.area_recomendada.label}.${alt} Topa essa?`;
+        if (result.grupo_grande || pessoas >= 16) {
+          return `Pra ${pessoas} pessoas${dateBit} a gente organiza em ${result.area_recomendada?.label || labels[0]} juntando mesas — pode ser que não tenha cadeira pra todo mundo ao mesmo tempo, mas a reserva segue normal.${labels.length > 1 ? ` Também tem vaga em: ${labels.filter((l) => l !== result.area_recomendada?.label).join(', ')}.` : ''} Posso seguir com a reserva?`;
+        }
+        return `Pra ${pessoas} pessoas${dateBit}, tem vaga em ${list}. Qual dessas você prefere?`;
       }
     }
 
@@ -974,6 +989,9 @@ async function tryFaqFirstReply({
     return null;
   }
   const informationalTurn = shouldPrioritizeFaqForCurrentTurn(userText);
+  if (looksLikeAreaAvailabilityQuestion(userText)) {
+    return null;
+  }
   if (!informationalTurn && (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText))) {
     return null;
   }
@@ -1134,6 +1152,70 @@ async function tryFaqFirstReply({
   };
 }
 
+async function answerHighlineAreaAvailability({
+  pool,
+  userText,
+  messageHistory,
+  workingState,
+  context,
+}) {
+  const establishmentId = Number(context.lockedEstablishmentId);
+  if (!pool || !isHighlineEstablishment(establishmentId)) return null;
+  if (!looksLikeAreaAvailabilityQuestion(userText)) return null;
+
+  const focusDate = resolveDateFromConversation(userText, messageHistory);
+  const reservationDate =
+    (focusDate?.ok && focusDate.iso) ||
+    String(workingState.reservation_date || workingState.pending_reservation_date_iso || '').slice(
+      0,
+      10
+    ) ||
+    null;
+
+  if (!reservationDate) {
+    return {
+      replyText:
+        'Show! Pra eu checar quais áreas têm vaga, me confirma a data (DD/MM)? E se puder, quantas pessoas vêm com você.',
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+      areaAvailabilityDirect: true,
+    };
+  }
+
+  const partyFromText = extractPartySizeFromText(userText);
+  const partyFromState = Number(workingState.quantidade_convidados);
+  const partySize =
+    (Number.isFinite(partyFromText) && partyFromText > 0 && partyFromText) ||
+    (Number.isFinite(partyFromState) && partyFromState > 0 && partyFromState) ||
+    null;
+
+  const toolResult = await consultHighlineReservationAreas(pool, {
+    estabelecimento_id: establishmentId,
+    data: reservationDate,
+    quantidade_pessoas: partySize || undefined,
+    contexto_cliente: userText,
+  });
+
+  const toolTrace = [{ name: 'consultar_areas_mesa_reserva', result: toolResult, forced: true }];
+  const replyText = synthesizeReplyFromToolTrace(toolTrace);
+  if (!replyText) return null;
+
+  return {
+    replyText,
+    workingState: mergeWorkingState(workingState, {
+      establishment_id: establishmentId,
+      reservation_date: reservationDate,
+      ...(partySize ? { quantidade_convidados: partySize } : {}),
+    }),
+    toolTrace,
+    preReservationResult: null,
+    guestListLink: null,
+    areaAvailabilityDirect: true,
+  };
+}
+
 async function runAgentTurn({
   pool,
   messageHistory,
@@ -1244,10 +1326,27 @@ async function runAgentTurn({
   workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
   const currentTurnIsFaq = shouldPrioritizeFaqForCurrentTurn(userText);
+  const areaAvailabilityQuestion = looksLikeAreaAvailabilityQuestion(userText);
   const informationalOnly =
-    currentTurnIsFaq && !looksLikeReservationIntent(userText);
+    currentTurnIsFaq && !looksLikeReservationIntent(userText) && !areaAvailabilityQuestion;
 
-  if (currentTurnIsFaq && process.env.OPENAI_API_KEY) {
+  if (areaAvailabilityQuestion) {
+    const areaAnswer = await answerHighlineAreaAvailability({
+      pool,
+      userText,
+      messageHistory,
+      workingState,
+      context,
+    }).catch((error) => {
+      console.warn('[agentService] consulta de áreas Highline falhou:', error.message);
+      return null;
+    });
+    if (areaAnswer?.replyText) {
+      return areaAnswer;
+    }
+  }
+
+  if (currentTurnIsFaq && !areaAvailabilityQuestion && process.env.OPENAI_API_KEY) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
       (error) => {
         console.warn('[agentService] FAQ-first indisponível:', error.message);
@@ -1401,16 +1500,18 @@ async function runAgentTurn({
     for (const toolCall of assistantMessage.tool_calls) {
       const toolName = toolCall?.function?.name || '';
       if (
-        informationalOnly &&
-        (toolName === 'criar_pre_reserva' || toolName === 'verificar_disponibilidade')
+        (informationalOnly || areaAvailabilityQuestion) &&
+        (toolName === 'criar_pre_reserva' ||
+          (informationalOnly && toolName === 'verificar_disponibilidade'))
       ) {
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           content: JSON.stringify({
             ok: false,
-            error:
-              'O cliente só fez uma pergunta informativa sobre o evento. Responda com a programação/FAQ — não inicie reserva nem verifique disponibilidade.',
+            error: areaAvailabilityQuestion
+              ? 'O cliente só perguntou quais áreas têm vaga. Liste as áreas com consultar_areas_mesa_reserva — não crie pré-reserva neste turno.'
+              : 'O cliente só fez uma pergunta informativa sobre o evento. Responda com a programação/FAQ — não inicie reserva nem verifique disponibilidade.',
           }),
         });
         continue;
@@ -1490,9 +1591,10 @@ async function runAgentTurn({
   workingState = ensured.workingState;
   let toolTraceFinal = ensured.toolTrace;
 
-  const forcedCreate = informationalOnly
-    ? { workingState, toolTrace: toolTraceFinal, replyText: null, toolResult: null }
-    : await forceCreatePreReservaIfReady({
+  const forcedCreate =
+    informationalOnly || areaAvailabilityQuestion
+      ? { workingState, toolTrace: toolTraceFinal, replyText: null, toolResult: null }
+      : await forceCreatePreReservaIfReady({
         pool,
         workingState,
         context,
