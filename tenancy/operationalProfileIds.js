@@ -45,7 +45,7 @@ function getOperationalIdForProfile(profile) {
   const fromDb = profileToOperationalId[key];
   if (Number.isFinite(fromDb) && fromDb > 0) return fromDb;
   if (key === 'highline') {
-    const env = Number(process.env.HIGHLINE_ESTABLISHMENT_ID);
+    const env = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
     if (Number.isFinite(env) && env > 0) return env;
   }
   return null;

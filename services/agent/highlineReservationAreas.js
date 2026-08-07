@@ -7,7 +7,7 @@
  * area_id 7001 = Rotativo
  */
 
-const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 0);
+const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
 const HIGHLINE_ROTATIVO_AREA_ID = Number(process.env.HIGHLINE_ROTATIVO_AREA_ID || 7001);
 
 const {
