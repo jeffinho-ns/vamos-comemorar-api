@@ -10,6 +10,7 @@ const {
   HIGHLINE_ESTABLISHMENT_ID,
   evaluateHighlineSubareaFromCache,
   pickCombinedTablesForArea,
+  resolveHighlineSubareaLabelForTable,
 } = require('../../services/agent/highlineReservationAreas');
 
 const DECK_TABLES = [
@@ -17,17 +18,15 @@ const DECK_TABLES = [
   { table_number: '02', capacity: 8 },
   { table_number: '03', capacity: 8 },
   { table_number: '04', capacity: 8 },
-  { table_number: '05', capacity: 2 },
-  { table_number: '06', capacity: 2 },
-  { table_number: '07', capacity: 2 },
-  { table_number: '08', capacity: 2 },
   { table_number: '09', capacity: 6 },
   { table_number: '10', capacity: 6 },
   { table_number: '11', capacity: 6 },
   { table_number: '12', capacity: 6 },
-  { table_number: '15', capacity: 3 },
-  { table_number: '16', capacity: 3 },
-  { table_number: '17', capacity: 3 },
+  { table_number: '13', capacity: 2 },
+  { table_number: '14', capacity: 2 },
+  { table_number: '15', capacity: 2 },
+  { table_number: '16', capacity: 2 },
+  { table_number: '17', capacity: 2 },
 ];
 
 function buildDeckCache(reserved = []) {
@@ -36,18 +35,28 @@ function buildDeckCache(reserved = []) {
   return { tablesByArea, reservedByArea };
 }
 
-test('Highline tem 9 subáreas do painel', () => {
+test('Highline tem subáreas do painel novo', () => {
   const areas = getHighlineSubareas();
-  assert.equal(areas.length, 9);
-  assert.ok(areas.some((a) => a.label === 'Área Deck - Frente'));
-  assert.ok(areas.some((a) => a.label === 'Área Rooftop - Vista'));
+  assert.ok(areas.length >= 11);
+  assert.ok(areas.some((a) => a.label === 'Deck - Mesas'));
+  assert.ok(areas.some((a) => a.label === 'Bar Central - Bistrôs de Espera'));
+  assert.ok(areas.some((a) => a.label === 'Rooftop - Lounges'));
+  assert.ok(areas.some((a) => a.label === 'Rotativo - Lista de Espera'));
 });
 
-test('resolveHighlineSubarea reconhece labels', () => {
-  const sub = resolveHighlineSubarea('Área Rooftop - Bistrô');
+test('resolveHighlineSubarea reconhece labels novos e aliases antigos', () => {
+  const sub = resolveHighlineSubarea('Rooftop - Bistrôs');
   assert.ok(sub);
-  assert.equal(sub.key, 'roof-bistro');
+  assert.equal(sub.key, 'roof-bistros');
   assert.equal(sub.area_id, 5);
+
+  const legacy = resolveHighlineSubarea('deck-frente');
+  assert.ok(legacy);
+  assert.equal(legacy.key, 'deck-mesas');
+
+  const bar = resolveHighlineSubarea('Bar Central');
+  assert.ok(bar);
+  assert.equal(bar.key, 'bar-central');
 });
 
 test('isHighlineEstablishment usa id configurado', () => {
@@ -55,14 +64,20 @@ test('isHighlineEstablishment usa id configurado', () => {
   assert.equal(isHighlineEstablishment(1), false);
 });
 
-test('grupo 50 combina mesas em toda area_id 2 (Deck), não só na subárea', () => {
-  const subarea = resolveHighlineSubarea('deck-frente');
+test('label por mesa distingue Deck vs Rotativo com area_id', () => {
+  assert.equal(resolveHighlineSubareaLabelForTable('01'), 'Deck - Mesas');
+  assert.equal(resolveHighlineSubareaLabelForTable('01', 7001), 'Rotativo - Bistrôs de Espera');
+  assert.equal(resolveHighlineSubareaLabelForTable('15'), 'Bar Central - Bistrôs de Espera');
+  assert.equal(resolveHighlineSubareaLabelForTable('L01', 7001), 'Rotativo - Lista de Espera');
+});
+
+test('grupo 50 combina mesas em toda area_id 2 (Deck/Bar/Balada)', () => {
+  const subarea = resolveHighlineSubarea('deck-mesas');
   const { tablesByArea, reservedByArea } = buildDeckCache();
 
   const combo = pickCombinedTablesForArea(tablesByArea, reservedByArea, 2, 50);
   assert.ok(combo);
   assert.ok(combo.total_capacity >= 50);
-  assert.ok(combo.mesas_count > 4);
 
   const evaluation = evaluateHighlineSubareaFromCache(
     subarea,
@@ -76,7 +91,7 @@ test('grupo 50 combina mesas em toda area_id 2 (Deck), não só na subárea', ()
 });
 
 test('grupo 8 ainda cabe numa mesa única do Deck sem combinar', () => {
-  const subarea = resolveHighlineSubarea('deck-esquerdo');
+  const subarea = resolveHighlineSubarea('deck-mesas');
   const { tablesByArea, reservedByArea } = buildDeckCache();
 
   const evaluation = evaluateHighlineSubareaFromCache(
@@ -88,4 +103,10 @@ test('grupo 8 ainda cabe numa mesa única do Deck sem combinar', () => {
   assert.equal(evaluation.tem_mesa_para_grupo, true);
   assert.equal(evaluation.mesa_sugerida.mesas_combinadas, false);
   assert.equal(evaluation.mesa_sugerida.table_number, '01');
+});
+
+test('bistrô de espera rotativo respeita máximo de 4 pessoas', () => {
+  const subarea = resolveHighlineSubarea('rotativo-espera');
+  assert.equal(subarea.maxParty, 4);
+  assert.equal(subarea.opsNote.includes('4 pessoas'), true);
 });

@@ -28,7 +28,7 @@ const HORARIO = {
 const OPERATIONAL_AREAS = {
   topic: 'reserva_areas_operacional_highline',
   answer: `REGRA EXCLUSIVA HIGHLINE — áreas do Sistema de Reservas:
-Subáreas: Área Deck - Frente | Área Deck - Esquerdo | Área Bar | Área Rooftop - Centro.
+Subáreas: Deck - Mesas | Deck - Mesas Redondas | Bar Central - Bistrôs de Espera | Rooftop - Lounges.
 
 Tom: respostas curtas, humanizadas, como concierge no WhatsApp (sem textão).
 
@@ -91,7 +91,7 @@ test('filterFaqsForCustomerPrompt mantém tópico operacional com fatos e remove
   try {
     const filtered = filterFaqsForCustomerPrompt([OPERATIONAL_AREAS]);
     assert.equal(filtered.length, 1);
-    assert.match(filtered[0].answer, /Área Deck - Frente/i);
+    assert.match(filtered[0].answer, /Deck - Mesas/i);
     assert.doesNotMatch(filtered[0].answer, /consultar_areas_mesa_reserva/i);
     assert.doesNotMatch(filtered[0].answer, /REGRA EXCLUSIVA/i);
     assert.doesNotMatch(filtered[0].answer, /Fluxo quando/i);
@@ -129,7 +129,7 @@ test('fallback mantém 1-2 entradas factuais quando só há meta-treinamento', (
 
     assert.ok(filtered.length >= 1);
     assert.ok(filtered.length <= 2);
-    assert.ok(filtered.some((e) => /Área Deck/i.test(e.answer)));
+    assert.ok(filtered.some((e) => /Deck - Mesas/i.test(e.answer)));
   } finally {
     if (originalEnv === undefined) delete process.env.FAQ_PROMPT_INCLUDE_META;
     else process.env.FAQ_PROMPT_INCLUDE_META = originalEnv;

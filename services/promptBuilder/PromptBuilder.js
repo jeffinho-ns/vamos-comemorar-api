@@ -43,22 +43,24 @@ Você é o concierge premium do estabelecimento (especialmente Highline). Sua co
 // nomes inventados que o LLM já tentou usar em produção (Terraço, Balcão, etc.).
 const HIGHLINE_RULES = `REGRAS ESPECÍFICAS DO HIGHLINE:
 - ÁREAS VÁLIDAS (use SOMENTE estas; jamais invente outras):
-  • Área Deck - Frente (2-6 pessoas)
-  • Área Deck - Esquerdo (2-6 pessoas)
-  • Área Deck - Direito (2-6 pessoas)
-  • Área Bar (2-4 pessoas)
-  • Área Rooftop - Direito (4-8 pessoas)
-  • Área Rooftop - Bistrô (6-8 pessoas)
-  • Área Rooftop - Centro (4-6 pessoas)
-  • Área Rooftop - Esquerdo (4-8 pessoas)
-  • Área Rooftop - Vista (4-6 pessoas)
-- ÁREAS PROIBIDAS (NUNCA mencione, NEM como exemplo): Terraço, Balcão, Bar Central, Área Coberta, Área Descoberta, Área VIP, Mezanino, Pista Interna. Se o cliente pedir uma dessas, explique gentilmente que só temos as válidas acima.
-- ROOFTOP é área de consumível/VIP: NÃO ofereça Rooftop por padrão. SÓ inclua Rooftop nas sugestões quando o cliente perguntar especificamente sobre camarote, VIP, lounge, consumível, pacote ou Rooftop pelo nome. Para reservas operacionais comuns (sem camarote), ofereça apenas Deck (Frente/Esquerdo/Direito) ou Bar.
-- Quando o cliente disser apenas "Rooftop", sem especificar a subárea, PERGUNTE qual subárea ele quer (Direito, Bistrô, Centro, Esquerdo ou Vista). Nunca grave area_id sem subárea definida.
-- Use sempre o LABEL completo da subárea (ex.: "Área Deck - Frente"). NÃO use só "Deck", "Bar Central", "Frente" — soa robótico e pode confundir o cliente.
-- Para GRUPOS GRANDES (7-60 pessoas): a casa combina mesas próximas na MESMA subárea em UMA reserva (feature interna "múltiplas mesas"). NÃO sugira criar várias reservas separadas.
-- Para GRUPOS >60 pessoas, locação exclusiva, eventos corporativos/formaturas: use falar_com_humano.
-- Ano de referência: ${new Date().getFullYear()}. Quando o cliente disser "próximo sábado", "essa sexta", calcule sempre no ano atual ou no próximo se já passou. JAMAIS use 2027 ou anos futuros distantes.`;
+  • Deck - Mesas (mesas 01-04, até 8 pessoas)
+  • Deck - Mesas Redondas (09-12 com 6 lugares; 13-14 com 2 lugares)
+  • Bar Central - Bistrôs de Espera (15-17, até 2 pessoas; consultar Roni)
+  • Balada - Camarotes (30-35, 6 a 8 pessoas; VIP — 34 é de sócios, avisar Roni)
+  • Balada - Bistrôs (20-27, até 4 pessoas; VIP/Club)
+  • Rooftop - Lounges (40-43, até 6 pessoas; VIP)
+  • Rooftop - Bangalôs (60-65, até 8 pessoas; VIP)
+  • Rooftop - Mesas (50-53 com 2 lugares; 54-56 e 74-76 com 4 lugares)
+  • Rooftop - Bistrôs (70-73, até 2 pessoas)
+  • Rotativo - Bistrôs de Espera (até 4 pessoas por bistrô)
+  • Rotativo - Lista de Espera (fila; até 4 pessoas)
+- ÁREAS PROIBIDAS (NUNCA mencione): Terraço, Balcão, Área Coberta, Área Descoberta, Área VIP genérica, Mezanino, Pista Interna, "Área Deck - Frente/Esquerdo/Direito" (nomes antigos). Se o cliente pedir nome antigo, traduza para o label novo acima.
+- OFERTA PADRÃO: Deck - Mesas, Deck - Mesas Redondas ou Bar Central. NÃO ofereça Rooftop, Balada VIP, Bangalô, Lounge ou Rotativo por padrão.
+- Rooftop/Balada/VIP: só quando o cliente pedir camarote, VIP, lounge, bangalô, balada/club, consumível ou Rooftop pelo nome.
+- Rotativo: só quando o cliente pedir lista/fila de espera ou rotativo. Bistrôs de espera rotativos acomodam NO MÁXIMO 4 pessoas.
+- Use sempre o LABEL completo (ex.: "Deck - Mesas"). params.area_id: 2 = Deck/Bar/Balada; 5 = Rooftop; 7001 = Rotativo.
+- Para GRUPOS GRANDES (7-60 pessoas): combine mesas na mesma área. Para >60 / eventos: falar_com_humano.
+- Ano de referência: ${new Date().getFullYear()}. JAMAIS use anos futuros distantes.`;
 
 class PromptBuilder {
   build(context = {}) {
@@ -224,7 +226,7 @@ DIRETIVA DE PRIORIDADE (vale para TODA resposta factual):
   buildAreaStep(context) {
     const id = Number(context.lockedEstablishmentId);
     if (id === 7) {
-      return `OBJETIVO DO TURNO:\n- Escolher subárea do Highline com base na quantidade de pessoas e preferência do cliente.\n- USE SOMENTE as áreas válidas do Highline (Deck/Bar/Rooftop com suas sub-áreas). NUNCA "Terraço", "Balcão", "Bar Central", "Área Coberta/Descoberta/VIP".\n- Por padrão, ofereça SOMENTE Deck (Frente/Esquerdo/Direito) ou Bar. NÃO ofereça Rooftop a menos que o cliente pergunte sobre camarote/VIP/consumível/Rooftop pelo nome.\n- Sempre escreva o label completo da subárea (ex.: "Área Deck - Frente" ou "Área Bar"). Não envie só "Deck" ou "Bar Central".\n- params.area_id deve ser o ID NUMÉRICO interno (2 para Deck/Bar; 5 para Rooftop). Nunca envie o nome textual em area_id; envie o LABEL no campo area_label se precisar.\n- Se cliente disser apenas "Rooftop", pergunte qual subárea (Direito, Bistrô, Centro, Esquerdo ou Vista) ANTES de gravar.\n- Se cliente disser "não tenho preferência", você ESCOLHE a melhor (use consultar_areas_mesa_reserva) e segue. NÃO pergunte de novo.`;
+      return `OBJETIVO DO TURNO:\n- Escolher subárea do Highline com base na quantidade de pessoas e preferência do cliente.\n- USE SOMENTE as áreas válidas: Deck - Mesas/Redondas, Bar Central - Bistrôs de Espera, Balada, Rooftop, Rotativo. NUNCA "Terraço", "Balcão", "Área Coberta/Descoberta/VIP" genérica nem nomes antigos "Deck Frente/Esquerdo/Direito".\n- Por padrão, ofereça SOMENTE Deck - Mesas, Deck - Mesas Redondas ou Bar Central. NÃO ofereça Rooftop/Balada/VIP/Rotativo a menos que o cliente peça.\n- Sempre escreva o LABEL completo (ex.: "Deck - Mesas", "Bar Central - Bistrôs de Espera").\n- params.area_id: 2 = Deck/Bar/Balada; 5 = Rooftop; 7001 = Rotativo. Nunca envie o nome textual em area_id; use area_label para o LABEL.\n- Se cliente disser apenas "Rooftop", pergunte Lounges, Bangalôs, Mesas ou Bistrôs ANTES de gravar.\n- Rotativo acomoda no máximo 4 pessoas.\n- Se cliente disser "não tenho preferência", você ESCOLHE a melhor (use consultar_areas_mesa_reserva) e segue. NÃO pergunte de novo.`;
     }
     return `OBJETIVO DO TURNO:\n- Escolher area_id com base na descrição do cliente.\n- params.area_id DEVE ser número inteiro positivo (ID da área no banco). Nunca envie o nome textual em area_id.\nÁREAS:\n${context.areasBlock || '(carregar no servidor)'}`;
   }

@@ -1,9 +1,14 @@
 /**
- * Subáreas do Highline — espelham os modais Nova/Editar Reserva em /admin/restaurant-reservations.
- * Mesma lista em ReservationModal.tsx e ReservationForm.tsx.
+ * Subáreas do Highline — espelham /admin/restaurant-reservations e /reservar.
+ * Fonte espelhada no front: app/config/highlineReservationAreas.ts
+ *
+ * area_id 2 = Deck / Bar Central / Balada (legado Área Descoberta)
+ * area_id 5 = Rooftop (legado Terraço)
+ * area_id 7001 = Rotativo
  */
 
 const HIGHLINE_ESTABLISHMENT_ID = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 0);
+const HIGHLINE_ROTATIVO_AREA_ID = Number(process.env.HIGHLINE_ROTATIVO_AREA_ID || 7001);
 
 const {
   getOperationalIdForProfile,
@@ -16,87 +21,228 @@ const HIGHLINE_LARGE_GROUP_MIN = Number(process.env.HIGHLINE_LARGE_GROUP_MIN || 
 /** Máximo de mesas numa reserva combinada (modal admin não impõe teto rígido; default 20). */
 const HIGHLINE_MAX_COMBINED_TABLES = Number(process.env.HIGHLINE_MAX_COMBINED_TABLES || 20);
 
-/** Mesas operacionais sem pacote VIP/camarote (oferta padrão). */
-const STANDARD_SUBAREA_KEYS = new Set([
-  'deck-frente',
-  'deck-esquerdo',
-  'deck-direito',
-  'bar',
-]);
+/** Oferta padrão automática (sem VIP/Rooftop/Rotativo). */
+const STANDARD_SUBAREA_KEYS = new Set(['deck-mesas', 'deck-redondas', 'bar-central']);
+
+const ROOFTOP_SUBAREA_KEYS = new Set(['roof-mesas', 'roof-bistros', 'roof-lounges', 'roof-bangalos']);
+
+function defineSubarea({
+  key,
+  area_id,
+  zone,
+  label,
+  tables,
+  partyHint,
+  offerTier,
+  opsNote = null,
+  maxParty = null,
+}) {
+  const tableNumbers = tables.map((t) => String(t.number));
+  const capacities = Object.fromEntries(
+    tables.map((t) => [String(t.number), Number(t.capacity) || 4])
+  );
+  const defaultCapacity = Math.max(...tables.map((t) => Number(t.capacity) || 0), 2);
+  return {
+    key,
+    area_id,
+    zone,
+    label,
+    tables,
+    tableNumbers,
+    capacities,
+    defaultCapacity,
+    partyHint,
+    offerTier,
+    opsNote,
+    maxParty,
+  };
+}
 
 const HIGHLINE_SUBAREAS = [
-  {
-    key: 'deck-frente',
+  defineSubarea({
+    key: 'deck-mesas',
     area_id: 2,
-    label: 'Área Deck - Frente',
-    tableNumbers: ['05', '06', '07', '08'],
-    defaultCapacity: 4,
-    partyHint: '2-6 pessoas',
-  },
-  {
-    key: 'deck-esquerdo',
+    zone: 'DECK',
+    label: 'Deck - Mesas',
+    offerTier: 'standard',
+    partyHint: 'até 8 pessoas',
+    tables: [
+      { number: '01', capacity: 8 },
+      { number: '02', capacity: 8 },
+      { number: '03', capacity: 8 },
+      { number: '04', capacity: 8 },
+    ],
+  }),
+  defineSubarea({
+    key: 'deck-redondas',
     area_id: 2,
-    label: 'Área Deck - Esquerdo',
-    tableNumbers: ['01', '02', '03', '04'],
-    defaultCapacity: 4,
-    partyHint: '2-6 pessoas',
-  },
-  {
-    key: 'deck-direito',
+    zone: 'DECK',
+    label: 'Deck - Mesas Redondas',
+    offerTier: 'standard',
+    partyHint: '2 a 6 pessoas',
+    tables: [
+      { number: '09', capacity: 6 },
+      { number: '10', capacity: 6 },
+      { number: '11', capacity: 6 },
+      { number: '12', capacity: 6 },
+      { number: '13', capacity: 2 },
+      { number: '14', capacity: 2 },
+    ],
+  }),
+  defineSubarea({
+    key: 'bar-central',
     area_id: 2,
-    label: 'Área Deck - Direito',
-    tableNumbers: ['09', '10', '11', '12'],
-    defaultCapacity: 4,
-    partyHint: '2-6 pessoas',
-  },
-  {
-    key: 'bar',
+    zone: 'BAR_CENTRAL',
+    label: 'Bar Central - Bistrôs de Espera',
+    offerTier: 'standard',
+    partyHint: 'até 2 pessoas',
+    opsNote: 'Consultar Roni antes de confirmar',
+    tables: [
+      { number: '15', capacity: 2 },
+      { number: '16', capacity: 2 },
+      { number: '17', capacity: 2 },
+    ],
+  }),
+  defineSubarea({
+    key: 'balada-camarotes',
     area_id: 2,
-    label: 'Área Bar',
-    tableNumbers: ['15', '16', '17'],
-    defaultCapacity: 4,
-    partyHint: '2-4 pessoas',
-  },
-  {
-    key: 'roof-direito',
+    zone: 'BALADA',
+    label: 'Balada - Camarotes',
+    offerTier: 'vip',
+    partyHint: '6 a 8 pessoas',
+    opsNote: 'Camarote 34 é de sócios — reservar avisando o Roni',
+    tables: [
+      { number: '30', capacity: 6 },
+      { number: '31', capacity: 6 },
+      { number: '32', capacity: 6 },
+      { number: '33', capacity: 8 },
+      { number: '34', capacity: 8 },
+      { number: '35', capacity: 8 },
+    ],
+  }),
+  defineSubarea({
+    key: 'balada-bistros',
+    area_id: 2,
+    zone: 'BALADA',
+    label: 'Balada - Bistrôs',
+    offerTier: 'vip',
+    partyHint: 'até 4 pessoas',
+    tables: [
+      { number: '20', capacity: 4 },
+      { number: '21', capacity: 4 },
+      { number: '22', capacity: 4 },
+      { number: '23', capacity: 4 },
+      { number: '24', capacity: 4 },
+      { number: '25', capacity: 4 },
+      { number: '26', capacity: 4 },
+      { number: '27', capacity: 4 },
+    ],
+  }),
+  defineSubarea({
+    key: 'roof-lounges',
     area_id: 5,
-    label: 'Área Rooftop - Direito',
-    tableNumbers: ['50', '51', '52', '53', '54', '55'],
-    defaultCapacity: 4,
-    partyHint: '4-8 pessoas',
-  },
-  {
-    key: 'roof-bistro',
+    zone: 'ROOFTOP',
+    label: 'Rooftop - Lounges',
+    offerTier: 'vip',
+    partyHint: 'até 6 pessoas',
+    tables: [
+      { number: '40', capacity: 6 },
+      { number: '41', capacity: 6 },
+      { number: '42', capacity: 6 },
+      { number: '43', capacity: 6 },
+    ],
+  }),
+  defineSubarea({
+    key: 'roof-bangalos',
     area_id: 5,
-    label: 'Área Rooftop - Bistrô',
-    tableNumbers: ['70', '71', '72', '73'],
-    defaultCapacity: 4,
-    partyHint: '6-8 pessoas',
-  },
-  {
-    key: 'roof-centro',
+    zone: 'ROOFTOP',
+    label: 'Rooftop - Bangalôs',
+    offerTier: 'vip',
+    partyHint: 'até 8 pessoas',
+    tables: [
+      { number: '60', capacity: 8 },
+      { number: '61', capacity: 8 },
+      { number: '62', capacity: 8 },
+      { number: '63', capacity: 8 },
+      { number: '64', capacity: 8 },
+      { number: '65', capacity: 8 },
+    ],
+  }),
+  defineSubarea({
+    key: 'roof-mesas',
     area_id: 5,
-    label: 'Área Rooftop - Centro',
-    tableNumbers: ['44', '45', '46', '47'],
-    defaultCapacity: 4,
-    partyHint: '4-6 pessoas',
-  },
-  {
-    key: 'roof-esquerdo',
+    zone: 'ROOFTOP',
+    label: 'Rooftop - Mesas',
+    offerTier: 'rooftop',
+    partyHint: '2 a 4 pessoas',
+    tables: [
+      { number: '50', capacity: 2 },
+      { number: '51', capacity: 2 },
+      { number: '52', capacity: 2 },
+      { number: '53', capacity: 2 },
+      { number: '54', capacity: 4 },
+      { number: '55', capacity: 4 },
+      { number: '56', capacity: 4 },
+      { number: '74', capacity: 4 },
+      { number: '75', capacity: 4 },
+      { number: '76', capacity: 4 },
+    ],
+  }),
+  defineSubarea({
+    key: 'roof-bistros',
     area_id: 5,
-    label: 'Área Rooftop - Esquerdo',
-    tableNumbers: ['60', '61', '62', '63', '64', '65'],
-    defaultCapacity: 4,
-    partyHint: '4-8 pessoas',
-  },
-  {
-    key: 'roof-vista',
-    area_id: 5,
-    label: 'Área Rooftop - Vista',
-    tableNumbers: ['40', '41', '42'],
-    defaultCapacity: 4,
-    partyHint: '4-6 pessoas',
-  },
+    zone: 'ROOFTOP',
+    label: 'Rooftop - Bistrôs',
+    offerTier: 'rooftop',
+    partyHint: 'até 2 pessoas',
+    tables: [
+      { number: '70', capacity: 2 },
+      { number: '71', capacity: 2 },
+      { number: '72', capacity: 2 },
+      { number: '73', capacity: 2 },
+    ],
+  }),
+  defineSubarea({
+    key: 'rotativo-espera',
+    area_id: HIGHLINE_ROTATIVO_AREA_ID,
+    zone: 'ROTATIVO',
+    label: 'Rotativo - Bistrôs de Espera',
+    offerTier: 'rotativo',
+    partyHint: 'até 4 pessoas',
+    maxParty: 4,
+    opsNote: 'Acomoda no máximo 4 pessoas por bistrô de espera',
+    tables: [
+      { number: '01', capacity: 4 },
+      { number: '02', capacity: 4 },
+      { number: '03', capacity: 4 },
+      { number: '04', capacity: 4 },
+      { number: '05', capacity: 4 },
+      { number: '06', capacity: 4 },
+      { number: '07', capacity: 4 },
+      { number: '08', capacity: 4 },
+    ],
+  }),
+  defineSubarea({
+    key: 'rotativo-lista',
+    area_id: HIGHLINE_ROTATIVO_AREA_ID,
+    zone: 'ROTATIVO',
+    label: 'Rotativo - Lista de Espera',
+    offerTier: 'rotativo',
+    partyHint: 'fila de espera',
+    maxParty: 4,
+    tables: [
+      { number: 'L01', capacity: 4 },
+      { number: 'L02', capacity: 4 },
+      { number: 'L03', capacity: 4 },
+      { number: 'L04', capacity: 4 },
+      { number: 'L05', capacity: 4 },
+      { number: 'L06', capacity: 4 },
+      { number: 'L07', capacity: 4 },
+      { number: 'L08', capacity: 4 },
+      { number: 'L09', capacity: 4 },
+      { number: 'L10', capacity: 4 },
+    ],
+  }),
 ];
 
 function normalizeLabel(text) {
@@ -104,6 +250,8 @@ function normalizeLabel(text) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -122,20 +270,38 @@ function getHighlineSubareas() {
   return HIGHLINE_SUBAREAS.map((item) => ({ ...item }));
 }
 
+function capacityFromSubarea(subarea, tableNumber) {
+  const num = String(tableNumber);
+  if (subarea?.capacities && subarea.capacities[num] != null) {
+    return Number(subarea.capacities[num]) || subarea.defaultCapacity || 4;
+  }
+  const row = (subarea?.tables || []).find((t) => String(t.number) === num);
+  if (row) return Number(row.capacity) || subarea.defaultCapacity || 4;
+  return subarea?.defaultCapacity || 4;
+}
+
 function clientAskedPaidVipAreas(text) {
   const normalized = normalizeLabel(text);
   if (!normalized) return false;
-  return /\b(camarote|camarotes|vip|bangalo|lounge vip|area vip|consumivel|consumicao minima|pacote vip|valor do camarote|quanto.*camarote)\b/.test(
+  return /\b(camarote|camarotes|vip|bangalo|bangalos|lounge|lounges|balada|club|consumivel|consumicao minima|pacote vip|valor do camarote|quanto.*camarote)\b/.test(
     normalized
   );
 }
 
+function clientAskedRotativo(text) {
+  const normalized = normalizeLabel(text);
+  if (!normalized) return false;
+  return /\b(rotativo|lista de espera|fila de espera|bistro de espera)\b/.test(normalized);
+}
+
+
 function shouldIncludeRooftopInRecommendations({ contextoCliente, areaPreferida, incluirAreasConsumiveis }) {
   if (incluirAreasConsumiveis === true) return true;
   if (clientAskedPaidVipAreas(contextoCliente)) return true;
-  if (areaPreferida?.key?.startsWith('roof')) return true;
+  if (areaPreferida?.key && ROOFTOP_SUBAREA_KEYS.has(areaPreferida.key)) return true;
+  if (areaPreferida?.offerTier === 'vip' || areaPreferida?.offerTier === 'rooftop') return true;
   const pref = normalizeLabel(areaPreferida?.label || '');
-  return pref.includes('rooftop');
+  return pref.includes('rooftop') || pref.includes('bangalo') || pref.includes('lounge');
 }
 
 function resolveHighlineSubarea(input) {
@@ -151,21 +317,34 @@ function resolveHighlineSubarea(input) {
   }
 
   const aliases = [
-    { match: ['deck frente', 'frente deck'], key: 'deck-frente' },
-    { match: ['deck esquerdo', 'esquerdo deck'], key: 'deck-esquerdo' },
-    { match: ['deck direito', 'direito deck'], key: 'deck-direito' },
-    { match: ['area bar', 'bar'], key: 'bar' },
-    { match: ['rooftop direito', 'roof direito'], key: 'roof-direito' },
-    { match: ['bistro', 'bistrô', 'bistro rooftop'], key: 'roof-bistro' },
-    { match: ['rooftop centro', 'centro rooftop'], key: 'roof-centro' },
-    { match: ['rooftop esquerdo', 'esquerdo rooftop'], key: 'roof-esquerdo' },
-    { match: ['rooftop vista', 'vista rooftop'], key: 'roof-vista' },
+    { match: ['rotativo espera', 'bistro de espera rotativo', 'rotativo'], key: 'rotativo-espera' },
+    { match: ['lista de espera', 'rotativo lista', 'fila de espera'], key: 'rotativo-lista' },
+    { match: ['deck mesas', 'mesas do deck', 'mesa deck'], key: 'deck-mesas' },
+    { match: ['deck redonda', 'mesas redondas', 'redonda'], key: 'deck-redondas' },
+    { match: ['deck frente', 'frente deck'], key: 'deck-mesas' },
+    { match: ['deck esquerdo', 'esquerdo deck'], key: 'deck-mesas' },
+    { match: ['deck direito', 'direito deck'], key: 'deck-redondas' },
+    { match: ['bar central', 'bistro espera', 'bistros de espera', 'area bar'], key: 'bar-central' },
+    // "bar" sozinho só no fim, como palavra inteira via regex no match loop abaixo
+    { match: ['balada camarote', 'camarote', 'club camarote'], key: 'balada-camarotes' },
+    { match: ['balada bistro', 'bistro balada', 'bistros da balada'], key: 'balada-bistros' },
+    { match: ['rooftop lounge', 'lounge rooftop', 'lounges'], key: 'roof-lounges' },
+    { match: ['bangalo', 'bangalos', 'rooftop bangalo'], key: 'roof-bangalos' },
+    { match: ['rooftop mesas', 'mesa rooftop', 'rooftop direito'], key: 'roof-mesas' },
+    { match: ['rooftop bistro', 'bistro rooftop', 'roof bistro'], key: 'roof-bistros' },
+    { match: ['rooftop centro', 'centro rooftop'], key: 'roof-lounges' },
+    { match: ['rooftop esquerdo', 'esquerdo rooftop'], key: 'roof-bangalos' },
+    { match: ['rooftop vista', 'vista rooftop'], key: 'roof-lounges' },
   ];
 
   for (const alias of aliases) {
-    if (alias.match.some((fragment) => normalized.includes(fragment))) {
+    if (alias.match.some((fragment) => normalized.includes(normalizeLabel(fragment)))) {
       return HIGHLINE_SUBAREAS.find((s) => s.key === alias.key) || null;
     }
+  }
+
+  if (/\bbar\b/.test(normalized) && !/\brooftop\b|\bbalada\b|\bdeck\b/.test(normalized)) {
+    return HIGHLINE_SUBAREAS.find((s) => s.key === 'bar-central') || null;
   }
 
   return null;
@@ -224,7 +403,7 @@ function buildVirtualTables(subarea) {
     id: index + 1,
     area_id: subarea.area_id,
     table_number: tableNumber,
-    capacity: subarea.defaultCapacity || 4,
+    capacity: capacityFromSubarea(subarea, tableNumber),
     is_active: true,
   }));
 }
@@ -266,7 +445,7 @@ function capacityForTableNumber(tableNumber, dbTables, subareaByTable) {
   const db = (dbTables || []).find((t) => String(t.table_number) === num);
   if (db) return Number(db.capacity) || 4;
   const sub = subareaByTable.get(num);
-  return sub?.defaultCapacity || 4;
+  return capacityFromSubarea(sub, num);
 }
 
 function buildSubareaTableIndex(areaId) {
@@ -380,9 +559,11 @@ function scoreSubareaForParty(subarea, hasTable, partySize) {
   const size = Number(partySize) || 2;
 
   if (hasTable) {
-    if (size <= 4 && (subarea.key.startsWith('deck') || subarea.key === 'bar')) score -= 30;
-    if (size <= 3 && subarea.key === 'bar') score -= 15;
+    if (size <= 8 && subarea.key === 'deck-mesas') score -= 35;
+    if (size <= 6 && subarea.key === 'deck-redondas') score -= 30;
+    if (size <= 2 && subarea.key === 'bar-central') score -= 15;
     if (STANDARD_SUBAREA_KEYS.has(subarea.key)) score -= 10;
+    if (subarea.maxParty && size > subarea.maxParty) score += 500;
   }
 
   const order = HIGHLINE_SUBAREAS.findIndex((s) => s.key === subarea.key);
@@ -520,8 +701,18 @@ async function consultHighlineReservationAreas(pool, args = {}) {
   );
 
   const eligibleForRecommendation = (entry) => {
-    if (incluirRooftop) return true;
-    return STANDARD_SUBAREA_KEYS.has(entry.key);
+    const sub = HIGHLINE_SUBAREAS.find((s) => s.key === entry.key);
+    if (!sub) return false;
+    if (sub.maxParty && partySize > sub.maxParty) return false;
+    if (STANDARD_SUBAREA_KEYS.has(entry.key)) return true;
+    if (preferred?.key === entry.key) return true;
+    if (sub.offerTier === 'rotativo') {
+      return clientAskedRotativo(contextoCliente);
+    }
+    if (incluirRooftop && (sub.offerTier === 'rooftop' || sub.offerTier === 'vip')) {
+      return true;
+    }
+    return false;
   };
 
   const withVacancy = evaluations.filter(
@@ -738,13 +929,32 @@ async function findCombinedTablesInAreaForGroup(
 
   const areaLabel =
     label ||
-    (id === 2 ? 'Área Deck (combinada)' : id === 5 ? 'Área Rooftop (combinada)' : `Área ${id}`);
+    (id === 2 ? 'Deck/Bar/Balada (combinada)' : id === 5 ? 'Rooftop (combinada)' : id === HIGHLINE_ROTATIVO_AREA_ID ? 'Rotativo (combinada)' : `Área ${id}`);
 
   return formatCombinedTablesResult(combo, {
     areaId: id,
     label: areaLabel,
     escopo: 'area',
   });
+}
+
+function resolveHighlineSubareaByTableNumber(tableNumber, areaId = null) {
+  const raw = String(tableNumber || '')
+    .split(',')[0]
+    ?.trim();
+  if (!raw) return null;
+  const matches = HIGHLINE_SUBAREAS.filter((s) => s.tableNumbers.includes(raw));
+  if (!matches.length) return null;
+  if (areaId != null && Number.isFinite(Number(areaId))) {
+    const byArea = matches.find((s) => Number(s.area_id) === Number(areaId));
+    if (byArea) return byArea;
+  }
+  const nonRotativo = matches.find((s) => s.zone !== 'ROTATIVO');
+  return nonRotativo || matches[0];
+}
+
+function resolveHighlineSubareaLabelForTable(tableNumber, areaId = null) {
+  return resolveHighlineSubareaByTableNumber(tableNumber, areaId)?.label || null;
 }
 
 module.exports = {
@@ -756,6 +966,8 @@ module.exports = {
   getHighlineSubareas,
   clientAskedPaidVipAreas,
   resolveHighlineSubarea,
+  resolveHighlineSubareaByTableNumber,
+  resolveHighlineSubareaLabelForTable,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
   findCombinedTablesInSubareaForGroup,

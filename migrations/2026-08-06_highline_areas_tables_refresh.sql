@@ -1,0 +1,12 @@
+-- =====================================================
+-- Highline: atualiza catálogo operacional de áreas/mesas
+-- Preferir o runner JS (idempotente, sem depender de UNIQUE):
+--   node scripts/run_highline_areas_tables_refresh.js
+--
+-- establishment_id = 7
+-- area_id 2 = Deck / Bar Central / Balada
+-- area_id 5 = Rooftop
+-- area_id 7001 = Rotativo
+-- =====================================================
+-- Este arquivo documenta o catálogo-alvo. A aplicação efetiva
+-- é feita pelo script acima.

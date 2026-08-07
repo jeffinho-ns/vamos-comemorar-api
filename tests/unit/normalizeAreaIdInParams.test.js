@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+process.env.HIGHLINE_ESTABLISHMENT_ID = process.env.HIGHLINE_ESTABLISHMENT_ID || '7';
+
 const {
   normalizeAreaIdInParams,
 } = require('../../services/conversationEngine/processInboundTurn');
@@ -8,26 +10,24 @@ const {
   HIGHLINE_ESTABLISHMENT_ID,
 } = require('../../services/agent/highlineReservationAreas');
 
-test('normaliza area_id quando LLM retorna label de subárea Highline (Rooftop sozinho)', async () => {
-  const params = { area_id: 'Área Rooftop - Direito' };
+test('normaliza area_id quando LLM retorna label de subárea Highline (Rooftop)', async () => {
+  const params = { area_id: 'Rooftop - Mesas' };
   await normalizeAreaIdInParams(params, HIGHLINE_ESTABLISHMENT_ID, null);
   assert.equal(params.area_id, 5);
-  assert.equal(params.area_label, 'Área Rooftop - Direito');
+  assert.equal(params.area_label, 'Rooftop - Mesas');
 });
 
-test('normaliza area_id quando vem como string "Deck"', async () => {
-  const params = { area_id: 'Área Deck - Frente' };
+test('normaliza area_id quando vem label de Deck', async () => {
+  const params = { area_id: 'Deck - Mesas' };
   await normalizeAreaIdInParams(params, HIGHLINE_ESTABLISHMENT_ID, null);
   assert.equal(params.area_id, 2);
-  assert.equal(params.area_label, 'Área Deck - Frente');
+  assert.equal(params.area_label, 'Deck - Mesas');
 });
 
-test('remove area_id quando o texto é ambíguo/desconhecido (não vaza erro técnico)', async () => {
+test('normaliza Bar Central para area_id 2', async () => {
   const params = { area_id: 'Bar Central' };
   await normalizeAreaIdInParams(params, HIGHLINE_ESTABLISHMENT_ID, null);
-  // "Bar Central" não existe; mas resolveHighlineSubarea aceita "Bar" como prefixo.
-  // O resultado deve ser ID 2 (Área Bar) OU undefined, nunca a string crua.
-  assert.ok(params.area_id === 2 || params.area_id === undefined);
+  assert.equal(params.area_id, 2);
   assert.ok(typeof params.area_id !== 'string');
 });
 
@@ -54,4 +54,10 @@ test('não falha quando params não tem area_id', async () => {
   await normalizeAreaIdInParams(params, HIGHLINE_ESTABLISHMENT_ID, null);
   assert.equal(params.area_id, undefined);
   assert.equal(params.client_name, 'João Silva');
+});
+
+test('alias antigo Deck Frente resolve para area_id 2', async () => {
+  const params = { area_id: 'Área Deck - Frente' };
+  await normalizeAreaIdInParams(params, HIGHLINE_ESTABLISHMENT_ID, null);
+  assert.equal(params.area_id, 2);
 });

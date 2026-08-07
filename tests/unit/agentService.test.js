@@ -126,12 +126,13 @@ test('containsForbiddenAreaName bloqueia rótulos inválidos no HighLine', () =>
   assert.equal(containsForbiddenAreaName('na área do Terraço'), true);
   assert.equal(containsForbiddenAreaName('Área Coberta tem vaga'), true);
   assert.equal(containsForbiddenAreaName('confirmo no Balcão'), true);
-  // "Bar Central" não existe no Highline — label oficial é "Área Bar".
-  // Manter o nome divergente confundia cliente e equipe; agora é bloqueado.
-  assert.equal(containsForbiddenAreaName('Bar Central tem mesas'), true);
-  assert.equal(containsForbiddenAreaName('te indico o Deck Frente'), false);
-  assert.equal(containsForbiddenAreaName('Rooftop Esquerdo livre'), false);
-  assert.equal(containsForbiddenAreaName('te indico a Área Bar pra essa quantidade'), false);
+  // "Bar Central" é label oficial (Bar Central - Bistrôs de Espera).
+  assert.equal(containsForbiddenAreaName('Bar Central tem mesas'), false);
+  // Nomes antigos do painel devem ser bloqueados.
+  assert.equal(containsForbiddenAreaName('Área Deck - Frente tem vaga'), true);
+  assert.equal(containsForbiddenAreaName('te indico o Deck - Mesas'), false);
+  assert.equal(containsForbiddenAreaName('Rooftop - Lounges livre'), false);
+  assert.equal(containsForbiddenAreaName('te indico a Bar Central - Bistrôs de Espera'), false);
 });
 
 test('sanitizeAssistantReply substitui confirmação falsa por pergunta segura', () => {
@@ -189,7 +190,7 @@ test('sanitizeAssistantReply bloqueia nome de área proibido', () => {
 
 test('sanitizeAssistantReply bloqueia múltiplas reservas para mesmo grupo', () => {
   const result = sanitizeAssistantReply(
-    'Posso fazer três reservas na Área Rooftop - Esquerdo para acomodar seu grupo.',
+    'Posso fazer três reservas no Rooftop - Bangalôs para acomodar seu grupo.',
     { toolTrace: [], workingState: {} }
   );
   assert.equal(result.blocked, true);
@@ -209,7 +210,7 @@ test('sanitizeAssistantReply substitui tom formal mesmo com reserva criada', () 
           pre_reserva: {
             reservation_date: '2026-05-30',
             reservation_time: '21:00',
-            area_label: 'Área Deck - Frente',
+            area_label: 'Deck - Mesas',
           },
         },
       },
@@ -240,7 +241,7 @@ test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', 
     'Vou combinar 3 mesas próximas no Deck pra acomodar o grupo numa única reserva.',
     'A casa pode juntar duas mesas em UMA reserva só.',
     'Combinei 4 mesas pra você ficar todo mundo junto.',
-    'Pra essa quantidade, junto 3 mesas na Área Bar em uma reserva.',
+    'Pra essa quantidade, junto 3 mesas no Bar Central em uma reserva.',
   ];
   for (const text of benignTexts) {
     const result = sanitizeAssistantReply(text, { toolTrace: [], workingState: {} });

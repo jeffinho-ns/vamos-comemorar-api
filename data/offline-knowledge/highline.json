@@ -42,7 +42,11 @@
     },
     {
       "topic": "areas_mesas_camarotes_diferenca",
-      "answer": "Reserva de mesa normal não tem custo. Rooftop VIP (100% consumível): Lounge 6 pessoas R$800, Bangalô 8 pessoas R$1.000. Camarotes no Club (abre 00h): 8 VIPs R$2.000 (reverte R$1.600 em consumação) ou 10 VIPs R$2.500 (reverte R$2.000). Valores sujeitos a alteração — a equipe confirma o pacote ideal pra você."
+      "answer": "Reserva de mesa normal não tem custo. Oferta padrão: Deck (Mesas 01-04 / Redondas 09-14) e Bar Central (Bistrôs Espera 15-17). Rooftop VIP sob pedido: Lounges 40-43 (6p), Bangalôs 60-65 (8p), Mesas 50-56/74-76 e Bistrôs 70-73. Balada/Club: Camarotes 30-35 e Bistrôs 20-27. Rotativo (máx. 4 pessoas): bistrôs de espera e lista de espera. Valores de pacote VIP/camarote sujeitos a alteração — a equipe confirma o ideal pra você."
+    },
+    {
+      "topic": "reserva_areas_operacional_highline",
+      "answer": "Áreas oficiais do Highline: Deck - Mesas, Deck - Mesas Redondas, Bar Central - Bistrôs de Espera; sob pedido Rooftop (Lounges/Bangalôs/Mesas/Bistrôs), Balada (Camarotes/Bistrôs) e Rotativo (máx. 4 pessoas). Nunca use Terraço, Balcão ou nomes antigos Deck Frente/Esquerdo/Direito."
     }
   ]
 }

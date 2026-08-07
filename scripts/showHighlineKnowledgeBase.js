@@ -93,8 +93,8 @@ async function main() {
   }
 
   const blockLower = block.toLowerCase();
-  if (blockLower.includes('bar central')) {
-    issues.push('"Bar Central" ainda aparece em alguma entrada — esse nome não existe na casa, deveria ser "Área Bar".');
+  if (blockLower.includes('área deck - frente') || blockLower.includes('area deck - frente')) {
+    issues.push('"Área Deck - Frente" (nome antigo) ainda aparece — use "Deck - Mesas".');
   }
   if (blockLower.includes('terraço') || blockLower.includes('terraco')) {
     issues.push('"Terraço" aparece em alguma entrada — não é uma área válida do Highline.');

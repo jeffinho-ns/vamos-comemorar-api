@@ -685,11 +685,8 @@ const FORBIDDEN_AREA_NAMES = [
   /[áa]rea vip(?! consum)/i, // "Área VIP" sozinha (mas permite "Área VIP consumível" se vier do FAQ de camarote)
   /mezanino/i,
   /pista interna/i,
-  // "Bar Central" não existe no Highline — o label oficial é "Área Bar".
-  // Cliente que ouve "Bar Central" recebe um nome divergente do painel da
-  // equipe, gerando confusão. Bloqueio determinístico aqui força o agent a
-  // sempre devolver a pergunta de coleta correta com vocabulário oficial.
-  /\bbar\s+central\b/i,
+  // Nomes antigos do painel (Deck Frente/Esquerdo/Direito) — traduzir para labels novos.
+  /[áa]rea\s+deck\s*-\s*(frente|esquerdo|direito)/i,
 ];
 
 function looksLikeFakeReservationConfirmation(text) {

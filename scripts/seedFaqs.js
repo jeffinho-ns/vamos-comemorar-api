@@ -275,7 +275,7 @@ Celebre com o cliente de forma animada ao explicar.`,
 NUNCA diga que a casa está cheia ou sem vaga só porque uma mesa única não comporta todo o grupo. Isso é normal em grupos grandes.
 
 O que fazer:
-1) Explique com empatia: na área sugerida (geralmente Área Deck) a gente junta mesas próximas — pode não haver cadeira para cada pessoa ao mesmo tempo, mas a reserva É FEITA e a Equipe de Hostess organiza na chegada.
+1) Explique com empatia: na área sugerida (geralmente Deck - Mesas) a gente junta mesas próximas — pode não haver cadeira para cada pessoa ao mesmo tempo, mas a reserva É FEITA e a Equipe de Hostess organiza na chegada.
 2) Consulte consultar_areas_mesa_reserva e verificar_disponibilidade com a data e a quantidade corretas.
 3) REGISTRE com criar_pre_reserva mesmo quando a soma de cadeiras das mesas combinadas for menor que o número de convidados. Em observacoes escreva: "Grupo grande de X pessoas — combinar mesas; Hostess acomoda na chegada."
 4) Só use criar_lista_espera se NÃO existir NENHUMA mesa livre nas subáreas operacionais naquele dia (zero mesas livres no painel).
@@ -287,7 +287,9 @@ Acima de 60 pessoas ou evento corporativo/formatura: handoff humano (não improv
   {
     topic: 'reserva_areas_operacional_highline',
     answer: `REGRA EXCLUSIVA HIGHLINE — áreas do Sistema de Reservas (/admin/restaurant-reservations), mesmas dos modais Nova Reserva e Editar Reserva:
-Subáreas: Área Deck - Frente | Área Deck - Esquerdo | Área Deck - Direito | Área Bar | Área Rooftop - Direito | Área Rooftop - Bistrô | Área Rooftop - Centro | Área Rooftop - Esquerdo | Área Rooftop - Vista.
+Subáreas padrão: Deck - Mesas | Deck - Mesas Redondas | Bar Central - Bistrôs de Espera.
+VIP/sob pedido: Balada - Camarotes | Balada - Bistrôs | Rooftop - Lounges | Rooftop - Bangalôs | Rooftop - Mesas | Rooftop - Bistrôs.
+Rotativo (máx. 4 pessoas): Rotativo - Bistrôs de Espera | Rotativo - Lista de Espera.
 
 Tom: respostas curtas, humanizadas, como concierge no WhatsApp (sem textão).
 
@@ -296,9 +298,9 @@ Fluxo quando o cliente perguntar sobre áreas ou quiser mesa:
 2) consultar_areas_mesa_reserva (mesas do painel; CONFIRMADA bloqueia o dia).
 3) Sugira a subárea ideal; se a preferida estiver cheia, ofereça alternativas_com_vaga.
 4) Se todas_areas_cheias → criar_lista_espera + explique que a Hostess leva à mesa quando liberar. (Grupos 16+: leia reserva_grupos_grandes_highline — "cheio" só quando ZERO mesas livres no dia.)
-5) criar_pre_reserva com area = label da subárea (ex.: Área Deck - Frente).
+5) criar_pre_reserva com area = label da subárea (ex.: Deck - Mesas).
 
-Observações (campo observacoes nas ferramentas): SEMPRE registrar no notes do painel o que o cliente pediu (ex.: "quer Deck Frente", "aceitou Rooftop Centro", aniversário, pedido especial). A equipe lê isso no Sistema de Reservas.
+Observações (campo observacoes nas ferramentas): SEMPRE registrar no notes do painel o que o cliente pediu (ex.: "quer Deck - Mesas", "aceitou Rooftop - Lounges", aniversário, pedido especial). A equipe lê isso no Sistema de Reservas.
 
 Não use este tópico para preços de camarote/VIP — use areas_mesas_camarotes_diferenca.`,
   },
@@ -353,13 +355,14 @@ Para Rooftop VIP / Camarote, há sim valor de reserva consumível — explicar c
   {
     topic: 'subareas_canonicas_highline',
     answer: `REGRA HIGHLINE — só existem estas subáreas operacionais e a IA SÓ pode oferecer essas (labels EXATOS, idênticos ao painel /admin/restaurant-reservations):
-  • Área Deck - Frente
-  • Área Deck - Esquerdo
-  • Área Deck - Direito
-  • Área Bar
-  • Área Rooftop - Direito / Bistrô / Centro / Esquerdo / Vista (apenas quando o cliente pedir camarote/VIP/consumível)
-PROIBIDO inventar nomes como "Bar Central", "Área Coberta", "Área Descoberta", "Área VIP genérica", "Mezanino", "Pista", "Balcão", "Terraço". Esses NÃO existem para o cliente — se a IA disser, a equipe vê algo diferente no painel e o cliente chega esperando uma área que não existe.
-Use sempre o label exato vindo do verificar_disponibilidade / consultar_areas_mesa_reserva, que é a mesma fonte do /admin/restaurant-reservations. Se a fonte trouxer "Área Coberta" ou rótulos genéricos, NÃO repasse — filtre e descreva como Área Deck / Área Bar / Área Rooftop.`,
+  • Deck - Mesas
+  • Deck - Mesas Redondas
+  • Bar Central - Bistrôs de Espera
+  • Balada - Camarotes / Balada - Bistrôs (apenas quando o cliente pedir VIP/camarote/balada)
+  • Rooftop - Lounges / Bangalôs / Mesas / Bistrôs (apenas quando o cliente pedir Rooftop/VIP/consumível)
+  • Rotativo - Bistrôs de Espera / Lista de Espera (máx. 4 pessoas; só sob pedido de lista/fila/rotativo)
+PROIBIDO inventar nomes como "Área Coberta", "Área Descoberta", "Área VIP genérica", "Mezanino", "Pista", "Balcão", "Terraço", ou nomes antigos "Área Deck - Frente/Esquerdo/Direito". Se o cliente pedir nome antigo, traduza para o label novo.
+Use sempre o label exato vindo do verificar_disponibilidade / consultar_areas_mesa_reserva, que é a mesma fonte do /admin/restaurant-reservations.`,
   },
   {
     topic: 'controle_duplicidade_reservas',

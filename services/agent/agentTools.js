@@ -259,9 +259,9 @@ async function loadActiveAreas(pool, establishmentId) {
 
 /**
  * Para o Highline, NUNCA expor os nomes genéricos do banco
- * (Área Coberta, Área Descoberta, Área VIP, Balcão, Terraço, Bar Central).
+ * (Área Coberta, Área Descoberta, Área VIP, Balcão, Terraço).
  * Devolve apenas o vocabulário oficial do painel /admin/restaurant-reservations:
- * Área Deck (Frente/Esquerdo/Direito), Área Bar e Área Rooftop (sob pedido).
+ * Deck - Mesas/Redondas, Bar Central e Rooftop/Balada (sob pedido).
  */
 function buildHighlineAreasSummary({ partySize = null } = {}) {
   const labels = HIGHLINE_SUBAREAS
@@ -382,7 +382,7 @@ function getAgentToolDefinitions() {
             area_preferida: {
               type: 'string',
               description:
-                'Opcional: label da subárea (ex.: Área Deck - Frente, Área Rooftop - Bistrô).',
+                'Opcional: label da subárea (ex.: Deck - Mesas, Rooftop - Bistrôs, Bar Central - Bistrôs de Espera).',
             },
             contexto_cliente: {
               type: 'string',
@@ -588,7 +588,7 @@ async function verificarDisponibilidade(pool, args = {}) {
     windows: windows.map((w) => (typeof w === 'string' ? { label: w } : w)),
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
     areas_canonicas_highline: isHighlineEstablishment(establishmentId)
-      ? 'No HighLine só ofereça Área Deck (Frente/Esquerdo/Direito) e Área Bar. Área Rooftop apenas se o cliente pedir camarote/VIP/consumível. NÃO cite "Bar Central", "Área Coberta", "Área Descoberta", "Área VIP", "Balcão", "Terraço", "Mezanino" ou "Pista Interna" — esses nomes NÃO existem no Highline.'
+      ? 'No HighLine só ofereça Deck - Mesas, Deck - Mesas Redondas e Bar Central - Bistrôs de Espera. Rooftop/Balada/VIP apenas se o cliente pedir. Rotativo só para lista/fila de espera (máx. 4 pessoas). NÃO cite "Terraço", "Balcão", "Área Coberta", "Área Descoberta", "Área VIP" genérica, "Mezanino" ou "Pista Interna".'
       : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
@@ -609,7 +609,7 @@ async function verificarDisponibilidade(pool, args = {}) {
 
 async function resolveDefaultReservationSlot(pool, establishmentId, reservationDate, partySize) {
   if (isHighlineEstablishment(establishmentId)) {
-    const preferredKeys = ['deck-frente', 'deck-esquerdo', 'deck-direito', 'bar'];
+    const preferredKeys = ['deck-mesas', 'deck-redondas', 'bar-central'];
     for (const key of preferredKeys) {
       if (!STANDARD_SUBAREA_KEYS.has(key)) continue;
       const subarea = HIGHLINE_SUBAREAS.find((item) => item.key === key);

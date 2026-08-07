@@ -99,62 +99,20 @@ class NotificationService {
    * @param {string} defaultAreaName - Nome da área padrão do banco
    * @returns {string} Nome específico da subárea
    */
-  getHighlineSubareaName(tableNumber, defaultAreaName) {
+  getHighlineSubareaName(tableNumber, defaultAreaName, areaId = null) {
     if (!tableNumber) return defaultAreaName;
-    
-    const n = String(tableNumber);
-    
-    // Mapeamento das mesas para subáreas específicas
-    const subareaMap = {
-      '05': 'Área Deck - Frente',
-      '06': 'Área Deck - Frente',
-      '07': 'Área Deck - Frente',
-      '08': 'Área Deck - Frente',
-      
-      '01': 'Área Deck - Esquerdo',
-      '02': 'Área Deck - Esquerdo',
-      '03': 'Área Deck - Esquerdo',
-      '04': 'Área Deck - Esquerdo',
-      
-      '09': 'Área Deck - Direito',
-      '10': 'Área Deck - Direito',
-      '11': 'Área Deck - Direito',
-      '12': 'Área Deck - Direito',
-      
-      '15': 'Área Bar',
-      '16': 'Área Bar',
-      '17': 'Área Bar',
-      
-      '50': 'Área Rooftop - Direito',
-      '51': 'Área Rooftop - Direito',
-      '52': 'Área Rooftop - Direito',
-      '53': 'Área Rooftop - Direito',
-      '54': 'Área Rooftop - Direito',
-      '55': 'Área Rooftop - Direito',
-      
-      '70': 'Área Rooftop - Bistrô',
-      '71': 'Área Rooftop - Bistrô',
-      '72': 'Área Rooftop - Bistrô',
-      '73': 'Área Rooftop - Bistrô',
-      
-      '44': 'Área Rooftop - Centro',
-      '45': 'Área Rooftop - Centro',
-      '46': 'Área Rooftop - Centro',
-      '47': 'Área Rooftop - Centro',
-      
-      '60': 'Área Rooftop - Esquerdo',
-      '61': 'Área Rooftop - Esquerdo',
-      '62': 'Área Rooftop - Esquerdo',
-      '63': 'Área Rooftop - Esquerdo',
-      '64': 'Área Rooftop - Esquerdo',
-      '65': 'Área Rooftop - Esquerdo',
-      
-      '40': 'Área Rooftop - Vista',
-      '41': 'Área Rooftop - Vista',
-      '42': 'Área Rooftop - Vista'
-    };
-    
-    return subareaMap[n] || defaultAreaName;
+
+    try {
+      const {
+        resolveHighlineSubareaLabelForTable,
+      } = require('./agent/highlineReservationAreas');
+      const label = resolveHighlineSubareaLabelForTable(tableNumber, areaId);
+      if (label) return label;
+    } catch (_error) {
+      // fallback abaixo
+    }
+
+    return defaultAreaName;
   }
 
   /**

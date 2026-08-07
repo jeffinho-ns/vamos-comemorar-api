@@ -45,7 +45,9 @@ module.exports = (pool) => {
       const query = `
         SELECT rt.* FROM restaurant_tables rt
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY rt.area_id ASC, CAST(rt.table_number AS INTEGER) ASC, rt.table_number ASC
+        ORDER BY rt.area_id ASC,
+          CASE WHEN rt.table_number ~ '^[0-9]+$' THEN CAST(rt.table_number AS INTEGER) END ASC NULLS LAST,
+          rt.table_number ASC
       `;
       const rowsResult = await pool.query(query, params);
       const rows = rowsResult.rows;
@@ -67,7 +69,10 @@ module.exports = (pool) => {
       }
 
       const tablesResult = await pool.query(
-        'SELECT * FROM restaurant_tables WHERE area_id = $1 AND is_active = TRUE ORDER BY CAST(table_number AS INTEGER) ASC, table_number ASC',
+        `SELECT * FROM restaurant_tables
+          WHERE area_id = $1 AND is_active = TRUE
+          ORDER BY CASE WHEN table_number ~ '^[0-9]+$' THEN CAST(table_number AS INTEGER) END ASC NULLS LAST,
+                   table_number ASC`,
         [areaId]
       );
       const tables = tablesResult.rows;
