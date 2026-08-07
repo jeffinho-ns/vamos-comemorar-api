@@ -136,6 +136,20 @@ async function runMigration() {
         'SELECT id FROM restaurant_areas WHERE id = $1 LIMIT 1',
         [ROTATIVO_AREA_ID]
       );
+      // Deck (2) e Rooftop (5) precisam pertencer ao Highline — senão a API rejeita
+      // criar_pre_reserva com "area_id não pertence ao estabelecimento".
+      for (const legacyAreaId of [2, 5]) {
+        await client.query(
+          `UPDATE restaurant_areas
+              SET establishment_id = $1,
+                  is_active = TRUE,
+                  updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2`,
+          [HIGHLINE_ESTABLISHMENT_ID, legacyAreaId]
+        );
+      }
+      console.log('Áreas 2 (Deck) e 5 (Rooftop) vinculadas ao Highline.');
+
       if (areaExists.rows[0]) {
         await client.query(
           `UPDATE restaurant_areas
@@ -144,7 +158,7 @@ async function runMigration() {
                   capacity_lunch = 32,
                   capacity_dinner = 32,
                   is_active = TRUE,
-                  establishment_id = COALESCE(establishment_id, $1),
+                  establishment_id = $1,
                   updated_at = CURRENT_TIMESTAMP
             WHERE id = $2`,
           [HIGHLINE_ESTABLISHMENT_ID, ROTATIVO_AREA_ID]

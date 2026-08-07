@@ -270,6 +270,16 @@ function getHighlineSubareas() {
   return HIGHLINE_SUBAREAS.map((item) => ({ ...item }));
 }
 
+/** IDs de restaurant_areas canônicos do Highline (Deck/Bar/Balada, Rooftop, Rotativo). */
+function getHighlineCanonicalAreaIds() {
+  const ids = new Set(
+    HIGHLINE_SUBAREAS.map((sub) => Number(sub.area_id)).filter((id) => Number.isFinite(id) && id > 0)
+  );
+  const rotativo = Number(HIGHLINE_ROTATIVO_AREA_ID);
+  if (Number.isFinite(rotativo) && rotativo > 0) ids.add(rotativo);
+  return [...ids];
+}
+
 function capacityFromSubarea(subarea, tableNumber) {
   const num = String(tableNumber);
   if (subarea?.capacities && subarea.capacities[num] != null) {
@@ -980,6 +990,7 @@ module.exports = {
   STANDARD_SUBAREA_KEYS,
   isHighlineEstablishment,
   getHighlineSubareas,
+  getHighlineCanonicalAreaIds,
   clientAskedPaidVipAreas,
   resolveHighlineSubarea,
   resolveHighlineSubareaByTableNumber,

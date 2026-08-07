@@ -406,13 +406,38 @@ async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   const id = establishmentId != null ? Number(establishmentId) : null;
   if (id != null && Number.isFinite(id) && id > 0) {
     const rules = await establishmentRules.getEstablishmentRules(pool, id);
-    // Self-managed (já possui áreas próprias): apenas as próprias.
-    // Caso contrário: catálogo legado por convenção de nome.
-    const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
-    if (hasOwned) {
-      whereParts.push(`establishment_id = ${id}`);
+    // Highline: áreas canônicas (2/5/7001) podem ter ficado sem establishment_id
+    // enquanto só o Rotativo foi “adotado” — nesse caso hasOwned=true e a validação
+    // de criar reserva rejeita Deck/Rooftop. Sempre inclui os IDs canônicos.
+    let highlineCanonicalIds = [];
+    try {
+      const {
+        isHighlineEstablishment,
+        getHighlineCanonicalAreaIds,
+      } = require('../agent/highlineReservationAreas');
+      if (isHighlineEstablishment(id)) {
+        highlineCanonicalIds = getHighlineCanonicalAreaIds();
+      }
+    } catch (_error) {
+      highlineCanonicalIds = [];
+    }
+
+    if (highlineCanonicalIds.length) {
+      whereParts.push(
+        `(establishment_id = ${id} OR id = ANY(ARRAY[${highlineCanonicalIds
+          .map((areaId) => Number(areaId))
+          .filter((areaId) => Number.isFinite(areaId) && areaId > 0)
+          .join(',')}]::int[]))`
+      );
     } else {
-      whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
+      // Self-managed (já possui áreas próprias): apenas as próprias.
+      // Caso contrário: catálogo legado por convenção de nome.
+      const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
+      if (hasOwned) {
+        whereParts.push(`establishment_id = ${id}`);
+      } else {
+        whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
+      }
     }
   }
 
