@@ -10,6 +10,7 @@ const { isHighlineEstablishment } = require('./highlineReservationAreas');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
   FAQ_MAX_CHARS_PER_TURN,
+  FAQ_MAX_CHARS_FUNNEL,
   FAQ_CORE_FALLBACK_TOPICS,
   getModelForTask,
   applyOutputLimit,
@@ -363,7 +364,8 @@ function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
 }
 
 /**
- * Carrega apenas FAQs dos tópicos detectados, com teto de ~800 tokens/turno.
+ * Carrega apenas FAQs dos tópicos detectados, com teto de chars/turno.
+ * Sem tópicos detectados: não carrega a base inteira (caro e impreciso).
  */
 async function loadRelevantFaqsForEstablishment(
   pool,
@@ -376,6 +378,9 @@ async function loadRelevantFaqsForEstablishment(
 
   let topics = [...new Set((topicHints || []).filter(Boolean))];
   if (!topics.length) {
+    // Funil de reserva: zero FAQ genérica no prompt (economiza tokens).
+    if (funnelActive) return [];
+    // Informativo sem match: só o núcleo mínimo, nunca loadAllActiveFaqs.
     topics = [...FAQ_CORE_FALLBACK_TOPICS];
   }
 
@@ -395,17 +400,14 @@ async function loadRelevantFaqsForEstablishment(
           : null;
       })
       .filter(Boolean);
-    if (fallbackEntries.length > 0) {
-      return filterFaqsForCustomerPrompt(fallbackEntries);
-    }
-
-    entries = await loadAllActiveFaqsForEstablishment(pool, establishment, {
-      maxChars: Math.min(maxChars, 1200),
-    });
-    return filterFaqsForCustomerPrompt(entries);
+    return filterFaqsForCustomerPrompt(fallbackEntries);
   }
 
-  const budget = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : FAQ_MAX_CHARS_PER_TURN;
+  const defaultBudget = funnelActive ? FAQ_MAX_CHARS_FUNNEL : FAQ_MAX_CHARS_PER_TURN;
+  const budget =
+    Number.isFinite(maxChars) && maxChars > 0
+      ? Math.min(maxChars, defaultBudget)
+      : defaultBudget;
   const topicOrder = new Map(topics.map((t, i) => [t, i]));
   entries.sort((a, b) => {
     const ai = topicOrder.has(a.topic) ? topicOrder.get(a.topic) : 999;

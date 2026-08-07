@@ -119,10 +119,21 @@ async function recordOpenAiUsageSafe(pool, payload = {}) {
   }
 }
 
+/** Registra caminho sem LLM (faq_direct / offline) com 0 tokens para medição de ROI. */
+async function recordZeroTokenPath(pool, { path, meta = null, model = null } = {}) {
+  await recordOpenAiUsageSafe(pool, {
+    path: path || 'faq_direct',
+    model: model || 'none',
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    meta: meta || { zero_token: true },
+  });
+}
+
 module.exports = {
   runWithOpenAiUsageContext,
   getOpenAiUsageContext,
   extractUsageFields,
   recordOpenAiUsage,
   recordOpenAiUsageSafe,
+  recordZeroTokenPath,
 };

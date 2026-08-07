@@ -52,7 +52,8 @@ test('parseReservationFieldsFromUserText extrai horário e pessoas', () => {
 test('parseReservationFieldsFromUserText extrai data e 60 pessoas (caso print)', () => {
   const patch = parseReservationFieldsFromUserText('19/06 e 60 pessoas', { establishment_id: 7 });
   assert.equal(patch.quantidade_convidados, 60);
-  assert.match(patch.reservation_date, /^2026-06-19$/);
+  // Ano segue o calendário (se 19/06 já passou no ano corrente, cai no próximo).
+  assert.match(patch.reservation_date, /^20\d{2}-06-19$/);
 });
 
 test('parseReservationFieldsFromUserText não extrai data em pergunta sobre evento', () => {

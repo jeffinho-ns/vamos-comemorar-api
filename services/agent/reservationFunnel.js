@@ -10,6 +10,7 @@ const {
   OBSERVATIONS_STEP,
   getStepPrompt,
 } = require('../stateManager/conversationSteps');
+const { resolveHighlineSubarea } = require('./highlineReservationAreas');
 
 /**
  * Detecta a mensagem padronizada gerada por anúncio/tráfego pago.
@@ -213,31 +214,22 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
     (key) => `${key}=${workingState[key]}`
   );
 
-  // Bloco em PROSA, não em bullets, justamente porque LLM tende a espelhar a
-  // estrutura do prompt na resposta. Mantemos um único parágrafo curto + duas
-  // linhas de estado dinâmico. O agente lê e internaliza, mas a resposta ao
-  // cliente sai conversada, sem listas.
+  // Bloco curto: estado + 1 missão. Fatos estáticos não entram aqui (FAQ já foi filtrada).
   const paragraph =
-    'FUNIL DE RESERVA EM ANDAMENTO. O cliente já está reservando, então sua missão neste turno é só uma: avançar a reserva. ' +
-    'Cobra os próximos dados que faltam em frase corrida (no máximo três por mensagem), ' +
-    'agradece de leve quando ele mandar parte ("Boa, anotei!"), nunca repete pergunta já respondida, ' +
-    'nunca despeja lista com "•" ou "1, 2, 3" e nunca encerra sem orientar o próximo passo. ' +
-    'A ordem natural é: bloco operacional (data, horário, pessoas) → verificar_disponibilidade → ' +
-    'área (se for Highline e o cliente não tiver indicado) → identidade (nome completo, e-mail, data de nascimento) → ' +
-    'observações ("aniversário? alguma restrição?") → criar_pre_reserva. ' +
-    'Nunca diga "reserva confirmada" antes de criar_pre_reserva retornar ok.';
+    'FUNIL ATIVO: avance a reserva neste turno. Peça no máx. 3 dados em frase corrida; ' +
+    'não use bullets; não diga "confirmada" antes de criar_pre_reserva ok. ' +
+    'Ordem: data+horário+pessoas → verificar_disponibilidade → área (se precisar) → nome+e-mail+nascimento → criar_pre_reserva.';
 
   const lines = [paragraph];
 
   if (collected.length) {
-    lines.push(`Já coletado neste cliente: ${collected.join('; ')}.`);
+    lines.push(`Coletado: ${collected.join('; ')}.`);
   }
   if (missing.length) {
-    const labels = missing.map((m) => MISSING_FIELD_PROMPTS[m] || m).join(' / ');
-    lines.push(`Ainda falta: ${labels}`);
-    lines.push(`Sugestão de próxima fala (adapte ao seu tom, NÃO copie literal): ${buildNextFieldQuestion(workingState)}`);
+    lines.push(`Falta: ${missing.join(', ')}.`);
+    lines.push(`Próximo (adapte): ${buildNextFieldQuestion(workingState)}`);
   } else {
-    lines.push('Todos os campos obrigatórios estão preenchidos: chame criar_pre_reserva agora, sem pedir nova confirmação.');
+    lines.push('Campos ok → criar_pre_reserva agora.');
   }
 
   return lines.join('\n');
@@ -366,6 +358,15 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     patch.reservation_date_confirmed = true;
     patch.pending_reservation_date_iso = null;
     patch.pending_reservation_date_label = null;
+  }
+
+  if (!workingState.area_label && !workingState.area_preferida) {
+    const subarea = resolveHighlineSubarea(text);
+    if (subarea?.label) {
+      patch.area_preferida = subarea.label;
+      patch.area_label = subarea.label;
+      if (subarea.area_id) patch.area_id = subarea.area_id;
+    }
   }
 
   return patch;

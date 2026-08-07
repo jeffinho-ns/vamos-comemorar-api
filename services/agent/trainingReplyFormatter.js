@@ -15,6 +15,21 @@ const CURTA_MAX_CHARS = 280;
 const LONGA_MAX_CHARS = 900;
 const MULTI_STEP_MIN_CHARS = 600;
 
+/** Tópicos de 1 fato — sempre preferir resposta direta (0 tokens LLM). */
+const SINGLE_FACT_TOPICS = new Set([
+  'dias_horarios_funcionamento',
+  'horario_funcionamento',
+  'dress_code',
+  'regras_bolo',
+  'estacionamento',
+  'beneficios_aniversario',
+  'valores_entrada',
+  'cardapio',
+  'redes_sociais_fotos',
+  'como_reservar',
+  'areas_mesas_camarotes_diferenca',
+]);
+
 const GREETING_START_RE = /^(oi|olá|ola|bom dia|boa tarde|boa noite)\b/i;
 const HTTP_URL_RE = /https?:\/\/\S+/i;
 const EXTERNAL_LINK_LINE_RE = /^-\s*(.+?):\s*(https?:\/\/\S+)/i;
@@ -214,9 +229,13 @@ function pickBestFaqEntry(faqEntries = [], topicHints = []) {
 
 function buildSoftCta(settings) {
   if (settings?.tone === 'formal') {
-    return 'Se precisar de mais alguma informação, estou à disposição.';
+    return 'Se quiser, posso verificar uma mesa para você.';
   }
-  return 'Se precisar de mais alguma coisa, é só chamar!';
+  return 'Quer que eu veja uma mesa pra você?';
+}
+
+function isSingleFactTopic(topic) {
+  return SINGLE_FACT_TOPICS.has(normalizeTopicKey(topic));
 }
 
 /**
@@ -248,10 +267,12 @@ function formatTrainingReply({
     usedSettings = true;
   }
 
-  if (settings?.response_size === 'curta') {
+  // Default informativo: resposta curta estilo WhatsApp (economiza tokens e soa humano).
+  const size = settings?.response_size || 'curta';
+  if (size === 'curta') {
     text = truncateCurta(text);
     usedSettings = true;
-  } else if (settings?.response_size === 'longa') {
+  } else if (size === 'longa') {
     const trimmed = truncateLonga(text);
     if (trimmed !== text) usedSettings = true;
     text = trimmed;
@@ -274,14 +295,25 @@ function formatTrainingReply({
   text = linkResult.text;
   if (linkResult.appended) usedSettings = true;
 
-  if (options.appendCta) {
-    text = `${text.trim()}\n\n${buildSoftCta(settings)}`;
+  const shouldAppendCta = options.appendCta !== false;
+  if (shouldAppendCta && !/\b(mesa|reserv)/i.test(text)) {
+    text = `${text.trim()} ${buildSoftCta(settings)}`;
     usedSettings = true;
   }
 
-  return { text: text.trim(), usedSettings };
+  // Remove bullets residuais — tom WhatsApp, não chatbot.
+  text = text
+    .replace(/^[•\-\*]\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return { text, usedSettings };
 }
 
+/**
+ * Preferir Camada 1 (0 tokens) sempre que houver 1 fato claro e resposta customer-facing.
+ * LLM econômico só quando há 2+ tópicos ou ambiguidade.
+ */
 function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = [] }) {
   const directEnabled = String(process.env.FAQ_DIRECT_REPLY ?? 'true')
     .trim()
@@ -307,12 +339,23 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
   if (!best?.answer) return false;
   if (looksLikeMultiStepInstructions(best.answer)) return false;
 
+  const hints = Array.isArray(topicHints) ? topicHints.filter(Boolean) : [];
+  if (hints.length >= 2) {
+    // Dois fatos distintos → deixa o LLM econômico fundir (Camada 2).
+    const distinctCustomer = hints.filter((hint) =>
+      customerFacing.some((entry) => topicsMatch(entry.topic, hint))
+    );
+    if (distinctCustomer.length >= 2) return false;
+  }
+
   if (customerFacing.length === 1) return true;
 
-  if (Array.isArray(topicHints) && topicHints.length === 1) {
-    const matching = customerFacing.filter((entry) => topicsMatch(entry.topic, topicHints[0]));
+  if (hints.length === 1) {
+    const matching = customerFacing.filter((entry) => topicsMatch(entry.topic, hints[0]));
     if (matching.length === 1) return true;
   }
+
+  if (isSingleFactTopic(best.topic)) return true;
 
   return false;
 }
@@ -327,4 +370,7 @@ module.exports = {
   truncateLonga,
   parseExternalLinkLines,
   looksLikeMultiStepInstructions,
+  isSingleFactTopic,
+  SINGLE_FACT_TOPICS,
+  buildSoftCta,
 };

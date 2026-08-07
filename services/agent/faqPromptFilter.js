@@ -3,7 +3,7 @@
  * Não altera o banco — só a montagem customer-facing do bloco FAQ.
  */
 
-/** Tópicos de comportamento da IA — nunca vão ao prompt do cliente. */
+/** Tópicos de comportamento/roteamento — nunca vão ao prompt do cliente (ficam no código). */
 const INTERNAL_FAQ_TOPICS = new Set([
   'prioridade_treinamento_ia',
   'tom_atendimento_humano',
@@ -12,13 +12,14 @@ const INTERNAL_FAQ_TOPICS = new Set([
   'subareas_canonicas_highline',
   'controle_duplicidade_reservas',
   'capacidade_diaria_highline',
+  // Fluxos de tool/router: comportamento no AgentPromptBuilder, não no bloco FAQ.
+  'reserva_areas_operacional_highline',
+  'reserva_grupos_grandes_highline',
+  'horario_corte_chegada_reserva',
 ]);
 
-/** Tópicos operacionais úteis — mantidos no prompt, mas sem instruções meta à IA. */
+/** Tópicos com fato útil + meta — mantidos no prompt após limpar instruções à IA. */
 const OPERATIONAL_STRIP_TOPICS = new Set([
-  'reserva_areas_operacional_highline',
-  'horario_corte_chegada_reserva',
-  'reserva_grupos_grandes_highline',
   'valor_entrada_vs_caucao',
 ]);
 
@@ -129,9 +130,8 @@ function prepareFaqEntryForPrompt(entry) {
   let answer = String(entry.answer || '').trim();
   if (!topic || !answer) return null;
 
-  if (OPERATIONAL_STRIP_TOPICS.has(topic) || looksLikeInternalTrainingAnswer(answer)) {
-    answer = stripMetaInstructionsFromAnswer(answer);
-  }
+  // Sempre limpa meta (REGRA/fluxo/tools) — o cliente só vê fatos.
+  answer = stripMetaInstructionsFromAnswer(answer);
 
   if (!answer) return null;
   return { ...entry, answer };

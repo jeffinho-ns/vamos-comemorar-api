@@ -214,59 +214,61 @@ const FAQ_SEEDS = [
 ];
 
 /**
- * Contexto operacional e comportamental do Highline para o agente (campo `answer`).
- * Não são respostas prontas — o LLM formula a mensagem ao cliente.
+ * Highline — respostas customer-facing curtas (WhatsApp) + tópicos internos de roteamento.
+ * Tópicos de fato (dress, horário, etc.) vão direto ao cliente (Camada 1).
+ * Tópicos REGRA/fluxo ficam no painel para o time, mas o filtro de prompt (faqPromptFilter)
+ * remove meta antes de injetar no LLM.
  */
 const HIGHLINE_OPERATIONAL_CONTEXTS = [
   {
     topic: 'dias_horarios_funcionamento',
-    answer: `Aos sábados abrimos às 16h e fechamos às 04h.
-Tocamos house, open format, brasilidades.
-Nosso club abre à meia-noite (00h).
-
-Entrada com reserva e nome na lista:
-Até as 18h: todos VIP.
-Das 18h à 00h: R$60 seco ou R$160 consome.
-Após 00h: R$80 seco ou R$200 consome.
-Sujeito a alteração.
-
-De segunda a quarta a casa está fechada. O funcionamento regular é sexta e sábado.`,
+    answer:
+      'Sexta e sábado a casa rola forte. Sábado abrimos às 16h e vamos até 4h; o club abre à meia-noite. Segunda a quarta ficamos fechados. Quinta é esporádica — confirma com a gente no dia.',
   },
   {
     topic: 'valores_entrada',
-    answer: `Entrada com reserva e nome na lista (sexta e sábado, sujeito a alteração):
-Até as 18h: todos VIP.
-Das 18h à 00h: R$60 seco ou R$160 consome.
-Após 00h: R$80 seco ou R$200 consome.`,
+    answer:
+      'Com reserva e nome na lista (sujeito a alteração): até 18h VIP. Das 18h à meia-noite R$60 seco ou R$160 consome; depois R$80 seco ou R$200 consome. Reserva de mesa normal não tem custo — o valor é a entrada.',
   },
   {
     topic: 'beneficios_aniversario',
-    answer: `Vantagens para aniversariante:
-O aniversariante ganha 2 VIPs e 2 drinks G&T (um para ele e outro para o acompanhante).
-Com 20 convidados presentes ou mais: 1 garrafa de Gin 142 ou Clericot.
-Com 30 convidados presentes: 1 garrafa de Gin 142 ou Clericot + 1 drink cortesia.
-As cortesias por quantidade de convidados não são cumulativas.
-Celebre com o cliente de forma animada ao explicar.`,
+    answer:
+      'Aniversariante ganha 2 VIPs e 2 drinks G&T. Com 20+ presentes: 1 gin 142 ou clericot. Com 30+: a mesma garrafa + 1 drink cortesia. As cortesias por quantidade não acumulam.',
   },
   {
     topic: 'estacionamento',
     answer:
-      'O Highline não possui estacionamento próprio. Normalmente há serviço de valet/manobrista para clientes, sujeito à operação do dia. Se quiser, a equipe confirma a melhor orientação no dia da reserva.',
+      'A gente não tem estacionamento próprio, mas normalmente rola valet/manobrista no dia — a equipe confirma na hora se quiser.',
   },
   {
     topic: 'regras_bolo',
     answer:
-      'O Highline não fornece bolos, mas o cliente tem total liberdade para levar o seu. A única regra é que o bolo tenha no máximo 2kg e o cliente OBRIGATORIAMENTE traga a nota fiscal de compra para apresentar na entrada. Comunique isso com muita empatia, para não soar como uma proibição grosseira.',
+      'Pode levar bolo sim! Só até 2kg e com a nota fiscal pra apresentar na entrada.',
   },
   {
     topic: 'redes_sociais_fotos',
     answer:
-      'Se o cliente quiser ver o ambiente, fotos, ou entender a energia do local, não tente descrever o lugar de forma genérica. Indique com entusiasmo o nosso Instagram oficial: https://www.instagram.com/highlinebar/',
+      'Pra ver a vibe e as fotos, olha o Instagram: https://www.instagram.com/highlinebar/',
   },
   {
     topic: 'areas_mesas_camarotes_diferenca',
     answer:
-      'É crucial não confundir o cliente. Reservas de MESAS NORMAIS não têm custo de reserva. Reservas no ROOFTOP (Área VIP, 100% consumível): Lounge (6 pessoas) = R$ 800; Bangalô (8 pessoas) = R$ 1.000. CAMAROTES no Club (Área interna/pista que abre 00h): Camarote 8 VIPs = R$ 2.000 (reverte 1.600 em consumação); Camarote 10 VIPs = R$ 2.500 (reverte 2.000 em consumação). Ofereça os camarotes mais caros apenas se o cliente indicar que quer uma experiência mais exclusiva, pista ou área interna.',
+      'Mesa normal não tem custo de reserva. Rooftop VIP (consumível): Lounge 6p R$800, Bangalô 8p R$1.000. Camarote no Club: 8 VIPs R$2.000 (R$1.600 consumação) ou 10 VIPs R$2.500 (R$2.000 consumação). Valores podem mudar — a gente confirma o pacote ideal pra você.',
+  },
+  {
+    topic: 'dress_code',
+    answer:
+      'Dress code casual elegante — evita chinelo e bermuda rasgada. Qualquer dúvida de look, a equipe te orienta na hora.',
+  },
+  {
+    topic: 'cardapio',
+    answer:
+      'O cardápio digital está no link oficial da casa — se quiser eu te mando por aqui.',
+  },
+  {
+    topic: 'como_reservar',
+    answer:
+      'Show! Me passa a data, quantas pessoas e seu nome completo que a gente segue por aqui e finaliza sua reserva.',
   },
   {
     topic: 'reserva_grupos_grandes_highline',
@@ -345,24 +347,14 @@ Nesse primeiro contato:
   },
   {
     topic: 'valor_entrada_vs_caucao',
-    answer: `REGRA HIGHLINE — sempre que falar em "valor", "preço", "ingresso" ou "consumação":
-NUNCA confunda o cliente cobrando "caução de reserva" ou "valor para garantir mesa".
-A reserva de MESA NORMAL no Highline NÃO TEM CUSTO — é gratuita.
-O que tem valor é a ENTRADA na casa (cover), conforme tabela em valores_entrada.
-Sempre que o cliente perguntar "qual o valor?" ou só "valor?", explique que se refere à entrada (cover por horário) e que a reserva em si não tem custo.
-Para Rooftop VIP / Camarote, há sim valor de reserva consumível — explicar conforme areas_mesas_camarotes_diferenca, deixando claro que é OUTRA categoria.`,
+    answer: `Reserva de mesa normal no Highline NÃO tem custo — é gratuita.
+O que tem valor é a ENTRADA (cover), conforme valores_entrada.
+Rooftop VIP / Camarote têm valor de pacote consumível — ver areas_mesas_camarotes_diferenca.`,
   },
   {
     topic: 'subareas_canonicas_highline',
-    answer: `REGRA HIGHLINE — só existem estas subáreas operacionais e a IA SÓ pode oferecer essas (labels EXATOS, idênticos ao painel /admin/restaurant-reservations):
-  • Deck - Mesas
-  • Deck - Mesas Redondas
-  • Bar Central - Bistrôs de Espera
-  • Balada - Camarotes / Balada - Bistrôs (apenas quando o cliente pedir VIP/camarote/balada)
-  • Rooftop - Lounges / Bangalôs / Mesas / Bistrôs (apenas quando o cliente pedir Rooftop/VIP/consumível)
-  • Rotativo - Bistrôs de Espera / Lista de Espera (máx. 4 pessoas; só sob pedido de lista/fila/rotativo)
-PROIBIDO inventar nomes como "Área Coberta", "Área Descoberta", "Área VIP genérica", "Mezanino", "Pista", "Balcão", "Terraço", ou nomes antigos "Área Deck - Frente/Esquerdo/Direito". Se o cliente pedir nome antigo, traduza para o label novo.
-Use sempre o label exato vindo do verificar_disponibilidade / consultar_areas_mesa_reserva, que é a mesma fonte do /admin/restaurant-reservations.`,
+    answer: `Labels oficiais: Deck - Mesas | Deck - Mesas Redondas | Bar Central - Bistrôs de Espera | Balada (Camarotes/Bistrôs sob pedido) | Rooftop (Lounges/Bangalôs/Mesas/Bistrôs sob pedido) | Rotativo (máx. 4 pessoas, sob pedido).
+PROIBIDO: Terraço, Balcão, Área Coberta/Descoberta, Área VIP genérica, Deck Frente/Esquerdo/Direito.`,
   },
   {
     topic: 'controle_duplicidade_reservas',
@@ -483,12 +475,14 @@ async function main() {
   await pool.end();
 }
 
-main().catch(async (error) => {
-  console.error(error.message);
-  try {
-    await pool.end();
-  } catch (_error) {
-    // ignore
-  }
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(async (error) => {
+    console.error(error.message);
+    try {
+      await pool.end();
+    } catch (_error) {
+      // ignore
+    }
+    process.exit(1);
+  });
+}

@@ -157,30 +157,44 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
   }
 
   buildBehaviorBlock(context = {}) {
-    const base = `COMPORTAMENTO:
-- Tom WhatsApp: "você", "fechado", "show", "beleza". PROIBIDO: "Caro X", "Prezado", "Atenciosamente", "Equipe Vamos Comemorar", markdown, bullets, dados em linhas separadas.
-- Responda dúvidas factuais com a BASE antes de coletar dados de reserva.
-- Coleta progressiva: data+horário+pessoas → área → nome+e-mail+nascimento. Máx. 3 dados por mensagem, em frase corrida.
-- Ecoe saudação do cliente. Não repita pergunta já respondida.
-- Datas: use HOJE (America/Sao_Paulo) como referência; nunca anos passados.
-- Highline (id=7): só áreas oficiais (Deck - Mesas/Redondas, Bar Central - Bistrôs de Espera; Rooftop/Balada/VIP só se pedir; Rotativo só para lista de espera, máx. 4 pessoas). NUNCA "Terraço", "Balcão", "Área VIP" genérica nem nomes antigos "Deck Frente/Esquerdo/Direito".
-- Se o cliente perguntar quais áreas têm vaga em uma data: chame consultar_areas_mesa_reserva e liste as áreas com vaga. NÃO invente horário/quantidade e NÃO chame criar_pre_reserva só por essa pergunta.
-- Com todos os dados obrigatórios, chame criar_pre_reserva na mesma interação. Não finja confirmação sem ok=true da tool.
-- Grupos 7-60: uma reserva com múltiplas mesas (mesma área do painel; pode juntar subáreas do Deck/Rooftop). >60 ou B2B: handoff humano.
-- Use tools na mesma interação — não diga "vou verificar" sem chamar a ferramenta.`;
+    const funnelActive = Boolean(String(context.reservationFunnelBlock || '').trim());
+    const funnelHint = funnelActive
+      ? `
+- FUNIL: só tools + próximo dado. Sem reinjetar FAQ; sem textão.`
+      : '';
+
+    const base = funnelActive
+      ? `COMPORTAMENTO (FUNIL):
+- Tom WhatsApp curto. PROIBIDO: "Caro X", bullets, formulário, "vou confirmar com a equipe" sem tool.
+- Disponibilidade/área/mesa: tools. Com dados completos: criar_pre_reserva na mesma interação.
+- Highline: Deck Mesas/Redondas, Bar Central; VIP/Rooftop/Balada só se pedir; Rotativo máx. 4.
+- Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.${funnelHint}`
+      : `COMPORTAMENTO:
+- Tom WhatsApp: "você", "fechado", "show", "beleza". PROIBIDO: "Caro X", "Prezado", "Atenciosamente", markdown, bullets, formulário.
+- Fatos estáticos (horário, dress, bolo, entrada): use a BASE. Disponibilidade/área/mesa: use tools.
+- Coleta: data+horário+pessoas → área → nome+e-mail+nascimento. Máx. 3 dados por mensagem.
+- Ecoe saudação. Não repita pergunta já respondida. Datas: HOJE (America/Sao_Paulo).
+- Highline (id=7): Deck Mesas/Redondas, Bar Central; Rooftop/Balada/VIP só se pedir; Rotativo máx. 4 (lista/espera). NUNCA Terraço/Balcão/VIP genérico/Deck Frente.
+- Áreas com vaga no dia: consultar_areas_mesa_reserva — sem inventar horário nem criar_pre_reserva só por perguntar áreas.
+- Com dados completos: criar_pre_reserva na mesma interação. Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.
+- Use tools na mesma interação — não diga "vou verificar" sem chamar a ferramenta.${funnelHint}`;
 
     const settings = this.getAssistantSettings(context);
     if (!settings) return base;
 
     const lines = [];
     const rules = Array.isArray(settings.custom_rules) ? settings.custom_rules : [];
-    rules.forEach((rule) => lines.push(`- ${rule}`));
-    this.buildBehaviorConfigLines(settings.behavior_config).forEach((line) => lines.push(`- ${line}`));
+    // No funil, no máximo 3 regras custom (tokens).
+    const limitedRules = funnelActive ? rules.slice(0, 3) : rules;
+    limitedRules.forEach((rule) => lines.push(`- ${rule}`));
+    if (!funnelActive) {
+      this.buildBehaviorConfigLines(settings.behavior_config).forEach((line) => lines.push(`- ${line}`));
+    }
 
     if (!lines.length) return base;
     return `${base}
 
-REGRAS DA CASA (definidas pelo estabelecimento):
+REGRAS DA CASA:
 ${lines.join('\n')}`;
   }
 
@@ -222,9 +236,13 @@ ${lines.join('\n')}`;
   buildFaqKnowledgeBlock(context) {
     const block = String(context.faqKnowledgeBlock || '').trim();
     if (block) return block;
+    // Funil ativo sem FAQ: não injeta aviso longo (economia de tokens).
+    if (String(context.reservationFunnelBlock || '').trim()) {
+      return '';
+    }
     return [
       'TREINAMENTO DA IA — REGRAS DA CASA:',
-      '(BASE VAZIA — não responda fatos sobre a casa; diga que vai confirmar com a equipe.)',
+      '(BASE VAZIA — não invente fatos; diga que vai confirmar com a equipe.)',
     ].join('\n');
   }
 

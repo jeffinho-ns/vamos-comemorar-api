@@ -14,6 +14,7 @@ const {
   loadActiveSettings,
   loadExternalLinksBlock,
 } = require('./assistantSettingsService');
+const { recordZeroTokenPath } = require('./aiUsageRepository');
 
 let formatTrainingReply;
 try {
@@ -279,6 +280,17 @@ async function tryOfflineKnowledgeReply(pool, {
   if (!text) {
     return { ok: false, reason: 'empty_answer' };
   }
+
+  await recordZeroTokenPath(pool, {
+    path: 'offline',
+    meta: {
+      topic: best.topic,
+      topics: topicHints,
+      establishment_id: establishment,
+      source: best.fromFile ? 'file' : source,
+      zero_token: true,
+    },
+  }).catch(() => {});
 
   return {
     ok: true,

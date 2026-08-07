@@ -60,8 +60,12 @@ const {
 } = require('./reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('./reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
-const { recordOpenAiUsageSafe, runWithOpenAiUsageContext } = require('./aiUsageRepository');
+const { recordOpenAiUsageSafe, recordZeroTokenPath, runWithOpenAiUsageContext } = require('./aiUsageRepository');
 const { tripOpenAiCircuit } = require('./openaiCircuitBreaker');
+const {
+  tryDeterministicReservationClose,
+  reservationFunnelIsComplete: isFunnelCompleteForDeterministic,
+} = require('./deterministicReservationClose');
 
 let openaiClient = null;
 const promptBuilder = new AgentPromptBuilder();
@@ -554,10 +558,9 @@ function lastToolCallByName(toolTrace = [], name) {
 }
 
 /**
- * Caso o agente termine a interação com todos os dados coletados e mesmo assim
- * tenha emitido só texto (sem chamar criar_pre_reserva), pedimos explicitamente
- * que execute a ferramenta. Isso fecha o caso "Bruna Alvez" em que o agente
- * tinha tudo e mesmo assim não registrava a reserva.
+ * Fecha a pré-reserva sem LLM quando todos os dados já estão no workingState.
+ * Consulta áreas no sistema (Highline) e chama criar_pre_reserva direto —
+ * evita gasto de tokens e o caso em que o modelo tinha tudo e não registrava.
  */
 async function forceCreatePreReservaIfReady({
   pool,
@@ -565,107 +568,44 @@ async function forceCreatePreReservaIfReady({
   context,
   runtimeContext,
   toolTrace,
-  messages,
-  tools,
+  userText = '',
 }) {
   if (!pool) return { workingState, toolTrace, replyText: null };
-  if (!reservationFunnelIsComplete(workingState)) {
+  if (!reservationFunnelIsComplete(workingState) && !isFunnelCompleteForDeterministic(workingState)) {
     return { workingState, toolTrace, replyText: null };
   }
   if (lastToolCallByName(toolTrace, 'criar_pre_reserva')) {
     return { workingState, toolTrace, replyText: null };
   }
 
-  const establishmentId = Number(
-    workingState.establishment_id || context.lockedEstablishmentId
-  );
-  const reservationDate = String(
-    workingState.reservation_date || workingState.pending_reservation_date_iso || ''
-  ).slice(0, 10);
-  const reservationTime = String(workingState.reservation_time || '').slice(0, 5);
-  const partySize = Number(workingState.quantidade_convidados);
-  const clientName = String(workingState.client_name || '').trim();
-  const clientEmail = String(workingState.client_email || '').trim();
-  const birthDate = String(workingState.data_nascimento || '').slice(0, 10);
-
-  if (
-    !Number.isFinite(establishmentId) ||
-    establishmentId <= 0 ||
-    !reservationDate ||
-    !reservationTime ||
-    !Number.isFinite(partySize) ||
-    partySize <= 0 ||
-    !clientName ||
-    !clientEmail ||
-    !birthDate
-  ) {
-    return { workingState, toolTrace, replyText: null };
-  }
-
-  const reminder = {
-    role: 'system',
-    content:
-      'TODOS os dados obrigatórios da reserva já foram coletados nesta conversa. Chame criar_pre_reserva AGORA com os dados informados pelo cliente. Não responda só com texto — execute a função.',
-  };
-  const localMessages = [...messages, reminder];
-  const forced = await requestAssistantCompletion(localMessages, tools, {
-    type: 'function',
-    function: { name: 'criar_pre_reserva' },
-  }).catch((error) => {
-    console.warn('[agentService] força tool criar_pre_reserva falhou:', error.message);
-    return null;
-  });
-
-  const toolCall = forced?.tool_calls?.[0];
-  if (!toolCall || toolCall?.function?.name !== 'criar_pre_reserva') {
-    return { workingState, toolTrace, replyText: null };
-  }
-
-  let parsedArgs = {};
-  try {
-    parsedArgs = JSON.parse(toolCall?.function?.arguments || '{}');
-  } catch (_error) {
-    parsedArgs = {};
-  }
-
-  parsedArgs.estabelecimento_id = parsedArgs.estabelecimento_id || establishmentId;
-  parsedArgs.data = parsedArgs.data || reservationDate;
-  parsedArgs.horario = parsedArgs.horario || reservationTime;
-  parsedArgs.quantidade_pessoas = parsedArgs.quantidade_pessoas || partySize;
-  parsedArgs.cliente_dados = {
-    nome: parsedArgs.cliente_dados?.nome || clientName,
-    email: parsedArgs.cliente_dados?.email || clientEmail,
-    data_nascimento: parsedArgs.cliente_dados?.data_nascimento || birthDate,
-  };
-  toolCall.function.arguments = JSON.stringify(parsedArgs);
-
-  const toolResult = await executeAgentToolCall(pool, toolCall, runtimeContext).catch((error) => {
-    console.warn('[agentService] execução forçada criar_pre_reserva falhou:', error.message);
-    return null;
-  });
-  if (!toolResult) {
-    return { workingState, toolTrace, replyText: null };
-  }
-
-  const nextTrace = [
-    ...toolTrace,
-    { name: 'criar_pre_reserva', result: toolResult, forced: true },
-  ];
-  const nextState = mergeWorkingState(
+  const closed = await tryDeterministicReservationClose({
+    pool,
     workingState,
-    extractWorkingStatePatchFromToolResult('criar_pre_reserva', toolResult)
-  );
+    context,
+    runtimeContext,
+    toolTrace,
+    userText,
+  }).catch((error) => {
+    console.warn('[agentService] fechamento determinístico falhou:', error.message);
+    return null;
+  });
+
+  if (!closed) {
+    return { workingState, toolTrace, replyText: null };
+  }
+
   const replyText =
-    synthesizeReplyFromToolTrace(nextTrace) ||
-    (toolResult.ok
+    closed.replyText ||
+    synthesizeReplyFromToolTrace(closed.toolTrace) ||
+    (closed.toolResult?.ok
       ? 'Pronto, fechei sua reserva! Qualquer coisa, é só chamar.'
       : null);
 
   return {
-    workingState: nextState,
-    toolTrace: nextTrace,
+    workingState: closed.workingState,
+    toolTrace: closed.toolTrace,
     replyText,
-    toolResult,
+    toolResult: closed.toolResult || null,
   };
 }
 
@@ -1119,6 +1059,15 @@ async function tryFaqFirstReply({
       establishmentName: context.lockedEstablishmentName || '',
       userText,
       messageHistory,
+      options: { appendCta: true },
+    });
+    await recordZeroTokenPath(pool, {
+      path: 'faq_direct',
+      meta: {
+        topic: best.topic,
+        topics: topicHints,
+        establishment_id: establishmentId,
+      },
     });
     return {
       replyText: formatted.text,
@@ -1131,6 +1080,7 @@ async function tryFaqFirstReply({
     };
   }
 
+  // Camada 2: LLM econômico só para fundir/adaptar (2+ fatos ou ambiguidade).
   const replyText = await generateFaqGroundedReply({
     userQuestion: userText,
     faqEntries,
@@ -1149,6 +1099,7 @@ async function tryFaqFirstReply({
     preReservationResult: null,
     guestListLink: null,
     faqFirst: true,
+    faqEconomy: true,
   };
 }
 
@@ -1346,7 +1297,14 @@ async function runAgentTurn({
     }
   }
 
-  if (currentTurnIsFaq && !areaAvailabilityQuestion && process.env.OPENAI_API_KEY) {
+  // Gate único FAQ-first (Camada 1/2). Funil ativo ou push de reserva → pula.
+  const skipFaq = areaAvailabilityQuestion
+    ? true
+    : currentTurnIsFaq
+      ? false
+      : shouldSkipFaqFirst(workingState, messageHistory, userText);
+
+  if (!skipFaq && process.env.OPENAI_API_KEY) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
       (error) => {
         console.warn('[agentService] FAQ-first indisponível:', error.message);
@@ -1362,30 +1320,48 @@ async function runAgentTurn({
   }
 
   const funnelAdvance = tryAdvanceFunnelFromUserMessage(workingState, userText, messageHistory);
-  if (funnelAdvance?.replyText) {
+  if (funnelAdvance?.workingState) {
+    workingState = funnelAdvance.workingState;
+  }
+  if (funnelAdvance?.replyText && !reservationFunnelIsComplete(workingState)) {
     return {
       replyText: funnelAdvance.replyText,
-      workingState: funnelAdvance.workingState,
+      workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
     };
   }
 
-  if (process.env.OPENAI_API_KEY) {
-    const skipFaq = currentTurnIsFaq
-      ? false
-      : shouldSkipFaqFirst(workingState, messageHistory, userText);
-    if (!skipFaq) {
-      const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
-        (error) => {
-          console.warn('[agentService] FAQ-first indisponível:', error.message);
-          return null;
-        }
-      );
-      if (faqFirst) return faqFirst;
+  // Funil completo → fecha no sistema sem gpt-5.5 (0 tokens + consulta real de área).
+  if (
+    !informationalOnly &&
+    !areaAvailabilityQuestion &&
+    reservationFunnelIsComplete(workingState)
+  ) {
+    const closedEarly = await forceCreatePreReservaIfReady({
+      pool,
+      workingState,
+      context,
+      runtimeContext,
+      toolTrace: [],
+      userText,
+    });
+    if (closedEarly?.toolResult?.ok || closedEarly?.replyText) {
+      return {
+        replyText:
+          closedEarly.replyText ||
+          'Pronto, fechei sua reserva! Qualquer coisa, é só chamar.',
+        workingState: closedEarly.workingState,
+        toolTrace: closedEarly.toolTrace,
+        preReservationResult: closedEarly.toolResult?.ok ? closedEarly.toolResult : null,
+        guestListLink: closedEarly.toolResult?.ok
+          ? closedEarly.toolResult.guest_list_link || null
+          : null,
+      };
     }
   }
+
   const topicHints = detectRelevantFaqTopics(userText, messageHistory, {
     funnelActive,
     establishmentId: context.lockedEstablishmentId,
@@ -1396,26 +1372,24 @@ async function runAgentTurn({
 
   if (!faqKnowledgeBlock && pool && establishmentId > 0) {
     try {
+      // Funil: orçamento menor; só tópicos detectados (sem dump da base).
       const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
         funnelActive,
+        maxChars: funnelActive ? 800 : undefined,
       });
       if (relevant.length > 0) {
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
           relevant,
           context.lockedEstablishmentName || ''
         );
-      } else if (topicHints.length) {
+      } else if (topicHints.length && !funnelActive) {
         const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
           prefetched,
           context.lockedEstablishmentName || ''
         );
       }
-      if (!faqKnowledgeBlock) {
-        // Risco operacional alto: sem base, a IA não tem "material de estudo"
-        // oficial pra falar com o cliente. O AgentPromptBuilder vai injetar
-        // um aviso forte no system prompt impedindo a IA de inventar, mas
-        // logamos aqui pro time perceber e popular o painel.
+      if (!faqKnowledgeBlock && !funnelActive) {
         const houseLabel = context.lockedEstablishmentName
           ? ` "${context.lockedEstablishmentName}"`
           : '';
@@ -1425,7 +1399,7 @@ async function runAgentTurn({
       }
     } catch (faqError) {
       console.warn('[agentService] falha ao pré-carregar base oficial:', faqError.message);
-      if (topicHints.length) {
+      if (topicHints.length && !funnelActive) {
         const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints).catch(
           () => []
         );
@@ -1489,7 +1463,12 @@ async function runAgentTurn({
       ? { type: 'function', function: { name: 'criar_pre_reserva' } }
       : 'auto';
 
-  let assistantMessage = await requestAssistantCompletion(messages, tools, initialToolChoice);
+  let assistantMessage = await requestAssistantCompletion(
+    messages,
+    tools,
+    initialToolChoice,
+    funnelActive ? 'funnel' : 'agent'
+  );
   let guard = 0;
   const maxToolRounds = getAgentToolRoundLimits(funnelActive);
   const seenToolFingerprints = new Set();
@@ -1571,7 +1550,12 @@ async function runAgentTurn({
       break;
     }
 
-    assistantMessage = await requestAssistantCompletion(messages, tools, 'auto');
+    assistantMessage = await requestAssistantCompletion(
+      messages,
+      tools,
+      'auto',
+      funnelActive ? 'funnel' : 'agent'
+    );
     guard += 1;
   }
 
@@ -1600,8 +1584,7 @@ async function runAgentTurn({
         context,
         runtimeContext,
         toolTrace: toolTraceFinal,
-        messages,
-        tools,
+        userText,
       });
   workingState = forcedCreate.workingState;
   toolTraceFinal = forcedCreate.toolTrace;

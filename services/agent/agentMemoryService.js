@@ -121,6 +121,7 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
       reservation_date: toolResult.reservation_date,
       quantidade_convidados: toolResult.quantidade_pessoas,
       area_id: toolResult.area_recomendada.area_id,
+      area_label: toolResult.area_recomendada.label || null,
     };
   }
 

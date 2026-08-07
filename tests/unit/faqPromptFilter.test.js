@@ -25,19 +25,13 @@ const HORARIO = {
   answer: 'Funcionamos quinta a sábado, das 16h às 4h.',
 };
 
-const OPERATIONAL_AREAS = {
-  topic: 'reserva_areas_operacional_highline',
-  answer: `REGRA EXCLUSIVA HIGHLINE — áreas do Sistema de Reservas:
-Subáreas: Deck - Mesas | Deck - Mesas Redondas | Bar Central - Bistrôs de Espera | Rooftop - Lounges.
-
-Tom: respostas curtas, humanizadas, como concierge no WhatsApp (sem textão).
-
-Fluxo quando o cliente perguntar sobre áreas ou quiser mesa:
-1) Confirme data e quantidade de pessoas.
-2) consultar_areas_mesa_reserva (mesas do painel; CONFIRMADA bloqueia o dia).
-3) criar_pre_reserva com area = label da subárea.
-
-Não use este tópico para preços de camarote/VIP — use areas_mesas_camarotes_diferenca.`,
+const OPERATIONAL_CAUTION = {
+  topic: 'valor_entrada_vs_caucao',
+  answer: `REGRA HIGHLINE — valor vs caução:
+Reserva de mesa normal NÃO tem custo — é gratuita.
+O que tem valor é a ENTRADA (cover).
+PROIBIDO cobrar caução de reserva.
+Rooftop VIP / Camarote têm valor de pacote consumível.`,
 };
 
 const INTERNAL_TOPIC = {
@@ -89,12 +83,12 @@ test('filterFaqsForCustomerPrompt mantém tópico operacional com fatos e remove
   delete process.env.FAQ_PROMPT_INCLUDE_META;
 
   try {
-    const filtered = filterFaqsForCustomerPrompt([OPERATIONAL_AREAS]);
+    const filtered = filterFaqsForCustomerPrompt([OPERATIONAL_CAUTION]);
     assert.equal(filtered.length, 1);
-    assert.match(filtered[0].answer, /Deck - Mesas/i);
-    assert.doesNotMatch(filtered[0].answer, /consultar_areas_mesa_reserva/i);
-    assert.doesNotMatch(filtered[0].answer, /REGRA EXCLUSIVA/i);
-    assert.doesNotMatch(filtered[0].answer, /Fluxo quando/i);
+    assert.match(filtered[0].answer, /mesa normal/i);
+    assert.match(filtered[0].answer, /ENTRADA/i);
+    assert.doesNotMatch(filtered[0].answer, /REGRA HIGHLINE/i);
+    assert.doesNotMatch(filtered[0].answer, /PROIBIDO/i);
   } finally {
     if (originalEnv === undefined) delete process.env.FAQ_PROMPT_INCLUDE_META;
     else process.env.FAQ_PROMPT_INCLUDE_META = originalEnv;
@@ -124,12 +118,12 @@ test('fallback mantém 1-2 entradas factuais quando só há meta-treinamento', (
     const filtered = filterFaqsForCustomerPrompt([
       INTERNAL_TOPIC,
       { topic: 'tom_atendimento_humano', answer: REGRA_TOM },
-      OPERATIONAL_AREAS,
+      OPERATIONAL_CAUTION,
     ]);
 
     assert.ok(filtered.length >= 1);
     assert.ok(filtered.length <= 2);
-    assert.ok(filtered.some((e) => /Deck - Mesas/i.test(e.answer)));
+    assert.ok(filtered.some((e) => /mesa normal|ENTRADA/i.test(e.answer)));
   } finally {
     if (originalEnv === undefined) delete process.env.FAQ_PROMPT_INCLUDE_META;
     else process.env.FAQ_PROMPT_INCLUDE_META = originalEnv;
@@ -152,8 +146,14 @@ test('buildFaqKnowledgeBlock não inclui META-REGRA no bloco final', () => {
   }
 });
 
-test('isCustomerFacingFaqEntry exclui operacionais no modo offline', () => {
-  assert.equal(isCustomerFacingFaqEntry(OPERATIONAL_AREAS, { forOffline: true }), false);
+test('isCustomerFacingFaqEntry exclui roteamento interno no modo offline', () => {
+  assert.equal(
+    isCustomerFacingFaqEntry(
+      { topic: 'reserva_areas_operacional_highline', answer: 'fluxo interno' },
+      { forOffline: true }
+    ),
+    false
+  );
   assert.equal(isCustomerFacingFaqEntry(DRESS_CODE, { forOffline: true }), true);
 });
 

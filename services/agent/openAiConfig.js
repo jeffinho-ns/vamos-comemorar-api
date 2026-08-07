@@ -32,11 +32,13 @@ const MODEL_ECONOMY = sanitizeOpenAiModelName(
 );
 
 const MAX_CONTEXT_MESSAGES = Number(process.env.MAX_CONTEXT_MESSAGES || 8);
-const FAQ_MAX_TOKENS_PER_TURN = Number(process.env.FAQ_MAX_TOKENS_PER_TURN || 600);
+const FAQ_MAX_TOKENS_PER_TURN = Number(process.env.FAQ_MAX_TOKENS_PER_TURN || 400);
 const FAQ_MAX_CHARS_PER_TURN = FAQ_MAX_TOKENS_PER_TURN * 4;
+/** No funil de reserva, injeta ainda menos FAQ no prompt do agente. */
+const FAQ_MAX_CHARS_FUNNEL = Number(process.env.FAQ_MAX_CHARS_FUNNEL || 800);
 
 const AGENT_MAX_TOOL_ROUNDS = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 2);
-const AGENT_MAX_TOOL_ROUNDS_FUNNEL = Number(process.env.AGENT_MAX_TOOL_ROUNDS_FUNNEL || 3);
+const AGENT_MAX_TOOL_ROUNDS_FUNNEL = Number(process.env.AGENT_MAX_TOOL_ROUNDS_FUNNEL || 2);
 
 /** Tópicos FAQ mínimos quando nenhum tópico é detectado (fallback enxuto). */
 const FAQ_CORE_FALLBACK_TOPICS = [
@@ -79,6 +81,8 @@ function applyOutputLimit(payload, outputMode = 'conversational') {
 
     if (mode === 'json' || mode === 'summary') {
       limit = 220;
+    } else if (mode === 'funnel') {
+      limit = 320;
     } else if (mode === 'agent' || hasTools) {
       limit = 500;
     } else {
@@ -107,8 +111,9 @@ function getAgentToolRoundLimits(funnelActive = false) {
     : 2;
   const funnel = Number.isFinite(AGENT_MAX_TOOL_ROUNDS_FUNNEL) && AGENT_MAX_TOOL_ROUNDS_FUNNEL > 0
     ? AGENT_MAX_TOOL_ROUNDS_FUNNEL
-    : 3;
-  return funnelActive ? Math.max(base, funnel) : base;
+    : 2;
+  // Funil usa o teto do funil (pode ser igual ou menor que o base) — não inflar rounds.
+  return funnelActive ? funnel : base;
 }
 
 module.exports = {
@@ -119,6 +124,7 @@ module.exports = {
   MAX_CONTEXT_MESSAGES,
   FAQ_MAX_TOKENS_PER_TURN,
   FAQ_MAX_CHARS_PER_TURN,
+  FAQ_MAX_CHARS_FUNNEL,
   FAQ_CORE_FALLBACK_TOPICS,
   AGENT_MAX_TOOL_ROUNDS,
   AGENT_MAX_TOOL_ROUNDS_FUNNEL,

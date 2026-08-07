@@ -113,6 +113,19 @@ test('pickBestFaqEntry prioriza o tópico detectado', () => {
   assert.equal(best.topic, 'dress_code');
 });
 
+test('shouldPreferDirectFaqReply retorna false com 2+ fatos (Camada 2)', () => {
+  const prefer = shouldPreferDirectFaqReply({
+    userText: 'sábado tem entrada e dress code?',
+    faqEntries: [
+      { topic: 'valores_entrada', answer: 'Até 18h VIP. Depois R$60 seco.' },
+      { topic: 'dress_code', answer: 'Casual elegante — sem chinelo.' },
+    ],
+    topicHints: ['valores_entrada', 'dress_code'],
+  });
+
+  assert.equal(prefer, false);
+});
+
 test('FAQ_DIRECT_REPLY=false desativa resposta direta', () => {
   const previous = process.env.FAQ_DIRECT_REPLY;
   process.env.FAQ_DIRECT_REPLY = 'false';
@@ -130,4 +143,11 @@ test('FAQ_DIRECT_REPLY=false desativa resposta direta', () => {
     if (previous === undefined) delete process.env.FAQ_DIRECT_REPLY;
     else process.env.FAQ_DIRECT_REPLY = previous;
   }
+});
+
+test('isSingleFactTopic reconhece tópicos de fato estático', () => {
+  const { isSingleFactTopic } = require('../../services/agent/trainingReplyFormatter');
+  assert.equal(isSingleFactTopic('dress_code'), true);
+  assert.equal(isSingleFactTopic('estacionamento'), true);
+  assert.equal(isSingleFactTopic('reserva_areas_operacional_highline'), false);
 });
