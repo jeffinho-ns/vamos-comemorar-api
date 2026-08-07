@@ -132,6 +132,21 @@ test('parseReservationFieldsFromUserText aceita "18" após pergunta de horário'
   assert.equal(patch.reservation_time, '18:00');
 });
 
+test('parseReservationFieldsFromUserText troca área quando cliente muda preferência', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Eu quero Mesas Redondas e vai ser para 5 pessoas.',
+    {
+      establishment_id: 7,
+      area_label: 'Deck - Mesas',
+      area_preferida: 'Deck - Mesas',
+      quantidade_convidados: 10,
+    }
+  );
+  assert.equal(patch.area_label, 'Deck - Mesas Redondas');
+  assert.equal(patch.area_preferida, 'Deck - Mesas Redondas');
+  assert.equal(patch.quantidade_convidados, 5);
+});
+
 test('shouldAutoRunAvailabilityCheck não repete após já verificado', () => {
   assert.equal(
     shouldAutoRunAvailabilityCheck(

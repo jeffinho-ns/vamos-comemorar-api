@@ -318,24 +318,23 @@ function resolveHighlineSubarea(input) {
   const normalized = normalizeLabel(input);
   if (!normalized) return null;
 
+  // 1) Match exato de label/key
   for (const sub of HIGHLINE_SUBAREAS) {
     const labelNorm = normalizeLabel(sub.label);
     const keyNorm = normalizeLabel(sub.key);
     if (normalized === labelNorm || normalized === keyNorm) return sub;
-    if (normalized.includes(labelNorm) || labelNorm.includes(normalized)) return sub;
-    if (normalized.includes(keyNorm.replace(/-/g, ' '))) return sub;
   }
 
+  // 2) Aliases — mais específicos primeiro (redondas antes de "deck mesas")
   const aliases = [
     { match: ['rotativo espera', 'bistro de espera rotativo', 'rotativo'], key: 'rotativo-espera' },
     { match: ['lista de espera', 'rotativo lista', 'fila de espera'], key: 'rotativo-lista' },
+    { match: ['deck mesas redondas', 'deck redonda', 'mesas redondas', 'mesa redonda', 'redondas'], key: 'deck-redondas' },
     { match: ['deck mesas', 'mesas do deck', 'mesa deck'], key: 'deck-mesas' },
-    { match: ['deck redonda', 'mesas redondas', 'redonda'], key: 'deck-redondas' },
     { match: ['deck frente', 'frente deck'], key: 'deck-mesas' },
     { match: ['deck esquerdo', 'esquerdo deck'], key: 'deck-mesas' },
     { match: ['deck direito', 'direito deck'], key: 'deck-redondas' },
     { match: ['bar central', 'bistro espera', 'bistros de espera', 'area bar'], key: 'bar-central' },
-    // "bar" sozinho só no fim, como palavra inteira via regex no match loop abaixo
     { match: ['balada camarote', 'camarote', 'club camarote'], key: 'balada-camarotes' },
     { match: ['balada bistro', 'bistro balada', 'bistros da balada'], key: 'balada-bistros' },
     { match: ['rooftop lounge', 'lounge rooftop', 'lounges'], key: 'roof-lounges' },
@@ -352,6 +351,23 @@ function resolveHighlineSubarea(input) {
       return HIGHLINE_SUBAREAS.find((s) => s.key === alias.key) || null;
     }
   }
+
+  // 3) Includes fuzzy — prioriza o label mais longo contido na fala do cliente
+  let best = null;
+  let bestScore = -1;
+  for (const sub of HIGHLINE_SUBAREAS) {
+    const labelNorm = normalizeLabel(sub.label);
+    const keyNorm = normalizeLabel(sub.key).replace(/-/g, ' ');
+    let score = -1;
+    if (normalized.includes(labelNorm)) score = 500 + labelNorm.length;
+    else if (normalized.includes(keyNorm)) score = 400 + keyNorm.length;
+    else if (labelNorm.includes(normalized) && normalized.length >= 4) score = 100 + normalized.length;
+    if (score > bestScore) {
+      best = sub;
+      bestScore = score;
+    }
+  }
+  if (best) return best;
 
   if (/\bbar\b/.test(normalized) && !/\brooftop\b|\bbalada\b|\bdeck\b/.test(normalized)) {
     return HIGHLINE_SUBAREAS.find((s) => s.key === 'bar-central') || null;
@@ -379,18 +395,38 @@ async function loadTablesForAreas(pool, areaIds) {
   return byArea;
 }
 
-/** Mesma regra do modal admin Highline: reserva CONFIRMADA bloqueia a mesa o dia todo. */
-async function loadConfirmedReservedByArea(pool, reservationDate, establishmentId) {
+function timesOverlapHHmm(timeA, timeB, windowMinutes = 120) {
+  const parse = (value) => {
+    const raw = String(value || '').trim().slice(0, 5);
+    const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  const a = parse(timeA);
+  const b = parse(timeB);
+  if (a == null || b == null) return true;
+  return Math.abs(a - b) < windowMinutes;
+}
+
+/** Mesas ocupadas no dia — CONFIRMADA bloqueia o dia; demais status ativos respeitam horário. */
+async function loadConfirmedReservedByArea(
+  pool,
+  reservationDate,
+  establishmentId,
+  { reservationTime = null } = {}
+) {
   const result = await pool.query(
-    `SELECT area_id, table_number
+    `SELECT area_id, table_number, LEFT(COALESCE(reservation_time::text, ''), 5) AS reservation_time,
+            UPPER(COALESCE(status, '')) AS status
        FROM restaurant_reservations
       WHERE reservation_date = $1
         AND area_id = ANY($2::int[])
         AND (establishment_id = $3 OR establishment_id IS NULL)
-        AND UPPER(status) = 'CONFIRMADA'`,
+        AND UPPER(COALESCE(status, '')) NOT IN ('CANCELLED','CANCELED','CANCELADA','NO_SHOW','NO-SHOW')`,
     [reservationDate, HIGHLINE_AREA_IDS, establishmentId]
   );
 
+  const focusTime = reservationTime ? String(reservationTime).trim().slice(0, 5) : null;
   const byArea = new Map();
   for (const areaId of HIGHLINE_AREA_IDS) {
     byArea.set(areaId, new Set());
@@ -398,6 +434,12 @@ async function loadConfirmedReservedByArea(pool, reservationDate, establishmentI
   for (const row of result.rows || []) {
     const areaId = Number(row.area_id);
     if (!byArea.has(areaId)) byArea.set(areaId, new Set());
+    const status = String(row.status || '');
+    const existingTime = String(row.reservation_time || '').slice(0, 5);
+    const blocksAllDay = status === 'CONFIRMADA' || !focusTime;
+    const blocksByTime = focusTime && timesOverlapHHmm(focusTime, existingTime);
+    if (!blocksAllDay && !blocksByTime) continue;
+
     const raw = String(row.table_number || '').trim();
     if (!raw) continue;
     raw.split(',').forEach((part) => {
@@ -672,9 +714,18 @@ function evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, rese
   };
 }
 
-async function evaluateHighlineSubarea(pool, subarea, reservationDate, partySize, establishmentId) {
+async function evaluateHighlineSubarea(
+  pool,
+  subarea,
+  reservationDate,
+  partySize,
+  establishmentId,
+  { reservationTime = null } = {}
+) {
   const tablesByArea = await loadTablesForAreas(pool, [subarea.area_id]);
-  const reservedByArea = await loadConfirmedReservedByArea(pool, reservationDate, establishmentId);
+  const reservedByArea = await loadConfirmedReservedByArea(pool, reservationDate, establishmentId, {
+    reservationTime,
+  });
   return evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, reservedByArea);
 }
 
@@ -706,9 +757,12 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     incluirAreasConsumiveis: args.incluir_areas_consumiveis,
   });
 
+  const reservationTime = args.horario || args.reservation_time || null;
   const [tablesByArea, reservedByArea] = await Promise.all([
     loadTablesForAreas(pool, HIGHLINE_AREA_IDS),
-    loadConfirmedReservedByArea(pool, reservationDate, establishmentId),
+    loadConfirmedReservedByArea(pool, reservationDate, establishmentId, {
+      reservationTime,
+    }),
   ]);
 
   const evaluations = HIGHLINE_SUBAREAS.map((subarea) =>
@@ -822,14 +876,40 @@ async function consultHighlineReservationAreas(pool, args = {}) {
   };
 }
 
-async function findAvailableTableInSubarea(pool, subarea, reservationDate, partySize, establishmentId) {
+async function findAvailableTableInSubarea(
+  pool,
+  subarea,
+  reservationDate,
+  partySize,
+  establishmentId,
+  { reservationTime = null, excludeTableNumbers = [] } = {}
+) {
   const evaluation = await evaluateHighlineSubarea(
     pool,
     subarea,
     reservationDate,
     partySize,
-    establishmentId
+    establishmentId,
+    { reservationTime }
   );
+  const excluded = new Set((excludeTableNumbers || []).map((n) => String(n).trim()).filter(Boolean));
+  if (evaluation.mesa_sugerida && excluded.has(String(evaluation.mesa_sugerida.table_number))) {
+    // Reavalia sem a mesa conflitante: marca como reservada artificialmente.
+    const tablesByArea = await loadTablesForAreas(pool, [subarea.area_id]);
+    const reservedByArea = await loadConfirmedReservedByArea(pool, reservationDate, establishmentId, {
+      reservationTime,
+    });
+    const areaId = subarea.area_id;
+    if (!reservedByArea.has(areaId)) reservedByArea.set(areaId, new Set());
+    excluded.forEach((num) => reservedByArea.get(areaId).add(num));
+    const retry = evaluateHighlineSubareaFromCache(subarea, partySize, tablesByArea, reservedByArea);
+    if (!retry.mesa_sugerida) return null;
+    return {
+      area_id: subarea.area_id,
+      table_number: retry.mesa_sugerida.table_number,
+      label: subarea.label,
+    };
+  }
   return evaluation.mesa_sugerida
     ? {
         area_id: subarea.area_id,
@@ -855,7 +935,14 @@ function formatCombinedTablesResult(combo, { areaId, label, escopo }) {
 }
 
 function pickBestCombinedForParty(tablesByArea, reservedByArea, subarea, partySize, options = {}) {
-  const reservedSet = reservedByArea.get(subarea.area_id) || new Set();
+  const reservedSet = new Set(reservedByArea.get(subarea.area_id) || []);
+  (options.excludeTableNumbers || []).forEach((n) => {
+    const num = String(n).trim();
+    if (num) reservedSet.add(num);
+  });
+  const reservedForPick = new Map(reservedByArea);
+  reservedForPick.set(subarea.area_id, reservedSet);
+
   let tables = (tablesByArea.get(subarea.area_id) || []).filter((t) =>
     subarea.tableNumbers.includes(String(t.table_number))
   );
@@ -877,7 +964,7 @@ function pickBestCombinedForParty(tablesByArea, reservedByArea, subarea, partySi
 
   const areaCombo = pickCombinedTablesForArea(
     tablesByArea,
-    reservedByArea,
+    reservedForPick,
     subarea.area_id,
     partySize,
     options
@@ -923,7 +1010,8 @@ async function findCombinedTablesInSubareaForGroup(
   const reservedByArea = await loadConfirmedReservedByArea(
     pool,
     reservationDate,
-    establishmentId
+    establishmentId,
+    { reservationTime: options.reservationTime || null }
   );
 
   return pickBestCombinedForParty(tablesByArea, reservedByArea, subarea, partySize, options);
@@ -936,7 +1024,7 @@ async function findCombinedTablesInAreaForGroup(
   reservationDate,
   partySize,
   establishmentId,
-  { label = null } = {}
+  options = {}
 ) {
   const id = Number(areaId);
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(Number(partySize)) || partySize <= 0) {
@@ -947,14 +1035,15 @@ async function findCombinedTablesInAreaForGroup(
   const reservedByArea = await loadConfirmedReservedByArea(
     pool,
     reservationDate,
-    establishmentId
+    establishmentId,
+    { reservationTime: options.reservationTime || null }
   );
 
   const combo = pickCombinedTablesForArea(tablesByArea, reservedByArea, id, partySize);
   if (!combo) return null;
 
   const areaLabel =
-    label ||
+    options.label ||
     (id === 2 ? 'Deck/Bar/Balada (combinada)' : id === 5 ? 'Rooftop (combinada)' : id === HIGHLINE_ROTATIVO_AREA_ID ? 'Rotativo (combinada)' : `Área ${id}`);
 
   return formatCombinedTablesResult(combo, {
@@ -1003,6 +1092,7 @@ module.exports = {
   evaluateHighlineSubareaFromCache,
   pickCombinedTablesFromFreeList,
   pickCombinedTablesForArea,
+  timesOverlapHHmm,
 };
 
 Object.defineProperty(module.exports, 'HIGHLINE_ESTABLISHMENT_ID', {

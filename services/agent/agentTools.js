@@ -607,7 +607,13 @@ async function verificarDisponibilidade(pool, args = {}) {
   };
 }
 
-async function resolveDefaultReservationSlot(pool, establishmentId, reservationDate, partySize) {
+async function resolveDefaultReservationSlot(
+  pool,
+  establishmentId,
+  reservationDate,
+  partySize,
+  { reservationTime = null } = {}
+) {
   if (isHighlineEstablishment(establishmentId)) {
     const preferredKeys = ['deck-mesas', 'deck-redondas', 'bar-central'];
     for (const key of preferredKeys) {
@@ -619,7 +625,8 @@ async function resolveDefaultReservationSlot(pool, establishmentId, reservationD
         subarea,
         reservationDate,
         partySize,
-        establishmentId
+        establishmentId,
+        { reservationTime }
       );
       if (slot) return slot;
     }
@@ -634,6 +641,82 @@ async function resolveDefaultReservationSlot(pool, establishmentId, reservationD
     label: String(first.name || '').trim() || null,
     table_number: null,
   };
+}
+
+function parseConflictingTableFromError(errorMessage) {
+  const text = String(errorMessage || '');
+  const named = text.match(/Mesa\s+([0-9A-Za-z]+)\s+já está reservada/i);
+  if (named?.[1]) return String(named[1]).trim();
+  return null;
+}
+
+/**
+ * Escolhe mesa (ou combinação) Highline respeitando horário e mesas a excluir.
+ */
+async function resolveHighlineCreateSlot(
+  pool,
+  {
+    establishmentId,
+    reservationDate,
+    reservationTime,
+    partySize,
+    areaInput,
+    excludeTableNumbers = [],
+  }
+) {
+  const subarea = resolveHighlineSubarea(areaInput);
+  if (!subarea) return { subarea: null, slot: null, combined: null, exhausted: false };
+
+  const opts = {
+    reservationTime: reservationTime || null,
+    excludeTableNumbers,
+  };
+
+  const slot = await findAvailableTableInSubarea(
+    pool,
+    subarea,
+    reservationDate,
+    partySize,
+    establishmentId,
+    opts
+  );
+  if (slot) {
+    return { subarea, slot, combined: null, exhausted: false };
+  }
+
+  const combo = await findCombinedTablesInSubareaForGroup(
+    pool,
+    subarea,
+    reservationDate,
+    partySize,
+    establishmentId,
+    opts
+  ).catch((err) => {
+    console.warn('[agentTools] falha ao combinar mesas:', err.message);
+    return null;
+  });
+
+  if (combo) {
+    return {
+      subarea,
+      slot: {
+        area_id: combo.area_id,
+        table_number: combo.table_number,
+        label: combo.label,
+      },
+      combined: {
+        mesas_count: combo.mesas_count,
+        table_numbers: combo.table_numbers,
+        total_capacity: combo.total_capacity,
+        escopo_combinacao: combo.escopo_combinacao || 'subarea',
+        partial: Boolean(combo.partial),
+        capacidade_abaixo_do_grupo: Boolean(combo.capacidade_abaixo_do_grupo),
+      },
+      exhausted: false,
+    };
+  }
+
+  return { subarea, slot: null, combined: null, exhausted: true };
 }
 
 async function resolveAreaId(pool, establishmentId, areaValue) {
@@ -765,72 +848,46 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
   let tableNumber = null;
   let areaLabel = String(args.area || '').trim();
   let combinedTablesInfo = null;
+  const excludedTables = [];
 
   if (isHighlineEstablishment(establishmentId)) {
-    const subarea = resolveHighlineSubarea(args.area) || resolveHighlineSubarea(areaLabel);
-    if (subarea) {
-      const slot = await findAvailableTableInSubarea(
-        pool,
-        subarea,
-        reservationDate,
-        partySize,
-        establishmentId
-      );
-      if (slot) {
-        areaId = slot.area_id;
-        tableNumber = slot.table_number;
-        areaLabel = slot.label;
-      } else {
-        // Nenhuma mesa única comporta o grupo — tenta combinar múltiplas mesas
-        // da mesma subárea (mesma feature "Reservar múltiplas mesas" do modal
-        // /admin/restaurant-reservations). É UMA reserva só com várias mesas.
-        const combo = await findCombinedTablesInSubareaForGroup(
-          pool,
-          subarea,
-          reservationDate,
-          partySize,
-          establishmentId
-        ).catch((err) => {
-          console.warn('[agentTools] falha ao combinar mesas:', err.message);
-          return null;
-        });
+    const resolved = await resolveHighlineCreateSlot(pool, {
+      establishmentId,
+      reservationDate,
+      reservationTime,
+      partySize,
+      areaInput: args.area || areaLabel,
+      excludeTableNumbers: excludedTables,
+    });
 
-        if (combo) {
-          areaId = combo.area_id;
-          tableNumber = combo.table_number; // ex.: "5,6,7"
-          areaLabel = combo.label;
-          combinedTablesInfo = {
-            mesas_count: combo.mesas_count,
-            table_numbers: combo.table_numbers,
-            total_capacity: combo.total_capacity,
-            escopo_combinacao: combo.escopo_combinacao || 'subarea',
-            partial: Boolean(combo.partial),
-            capacidade_abaixo_do_grupo: Boolean(combo.capacidade_abaixo_do_grupo),
-          };
-        } else {
-          const snapshot = await consultHighlineReservationAreas(pool, {
-            estabelecimento_id: establishmentId,
-            data: reservationDate,
-            quantidade_pessoas: partySize,
-            area_preferida: subarea.label,
-          });
-          if (snapshot.todas_areas_cheias) {
-            return {
-              ok: false,
-              error:
-                'Todas as áreas estão sem mesa livre para esse grupo. Use criar_lista_espera e informe a Equipe de Hostess.',
-              todas_areas_cheias: true,
-            };
-          }
-          const alt = snapshot.area_recomendada?.label;
-          return {
-            ok: false,
-            error: alt
-              ? `A ${subarea.label} está cheia (incluindo combinação de mesas). Há vaga em ${alt} — confirme com o cliente ou use criar_lista_espera se recusar.`
-              : `A ${subarea.label} está cheia para essa data (mesmo combinando mesas). Consulte consultar_areas_mesa_reserva ou lista de espera.`,
-          };
-        }
+    if (resolved.slot) {
+      areaId = resolved.slot.area_id;
+      tableNumber = resolved.slot.table_number;
+      areaLabel = resolved.slot.label;
+      combinedTablesInfo = resolved.combined;
+    } else if (resolved.subarea && resolved.exhausted) {
+      const snapshot = await consultHighlineReservationAreas(pool, {
+        estabelecimento_id: establishmentId,
+        data: reservationDate,
+        quantidade_pessoas: partySize,
+        horario: reservationTime || undefined,
+        area_preferida: resolved.subarea.label,
+      });
+      if (snapshot.todas_areas_cheias) {
+        return {
+          ok: false,
+          error:
+            'Todas as áreas estão sem mesa livre para esse grupo. Use criar_lista_espera e informe a Equipe de Hostess.',
+          todas_areas_cheias: true,
+        };
       }
+      const alt = snapshot.area_recomendada?.label;
+      return {
+        ok: false,
+        error: alt
+          ? `A ${resolved.subarea.label} está cheia (incluindo combinação de mesas). Há vaga em ${alt} — confirme com o cliente ou use criar_lista_espera se recusar.`
+          : `A ${resolved.subarea.label} está cheia para essa data (mesmo combinando mesas). Consulte consultar_areas_mesa_reserva ou lista de espera.`,
+      };
     }
   }
 
@@ -842,7 +899,8 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       pool,
       establishmentId,
       reservationDate,
-      partySize
+      partySize,
+      { reservationTime }
     );
     if (defaultSlot?.area_id) {
       areaId = defaultSlot.area_id;
@@ -863,59 +921,107 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     return { ok: false, error: 'Reservas exigem +18 anos.' };
   }
 
-  const params = {
-    establishment_id: establishmentId,
-    client_name: cliente.nome,
-    client_email: cliente.email,
-    data_nascimento: cliente.data_nascimento,
-    quantidade_convidados: partySize,
-    reservation_date: reservationDate,
-    reservation_time: reservationTime,
-    area_id: areaId,
-  };
+  const maxCreateAttempts = isHighlineEstablishment(establishmentId) ? 4 : 1;
+  let created = null;
+  let lastCreateError = null;
 
-  const notes = buildNotesFromReservationArgs(args, {
-    area_confirmada: areaLabel,
-    mesa: tableNumber,
-  });
-
-  let finalNotes = notes;
-
-  if (combinedTablesInfo) {
-    const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
-    const escopo =
-      combinedTablesInfo.escopo_combinacao === 'area'
-        ? 'mesas combinadas na mesma área do painel (várias subáreas)'
-        : 'mesas combinadas na subárea';
-    let obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única (${escopo}), como no modal "Reservar múltiplas mesas".`;
-    if (combinedTablesInfo.capacidade_abaixo_do_grupo || combinedTablesInfo.partial) {
-      obsCombo += ` Grupo grande (${partySize} pessoas): pode não haver cadeira para todos — Hostess organiza na chegada.`;
+  for (let attempt = 0; attempt < maxCreateAttempts; attempt++) {
+    if (attempt > 0 && isHighlineEstablishment(establishmentId)) {
+      const resolved = await resolveHighlineCreateSlot(pool, {
+        establishmentId,
+        reservationDate,
+        reservationTime,
+        partySize,
+        areaInput: areaLabel || args.area,
+        excludeTableNumbers: excludedTables,
+      });
+      if (!resolved.slot) {
+        break;
+      }
+      areaId = resolved.slot.area_id;
+      tableNumber = resolved.slot.table_number;
+      areaLabel = resolved.slot.label;
+      combinedTablesInfo = resolved.combined;
     }
-    finalNotes = finalNotes ? `${obsCombo} | ${finalNotes}` : obsCombo;
-  } else if (isHighlineEstablishment(establishmentId) && partySize >= 16) {
-    const obsGrande = `Grupo grande (${partySize} pessoas): reserva registrada — equipe combina mesas; pode não haver cadeira para todos ao mesmo tempo.`;
-    finalNotes = finalNotes ? `${obsGrande} | ${finalNotes}` : obsGrande;
-  }
 
-  const recentByPhone = (duplicateInfo.duplicateRecent || []).filter(
-    (row) => Number(row.id) !== Number(duplicateInfo.duplicateExact?.id || 0)
-  );
-  if (recentByPhone.length >= 2) {
-    const alerta = `ALERTA ADMIN: este telefone já criou ${recentByPhone.length + 1} reservas no estabelecimento nas últimas 24h (possível duplicação/loop da IA). Verificar antes de confirmar.`;
-    finalNotes = finalNotes ? `${finalNotes} | ${alerta}` : alerta;
+    const params = {
+      establishment_id: establishmentId,
+      client_name: cliente.nome,
+      client_email: cliente.email,
+      data_nascimento: cliente.data_nascimento,
+      quantidade_convidados: partySize,
+      reservation_date: reservationDate,
+      reservation_time: reservationTime,
+      area_id: areaId,
+    };
+
+    const notes = buildNotesFromReservationArgs(args, {
+      area_confirmada: areaLabel,
+      mesa: tableNumber,
+    });
+
+    let finalNotes = notes;
+
+    if (combinedTablesInfo) {
+      const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
+      const escopo =
+        combinedTablesInfo.escopo_combinacao === 'area'
+          ? 'mesas combinadas na mesma área do painel (várias subáreas)'
+          : 'mesas combinadas na subárea';
+      let obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única (${escopo}), como no modal "Reservar múltiplas mesas".`;
+      if (combinedTablesInfo.capacidade_abaixo_do_grupo || combinedTablesInfo.partial) {
+        obsCombo += ` Grupo grande (${partySize} pessoas): pode não haver cadeira para todos — Hostess organiza na chegada.`;
+      }
+      finalNotes = finalNotes ? `${obsCombo} | ${finalNotes}` : obsCombo;
+    } else if (isHighlineEstablishment(establishmentId) && partySize >= 16) {
+      const obsGrande = `Grupo grande (${partySize} pessoas): reserva registrada — equipe combina mesas; pode não haver cadeira para todos ao mesmo tempo.`;
+      finalNotes = finalNotes ? `${obsGrande} | ${finalNotes}` : obsGrande;
+    }
+
+    const recentByPhone = (duplicateInfo.duplicateRecent || []).filter(
+      (row) => Number(row.id) !== Number(duplicateInfo.duplicateExact?.id || 0)
+    );
+    if (recentByPhone.length >= 2) {
+      const alerta = `ALERTA ADMIN: este telefone já criou ${recentByPhone.length + 1} reservas no estabelecimento nas últimas 24h (possível duplicação/loop da IA). Verificar antes de confirmar.`;
+      finalNotes = finalNotes ? `${finalNotes} | ${alerta}` : alerta;
+      if (attempt === 0) {
+        console.warn(
+          `[agentTools] ALERTA reservas em sequência waId=${waId} establishment_id=${establishmentId} recent_count=${recentByPhone.length + 1}`
+        );
+      }
+    }
+
+    const body = buildReservationBodyFromParams(
+      { ...params, table_number: tableNumber },
+      waId,
+      { notes: finalNotes }
+    );
+    created = await createReservationInternal(body);
+    if (created.success) break;
+
+    lastCreateError = created.error || 'Falha ao registrar pré-reserva.';
+    const conflictTable =
+      parseConflictingTableFromError(lastCreateError) ||
+      (String(lastCreateError).includes('já está reservada') ? String(tableNumber || '').split(',')[0] : null);
+
+    if (!conflictTable || !isHighlineEstablishment(establishmentId)) {
+      return { ok: false, error: lastCreateError };
+    }
+
+    String(conflictTable)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((num) => {
+        if (!excludedTables.includes(num)) excludedTables.push(num);
+      });
     console.warn(
-      `[agentTools] ALERTA reservas em sequência waId=${waId} establishment_id=${establishmentId} recent_count=${recentByPhone.length + 1}`
+      `[agentTools] mesa em conflito (${conflictTable}) — tentando outra mesa (attempt=${attempt + 1}) waId=${waId}`
     );
   }
 
-  const body = buildReservationBodyFromParams(
-    { ...params, table_number: tableNumber },
-    waId,
-    { notes: finalNotes }
-  );
-  const created = await createReservationInternal(body);
-  if (!created.success) {
-    return { ok: false, error: created.error || 'Falha ao registrar pré-reserva.' };
+  if (!created?.success) {
+    return { ok: false, error: lastCreateError || 'Falha ao registrar pré-reserva.' };
   }
 
   const reservationRow = created.data?.reservation || created.data || {};

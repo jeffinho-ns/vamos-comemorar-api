@@ -110,3 +110,55 @@ test('bistrô de espera rotativo respeita máximo de 4 pessoas', () => {
   assert.equal(subarea.maxParty, 4);
   assert.equal(subarea.opsNote.includes('4 pessoas'), true);
 });
+
+test('resolveHighlineSubarea prioriza Mesas Redondas sobre Deck - Mesas', () => {
+  const redondas = resolveHighlineSubarea('Deck - Mesas Redondas');
+  assert.ok(redondas);
+  assert.equal(redondas.key, 'deck-redondas');
+
+  const short = resolveHighlineSubarea('Eu quero Mesas Redondas e vai ser para 5 pessoas.');
+  assert.ok(short);
+  assert.equal(short.key, 'deck-redondas');
+
+  const plain = resolveHighlineSubarea('Deck - Mesas');
+  assert.ok(plain);
+  assert.equal(plain.key, 'deck-mesas');
+});
+
+test('mesas 02/03 ocupadas não são sugeridas no Deck - Mesas', () => {
+  const subarea = resolveHighlineSubarea('deck-mesas');
+  const { tablesByArea, reservedByArea } = buildDeckCache(['02', '03']);
+
+  const evaluation = evaluateHighlineSubareaFromCache(
+    subarea,
+    5,
+    tablesByArea,
+    reservedByArea
+  );
+  assert.equal(evaluation.tem_mesa_para_grupo, true);
+  assert.ok(evaluation.mesa_sugerida);
+  assert.notEqual(evaluation.mesa_sugerida.table_number, '02');
+  assert.notEqual(evaluation.mesa_sugerida.table_number, '03');
+  assert.equal(evaluation.mesa_sugerida.table_number, '01');
+});
+
+test('Mesas Redondas sugere mesa da subárea correta (09+)', () => {
+  const subarea = resolveHighlineSubarea('Deck - Mesas Redondas');
+  const { tablesByArea, reservedByArea } = buildDeckCache(['02', '03']);
+
+  const evaluation = evaluateHighlineSubareaFromCache(
+    subarea,
+    5,
+    tablesByArea,
+    reservedByArea
+  );
+  assert.equal(evaluation.tem_mesa_para_grupo, true);
+  assert.ok(['09', '10', '11', '12'].includes(String(evaluation.mesa_sugerida.table_number)));
+});
+
+test('timesOverlapHHmm detecta janela de 2h', () => {
+  const { timesOverlapHHmm } = require('../../services/agent/highlineReservationAreas');
+  assert.equal(timesOverlapHHmm('19:00', '19:00'), true);
+  assert.equal(timesOverlapHHmm('19:00', '20:30'), true);
+  assert.equal(timesOverlapHHmm('19:00', '21:00'), false);
+});

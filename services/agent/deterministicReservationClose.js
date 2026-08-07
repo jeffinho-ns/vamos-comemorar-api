@@ -69,9 +69,11 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
   const establishmentId = Number(
     workingState.establishment_id || context.lockedEstablishmentId
   );
+  // Preferência do turno atual (ex.: "quero Mesas Redondas") vence área antiga no estado.
+  const fromUserText = resolveHighlineSubarea(userText)?.label || '';
   const preferred =
-    String(workingState.area_label || workingState.area_preferida || '').trim() ||
-    (resolveHighlineSubarea(userText)?.label || '');
+    fromUserText ||
+    String(workingState.area_label || workingState.area_preferida || '').trim();
 
   if (!isHighlineEstablishment(establishmentId) || !pool) {
     // Casas não-Highline: criar_pre_reserva resolve área padrão no backend.
@@ -82,12 +84,14 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     workingState.reservation_date || workingState.pending_reservation_date_iso || ''
   ).slice(0, 10);
   const partySize = Number(workingState.quantidade_convidados);
+  const reservationTime = String(workingState.reservation_time || '').slice(0, 5) || null;
 
   // Sempre consulta o painel: respeita preferência do cliente, mas só fecha com vaga real.
   const snapshot = await consultHighlineReservationAreas(pool, {
     estabelecimento_id: establishmentId,
     data: reservationDate,
     quantidade_pessoas: partySize,
+    horario: reservationTime || undefined,
     area_preferida: preferred || undefined,
     contexto_cliente: userText || preferred,
   }).catch(() => null);

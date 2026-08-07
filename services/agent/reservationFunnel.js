@@ -317,9 +317,14 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const partyMatch =
     text.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i) ||
     text.match(/\b(\d{1,3})\s+pessoas?\b/i);
-  if (partyMatch && !hasFieldValue(workingState, 'quantidade_convidados')) {
+  if (partyMatch) {
     const n = Number(partyMatch[1]);
-    if (n > 0 && n <= 200) patch.quantidade_convidados = n;
+    if (n > 0 && n <= 200) {
+      const currentParty = Number(workingState.quantidade_convidados);
+      if (!hasFieldValue(workingState, 'quantidade_convidados') || currentParty !== n) {
+        patch.quantidade_convidados = n;
+      }
+    }
   }
 
   const dateParsed = parsePtBrDateFromText(text);
@@ -369,9 +374,13 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     patch.pending_reservation_date_label = null;
   }
 
-  if (!workingState.area_label && !workingState.area_preferida) {
-    const subarea = resolveHighlineSubarea(text);
-    if (subarea?.label) {
+  // Sempre atualiza quando a fala resolve uma subárea — permite trocar de área no meio do funil.
+  const subarea = resolveHighlineSubarea(text);
+  if (subarea?.label) {
+    const current = resolveHighlineSubarea(
+      workingState.area_label || workingState.area_preferida || ''
+    );
+    if (!current || current.key !== subarea.key) {
       patch.area_preferida = subarea.label;
       patch.area_label = subarea.label;
       if (subarea.area_id) patch.area_id = subarea.area_id;

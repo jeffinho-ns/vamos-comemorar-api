@@ -233,8 +233,8 @@ async function normalizeAreaIdInParams(params, establishmentId, pool) {
       const sub = resolveHighlineSubarea(text);
       if (sub) {
         params.area_id = sub.area_id;
-        if (!params.area_label) params.area_label = sub.label;
-        if (!params.area_subkey) params.area_subkey = sub.key;
+        params.area_label = sub.label;
+        params.area_subkey = sub.key;
         return;
       }
     }
