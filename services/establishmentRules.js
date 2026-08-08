@@ -107,7 +107,18 @@ async function getEstablishmentRules(pool, operationalEstablishmentId) {
     if (rows[0]) {
       rules = normalizeRules(rows[0].config || {}, rows[0].name, id);
     } else {
-      rules = normalizeRules({}, '', id);
+      // Fallback: places.name (ex.: "Seu Justino") para inferir profile sem config SaaS.
+      let placeName = '';
+      try {
+        const place = await pool.query(
+          'SELECT name FROM places WHERE id = $1 LIMIT 1',
+          [id],
+        );
+        placeName = place.rows[0]?.name || '';
+      } catch (_placeError) {
+        placeName = '';
+      }
+      rules = normalizeRules({}, placeName, id);
     }
   } catch (_) {
     rules = normalizeRules({}, '', id);
@@ -201,6 +212,35 @@ function areasManagementFrozen(rules) {
 }
 
 /**
+ * IDs de restaurant_areas canônicos usados pelo modal admin / IA, mesmo quando
+ * a linha no banco está com establishment_id de outro lugar (legado compartilhado).
+ * Highline: 2=Deck/Bar/Balada, 5=Rooftop, 7001=Rotativo.
+ * Seu Justino: 1=Lounge (Área Coberta), 2=Quintal (Área Descoberta).
+ */
+function getCanonicalAreaIdsForRules(rules) {
+  const profile = String(rules?.profile || '').trim().toLowerCase();
+  if (profile === 'highline') {
+    const rotativo = Number(process.env.HIGHLINE_ROTATIVO_AREA_ID || 7001);
+    const ids = [2, 5];
+    if (Number.isFinite(rotativo) && rotativo > 0) ids.push(rotativo);
+    return ids;
+  }
+  if (profile === 'seu_justino') {
+    return [1, 2];
+  }
+  return [];
+}
+
+/** Fragmento SQL: inclui áreas canônicas do perfil (ids literais seguros). */
+function buildCanonicalAreasSql(rules, { idColumn = 'id' } = {}) {
+  const ids = getCanonicalAreaIdsForRules(rules)
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!ids.length) return null;
+  return `${idColumn} = ANY(ARRAY[${ids.join(',')}]::int[])`;
+}
+
+/**
  * Um estabelecimento é "autogerido" (self-managed) quando já possui áreas
  * próprias (establishment_id = id). Nesse caso passa a ver/editar SOMENTE as
  * suas áreas; caso contrário, usa o catálogo legado por convenção de nome.
@@ -222,6 +262,11 @@ async function establishmentHasOwnedAreas(pool, establishmentId) {
 function areaAllowedForEstablishment(rules, area, establishmentId) {
   if (!area) return false;
   const id = Number(establishmentId);
+  const areaId = Number(area.id);
+  const canonical = new Set(getCanonicalAreaIdsForRules(rules));
+  if (Number.isFinite(areaId) && canonical.has(areaId)) {
+    return true;
+  }
   const areaEstId =
     area.establishment_id != null ? Number(area.establishment_id) : null;
   if (areaEstId != null && Number.isFinite(id) && id > 0) {
@@ -280,6 +325,8 @@ module.exports = {
   areaAllowedForRules,
   areaAllowedForEstablishment,
   areasManagementFrozen,
+  getCanonicalAreaIdsForRules,
+  buildCanonicalAreasSql,
   establishmentHasOwnedAreas,
   usesTableOverlapBlocking,
   usesExtendedGuestListWindow,

@@ -926,9 +926,15 @@ module.exports = (pool) => {
 
       const allowedAreas = await loadActiveRestaurantAreas(pool, establishmentIdNumber);
       if (!allowedAreas.some((area) => Number(area.id) === areaIdNumber)) {
+        const allowedIds = allowedAreas.map((area) => Number(area.id)).filter(Boolean);
         return res.status(400).json({
           success: false,
           error: 'area_id não pertence ao estabelecimento informado.',
+          details: {
+            area_id: areaIdNumber,
+            establishment_id: establishmentIdNumber,
+            areas_permitidas: allowedIds,
+          },
         });
       }
       

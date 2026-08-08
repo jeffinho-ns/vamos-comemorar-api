@@ -406,38 +406,24 @@ async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   const id = establishmentId != null ? Number(establishmentId) : null;
   if (id != null && Number.isFinite(id) && id > 0) {
     const rules = await establishmentRules.getEstablishmentRules(pool, id);
-    // Highline: áreas canônicas (2/5/7001) podem ter ficado sem establishment_id
-    // enquanto só o Rotativo foi “adotado” — nesse caso hasOwned=true e a validação
-    // de criar reserva rejeita Deck/Rooftop. Sempre inclui os IDs canônicos.
-    let highlineCanonicalIds = [];
-    try {
-      const {
-        isHighlineEstablishment,
-        getHighlineCanonicalAreaIds,
-      } = require('../agent/highlineReservationAreas');
-      if (isHighlineEstablishment(id)) {
-        highlineCanonicalIds = getHighlineCanonicalAreaIds();
-      }
-    } catch (_error) {
-      highlineCanonicalIds = [];
-    }
-
-    if (highlineCanonicalIds.length) {
+    // Perfis congelados (Highline / Seu Justino) usam area_ids fixos no modal.
+    // Ex.: área 2 ficou com establishment_id=7 (Highline) e o Quintal do Justino
+    // quebrava com "area_id não pertence ao estabelecimento".
+    const canonicalSql = establishmentRules.buildCanonicalAreasSql(rules, {
+      idColumn: 'id',
+    });
+    const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
+    if (hasOwned) {
       whereParts.push(
-        `(establishment_id = ${id} OR id = ANY(ARRAY[${highlineCanonicalIds
-          .map((areaId) => Number(areaId))
-          .filter((areaId) => Number.isFinite(areaId) && areaId > 0)
-          .join(',')}]::int[]))`
+        canonicalSql
+          ? `(establishment_id = ${id} OR ${canonicalSql})`
+          : `establishment_id = ${id}`
       );
     } else {
-      // Self-managed (já possui áreas próprias): apenas as próprias.
-      // Caso contrário: catálogo legado por convenção de nome.
-      const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
-      if (hasOwned) {
-        whereParts.push(`establishment_id = ${id}`);
-      } else {
-        whereParts.push(establishmentRules.buildAreasScopeSql(rules, id, { nameColumn: 'name' }));
-      }
+      const scopeSql = establishmentRules.buildAreasScopeSql(rules, id, {
+        nameColumn: 'name',
+      });
+      whereParts.push(canonicalSql ? `(${scopeSql} OR ${canonicalSql})` : scopeSql);
     }
   }
 

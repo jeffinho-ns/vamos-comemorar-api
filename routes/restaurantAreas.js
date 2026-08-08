@@ -11,6 +11,7 @@ const {
   getEstablishmentRules,
   buildAreasNameFilterSql,
   buildAreasScopeSql,
+  buildCanonicalAreasSql,
   areaAllowedForRules,
   areaAllowedForEstablishment,
   areasManagementFrozen,
@@ -19,16 +20,19 @@ const {
 
 async function areasFilterForEstablishment(pool, establishmentId) {
   const rules = await getEstablishmentRules(pool, establishmentId);
-  // Self-managed (já tem áreas próprias): mostra SOMENTE as próprias.
-  // Caso contrário: catálogo legado por convenção de nome.
+  const canonicalSql = buildCanonicalAreasSql(rules, { idColumn: 'ra.id' });
+  // Self-managed (já tem áreas próprias): próprias + canônicas do perfil.
+  // Caso contrário: catálogo legado por convenção de nome (+ canônicas).
   const hasOwned = await establishmentHasOwnedAreas(pool, establishmentId);
   if (hasOwned) {
-    return `ra.establishment_id = ${Number(establishmentId)}`;
+    const owned = `ra.establishment_id = ${Number(establishmentId)}`;
+    return canonicalSql ? `(${owned} OR ${canonicalSql})` : owned;
   }
-  return buildAreasScopeSql(rules, establishmentId, {
+  const scopeSql = buildAreasScopeSql(rules, establishmentId, {
     nameColumn: 'ra.name',
     establishmentColumn: 'ra.establishment_id',
   });
+  return canonicalSql ? `(${scopeSql} OR ${canonicalSql})` : scopeSql;
 }
 
 /**
