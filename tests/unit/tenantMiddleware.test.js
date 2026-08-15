@@ -61,6 +61,21 @@ function run(req) {
 
 const scopedUser = { id: 10, email: 'gerente@casa1.com', role: 'gerente' };
 const adminUser = { id: 1, email: 'admin@empresa.com', role: 'admin' };
+const superAdminUser = {
+  id: 2,
+  email: 'super@agilizai.app',
+  role: 'admin',
+  is_super_admin: true,
+};
+
+const poolUnscopedAdmin = {
+  async query(sql) {
+    if (/memberships/i.test(sql)) return { rows: [] };
+    if (/user_establishment_permissions/i.test(sql)) return { rows: [] };
+    if (/FROM users/i.test(sql)) return { rows: [] };
+    return { rows: [] };
+  },
+};
 
 test('off => no-op (passa tudo, mesmo fora de escopo)', async () => {
   process.env.SAAS_MODE = 'off';
@@ -83,9 +98,25 @@ test('on + anônimo (sem token) => NÃO bloqueia (reserva pública continua)', a
   assert.equal(res.statusCode, null);
 });
 
-test('on + admin => acessa qualquer estabelecimento', async () => {
+test('on + superadmin => acessa qualquer estabelecimento', async () => {
+  process.env.SAAS_MODE = 'on';
+  const { res, nextCalled } = await run(makeReq({ user: superAdminUser, establishmentId: 99 }));
+  assert.equal(nextCalled, true);
+  assert.equal(res.statusCode, null);
+});
+
+test('on + admin de tenant NÃO acessa casa de outra organização', async () => {
   process.env.SAAS_MODE = 'on';
   const { res, nextCalled } = await run(makeReq({ user: adminUser, establishmentId: 99 }));
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+});
+
+test('on + admin legado sem tenant acessa qualquer estabelecimento', async () => {
+  process.env.SAAS_MODE = 'on';
+  const { res, nextCalled } = await run(
+    makeReq({ user: adminUser, establishmentId: 99, pool: poolUnscopedAdmin }),
+  );
   assert.equal(nextCalled, true);
   assert.equal(res.statusCode, null);
 });

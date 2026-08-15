@@ -6,6 +6,11 @@
  * ESTABLISHMENTS_READ_SOURCE=establishments.
  */
 
+const {
+  sqlEstablishmentTableIsolation,
+  ENABLED_MODULES_FOR_ESTABLISHMENT_ALIAS_SQL,
+} = require('../tenancy/establishmentListIsolation');
+
 function establishmentsReadSource() {
   return String(process.env.ESTABLISHMENTS_READ_SOURCE || 'legacy').toLowerCase();
 }
@@ -14,16 +19,7 @@ function shouldReadFromEstablishments() {
   return establishmentsReadSource() === 'establishments';
 }
 
-// NULL = sem configuração de módulos (tudo liberado); array = só o que está habilitado.
-const ENABLED_MODULES_SQL = `
-  (
-    SELECT CASE WHEN COUNT(*) = 0 THEN NULL
-                ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
-      FROM establishment_modules em
-      JOIN modules m ON m.id = em.module_id AND m.is_active = TRUE
-     WHERE em.establishment_id = e.id
-  ) AS enabled_modules
-`;
+const ENABLED_MODULES_SQL = ENABLED_MODULES_FOR_ESTABLISHMENT_ALIAS_SQL;
 
 const PLACES_FROM_ESTABLISHMENTS_SQL = `
   SELECT
@@ -96,6 +92,7 @@ const BARS_FROM_ESTABLISHMENTS_SQL = `
     COALESCE(e.theme->>'menu_subcategory_bg_color', b.menu_subcategory_bg_color) AS menu_subcategory_bg_color,
     COALESCE(e.theme->>'mobile_sidebar_bg_color', b.mobile_sidebar_bg_color) AS mobile_sidebar_bg_color,
     COALESCE(e.theme->'custom_seals', b.custom_seals::jsonb) AS custom_seals,
+    e.organization_id AS organization_id,
     ${ENABLED_MODULES_SQL}
   FROM establishments e
   LEFT JOIN bars b ON b.id = e.legacy_bar_id
@@ -137,8 +134,16 @@ const BAR_BY_LEGACY_ID_SQL = `
   LIMIT 1
 `;
 
-async function listPlacesFromEstablishments(client) {
-  const result = await client.query(PLACES_FROM_ESTABLISHMENTS_SQL);
+async function listPlacesFromEstablishments(client, filter) {
+  const isolation = sqlEstablishmentTableIsolation(filter, 'e', 1);
+  const result = await client.query(
+    `${PLACES_FROM_ESTABLISHMENTS_SQL.replace(
+      'ORDER BY e.legacy_place_id',
+      `${isolation.sql}
+  ORDER BY e.legacy_place_id`,
+    )}`,
+    isolation.params,
+  );
   return result.rows;
 }
 
@@ -147,8 +152,16 @@ async function getPlaceFromEstablishments(client, placeId) {
   return result.rows[0] || null;
 }
 
-async function listBarsFromEstablishments(pool) {
-  const result = await pool.query(BARS_FROM_ESTABLISHMENTS_SQL);
+async function listBarsFromEstablishments(pool, filter) {
+  const isolation = sqlEstablishmentTableIsolation(filter, 'e', 1);
+  const result = await pool.query(
+    `${BARS_FROM_ESTABLISHMENTS_SQL.replace(
+      'ORDER BY e.legacy_bar_id',
+      `${isolation.sql}
+  ORDER BY e.legacy_bar_id`,
+    )}`,
+    isolation.params,
+  );
   return result.rows;
 }
 

@@ -1,5 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const optionalAuth = require('../middleware/optionalAuth');
+const {
+  loadListFilterForRequest,
+  sqlBarIsolation,
+  ENABLED_MODULES_FOR_BAR_SQL,
+} = require('../tenancy/establishmentListIsolation');
 
 module.exports = (pool) => {
     // Rota para criar um novo estabelecimento
@@ -119,33 +125,38 @@ module.exports = (pool) => {
     };
 
     // Rota para listar todos os estabelecimentos
-    router.get('/', async (req, res) => {
+    router.get('/', optionalAuth, async (req, res) => {
         try {
             const {
                 shouldReadFromEstablishments,
                 listBarsFromEstablishments,
             } = require('../services/establishmentLegacyAdapter');
 
+            const listFilter = await loadListFilterForRequest(pool, req);
+            const isolation = sqlBarIsolation(listFilter, 1);
+
             // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
-            // enabled_modules: NULL = sem configuração (tudo liberado); array = só o que está habilitado.
             const result = shouldReadFromEstablishments()
-                ? { rows: await listBarsFromEstablishments(pool) }
-                : await pool.query(`
+                ? { rows: await listBarsFromEstablishments(pool, listFilter) }
+                : await pool.query(
+                    `
                     SELECT b.*,
                       (
-                        SELECT CASE WHEN COUNT(*) = 0 THEN NULL
-                                    ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
+                        SELECT e.organization_id
                           FROM meu_backup_db.establishments e
-                          JOIN meu_backup_db.establishment_modules em ON em.establishment_id = e.id
-                          JOIN meu_backup_db.modules m ON m.id = em.module_id AND m.is_active = TRUE
                          WHERE e.legacy_bar_id = b.id
-                      ) AS enabled_modules
+                         LIMIT 1
+                      ) AS organization_id,
+                      ${ENABLED_MODULES_FOR_BAR_SQL}
                     FROM bars b
                     WHERE NOT EXISTS (
                       SELECT 1 FROM meu_backup_db.establishments e
                        WHERE e.legacy_bar_id = b.id AND e.status = 'archived'
                     )
-                `);
+                    ${isolation.sql}
+                `,
+                    isolation.params,
+                  );
             const barsFormatted = result.rows.map(bar => normalizeBarFields(bar));
             res.json(barsFormatted);
         } catch (error) {

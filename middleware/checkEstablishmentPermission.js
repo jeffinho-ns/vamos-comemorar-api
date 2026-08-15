@@ -1,3 +1,18 @@
+const { loadUserScope, canAccessEstablishment, isAdminRole } = require('../tenancy/tenantScope');
+
+async function denyIfOutsideTenantScope(pool, user, establishmentId, res) {
+  if (user?.is_super_admin === true) return false;
+  const scope = await loadUserScope(pool, user);
+  if (scope.isAdmin) return false;
+  if (canAccessEstablishment(scope, establishmentId)) return false;
+  res.status(403).json({
+    success: false,
+    error: 'Acesso negado: este estabelecimento não pertence à sua organização',
+    establishment_id: establishmentId,
+  });
+  return true;
+}
+
 /**
  * Middleware para verificar permissões de estabelecimento
  * 
@@ -31,9 +46,14 @@ module.exports = (permissionName, establishmentIdSource = 'body') => {
           error: 'establishment_id é obrigatório'
         });
       }
+
+      if (await denyIfOutsideTenantScope(pool, req.user, establishmentId, res)) {
+        return;
+      }
       
-      // Se o usuário é admin, permitir acesso total
-      if (req.user.role === 'admin' || req.user.role === 'Administrador') {
+      // Superadmin ou admin global legado: acesso total.
+      // Admin da organização: só as casas já aprovadas no escopo acima.
+      if (req.user.is_super_admin === true || isAdminRole(req.user)) {
         return next();
       }
 
@@ -104,9 +124,12 @@ module.exports.checkEstablishmentAccess = async (req, res, next) => {
         error: 'establishment_id é obrigatório'
       });
     }
+
+    if (await denyIfOutsideTenantScope(pool, req.user, establishmentId, res)) {
+      return;
+    }
     
-    // Se o usuário é admin, permitir acesso total
-    if (req.user.role === 'admin' || req.user.role === 'Administrador') {
+    if (req.user.is_super_admin === true || isAdminRole(req.user)) {
       return next();
     }
 

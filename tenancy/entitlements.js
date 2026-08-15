@@ -3,15 +3,13 @@
 /**
  * Resolução de entitlements (módulos + permissões) de um usuário/organização.
  *
- * FAIL-OPEN: enquanto SAAS_MODE não for 'on', retorna allowAll=true (tudo
- * liberado), preservando o comportamento atual. Só consulta o banco e restringe
- * quando o enforcement estiver ligado.
- *
- * NÃO é plugado em nenhuma rota ainda.
+ * Isolamento de TENANT é obrigatório mesmo com SAAS_MODE off: uma empresa nova
+ * nunca herda módulos/casas de outra. allowAll fica só para superadmin ou
+ * operação legado sem organização.
  */
 
 const { isSaasEnforced } = require('./featureFlags');
-const { isAdminRole, loadUserScope } = require('./tenantScope');
+const { loadUserScope } = require('./tenantScope');
 const { loadUepRbacPermissions } = require('./uepToRbacPermissions');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
@@ -20,10 +18,19 @@ const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: [
  * @returns {{ allowAll: boolean, modules: string[], permissions: string[], organizationId: number|null }}
  */
 async function resolveEntitlements(pool, user) {
-  if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null };
   if (user?.is_super_admin === true) return { ...ALLOW_ALL, organizationId: null };
 
   const scope = await loadUserScope(pool, user);
+  const hasTenant =
+    (Array.isArray(scope.organizationIds) && scope.organizationIds.length > 0) ||
+    (Array.isArray(scope.establishmentIds) && scope.establishmentIds.length > 0);
+
+  // Sem tenant: operação legado (Highline pré-segunda org) ou anônimo de token.
+  if (!hasTenant) {
+    if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null };
+    return { allowAll: false, modules: [], permissions: [], organizationId: null };
+  }
+
   const orgId = scope.organizationIds[0] || null;
   if (!orgId) {
     if (Array.isArray(scope.establishmentIds) && scope.establishmentIds.length > 0) {
@@ -118,7 +125,7 @@ async function resolveEntitlements(pool, user) {
 
 function hasModule(entitlements, moduleKey) {
   if (!entitlements) return false;
-  if (entitlements.allowAll || entitlements.legacyScoped) return true;
+  if (entitlements.allowAll) return true;
   if (entitlements.modules.includes(moduleKey)) return true;
   const prefix = `${moduleKey}:`;
   return (

@@ -607,6 +607,7 @@ async function provisionOrganization(pool, input, actorUserId) {
     establishmentName,
     monthlyAmountCents,
     adminCpf,
+    enabledModules: enabledModulesInput,
   } = input;
 
   if (!name || !slug) throw new Error('name e slug são obrigatórios');
@@ -652,6 +653,27 @@ async function provisionOrganization(pool, input, actorUserId) {
       [org.id, planRes.rows[0].id],
     );
 
+    const selectedModules = Array.isArray(enabledModulesInput)
+      ? [...new Set(enabledModulesInput.map(String).filter(Boolean))]
+      : [];
+    if (selectedModules.length > 0) {
+      await client.query(
+        `UPDATE meu_backup_db.organization_modules om
+            SET is_enabled = (m.key = ANY($2::text[]))
+           FROM meu_backup_db.modules m
+          WHERE om.module_id = m.id AND om.organization_id = $1`,
+        [org.id, selectedModules],
+      );
+      await client.query(
+        `INSERT INTO meu_backup_db.organization_modules (organization_id, module_id, is_enabled)
+         SELECT $1, m.id, TRUE
+           FROM meu_backup_db.modules m
+          WHERE m.is_active = TRUE AND m.key = ANY($2::text[])
+         ON CONFLICT (organization_id, module_id) DO UPDATE SET is_enabled = TRUE`,
+        [org.id, selectedModules],
+      );
+    }
+
     await seedFactoryRoles(client, org.id);
     await seedRolePermissionsForOrg(client, org.id);
 
@@ -661,6 +683,21 @@ async function provisionOrganization(pool, input, actorUserId) {
       slug,
       establishmentName: estName,
     });
+
+    const orgModuleRes = await client.query(
+      `SELECT m.key
+         FROM meu_backup_db.organization_modules om
+         JOIN meu_backup_db.modules m ON m.id = om.module_id
+        WHERE om.organization_id = $1 AND om.is_enabled = TRUE AND m.is_active = TRUE`,
+      [org.id],
+    );
+    const establishmentModuleKeys =
+      selectedModules.length > 0
+        ? selectedModules
+        : orgModuleRes.rows.map((r) => r.key);
+    if (establishmentModuleKeys.length > 0) {
+      await seedEstablishmentModules(client, operational.establishmentId, establishmentModuleKeys);
+    }
 
     await seedOrganizationTrainingMaterials(client, org.id, planKey);
 

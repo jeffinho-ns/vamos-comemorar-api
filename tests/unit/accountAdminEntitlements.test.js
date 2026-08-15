@@ -84,3 +84,59 @@ test('resolveEntitlements org admin não recebe allowAll', async () => {
   assert.equal(ent.isAccountAdmin, true);
   delete process.env.SAAS_MODE;
 });
+
+function cardapioOnlyOrgPool() {
+  return {
+    async query(sql) {
+      if (/role_permissions/i.test(sql)) {
+        return {
+          rows: [
+            { key: 'cardapio:read', role_key: 'account_admin' },
+            { key: 'cardapio:update', role_key: 'account_admin' },
+          ],
+        };
+      }
+      if (/memberships/i.test(sql)) {
+        return {
+          rows: [
+            {
+              organization_id: 99,
+              establishment_id: null,
+              legacy_place_id: null,
+              legacy_bar_id: null,
+            },
+          ],
+        };
+      }
+      if (/subscriptions/i.test(sql)) return { rows: [{ status: 'active' }] };
+      if (/organization_modules/i.test(sql)) {
+        return { rows: [{ key: 'cardapio' }] };
+      }
+      if (/FROM meu_backup_db.establishments/i.test(sql)) {
+        return { rows: [{ legacy_place_id: 501, legacy_bar_id: 502 }] };
+      }
+      if (/user_establishment_permissions/i.test(sql)) {
+        return { rows: [] };
+      }
+      throw new Error(`query: ${sql}`);
+    },
+  };
+}
+
+test('org nova só cardápio não recebe allowAll mesmo com SAAS_MODE off', async () => {
+  process.env.SAAS_MODE = 'off';
+  const { hasModule } = require('../../tenancy/entitlements');
+  const ent = await resolveEntitlements(cardapioOnlyOrgPool(), {
+    id: 900,
+    email: 'nova-org@cliente.test',
+    role: 'admin',
+    is_super_admin: false,
+  });
+  assert.equal(ent.allowAll, false);
+  assert.equal(ent.organizationId, 99);
+  assert.deepEqual(ent.modules, ['cardapio']);
+  assert.equal(hasModule(ent, 'cardapio'), true);
+  assert.equal(hasModule(ent, 'reservas'), false);
+  assert.equal(hasModule(ent, 'eventos'), false);
+  delete process.env.SAAS_MODE;
+});

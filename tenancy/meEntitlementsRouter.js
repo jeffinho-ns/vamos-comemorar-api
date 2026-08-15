@@ -3,15 +3,8 @@
 /**
  * Router: GET /api/me/entitlements
  *
- * Retorna módulos + permissões + organização do usuário logado. É ADITIVO e
- * read-only. Com SAAS_MODE off retorna allowAll=true (o front trata como
- * "tudo liberado", mantendo a UI atual).
- *
- * NÃO está montado no server.js. Para ligar (quando quiser), seguindo o padrão
- * factory do projeto:
- *
- *   const meEntitlementsRouter = require('./tenancy/meEntitlementsRouter');
- *   app.use('/api/me', meEntitlementsRouter(pool));
+ * Retorna módulos + permissões + organização do usuário logado.
+ * Tenant autenticado nunca recebe allowAll — isolamento entre empresas.
  */
 
 const express = require('express');
@@ -28,10 +21,21 @@ module.exports = (pool) => {
       return res.json({ success: true, data: entitlements });
     } catch (err) {
       console.error('[meEntitlements] erro:', err.message);
-      // Fail-open: na dúvida não quebra a UI do cliente.
+      if (req.user?.is_super_admin === true) {
+        return res.json({
+          success: true,
+          data: { allowAll: true, modules: ['*'], permissions: ['*'], organizationId: null },
+        });
+      }
       return res.json({
         success: true,
-        data: { allowAll: true, modules: ['*'], permissions: ['*'], organizationId: null },
+        data: {
+          allowAll: false,
+          modules: [],
+          permissions: [],
+          organizationId: null,
+          establishmentIds: [],
+        },
       });
     }
   });

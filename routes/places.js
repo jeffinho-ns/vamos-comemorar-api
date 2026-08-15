@@ -7,6 +7,12 @@ const jwt = require('jsonwebtoken');
 const multer = require("multer");
 const path = require("path");
 const authenticateToken = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
+const {
+  loadListFilterForRequest,
+  sqlPlaceIsolation,
+  ENABLED_MODULES_FOR_PLACE_SQL,
+} = require('../tenancy/establishmentListIsolation');
 const router = express.Router();
 
 const rootPath = path.resolve(__dirname, '..');
@@ -237,7 +243,7 @@ async (req, res) => {
 
     // Rota para listar todos os lugares
 // Rota para listar todos os lugares
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
     const client = await pool.connect();
     try {
       // Uma conexão, queries em série (client pg não suporta paralelo na mesma conexão).
@@ -246,28 +252,34 @@ router.get('/', async (req, res) => {
         listPlacesFromEstablishments,
       } = require('../services/establishmentLegacyAdapter');
 
+      const listFilter = await loadListFilterForRequest(pool, req);
+      const isolation = sqlPlaceIsolation(listFilter, 1);
+
       // Estabelecimentos arquivados no Super Admin não aparecem em nenhuma listagem.
-      // enabled_modules: NULL = sem configuração (tudo liberado); array = só o que está habilitado.
+      // enabled_modules: NULL só para casa legado sem tenant; org SaaS usa o contrato da empresa.
       const placesResult = shouldReadFromEstablishments()
-        ? { rows: await listPlacesFromEstablishments(client) }
-        : await client.query(`
+        ? { rows: await listPlacesFromEstablishments(client, listFilter) }
+        : await client.query(
+            `
           SELECT 
             p.id, p.slug, p.name, p.email, p.description, p.logo, p.street, p.number, 
             p.latitude, p.longitude, p.status, p.visible,
             (
-              SELECT CASE WHEN COUNT(*) = 0 THEN NULL
-                          ELSE COALESCE(json_agg(m.key) FILTER (WHERE em.is_enabled = TRUE), '[]'::json) END
-                FROM meu_backup_db.establishments e
-                JOIN meu_backup_db.establishment_modules em ON em.establishment_id = e.id
-                JOIN meu_backup_db.modules m ON m.id = em.module_id AND m.is_active = TRUE
-               WHERE e.legacy_place_id = p.id
-            ) AS enabled_modules
+              SELECT e.organization_id
+              FROM meu_backup_db.establishments e
+              WHERE e.legacy_place_id = p.id
+              LIMIT 1
+            ) AS organization_id,
+            ${ENABLED_MODULES_FOR_PLACE_SQL}
           FROM places p
           WHERE NOT EXISTS (
             SELECT 1 FROM meu_backup_db.establishments e
              WHERE e.legacy_place_id = p.id AND e.status = 'archived'
           )
-        `);
+          ${isolation.sql}
+        `,
+            isolation.params,
+          );
       const commoditiesResult = await client.query(`
           SELECT 
             place_id, id, icon, color, name, description 
