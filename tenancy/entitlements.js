@@ -14,6 +14,50 @@ const { loadUepRbacPermissions } = require('./uepToRbacPermissions');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
+function moduleKeyFromPermission(permissionKey) {
+  const text = String(permissionKey || '');
+  const idx = text.indexOf(':');
+  return idx > 0 ? text.slice(0, idx) : text;
+}
+
+function restrictPermissionsToModules(permissions, modules) {
+  if (!Array.isArray(modules) || modules.length === 0) return [];
+  const allowed = new Set(modules);
+  return [...new Set((permissions || []).filter((p) => allowed.has(moduleKeyFromPermission(p))))];
+}
+
+/**
+ * Módulos ligados nas casas do escopo.
+ * `null` = casas ainda sem contrato próprio (não restringe o da org).
+ * `[]` = contrato existe, mas nenhum módulo está ligado.
+ */
+async function loadEstablishmentModuleKeys(pool, orgId, establishmentIds) {
+  try {
+    const ids = Array.isArray(establishmentIds)
+      ? establishmentIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const { rows } = await pool.query(
+      `SELECT m.key, BOOL_OR(em.is_enabled) AS is_enabled
+         FROM meu_backup_db.establishments e
+         JOIN meu_backup_db.establishment_modules em
+           ON em.establishment_id = e.id
+         JOIN meu_backup_db.modules m ON m.id = em.module_id AND m.is_active = TRUE
+        WHERE e.organization_id = $1
+          AND (
+            $2::int[] IS NULL OR cardinality($2::int[]) = 0
+            OR e.legacy_place_id = ANY($2::int[])
+            OR e.legacy_bar_id = ANY($2::int[])
+          )
+        GROUP BY m.key`,
+      [orgId, ids.length ? ids : null],
+    );
+    if (!rows.length) return null;
+    return rows.filter((r) => !!r.is_enabled).map((r) => r.key);
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * @returns {{ allowAll: boolean, modules: string[], permissions: string[], organizationId: number|null }}
  */
@@ -112,6 +156,18 @@ async function resolveEntitlements(pool, user) {
     permissions = [...new Set([...permissions, ...uepPermissions])];
   }
 
+  const establishmentModules = await loadEstablishmentModuleKeys(
+    pool,
+    orgId,
+    scope.establishmentIds || [],
+  );
+  if (establishmentModules !== null) {
+    const allowed = new Set(establishmentModules);
+    modules = modules.filter((key) => allowed.has(key));
+  }
+
+  permissions = restrictPermissionsToModules(permissions, modules);
+
   return {
     allowAll: false,
     modules,
@@ -126,19 +182,22 @@ async function resolveEntitlements(pool, user) {
 function hasModule(entitlements, moduleKey) {
   if (!entitlements) return false;
   if (entitlements.allowAll) return true;
-  if (entitlements.modules.includes(moduleKey)) return true;
-  const prefix = `${moduleKey}:`;
-  return (
-    Array.isArray(entitlements.permissions) &&
-    entitlements.permissions.some((p) => String(p).startsWith(prefix))
-  );
+  return Array.isArray(entitlements.modules) && entitlements.modules.includes(moduleKey);
 }
 
 function hasPermission(entitlements, permissionKey) {
   if (!entitlements) return false;
   if (entitlements.allowAll) return true;
+  const moduleKey = moduleKeyFromPermission(permissionKey);
+  if (moduleKey && !hasModule(entitlements, moduleKey)) return false;
   if (entitlements.legacyScoped) return true;
-  return entitlements.permissions.includes(permissionKey);
+  return Array.isArray(entitlements.permissions) && entitlements.permissions.includes(permissionKey);
 }
 
-module.exports = { resolveEntitlements, hasModule, hasPermission, ALLOW_ALL };
+module.exports = {
+  resolveEntitlements,
+  hasModule,
+  hasPermission,
+  ALLOW_ALL,
+  restrictPermissionsToModules,
+};

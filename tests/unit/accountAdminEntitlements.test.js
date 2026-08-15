@@ -66,6 +66,9 @@ test('resolveEntitlements org admin não recebe allowAll', async () => {
       if (/organization_modules/i.test(sql)) {
         return { rows: [{ key: 'reservas' }, { key: 'cardapio' }] };
       }
+      if (/establishment_modules/i.test(sql)) {
+        return { rows: [] };
+      }
       if (/FROM meu_backup_db.establishments/i.test(sql)) {
         return { rows: [{ legacy_place_id: 16, legacy_bar_id: 13 }] };
       }
@@ -112,6 +115,9 @@ function cardapioOnlyOrgPool() {
       if (/organization_modules/i.test(sql)) {
         return { rows: [{ key: 'cardapio' }] };
       }
+      if (/establishment_modules/i.test(sql)) {
+        return { rows: [] };
+      }
       if (/FROM meu_backup_db.establishments/i.test(sql)) {
         return { rows: [{ legacy_place_id: 501, legacy_bar_id: 502 }] };
       }
@@ -138,5 +144,139 @@ test('org nova só cardápio não recebe allowAll mesmo com SAAS_MODE off', asyn
   assert.equal(hasModule(ent, 'cardapio'), true);
   assert.equal(hasModule(ent, 'reservas'), false);
   assert.equal(hasModule(ent, 'eventos'), false);
+  delete process.env.SAAS_MODE;
+});
+
+test('account_admin com permissões de todos os módulos só usa os módulos contratados', async () => {
+  process.env.SAAS_MODE = 'off';
+  const { hasModule, hasPermission } = require('../../tenancy/entitlements');
+  const pool = {
+    async query(sql) {
+      if (/role_permissions/i.test(sql)) {
+        return {
+          rows: [
+            { key: 'reservas:read', role_key: 'account_admin' },
+            { key: 'reservas:create', role_key: 'account_admin' },
+            { key: 'eventos:read', role_key: 'account_admin' },
+            { key: 'checkin:read', role_key: 'account_admin' },
+            { key: 'whatsapp:read', role_key: 'account_admin' },
+            { key: 'cardapio:read', role_key: 'account_admin' },
+            { key: 'cardapio:update', role_key: 'account_admin' },
+          ],
+        };
+      }
+      if (/memberships/i.test(sql)) {
+        return {
+          rows: [
+            {
+              organization_id: 99,
+              establishment_id: null,
+              legacy_place_id: null,
+              legacy_bar_id: null,
+            },
+          ],
+        };
+      }
+      if (/subscriptions/i.test(sql)) return { rows: [{ status: 'active' }] };
+      if (/organization_modules/i.test(sql)) {
+        return { rows: [{ key: 'cardapio' }] };
+      }
+      if (/establishment_modules/i.test(sql)) return { rows: [] };
+      if (/FROM meu_backup_db.establishments/i.test(sql)) {
+        return { rows: [{ legacy_place_id: 501, legacy_bar_id: 502 }] };
+      }
+      if (/user_establishment_permissions/i.test(sql)) return { rows: [] };
+      throw new Error(`query: ${sql}`);
+    },
+  };
+
+  const ent = await resolveEntitlements(pool, {
+    id: 901,
+    email: 'novo-admin@cliente.test',
+    role: 'admin',
+    is_super_admin: false,
+  });
+
+  assert.equal(ent.allowAll, false);
+  assert.deepEqual(ent.modules, ['cardapio']);
+  assert.deepEqual(ent.permissions.sort(), ['cardapio:read', 'cardapio:update']);
+  assert.equal(hasModule(ent, 'cardapio'), true);
+  assert.equal(hasModule(ent, 'reservas'), false);
+  assert.equal(hasModule(ent, 'eventos'), false);
+  assert.equal(hasModule(ent, 'checkin'), false);
+  assert.equal(hasPermission(ent, 'reservas:read'), false);
+  assert.equal(hasPermission(ent, 'cardapio:read'), true);
+  delete process.env.SAAS_MODE;
+});
+
+test('casa com só cardápio não herda os outros módulos do plano da organização', async () => {
+  process.env.SAAS_MODE = 'off';
+  const { hasModule } = require('../../tenancy/entitlements');
+  const pool = {
+    async query(sql) {
+      if (/role_permissions/i.test(sql)) {
+        return {
+          rows: [
+            { key: 'reservas:read', role_key: 'account_admin' },
+            { key: 'eventos:read', role_key: 'account_admin' },
+            { key: 'checkin:read', role_key: 'account_admin' },
+            { key: 'cardapio:read', role_key: 'account_admin' },
+          ],
+        };
+      }
+      if (/memberships/i.test(sql)) {
+        return {
+          rows: [
+            {
+              organization_id: 99,
+              establishment_id: null,
+              legacy_place_id: null,
+              legacy_bar_id: null,
+            },
+          ],
+        };
+      }
+      if (/subscriptions/i.test(sql)) return { rows: [{ status: 'active' }] };
+      if (/organization_modules/i.test(sql)) {
+        return {
+          rows: [
+            { key: 'reservas' },
+            { key: 'checkin' },
+            { key: 'cardapio' },
+            { key: 'eventos' },
+            { key: 'whatsapp' },
+          ],
+        };
+      }
+      if (/establishment_modules/i.test(sql)) {
+        return {
+          rows: [
+            { key: 'cardapio', is_enabled: true },
+            { key: 'reservas', is_enabled: false },
+            { key: 'checkin', is_enabled: false },
+            { key: 'eventos', is_enabled: false },
+            { key: 'whatsapp', is_enabled: false },
+          ],
+        };
+      }
+      if (/FROM meu_backup_db.establishments/i.test(sql)) {
+        return { rows: [{ legacy_place_id: 501, legacy_bar_id: 502 }] };
+      }
+      if (/user_establishment_permissions/i.test(sql)) return { rows: [] };
+      throw new Error(`query: ${sql}`);
+    },
+  };
+
+  const ent = await resolveEntitlements(pool, {
+    id: 902,
+    email: 'cardapio-only@cliente.test',
+    role: 'admin',
+    is_super_admin: false,
+  });
+
+  assert.deepEqual(ent.modules, ['cardapio']);
+  assert.equal(hasModule(ent, 'reservas'), false);
+  assert.equal(hasModule(ent, 'eventos'), false);
+  assert.deepEqual(ent.permissions, ['cardapio:read']);
   delete process.env.SAAS_MODE;
 });

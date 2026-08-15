@@ -259,6 +259,16 @@ async function setOrganizationModule(pool, organizationId, moduleKey, isEnabled,
     [organizationId, mod.rows[0].id, !!isEnabled],
   );
 
+  await pool.query(
+    `INSERT INTO meu_backup_db.establishment_modules (establishment_id, module_id, is_enabled)
+     SELECT e.id, $2, $3
+       FROM meu_backup_db.establishments e
+      WHERE e.organization_id = $1
+     ON CONFLICT (establishment_id, module_id)
+     DO UPDATE SET is_enabled = EXCLUDED.is_enabled`,
+    [organizationId, mod.rows[0].id, !!isEnabled],
+  );
+
   await logBillingEvent(pool, organizationId, 'module.toggled', {
     moduleKey,
     isEnabled: !!isEnabled,
@@ -653,10 +663,14 @@ async function provisionOrganization(pool, input, actorUserId) {
       [org.id, planRes.rows[0].id],
     );
 
-    const selectedModules = Array.isArray(enabledModulesInput)
+    const selectedExplicit = Array.isArray(enabledModulesInput);
+    const selectedModules = selectedExplicit
       ? [...new Set(enabledModulesInput.map(String).filter(Boolean))]
       : [];
-    if (selectedModules.length > 0) {
+    if (selectedExplicit) {
+      if (selectedModules.length === 0) {
+        throw new Error('Selecione ao menos um módulo.');
+      }
       await client.query(
         `UPDATE meu_backup_db.organization_modules om
             SET is_enabled = (m.key = ANY($2::text[]))

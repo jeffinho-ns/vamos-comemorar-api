@@ -71,6 +71,7 @@ test('resolveEntitlements mescla UEP com membership recepcao', async () => {
       if (/organization_modules/i.test(sql)) {
         return { rows: [{ key: 'whatsapp' }, { key: 'reservas' }] };
       }
+      if (/establishment_modules/i.test(sql)) return { rows: [] };
       if (/FROM meu_backup_db.establishments/i.test(sql)) {
         return { rows: [{ legacy_place_id: 7, legacy_bar_id: null }] };
       }
