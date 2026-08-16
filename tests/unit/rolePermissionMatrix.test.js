@@ -21,8 +21,10 @@ test('account_admin recebe wildcard', () => {
   assert.equal(ROLE_PERMISSION_KEYS.account_admin, '*');
 });
 
-test('recepcao não inclui delete de reservas', () => {
+test('recepcao inclui cardápio sem delete de reservas', () => {
   const perms = ROLE_PERMISSION_KEYS.recepcao;
   assert.ok(!perms.includes('reservas:delete'));
   assert.ok(perms.includes('reservas:create'));
+  assert.ok(perms.includes('cardapio:read'));
+  assert.ok(perms.includes('cardapio:update'));
 });

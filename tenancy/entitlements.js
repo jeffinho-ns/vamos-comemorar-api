@@ -161,7 +161,7 @@ async function resolveEntitlements(pool, user) {
     orgId,
     scope.establishmentIds || [],
   );
-  if (establishmentModules !== null) {
+  if (Array.isArray(establishmentModules) && establishmentModules.length > 0) {
     const allowed = new Set(establishmentModules);
     modules = modules.filter((key) => allowed.has(key));
   }

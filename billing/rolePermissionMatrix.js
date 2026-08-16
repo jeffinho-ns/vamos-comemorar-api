@@ -38,6 +38,8 @@ const ROLE_PERMISSION_KEYS = {
     'reservas:update',
     'checkin:read',
     'checkin:update',
+    'cardapio:read',
+    'cardapio:update',
   ],
 };
 

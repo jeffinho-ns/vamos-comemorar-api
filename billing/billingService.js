@@ -11,8 +11,18 @@ const {
   normalizeEstablishmentSlug,
 } = require('./provisioningOperational');
 const { seedFactoryRoles, seedRolePermissionsForOrg } = require('./rolePermissionMatrix');
+const { uepFlagsForModules } = require('./uepFlagsForModules');
 
 const ACTIVE_SUB_STATUSES = ['active', 'trialing'];
+
+const SAAS_ROLE_TO_USER_ROLE = {
+  account_admin: 'admin',
+  gerente_bar: 'gerente',
+  promoter: 'promoter',
+  hostess: 'hostess',
+  recepcao: 'recepcao',
+};
+
 let hasMonthlyAmountColumnCache = null;
 
 async function hasSubscriptionMonthlyAmountColumn(pool) {
@@ -727,7 +737,11 @@ async function provisionOrganization(pool, input, actorUserId) {
           [org.id, userId],
         );
       } else {
-        const hash = await bcrypt.hash(adminPassword || '@123Mudar', 10);
+        const password = String(adminPassword || '');
+        if (password.length < 8) {
+          throw new Error('Defina uma senha com pelo menos 8 caracteres para o admin inicial.');
+        }
+        const hash = await bcrypt.hash(password, 10);
         const cpf = String(adminCpf || process.env.PROVISION_ADMIN_CPF || '00000000000').replace(/\D/g, '');
         const userIns = await client.query(
           `INSERT INTO users (name, email, password, role, organization_id, cpf)
@@ -922,7 +936,7 @@ async function listOrganizationUsers(pool, organizationId) {
          ON (e.legacy_place_id = uep.establishment_id OR e.legacy_bar_id = uep.establishment_id)
         AND e.organization_id = $1
       WHERE COALESCE(u.is_super_admin, FALSE) = FALSE
-        AND (m.id IS NOT NULL OR e.id IS NOT NULL)
+        AND (u.organization_id = $1 OR m.id IS NOT NULL OR e.id IS NOT NULL)
       ORDER BY u.name`,
     [organizationId],
   );
@@ -946,6 +960,128 @@ async function listOrganizationMemberships(pool, organizationId) {
   return rows;
 }
 
+async function provisionOrganizationUser(pool, organizationId, input, actorUserId) {
+  const email = String(input?.email || input?.userEmail || '')
+    .trim()
+    .toLowerCase();
+  if (!email) throw new Error('email é obrigatório');
+
+  const roleKey = String(input?.roleKey || 'recepcao').trim() || 'recepcao';
+  const name = String(input?.name || '').trim() || email.split('@')[0];
+  const password = String(input?.password || '');
+  const establishmentId =
+    input?.establishmentId != null && input.establishmentId !== ''
+      ? Number(input.establishmentId)
+      : null;
+  const legacyRole = SAAS_ROLE_TO_USER_ROLE[roleKey] || 'recepcao';
+
+  const existing = await pool.query(`SELECT id FROM users WHERE LOWER(email) = $1`, [email]);
+  let userId;
+  let created = false;
+
+  if (existing.rows.length) {
+    userId = existing.rows[0].id;
+    if (password && password.length < 8) {
+      throw new Error('A senha precisa ter pelo menos 8 caracteres.');
+    }
+    if (password.length >= 8) {
+      const hash = await bcrypt.hash(password, 10);
+      await pool.query(
+        `UPDATE users
+            SET password = $1,
+                role = $2,
+                name = COALESCE(NULLIF($3, ''), name),
+                organization_id = COALESCE(organization_id, $4)
+          WHERE id = $5`,
+        [hash, legacyRole, name, organizationId, userId],
+      );
+    } else {
+      await pool.query(
+        `UPDATE users SET role = $1, organization_id = COALESCE(organization_id, $2) WHERE id = $3`,
+        [legacyRole, organizationId, userId],
+      );
+    }
+  } else {
+    if (password.length < 8) {
+      throw new Error('Defina uma senha com pelo menos 8 caracteres para o novo usuário.');
+    }
+    const hash = await bcrypt.hash(password, 10);
+    const ins = await pool.query(
+      `INSERT INTO users (name, email, password, role, organization_id, cpf)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [name, email, hash, legacyRole, organizationId, '00000000000'],
+    );
+    userId = ins.rows[0].id;
+    created = true;
+  }
+
+  const membership = await createOrganizationMembership(
+    pool,
+    organizationId,
+    {
+      userId,
+      roleKey,
+      establishmentId,
+      isActive: true,
+    },
+    actorUserId,
+  );
+
+  const moduleRes = await pool.query(
+    `SELECT m.key
+       FROM meu_backup_db.organization_modules om
+       JOIN meu_backup_db.modules m ON m.id = om.module_id
+      WHERE om.organization_id = $1 AND om.is_enabled = TRUE AND m.is_active = TRUE`,
+    [organizationId],
+  );
+  const uepFlags = uepFlagsForModules(moduleRes.rows.map((r) => r.key));
+  const allEstablishments = await listOrganizationEstablishments(pool, organizationId);
+  const targets =
+    establishmentId && Number.isFinite(establishmentId)
+      ? allEstablishments.filter((est) => Number(est.id) === establishmentId)
+      : allEstablishments;
+
+  const granted = [];
+  for (const est of targets) {
+    if (!est.legacy_place_id) continue;
+    const row = await upsertOrganizationEstablishmentPermission(
+      pool,
+      organizationId,
+      {
+        userEmail: email,
+        canonicalEstablishmentId: est.id,
+        ...uepFlags,
+        is_active: true,
+      },
+      actorUserId,
+    );
+    granted.push({
+      canonicalEstablishmentId: est.id,
+      establishmentName: est.name,
+      permissionId: row.id,
+    });
+  }
+
+  await logBillingEvent(pool, organizationId, 'user.provisioned', {
+    actorUserId,
+    userId,
+    email,
+    roleKey,
+    created,
+    establishmentsGranted: granted.length,
+  });
+
+  return {
+    userId,
+    email,
+    created,
+    roleKey,
+    membershipId: membership.id,
+    establishmentsGranted: granted,
+  };
+}
+
 async function createOrganizationMembership(pool, organizationId, input, actorUserId) {
   const { userEmail, userId, roleKey, establishmentId, isActive = true } = input;
   if (!userEmail && !userId) throw new Error('userEmail ou userId é obrigatório');
@@ -955,7 +1091,11 @@ async function createOrganizationMembership(pool, organizationId, input, actorUs
   if (!resolvedUserId) {
     const emailNorm = String(userEmail).trim().toLowerCase();
     const userRes = await pool.query(`SELECT id FROM users WHERE LOWER(email) = $1`, [emailNorm]);
-    if (!userRes.rows.length) throw new Error('Usuário não encontrado');
+    if (!userRes.rows.length) {
+      throw new Error(
+        'Esse e-mail ainda não tem cadastro. Use o formulário Novo usuário com nome, e-mail e senha.',
+      );
+    }
     resolvedUserId = userRes.rows[0].id;
   }
 
@@ -978,6 +1118,11 @@ async function createOrganizationMembership(pool, organizationId, input, actorUs
     `UPDATE users SET organization_id = $1 WHERE id = $2 AND organization_id IS NULL`,
     [organizationId, resolvedUserId],
   );
+
+  const legacyRole = SAAS_ROLE_TO_USER_ROLE[roleKey];
+  if (legacyRole) {
+    await pool.query(`UPDATE users SET role = $1 WHERE id = $2`, [legacyRole, resolvedUserId]);
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO meu_backup_db.memberships (user_id, organization_id, establishment_id, role_id, is_active)
@@ -2106,6 +2251,7 @@ module.exports = {
   listPlans,
   getBillingSummaryByMonth,
   listOrganizationUsers,
+  provisionOrganizationUser,
   listOrganizationMemberships,
   createOrganizationMembership,
   updateOrganizationMembership,
