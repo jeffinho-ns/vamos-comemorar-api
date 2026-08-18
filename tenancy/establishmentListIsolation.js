@@ -87,7 +87,18 @@ function sqlBarIsolation(filter, startIndex) {
     };
   }
   return {
-    sql: ` AND b.id = ANY($${startIndex}::int[])`,
+    // Place id ≠ bar id (ex.: Sitio Ilha place 10 / bar 15).
+    sql: ` AND (
+              b.id = ANY($${startIndex}::int[])
+              OR EXISTS (
+                SELECT 1 FROM meu_backup_db.establishments e_iso
+                 WHERE e_iso.legacy_bar_id = b.id
+                   AND (
+                     e_iso.legacy_place_id = ANY($${startIndex}::int[])
+                     OR e_iso.legacy_bar_id = ANY($${startIndex}::int[])
+                   )
+              )
+            )`,
     params: [filter.establishmentIds],
     nextIndex: startIndex + 1,
   };

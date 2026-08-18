@@ -1931,8 +1931,9 @@ module.exports = (pool) => {
     // ============================================
 
     // Rotas para Itens
-    router.post('/items', optionalAuth, async (req, res) => {
+    router.post('/items', authenticateToken, async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
+        if (!(await assertBarInActorScope(req, res, barId))) return;
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -2285,7 +2286,7 @@ module.exports = (pool) => {
     });
 
     // Rota para atualizar um item
-    router.put('/items/:id', optionalAuth, async (req, res) => {
+    router.put('/items/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
 
@@ -2298,6 +2299,9 @@ module.exports = (pool) => {
             return res.status(404).json({ error: 'Item não encontrado.' });
         }
         const beforeAudit = auditMenuItemSnapshot(beforeSnapResult.rows[0]);
+        const currentBarId = beforeSnapResult.rows[0].barid;
+        if (!(await assertBarInActorScope(req, res, currentBarId))) return;
+        if (barId != null && !(await assertBarInActorScope(req, res, barId))) return;
 
         const client = await pool.connect();
         try {
@@ -2310,7 +2314,7 @@ module.exports = (pool) => {
                 // Tentar com seals primeiro
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
                 const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8, seals = $9 WHERE id = $10';
-                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson, id];
+                const values = [name, description, price, imageUrl, categoryId, barId != null ? barId : currentBarId, subCategory || null, order, sealsJson, id];
                 
                 await client.query(query, values);
                 hasSealsField = true;
@@ -2319,7 +2323,7 @@ module.exports = (pool) => {
                 // Se falhar, usar versão sem seals
                 console.log('⚠️ Campo seals não disponível, atualizando item sem selos');
                 const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8 WHERE id = $9';
-                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, id];
+                const values = [name, description, price, imageUrl, categoryId, barId != null ? barId : currentBarId, subCategory || null, order, id];
                 
                 await client.query(query, values);
             }

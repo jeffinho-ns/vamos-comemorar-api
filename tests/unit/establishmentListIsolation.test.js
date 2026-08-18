@@ -56,4 +56,8 @@ test('usuário legado com UEP filtra pelos ids operacionais', () => {
   const placeSql = sqlPlaceIsolation(filter, 2);
   assert.match(placeSql.sql, /p\.id = ANY/);
   assert.deepEqual(placeSql.params, [[7, 8]]);
+  const barSql = sqlBarIsolation(filter, 1);
+  assert.match(barSql.sql, /b\.id = ANY/);
+  assert.match(barSql.sql, /legacy_place_id = ANY/);
+  assert.deepEqual(barSql.params, [[7, 8]]);
 });
