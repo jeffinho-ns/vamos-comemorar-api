@@ -1,11 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
+const authenticateToken = require('../middleware/auth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const requirePermission = require('../tenancy/requirePermission');
 const { logAction } = require('../middleware/actionLogger');
 const { limiter60PerMin } = require('../middleware/rateLimiters');
+const {
+    resolveActorScope,
+    canAccessOperationalEstablishment,
+    sqlEstablishmentInScope,
+} = require('../tenancy/orgIsolation');
 const {
     listPauseSchedules,
     createPauseSchedules,
@@ -24,6 +30,19 @@ module.exports = (pool) => {
             : 'cardapio:read';
         return requirePermission(perm)(req, res, next);
     });
+
+    async function assertBarInActorScope(req, res, barId) {
+        if (!req.user) {
+            res.status(401).json({ error: 'Não autenticado' });
+            return false;
+        }
+        const actor = await resolveActorScope(pool, req.user);
+        if (!canAccessOperationalEstablishment(actor, barId)) {
+            res.status(404).json({ error: 'Não encontrado' });
+            return false;
+        }
+        return true;
+    }
 
     /**
      * URL pública de leitura no Firebase Storage (sem proxy da API).
@@ -1317,9 +1336,10 @@ module.exports = (pool) => {
     });
 
     // Rotas para Categorias
-    router.post('/categories', async (req, res) => {
+    router.post('/categories', authenticateToken, async (req, res) => {
         const { barId, name, order } = req.body;
         try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
             const result = await pool.query(
                 'INSERT INTO menu_categories (barId, name, "order") VALUES ($1, $2, $3) RETURNING id',
                 [barId, name, order]
@@ -1333,27 +1353,39 @@ module.exports = (pool) => {
     router.get('/categories', async (req, res) => {
         try {
             const { barId } = req.query;
-            // Colunas estão em minúsculas no PostgreSQL, usar aliases para camelCase
-            let query = 'SELECT id, name, barid as "barId", "order" FROM menu_categories';
+            let query = 'SELECT id, name, barid as "barId", "order" FROM menu_categories WHERE 1=1';
             let params = [];
-            
+            let paramIndex = 1;
+
             if (barId) {
-                query += ' WHERE barid = $1';
+                if (req.user) {
+                    const actor = await resolveActorScope(pool, req.user);
+                    if (!canAccessOperationalEstablishment(actor, barId)) {
+                        return res.status(404).json({ error: 'Não encontrado' });
+                    }
+                }
+                query += ` AND barid = $${paramIndex++}`;
                 params.push(barId);
+            } else if (req.user) {
+                const actor = await resolveActorScope(pool, req.user);
+                const scopeSql = sqlEstablishmentInScope(actor, 'barid', paramIndex);
+                query += scopeSql.sql;
+                params.push(...scopeSql.params);
+            } else {
+                return res.json([]);
             }
-            
+
             query += ' ORDER BY barid, "order"';
-            
+
             const result = await pool.query(query, params);
-            
-            // Normalizar campos para garantir camelCase (PostgreSQL pode não retornar alias corretamente)
+
             const categories = result.rows.map(cat => ({
                 id: cat.id,
                 name: cat.name,
                 barId: cat.barId !== undefined ? cat.barId : (cat.barid !== undefined ? cat.barid : null),
                 order: cat.order
             }));
-            
+
             res.json(categories);
         } catch (error) {
             console.error('Erro ao listar categorias:', error);
@@ -1361,7 +1393,6 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para buscar uma categoria específica
     router.get('/categories/:id', async (req, res) => {
         const { id } = req.params;
         try {
@@ -1369,21 +1400,34 @@ module.exports = (pool) => {
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
-            res.json(result.rows[0]);
+            const row = result.rows[0];
+            if (req.user) {
+                const actor = await resolveActorScope(pool, req.user);
+                if (!canAccessOperationalEstablishment(actor, row.barid ?? row.barId)) {
+                    return res.status(404).json({ error: 'Categoria não encontrada.' });
+                }
+            }
+            res.json(row);
         } catch (error) {
             console.error('Erro ao buscar categoria:', error);
             res.status(500).json({ error: 'Erro ao buscar categoria.' });
         }
     });
 
-    // Rota para atualizar uma categoria
-    router.put('/categories/:id', async (req, res) => {
+    router.put('/categories/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { barId, name, order } = req.body;
         try {
+            const existing = await pool.query('SELECT barid FROM menu_categories WHERE id = $1', [id]);
+            if (existing.rows.length === 0) {
+                return res.status(404).json({ error: 'Categoria não encontrada.' });
+            }
+            const currentBarId = existing.rows[0].barid;
+            if (!(await assertBarInActorScope(req, res, currentBarId))) return;
+            if (barId != null && !(await assertBarInActorScope(req, res, barId))) return;
             await pool.query(
                 'UPDATE menu_categories SET barId = $1, name = $2, "order" = $3 WHERE id = $4',
-                [barId, name, order, id]
+                [barId != null ? barId : currentBarId, name, order, id]
             );
             res.json({ message: 'Categoria atualizada com sucesso.' });
         } catch (error) {
@@ -1392,10 +1436,14 @@ module.exports = (pool) => {
         }
     });
 
-    // Rota para deletar uma categoria
-    router.delete('/categories/:id', async (req, res) => {
+    router.delete('/categories/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         try {
+            const existing = await pool.query('SELECT barid FROM menu_categories WHERE id = $1', [id]);
+            if (existing.rows.length === 0) {
+                return res.status(404).json({ error: 'Categoria não encontrada.' });
+            }
+            if (!(await assertBarInActorScope(req, res, existing.rows[0].barid))) return;
             await pool.query('DELETE FROM menu_categories WHERE id = $1', [id]);
             res.json({ message: 'Categoria deletada com sucesso.' });
         } catch (error) {
@@ -1917,6 +1965,34 @@ module.exports = (pool) => {
                     ELSE (mi.visible::int)
                    END AS visible,`
                 : '1 AS visible,';
+
+            let barFilterSql = '';
+            let queryParams = [];
+            if (barId) {
+                if (req.user) {
+                    const actor = await resolveActorScope(pool, req.user);
+                    if (!canAccessOperationalEstablishment(actor, barId)) {
+                        return res.status(404).json({ error: 'Não encontrado' });
+                    }
+                }
+                barFilterSql = 'AND mi.barid = $1';
+                queryParams = [barId];
+            } else if (req.user) {
+                const actor = await resolveActorScope(pool, req.user);
+                if (actor.isSuperAdmin) {
+                    barFilterSql = '';
+                    queryParams = [];
+                } else {
+                    const ids = actor.establishmentIds || [];
+                    if (ids.length === 0) {
+                        return res.json([]);
+                    }
+                    barFilterSql = 'AND mi.barid = ANY($1::int[])';
+                    queryParams = [ids];
+                }
+            } else {
+                return res.json([]);
+            }
             
             const query = `
                 SELECT 
@@ -1942,12 +2018,12 @@ module.exports = (pool) => {
                 LEFT JOIN item_toppings it ON mi.id = it.item_id
                 LEFT JOIN toppings t ON it.topping_id = t.id
                 WHERE mi.deleted_at IS NULL
-                ${barId ? 'AND mi.barid = $1' : ''}
+                ${barFilterSql}
                 GROUP BY ${groupByFields.join(', ')}
                 ORDER BY mi.barid, mi.categoryid, ${hasSubcategoryOrderField ? 'COALESCE(mi.subcategory_order, mi."order"), ' : ''}mi."order"
             `;
             
-            const result = await pool.query(query, barId ? [barId] : []);
+            const result = await pool.query(query, queryParams);
             const apiBase = getPublicApiBaseUrl(req);
 
             const itemsWithToppings = result.rows.map((item) => {
@@ -2259,10 +2335,16 @@ module.exports = (pool) => {
     });
     
     // Rota para deletar um item (soft delete - vai para lixeira)
-    router.delete('/items/:id', async (req, res) => {
+    router.delete('/items/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { permanent } = req.query; // Se permanent=true, exclui permanentemente
         
+        const existing = await pool.query('SELECT barid FROM menu_items WHERE id = $1', [id]);
+        if (existing.rows.length === 0) {
+            return res.status(404).json({ error: 'Item não encontrado.' });
+        }
+        if (!(await assertBarInActorScope(req, res, existing.rows[0].barid))) return;
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');

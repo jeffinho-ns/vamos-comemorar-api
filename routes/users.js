@@ -37,6 +37,43 @@ ENUM_TO_ROLE["Promoter-list"] = "promoter-list";
 ENUM_TO_ROLE["Recepção"] = "recepcao";
 ENUM_TO_ROLE["recepção"] = "recepcao";
 
+/**
+ * Verifica se o usuário-alvo está no mesmo escopo de organização do ator.
+ * Super Admin: sempre true. Ator sem escopo: só a si mesmo.
+ */
+async function canActorManageUser(pool, actorUser, targetUserId) {
+  if (!actorUser || !actorUser.id) return false;
+  if (actorUser.is_super_admin === true) return true;
+  const targetId = Number(targetUserId);
+  if (!Number.isFinite(targetId) || targetId <= 0) return false;
+  if (Number(actorUser.id) === targetId) return true;
+
+  const { loadUserScope } = require("../tenancy/tenantScope");
+  const scope = await loadUserScope(pool, actorUser);
+  const orgIds = scope.organizationIds || [];
+  const estIds = scope.establishmentIds || [];
+  if (orgIds.length === 0 && estIds.length === 0) return false;
+
+  const result = await pool.query(
+    `SELECT 1 FROM users u
+      WHERE u.id = $1
+        AND (
+          (u.organization_id IS NOT NULL AND u.organization_id = ANY($2::int[]))
+          OR u.id IN (
+            SELECT uep.user_id FROM user_establishment_permissions uep
+             WHERE uep.is_active = TRUE AND uep.establishment_id = ANY($3::int[])
+          )
+          OR u.id IN (
+            SELECT m.user_id FROM meu_backup_db.memberships m
+             WHERE m.is_active = TRUE AND m.organization_id = ANY($2::int[])
+          )
+        )
+      LIMIT 1`,
+    [targetId, orgIds.length ? orgIds : [-1], estIds.length ? estIds : [-1]],
+  );
+  return result.rows.length > 0;
+}
+
 const PROMOTER_ONLY_EMAILS = new Set([
   "montoya@ideiaum.com.br",
   "golin@ideiaum.com.br",
@@ -455,16 +492,47 @@ module.exports = (pool, upload) => {
   });
 
   // Listar usuários (com filtros opcionais: search, type/role)
-  router.get("/", async (req, res) => {
+  // Isolamento: Super Admin vê todos; demais só usuários da própria organização.
+  router.get("/", authenticateToken, async (req, res) => {
     try {
+      const { loadUserScope } = require("../tenancy/tenantScope");
+      const actorIsSuper = req.user?.is_super_admin === true;
+      const scope = actorIsSuper
+        ? { organizationIds: [], establishmentIds: [] }
+        : await loadUserScope(pool, req.user);
+
       const { search, type, role } = req.query;
       let query = `
-                SELECT id, name, email, foto_perfil, role, telefone
+                SELECT id, name, email, foto_perfil, role, telefone, organization_id
                 FROM users
                 WHERE 1=1
             `;
       const params = [];
       let paramIndex = 1;
+
+      if (!actorIsSuper) {
+        const orgIds = scope.organizationIds || [];
+        const estIds = scope.establishmentIds || [];
+        if (orgIds.length === 0 && estIds.length === 0) {
+          query += ` AND id = $${paramIndex++}`;
+          params.push(req.user.id);
+        } else {
+          query += ` AND (
+            id = $${paramIndex}
+            OR (organization_id IS NOT NULL AND organization_id = ANY($${paramIndex + 1}::int[]))
+            OR id IN (
+              SELECT uep.user_id FROM user_establishment_permissions uep
+               WHERE uep.is_active = TRUE AND uep.establishment_id = ANY($${paramIndex + 2}::int[])
+            )
+            OR id IN (
+              SELECT m.user_id FROM meu_backup_db.memberships m
+               WHERE m.is_active = TRUE AND m.organization_id = ANY($${paramIndex + 1}::int[])
+            )
+          )`;
+          params.push(req.user.id, orgIds.length ? orgIds : [-1], estIds.length ? estIds : [-1]);
+          paramIndex += 3;
+        }
+      }
 
       if (search && String(search).trim()) {
         const term = `%${String(search).trim()}%`;
@@ -547,6 +615,9 @@ module.exports = (pool, upload) => {
     }
 
     try {
+      if (!(await canActorManageUser(pool, req.user, userId))) {
+        return res.status(404).json({ message: "Usuário não encontrado." });
+      }
       const result = await pool.query("DELETE FROM users WHERE id = $1", [
         userId,
       ]);
@@ -728,6 +799,13 @@ module.exports = (pool, upload) => {
           .json({
             error: "Acesso negado. Você só pode atualizar seu próprio perfil.",
           });
+      }
+
+      if (
+        req.user.id.toString() !== userIdParam &&
+        !(await canActorManageUser(pool, req.user, userId))
+      ) {
+        return res.status(404).json({ error: "Usuário não encontrado." });
       }
 
       const updates = [];

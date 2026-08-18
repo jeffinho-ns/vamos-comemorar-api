@@ -3,6 +3,11 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+  sqlEstablishmentInScope,
+} = require('../tenancy/orgIsolation');
 
 module.exports = (pool) => {
   /**
@@ -101,6 +106,16 @@ module.exports = (pool) => {
           success: false,
           error: 'Data do evento é obrigatória'
         });
+      }
+
+      if (establishment_id) {
+        const actor = await resolveActorScope(pool, req.user);
+        if (!canAccessOperationalEstablishment(actor, establishment_id)) {
+          return res.status(403).json({
+            success: false,
+            error: 'Estabelecimento fora do escopo da organização',
+          });
+        }
       }
 
       if (!artistic_attraction) {
@@ -312,6 +327,11 @@ module.exports = (pool) => {
   router.get('/', auth, async (req, res) => {
     try {
       const { establishment_id, event_date, is_active, limit, offset } = req.query;
+      const actor = await resolveActorScope(pool, req.user);
+
+      if (establishment_id && !canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Não encontrado' });
+      }
       
       let query = `
         SELECT 
@@ -326,6 +346,11 @@ module.exports = (pool) => {
       
       const params = [];
       let paramIndex = 1;
+
+      const scopeSql = sqlEstablishmentInScope(actor, 'od.establishment_id', paramIndex);
+      query += scopeSql.sql;
+      params.push(...scopeSql.params);
+      paramIndex = scopeSql.nextIndex;
       
       if (establishment_id) {
         query += ` AND od.establishment_id = $${paramIndex++}`;
@@ -462,6 +487,14 @@ module.exports = (pool) => {
           error: 'Detalhe operacional não encontrado'
         });
       }
+
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, detailsResult.rows[0].establishment_id)) {
+        return res.status(404).json({
+          success: false,
+          error: 'Detalhe operacional não encontrado'
+        });
+      }
       
       // Garantir que event_date seja uma string no formato YYYY-MM-DD
       const detail = detailsResult.rows[0];
@@ -578,7 +611,7 @@ module.exports = (pool) => {
 
       // Verificar se o registro existe
       const existingResult = await pool.query(
-        'SELECT id FROM operational_details WHERE id = $1',
+        'SELECT id, establishment_id FROM operational_details WHERE id = $1',
         [id]
       );
 
@@ -586,6 +619,25 @@ module.exports = (pool) => {
         return res.status(404).json({
           success: false,
           error: 'Detalhe operacional não encontrado'
+        });
+      }
+
+      const actor = await resolveActorScope(pool, req.user);
+      const existingEstId = existingResult.rows[0].establishment_id;
+      if (!canAccessOperationalEstablishment(actor, existingEstId)) {
+        return res.status(404).json({
+          success: false,
+          error: 'Detalhe operacional não encontrado'
+        });
+      }
+      if (
+        establishment_id != null &&
+        establishment_id !== '' &&
+        !canAccessOperationalEstablishment(actor, establishment_id)
+      ) {
+        return res.status(404).json({
+          success: false,
+          error: 'Estabelecimento não encontrado'
         });
       }
 
@@ -771,11 +823,19 @@ module.exports = (pool) => {
 
       // Verificar se o registro existe
       const existingResult = await pool.query(
-        'SELECT id FROM operational_details WHERE id = $1',
+        'SELECT id, establishment_id FROM operational_details WHERE id = $1',
         [id]
       );
 
       if (existingResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Detalhe operacional não encontrado'
+        });
+      }
+
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, existingResult.rows[0].establishment_id)) {
         return res.status(404).json({
           success: false,
           error: 'Detalhe operacional não encontrado'

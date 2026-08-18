@@ -158,11 +158,9 @@ async function loadUserScope(pool, user) {
     /* ignore */
   }
 
-  // 4) Admin global legado (role admin sem tenant)
-  if (isAdminRole(user)) {
-    return { isAdmin: true, organizationIds: [], establishmentIds: [] };
-  }
-
+  // 4) role=admin SEM membership/UEP/org NÃO é mais bypass global.
+  // Só is_super_admin (tratado no início) vê todas as organizações.
+  // Fail-closed: sem vínculo de tenant → escopo vazio (não vê casas de ninguém).
   return { isAdmin: false, organizationIds: [], establishmentIds: [] };
 }
 

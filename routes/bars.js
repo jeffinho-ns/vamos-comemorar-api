@@ -1,13 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const optionalAuth = require('../middleware/optionalAuth');
+const authenticateToken = require('../middleware/auth');
 const {
   loadListFilterForRequest,
   sqlBarIsolation,
   ENABLED_MODULES_FOR_BAR_SQL,
 } = require('../tenancy/establishmentListIsolation');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+} = require('../tenancy/orgIsolation');
 
 module.exports = (pool) => {
+    router.use(optionalAuth);
     // Rota para criar um novo estabelecimento
     router.post('/', async (req, res) => {
         const { 
@@ -183,6 +189,12 @@ module.exports = (pool) => {
             if (!barRow) {
                 return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
             }
+            if (req.user) {
+                const actor = await resolveActorScope(pool, req.user);
+                if (!canAccessOperationalEstablishment(actor, id)) {
+                    return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
+                }
+            }
             const bar = normalizeBarFields(barRow);
             res.json(bar);
         } catch (error) {
@@ -192,8 +204,12 @@ module.exports = (pool) => {
     });
 
     // Rota para atualizar um estabelecimento
-    router.put('/:id', async (req, res) => {
+    router.put('/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
+        const actor = await resolveActorScope(pool, req.user);
+        if (!canAccessOperationalEstablishment(actor, id)) {
+            return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
+        }
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
@@ -248,9 +264,13 @@ module.exports = (pool) => {
     });
 
     // Rota para excluir um estabelecimento
-    router.delete('/:id', async (req, res) => {
+    router.delete('/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         try {
+            const actor = await resolveActorScope(pool, req.user);
+            if (!canAccessOperationalEstablishment(actor, id)) {
+                return res.status(404).json({ error: 'Estabelecimento não encontrado.' });
+            }
             await pool.query('DELETE FROM bars WHERE id = $1', [id]);
             res.json({ message: 'Estabelecimento excluído com sucesso.' });
         } catch (error) {

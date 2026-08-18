@@ -389,6 +389,10 @@ class EventosController {
   async getEventos(req, res) {
     try {
       const { establishment_id, status, tipo_evento, data_inicio, data_fim, data_evento, limit } = req.query;
+
+      if (establishment_id && !canReadEstablishment(req, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado' });
+      }
       
       // Fallback: quando houver establishment_id mas eventos antigos tiverem id_place NULL,
       // usar o nome do estabelecimento para casar com casa_do_evento (ex.: "Highline")
@@ -445,6 +449,12 @@ class EventosController {
       
       const params = [];
       let paramIndex = 1;
+
+      // Isolamento multi-org: sem establishment_id na query, só casas do escopo do usuário.
+      const tenantScope = establishmentScopeClause(req, 'e.id_place', paramIndex);
+      query += tenantScope.sql;
+      params.push(...tenantScope.params);
+      paramIndex = tenantScope.nextIndex;
       
       if (establishment_id) {
         // Filtra por id_place; se houver fallbackName, também inclui eventos com id_place NULL e casa_do_evento compatível

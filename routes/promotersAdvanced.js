@@ -9,6 +9,11 @@ const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const bcrypt = require('bcryptjs');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+  sqlEstablishmentInScope,
+} = require('../tenancy/orgIsolation');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -27,6 +32,11 @@ module.exports = (pool) => {
     async (req, res) => {
       try {
         const { status, categoria, establishment_id, limit, offset } = req.query;
+        const actor = await resolveActorScope(pool, req.user);
+
+        if (establishment_id && !canAccessOperationalEstablishment(actor, establishment_id)) {
+          return res.status(404).json({ success: false, error: 'Não encontrado' });
+        }
         
         let query = `
           SELECT 
@@ -60,6 +70,11 @@ module.exports = (pool) => {
         
         const params = [];
         let paramIndex = 1;
+
+        const scopeSql = sqlEstablishmentInScope(actor, 'p.establishment_id', paramIndex);
+        query += scopeSql.sql;
+        params.push(...scopeSql.params);
+        paramIndex = scopeSql.nextIndex;
         
         if (status) {
           query += ` AND p.status = $${paramIndex++}`;

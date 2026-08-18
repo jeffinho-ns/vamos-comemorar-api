@@ -13,6 +13,10 @@ const {
   sqlPlaceIsolation,
   ENABLED_MODULES_FOR_PLACE_SQL,
 } = require('../tenancy/establishmentListIsolation');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+} = require('../tenancy/orgIsolation');
 const router = express.Router();
 
 const rootPath = path.resolve(__dirname, '..');
@@ -118,9 +122,14 @@ router.post('/',upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', 
 
     //Rota para atualizar os dados do Places
   // Rota para atualizar os dados do Places
-router.put('/:id', upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), 
+router.put('/:id', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), 
 async (req, res) => {
     const placeId = req.params.id; // Obter o ID do lugar a ser atualizado
+
+    const actor = await resolveActorScope(pool, req.user);
+    if (!canAccessOperationalEstablishment(actor, placeId)) {
+      return res.status(404).json({ error: 'Lugar não encontrado' });
+    }
 
     console.log('Requisição recebida:', req.body);
 
@@ -324,10 +333,19 @@ router.get('/', optionalAuth, async (req, res) => {
 
   
 // Rota para buscar um lugar por ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
     const client = await pool.connect();
     try {
       const { id } = req.params;
+
+      // Admin autenticado: só casas da própria org (público anônimo continua ok para vitrine).
+      if (req.user && req.user.id) {
+        const actor = await resolveActorScope(pool, req.user);
+        if (!canAccessOperationalEstablishment(actor, id)) {
+          return res.status(404).json({ error: 'Lugar não encontrado' });
+        }
+      }
+
       const {
         shouldReadFromEstablishments,
         getPlaceFromEstablishments,
@@ -382,8 +400,13 @@ router.get('/:id', async (req, res) => {
 
 
 // Endpoint para excluir um 'place' e seus dados relacionados (logo, commodities, fotos)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
+
+    const actor = await resolveActorScope(pool, req.user);
+    if (!canAccessOperationalEstablishment(actor, id)) {
+      return res.status(404).json({ error: 'Lugar não encontrado' });
+    }
 
     const client = await pool.connect();
     try {

@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+  sqlEstablishmentInScope,
+} = require('../tenancy/orgIsolation');
 
 /** Mesmas regras que `app/utils/establishmentAccessRules.ts` no frontend. */
 function normalizeDiacritics(s) {
@@ -37,6 +42,11 @@ module.exports = (pool) => {
   router.get('/', auth, async (req, res) => {
     try {
       const { user_id, establishment_id, user_email, is_active } = req.query;
+      const actor = await resolveActorScope(pool, req.user);
+
+      if (establishment_id && !canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Não encontrado' });
+      }
       
       let query = `
         SELECT 
@@ -51,6 +61,11 @@ module.exports = (pool) => {
       
       const params = [];
       let paramIndex = 1;
+
+      const scopeSql = sqlEstablishmentInScope(actor, 'uep.establishment_id', paramIndex);
+      query += scopeSql.sql;
+      params.push(...scopeSql.params);
+      paramIndex = scopeSql.nextIndex;
       
       if (user_id) {
         query += ` AND uep.user_id = $${paramIndex++}`;
@@ -210,6 +225,11 @@ module.exports = (pool) => {
         can_delete_cardapio,
         is_active
       } = req.body;
+
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Não encontrado' });
+      }
       
       // Validar campos obrigatórios
       if (!user_id || !user_email || !establishment_id) {
@@ -335,6 +355,10 @@ module.exports = (pool) => {
       }
       
       const current = currentResult.rows[0];
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, current.establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Permissão não encontrada' });
+      }
       
       const {
         can_edit_os,
@@ -488,6 +512,10 @@ module.exports = (pool) => {
       }
       
       const current = currentResult.rows[0];
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, current.establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Permissão não encontrada' });
+      }
       
       // Soft delete (marcar como inativo)
       const deleteQuery = `

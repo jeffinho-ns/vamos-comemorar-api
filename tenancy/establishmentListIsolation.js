@@ -13,7 +13,9 @@ function resolveEstablishmentListFilter(user, scope) {
     return { mode: 'public', organizationIds: [], establishmentIds: [] };
   }
 
-  if (user.is_super_admin === true || (scope && scope.isAdmin === true)) {
+  // Apenas Super Admin SaaS vê todas as casas. Admin de organização
+  // (mesmo com scope.isAdmin legado) fica restrito à própria empresa.
+  if (user.is_super_admin === true) {
     return { mode: 'all', organizationIds: [], establishmentIds: [] };
   }
 

@@ -3,21 +3,15 @@
 /**
  * tenantMiddleware — injeta req.tenant a partir do token/escopo do usuário.
  *
- * SEGURANÇA POR DESIGN (NÃO QUEBRA PRODUÇÃO):
- *   - SAAS_MODE off      => no-op total (next()).
- *   - SAAS_MODE observe  => resolve o tenant e LOGA o que seria bloqueado,
- *                           mas NUNCA bloqueia (modo observação do plano).
- *   - SAAS_MODE on       => restringe usuários AUTENTICADOS ao seu escopo
- *                           (bloqueia acesso cruzado). NÃO impõe login: requisições
- *                           anônimas seguem normalmente (rotas públicas continuam
- *                           funcionando — ex.: criação pública de reserva).
+ * Isolamento de organização: SEMPRE ativo para usuários autenticados
+ * (não depende de SAAS_MODE). SAAS_MODE continua controlando módulos/billing
+ * em requireModule / requirePermission / entitlements.
  *
- * Este arquivo NÃO está montado no server.js. É plugável depois, rota a rota,
- * começando em 'observe'. Espera que `authenticateToken` já tenha populado
- * req.user (id, email, role) e usa o pool de req.app.get('pool').
+ *   - Sem req.user (anônimo) => next() — rotas públicas seguem.
+ *   - Autenticado            => resolve escopo e bloqueia establishment_id fora do escopo.
  */
 
-const { isSaasEnforced, isSaasObserving, isFailOpen } = require('./featureFlags');
+const { isSaasObserving, isSaasEnforced } = require('./featureFlags');
 const { loadUserScope, canAccessEstablishment } = require('./tenantScope');
 const { runWithRequestTenant } = require('./requestContext');
 
@@ -43,16 +37,9 @@ function tenantMiddleware(options = {}) {
   const { requireEstablishment = false, ignoreQueryEstablishmentId = false } = options;
 
   return async function tenant(req, res, next) {
-    // Desligado: não faz absolutamente nada.
-    if (isFailOpen() && !isSaasObserving()) return next();
-
     const pool = getPool(req);
 
-    // IMPORTANTE: o tenancy NÃO impõe autenticação. Requisições anônimas seguem
-    // (a rota mantém sua própria política — ex.: criação pública de reserva).
-    // Só restringimos requisições AUTENTICADAS ao escopo do usuário. Exigir token
-    // em rotas hoje públicas é um passo separado (adicionar authenticateToken),
-    // feito depois para não quebrar o fluxo público.
+    // Não impõe autenticação: anônimos seguem (política da rota).
     if (!pool || !req.user) return next();
 
     let scope;
@@ -60,7 +47,6 @@ function tenantMiddleware(options = {}) {
       scope = await loadUserScope(pool, req.user);
     } catch (err) {
       console.error('[tenant] erro ao carregar escopo:', err.message);
-      if (!isSaasEnforced()) return next();
       return res.status(500).json({ success: false, error: 'Falha ao resolver tenant.' });
     }
 
@@ -83,30 +69,33 @@ function tenantMiddleware(options = {}) {
       );
     }
 
+    // Super admin: loadUserScope retorna isAdmin true.
+    const isAdmin = scope.isAdmin === true || req.user.is_super_admin === true;
+
     req.tenant = {
-      isAdmin: scope.isAdmin,
+      isAdmin,
       organizationIds: scope.organizationIds,
       establishmentIds: scope.establishmentIds,
       establishmentId: requestedEst,
       primaryOrganizationId,
     };
 
-    // Validação anti-ID-na-URL (o establishment pedido está no escopo?)
     const allowed =
-      scope.isAdmin ||
+      isAdmin ||
       requestedEst == null ||
-      canAccessEstablishment(scope, requestedEst);
+      canAccessEstablishment({ ...scope, isAdmin }, requestedEst);
 
-    const missingRequired = requireEstablishment && requestedEst == null && !scope.isAdmin;
+    const missingRequired = requireEstablishment && requestedEst == null && !isAdmin;
 
     if (!allowed || missingRequired) {
       const reason = missingRequired ? 'establishment_id ausente' : 'establishment fora do escopo';
-      if (isSaasObserving()) {
+      // Isolamento cross-org sempre bloqueia (mesmo em observe).
+      // Observe só loga contexto extra; não libera acesso a outra org.
+      if (isSaasObserving() && !isSaasEnforced()) {
         console.warn(
-          `[tenant:observe] BLOQUEARIA user=${req.user.id} (${req.user.email}) ` +
-          `est=${requestedEst} rota=${req.method} ${req.originalUrl} — ${reason}`,
+          `[tenant] BLOQUEIO isolamento user=${req.user.id} (${req.user.email}) ` +
+            `est=${requestedEst} rota=${req.method} ${req.originalUrl} — ${reason}`,
         );
-        return next(); // observação: não bloqueia
       }
       return res.status(403).json({ success: false, error: 'Acesso negado ao estabelecimento.' });
     }
@@ -114,7 +103,7 @@ function tenantMiddleware(options = {}) {
     return runWithRequestTenant(
       {
         organizationId: primaryOrganizationId,
-        isAdmin: scope.isAdmin,
+        isAdmin,
         userId: req.user.id,
       },
       () => next(),

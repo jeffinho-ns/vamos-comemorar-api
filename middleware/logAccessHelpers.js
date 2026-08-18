@@ -1,18 +1,14 @@
 const { isSuperAdminUser } = require('../config/superAdmins');
+const { loadUserScope } = require('../tenancy/tenantScope');
 
 /**
- * IDs de estabelecimentos aos quais o usuário está vinculado (permissões ativas).
+ * IDs de estabelecimentos aos quais o usuário está vinculado
+ * (memberships + UEP + organization_id — mesmo modelo do tenantScope).
  */
 async function getEstablishmentScopeIds(pool, userId) {
-  const r = await pool.query(
-    `SELECT DISTINCT establishment_id
-     FROM user_establishment_permissions
-     WHERE user_id = $1 AND is_active = TRUE`,
-    [userId]
-  );
-  return r.rows
-    .map((row) => Number(row.establishment_id))
-    .filter((id) => !Number.isNaN(id));
+  if (!userId) return [];
+  const scope = await loadUserScope(pool, { id: userId, is_super_admin: false });
+  return Array.isArray(scope.establishmentIds) ? scope.establishmentIds : [];
 }
 
 /**

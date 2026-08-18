@@ -3,6 +3,11 @@
 
 const express = require('express');
 const auth = require('../middleware/auth');
+const {
+  resolveActorScope,
+  canAccessOperationalEstablishment,
+  sqlEstablishmentInScope,
+} = require('../tenancy/orgIsolation');
 
 const parseHourMinute = (value) => {
   if (value === undefined || value === null) return null;
@@ -255,6 +260,11 @@ module.exports = (pool) => {
   router.get('/', auth, async (req, res) => {
     try {
       const { establishment_id, evento_id, tipo_beneficiario } = req.query;
+      const actor = await resolveActorScope(pool, req.user);
+
+      if (establishment_id && !canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Não encontrado' });
+      }
       
       // Verificar se a tabela existe primeiro
       try {
@@ -274,6 +284,11 @@ module.exports = (pool) => {
       let query = 'SELECT * FROM gift_rules WHERE 1=1';
       const params = [];
       let paramIndex = 1;
+
+      const scopeSql = sqlEstablishmentInScope(actor, 'establishment_id', paramIndex);
+      query += scopeSql.sql;
+      params.push(...scopeSql.params);
+      paramIndex = scopeSql.nextIndex;
 
       if (establishment_id) {
         query += ` AND establishment_id = $${paramIndex++}`;
@@ -338,6 +353,11 @@ module.exports = (pool) => {
         return res.status(404).json({ success: false, error: 'Regra não encontrada' });
       }
 
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, result.rows[0].establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Regra não encontrada' });
+      }
+
       res.status(200).json({ success: true, rule: result.rows[0] });
     } catch (error) {
       console.error('Erro ao buscar regra de brinde:', error);
@@ -359,6 +379,11 @@ module.exports = (pool) => {
           success: false, 
           error: 'establishment_id, descricao e checkins_necessarios são obrigatórios' 
         });
+      }
+
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(403).json({ success: false, error: 'Estabelecimento fora do escopo da organização' });
       }
 
       // tipo_beneficiario padrão é 'ANIVERSARIO' se não fornecido (compatibilidade)
@@ -428,6 +453,15 @@ module.exports = (pool) => {
   router.put('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
+      const existing = await pool.query('SELECT establishment_id FROM gift_rules WHERE id = $1', [id]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Regra não encontrada' });
+      }
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, existing.rows[0].establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Regra não encontrada' });
+      }
+
       const { descricao, checkins_necessarios, status, evento_id, tipo_beneficiario, promoter_id, vip_m_limit, vip_f_limit, valor_entrada, entrada_config } = req.body;
 
       const updates = [];
@@ -563,12 +597,19 @@ module.exports = (pool) => {
   router.delete('/:id', auth, async (req, res) => {
     try {
       const { id } = req.params;
-      const result = await pool.query('DELETE FROM gift_rules WHERE id = $1 RETURNING *', [id]);
-      
-      if (result.rows.length === 0) {
+      const existing = await pool.query(
+        'SELECT id, establishment_id FROM gift_rules WHERE id = $1',
+        [id],
+      );
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Regra não encontrada' });
+      }
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, existing.rows[0].establishment_id)) {
         return res.status(404).json({ success: false, error: 'Regra não encontrada' });
       }
 
+      await pool.query('DELETE FROM gift_rules WHERE id = $1', [id]);
       res.status(200).json({ success: true, message: 'Regra deletada com sucesso' });
     } catch (error) {
       console.error('Erro ao deletar regra de brinde:', error);

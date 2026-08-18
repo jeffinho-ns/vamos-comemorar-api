@@ -2,20 +2,18 @@
 
 /**
  * queryScope — restringe uma query SQL ao escopo de estabelecimentos do usuário
- * AUTENTICADO, de forma aditiva e INERTE.
+ * AUTENTICADO (req.tenant), de forma aditiva.
  *
- * SEGURANÇA POR DESIGN:
- *   - SAAS_MODE != on            => no-op total (não altera a query).
- *   - admin / super admin        => no-op (vê tudo).
- *   - anônimo (sem req.tenant)   => no-op (rota mantém sua política pública).
- *   - autenticado COM escopo     => AND <col> IN (ids do usuário).
- *   - autenticado SEM escopo     => AND <col> = -1 (não vaza nada).
+ * Isolamento de organização é SEMPRE ativo quando req.tenant está populado
+ * (independente de SAAS_MODE — billing/módulos ficam nas flags; cross-org não).
  *
- * Depende de req.tenant (populado pelo tenantMiddleware). Use junto da listagem
- * para que o "enforce" entregue isolamento de LEITURA, não só bloqueio de ID.
+ *   - admin / super admin (tenant.isAdmin) => no-op (vê tudo).
+ *   - anônimo (sem req.tenant)             => no-op (rota pública).
+ *   - autenticado COM escopo               => AND <col> IN (ids).
+ *   - autenticado SEM escopo               => AND <col> = -1 (não vaza).
+ *
+ * Depende de req.tenant (populado pelo tenantMiddleware).
  */
-
-const { isSaasEnforced } = require('./featureFlags');
 
 /**
  * @param {object} req            requisição Express (espera req.tenant)
@@ -25,7 +23,7 @@ const { isSaasEnforced } = require('./featureFlags');
  */
 function establishmentScopeClause(req, column, startIndex) {
   const tenant = req && req.tenant;
-  if (!isSaasEnforced() || !tenant || tenant.isAdmin) {
+  if (!tenant || tenant.isAdmin) {
     return { sql: '', params: [], nextIndex: startIndex };
   }
   const ids = Array.isArray(tenant.establishmentIds)
@@ -33,7 +31,6 @@ function establishmentScopeClause(req, column, startIndex) {
     : [];
 
   if (ids.length === 0) {
-    // Usuário autenticado porém sem nenhum estabelecimento no escopo: não vaza nada.
     return { sql: ` AND ${column} = -1`, params: [], nextIndex: startIndex };
   }
 
@@ -42,23 +39,18 @@ function establishmentScopeClause(req, column, startIndex) {
 }
 
 /**
- * Checagem pós-fetch para recursos buscados por id (ex.: GET /:id): o
- * estabelecimento do recurso está no escopo do usuário autenticado?
- *
- * INERTE quando SAAS_MODE != on (sempre true). Admin e anônimo (sem req.tenant)
- * também retornam true — a rota mantém sua política. Use para responder 404
- * (não revelar existência) quando um usuário escopado tenta ler recurso de outra casa.
+ * Checagem pós-fetch: o estabelecimento do recurso está no escopo?
+ * Anônimo / admin / sem tenant => true (política da rota).
  *
  * @param {object} req
- * @param {number|string} establishmentId   id operacional do recurso
+ * @param {number|string} establishmentId
  * @returns {boolean}
  */
 function canReadEstablishment(req, establishmentId) {
-  if (!isSaasEnforced()) return true;
   const tenant = req && req.tenant;
   if (!tenant || tenant.isAdmin) return true;
   const id = Number(establishmentId);
-  if (!Number.isFinite(id) || id <= 0) return true; // sem vínculo de casa: não bloqueia
+  if (!Number.isFinite(id) || id <= 0) return true;
   const ids = Array.isArray(tenant.establishmentIds) ? tenant.establishmentIds.map(Number) : [];
   return ids.includes(id);
 }
