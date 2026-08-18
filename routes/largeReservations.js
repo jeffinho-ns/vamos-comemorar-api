@@ -13,6 +13,11 @@ const {
   denyIfCannotReadEstablishment,
 } = require('../tenancy/queryScope');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+const {
+  normalizeLargeReservationStatus,
+  normalizeLargeReservationOrigin,
+  tablesPayloadFromTableNumber,
+} = require('../services/largeReservationEnums');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -393,8 +398,8 @@ module.exports = (pool) => {
         number_of_people,
         area_id || null, // Garante que area_id também seja nulo se não vier
         selected_tables ? JSON.stringify(selected_tables) : null,
-        (status || 'NOVA').toUpperCase(),
-        (origin || 'CLIENTE').toUpperCase(),
+        normalizeLargeReservationStatus(status, 'NOVA'),
+        normalizeLargeReservationOrigin(origin, 'CLIENTE'),
         notes || null,
         admin_notes || null,
         created_by || null,
@@ -449,8 +454,8 @@ module.exports = (pool) => {
             number_of_people,
             area_id || null,
             selected_tables ? JSON.stringify(selected_tables) : null,
-            (status || 'NOVA').toUpperCase(),
-            (origin || 'CLIENTE').toUpperCase(),
+            normalizeLargeReservationStatus(status, 'NOVA'),
+            normalizeLargeReservationOrigin(origin, 'CLIENTE'),
             notes || null,
             admin_notes || null,
             created_by || null,
@@ -765,7 +770,7 @@ module.exports = (pool) => {
       }
       if (data_nascimento_cliente !== undefined) {
         updateFields.push(`data_nascimento_cliente = $${paramIndex++}`);
-        params.push(data_nascimento_cliente);
+        params.push(data_nascimento_cliente || null);
       }
       if (reservation_date !== undefined) {
         updateFields.push(`reservation_date = $${paramIndex++}`);
@@ -785,25 +790,24 @@ module.exports = (pool) => {
       }
       let tablesToSave = selected_tables;
       if (tablesToSave === undefined && table_number !== undefined) {
-        tablesToSave = String(table_number)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
+        tablesToSave = tablesPayloadFromTableNumber(table_number);
       }
       if (tablesToSave !== undefined) {
-        const selectedTablesJson = Array.isArray(tablesToSave) 
-          ? JSON.stringify(tablesToSave) 
-          : tablesToSave;
+        const selectedTablesJson = tablesToSave == null
+          ? null
+          : Array.isArray(tablesToSave)
+            ? JSON.stringify(tablesToSave)
+            : tablesToSave;
         updateFields.push(`selected_tables = $${paramIndex++}`);
         params.push(selectedTablesJson);
       }
       if (status !== undefined) {
         updateFields.push(`status = $${paramIndex++}`);
-        params.push(status);
+        params.push(normalizeLargeReservationStatus(status, 'NOVA'));
       }
       if (origin !== undefined) {
         updateFields.push(`origin = $${paramIndex++}`);
-        params.push(origin);
+        params.push(normalizeLargeReservationOrigin(origin, 'CLIENTE'));
       }
       if (notes !== undefined) {
         updateFields.push(`notes = $${paramIndex++}`);
@@ -857,9 +861,12 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao atualizar reserva grande:', error);
-      res.status(500).json({
+      const invalidEnum = error.code === '22P02' || /invalid input value for enum/i.test(error.message || '');
+      res.status(invalidEnum ? 400 : 500).json({
         success: false,
-        error: 'Erro interno do servidor'
+        error: invalidEnum
+          ? 'Status ou origem inválidos para reserva grande.'
+          : (error.message || 'Erro interno do servidor')
       });
     }
   });
