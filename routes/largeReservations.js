@@ -307,7 +307,7 @@ module.exports = (pool) => {
       const {
         client_name, client_phone, client_email, data_nascimento_cliente,
         reservation_date, reservation_time, number_of_people, area_id,
-        selected_tables, status = 'NOVA', origin = 'CLIENTE',
+        selected_tables, table_number, status = 'NOVA', origin = 'CLIENTE',
         notes, admin_notes, created_by, establishment_id,
         send_email, send_whatsapp, event_type, evento_id
       } = req.body;
@@ -720,6 +720,7 @@ module.exports = (pool) => {
         number_of_people,
         area_id,
         selected_tables,
+        table_number,
         status,
         origin,
         notes,
@@ -782,10 +783,17 @@ module.exports = (pool) => {
         updateFields.push(`area_id = $${paramIndex++}`);
         params.push(area_id);
       }
-      if (selected_tables !== undefined) {
-        const selectedTablesJson = Array.isArray(selected_tables) 
-          ? JSON.stringify(selected_tables) 
-          : selected_tables;
+      let tablesToSave = selected_tables;
+      if (tablesToSave === undefined && table_number !== undefined) {
+        tablesToSave = String(table_number)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      if (tablesToSave !== undefined) {
+        const selectedTablesJson = Array.isArray(tablesToSave) 
+          ? JSON.stringify(tablesToSave) 
+          : tablesToSave;
         updateFields.push(`selected_tables = $${paramIndex++}`);
         params.push(selectedTablesJson);
       }
@@ -1242,6 +1250,62 @@ module.exports = (pool) => {
 
     } catch (error) {
       console.error('❌ Erro ao fazer check-in da reserva grande:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/large-reservations/:id/guest-list
+   * @desc    Busca a lista de convidados de uma reserva grande
+   * @access  Private
+   */
+  router.get('/:id/guest-list', async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const guestListResult = await pool.query(
+        `SELECT gl.*, COUNT(g.id) as total_guests
+         FROM guest_lists gl
+         LEFT JOIN guests g ON g.guest_list_id = gl.id
+         WHERE gl.reservation_id = $1 AND gl.reservation_type = 'large'
+         GROUP BY gl.id`,
+        [id]
+      );
+
+      if (guestListResult.rows.length === 0) {
+        return res.json({
+          success: true,
+          guest_list: null,
+          guests: []
+        });
+      }
+
+      const guestListData = guestListResult.rows[0];
+      const baseUrl = process.env.PUBLIC_BASE_URL || 'https://agilizaiapp.com.br';
+      const guestListLink = `${baseUrl}/lista/${guestListData.shareable_link_token}`;
+
+      const guestsResult = await pool.query(
+        'SELECT id, name, whatsapp, created_at FROM guests WHERE guest_list_id = $1 ORDER BY created_at DESC',
+        [guestListData.id]
+      );
+
+      res.json({
+        success: true,
+        guest_list: {
+          id: guestListData.id,
+          event_type: guestListData.event_type,
+          shareable_link_token: guestListData.shareable_link_token,
+          expires_at: guestListData.expires_at,
+          total_guests: guestListData.total_guests,
+          guest_list_link: guestListLink
+        },
+        guests: guestsResult.rows
+      });
+    } catch (error) {
+      console.error('❌ Erro ao buscar lista de convidados da reserva grande:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor'

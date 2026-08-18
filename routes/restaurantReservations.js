@@ -19,6 +19,12 @@ const {
 } = require('../tenancy/queryScope');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
 const establishmentRules = require('../services/establishmentRules');
+const {
+  isSecondGiroBistro,
+  shouldForceEsperaAntecipada,
+  withEsperaAntecipadaNotes,
+  stripEsperaAntecipadaNotes,
+} = require('../services/bistroSecondGiro');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
 
 module.exports = (pool) => {
@@ -1020,12 +1026,9 @@ module.exports = (pool) => {
         }
       }
 
-      // REGRA NOVA 2º GIRO (BISTRÔ) — APENAS Seu Justino (ID 1) e Pracinha (ID 8)
-      // - Terça a Sexta: 1º giro 18:00–21:00 | 2º giro a partir de 21:00 (inclui madrugada)
-      // - Sábado: 1º giro 12:00–15:00 | 2º giro a partir de 15:00 (inclui madrugada)
-      // - Domingo: 1º giro 12:00–15:00 | 2º giro a partir de 15:00
-      // Se não veio do frontend com a flag, verificar aqui também (para reservas criadas por admin)
-      let finalEsperaAntecipada = espera_antecipada;
+      // 2º GIRO (BISTRÔ) — Seu Justino e Pracinha.
+      // Só vira espera antecipada se o dia já tiver ocupação real (ou capacidade lotada).
+      let finalEsperaAntecipada = false;
       let finalNotes = notes || '';
       let finalTableNumber = table_number;
       
@@ -1033,33 +1036,55 @@ module.exports = (pool) => {
         establishmentRules.isProfile(createEstRules, 'seu_justino') ||
         establishmentIdNumber === 1;
       const isPracinha = establishmentRules.isPracinha(createEstRules);
-      
+      const createProfile = createEstRules?.profile
+        || (isPracinha ? 'pracinha' : isSeuJustino ? 'seu_justino' : null);
+
       if ((isSeuJustino || isPracinha) && reservation_date && reservation_time) {
-        const reservationDate = new Date(reservation_date + 'T00:00:00');
-        const weekday = reservationDate.getDay(); // 0=Dom, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-        const [hours, minutes] = reservation_time.split(':').map(Number);
-        if (!Number.isNaN(hours)) {
-          let reservationMinutes = hours * 60 + (isNaN(minutes) ? 0 : minutes);
-          // madrugada (ex.: 01:00) é continuação do "após 21h/15h" do mesmo dia de operação
-          if (reservationMinutes < 6 * 60) reservationMinutes += 24 * 60;
+        const secondGiro = isSecondGiroBistro({
+          date: reservation_date,
+          time: reservation_time,
+          profile: createProfile,
+        });
 
-          const isSecondGiroBistro =
-            // Terça (2) a Sexta (5): após 21:00
-            (weekday >= 2 && weekday <= 5 && reservationMinutes >= 21 * 60) ||
-            // Sábado (6): após 15:00
-            (weekday === 6 && reservationMinutes >= 15 * 60) ||
-            // Domingo (0): após 15:00
-            (weekday === 0 && reservationMinutes >= 15 * 60);
-
-          if (isSecondGiroBistro) {
-            finalEsperaAntecipada = true;
-            // Adicionar nota se não existir
-            if (!finalNotes.includes('ESPERA ANTECIPADA')) {
-              finalNotes = (finalNotes ? finalNotes + ' | ' : '') + 'ESPERA ANTECIPADA (Bistrô)';
-            }
-            // Não atribuir mesa para espera antecipada (não desconta da contagem)
-            finalTableNumber = null;
+        let occupyingCount = 0;
+        if (secondGiro) {
+          try {
+            const occupyingResult = await pool.query(
+              `SELECT COUNT(*) AS count
+                 FROM restaurant_reservations
+                WHERE establishment_id = $1
+                  AND reservation_date = $2
+                  AND status NOT IN (
+                    'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
+                    'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
+                    'no_show', 'NO_SHOW', 'NO-SHOW'
+                  )
+                  AND COALESCE(table_number, '') <> ''
+                  AND COALESCE(notes, '') NOT ILIKE '%ESPERA ANTECIPADA%'`,
+              [establishmentIdNumber, reservation_date],
+            );
+            occupyingCount = parseInt(occupyingResult.rows[0]?.count, 10) || 0;
+          } catch (occupyingError) {
+            console.error('⚠️ Erro ao contar ocupação do 1º giro (espera antecipada):', occupyingError);
           }
+        }
+
+        const adminAssignedTable =
+          origin === 'PESSOAL' && table_number != null && String(table_number).trim() !== '';
+
+        finalEsperaAntecipada = shouldForceEsperaAntecipada({
+          isSecondGiro: secondGiro,
+          occupyingCount,
+        });
+
+        // Atendente/recepção com mesa escolhida: não desfazer a alocação.
+        if (adminAssignedTable) {
+          finalEsperaAntecipada = false;
+        }
+
+        if (finalEsperaAntecipada) {
+          finalNotes = withEsperaAntecipadaNotes(finalNotes);
+          finalTableNumber = null;
         }
       }
 
@@ -1302,7 +1327,7 @@ module.exports = (pool) => {
         evento_id || null,
         blocks_entire_area || false,
         (typeof area_display_name === 'string' && area_display_name.trim()) ? area_display_name.trim() : null,
-        has_bistro_table || false,
+        has_bistro_table || finalEsperaAntecipada || false,
         organizationIdForInsert,
       ];
 
@@ -1355,7 +1380,7 @@ module.exports = (pool) => {
             position,
             estimatedWaitTime,
             `Reserva de Espera Antecipada (ID: ${reservationId}) - ${finalNotes}`,
-            has_bistro_table || false,
+            has_bistro_table || finalEsperaAntecipada || false,
             organizationIdForInsert,
           ];
           
@@ -1728,6 +1753,17 @@ module.exports = (pool) => {
       if (table_number !== undefined) {
         updateFields.push(`table_number = $${paramIndex++}`);
         params.push(table_number);
+        const assignedTable =
+          table_number != null && String(table_number).trim() !== '';
+        if (assignedTable && notes === undefined) {
+          const stripped = stripEsperaAntecipadaNotes(existingReservation.notes);
+          updateFields.push(`notes = $${paramIndex++}`);
+          params.push(stripped);
+          if (has_bistro_table === undefined) {
+            updateFields.push(`has_bistro_table = $${paramIndex++}`);
+            params.push(false);
+          }
+        }
       }
       if (status !== undefined) {
         updateFields.push(`status = $${paramIndex++}`);
@@ -2603,9 +2639,10 @@ module.exports = (pool) => {
       );
 
       if (guestListResult.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: 'Esta reserva não possui lista de convidados'
+        return res.json({
+          success: true,
+          guest_list: null,
+          guests: []
         });
       }
 
