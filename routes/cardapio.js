@@ -37,11 +37,63 @@ module.exports = (pool) => {
             return false;
         }
         const actor = await resolveActorScope(pool, req.user);
-        if (!canAccessOperationalEstablishment(actor, barId)) {
-            res.status(404).json({ error: 'Não encontrado' });
-            return false;
+        if (canAccessOperationalEstablishment(actor, barId)) {
+            return true;
         }
-        return true;
+        // Place id ≠ bar id (ex.: Sitio Ilha place 10 / bar 15): libera se o bar
+        // pertence à organização do ator.
+        const orgIds = actor.organizationIds || [];
+        if (orgIds.length > 0) {
+            try {
+                const linked = await pool.query(
+                    `SELECT 1 FROM meu_backup_db.establishments
+                      WHERE legacy_bar_id = $1::int
+                        AND organization_id = ANY($2::int[])
+                      LIMIT 1`,
+                    [Number(barId), orgIds],
+                );
+                if (linked.rows.length > 0) return true;
+            } catch (_) {
+                /* tabela ausente em alguns ambientes */
+            }
+        }
+        res.status(404).json({ error: 'Não encontrado' });
+        return false;
+    }
+
+    function toJsonbParam(value, fallback = null) {
+        if (value === undefined || value === null || value === '') return fallback;
+        if (typeof value === 'string') {
+            try {
+                JSON.parse(value);
+                return value;
+            } catch (_) {
+                return fallback;
+            }
+        }
+        try {
+            return JSON.stringify(value);
+        } catch (_) {
+            return fallback;
+        }
+    }
+
+    function toFiniteOrNull(value) {
+        if (value === undefined || value === null || value === '') return null;
+        const n = typeof value === 'number' ? value : parseFloat(String(value));
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function toIntOrNull(value) {
+        if (value === undefined || value === null || value === '') return null;
+        const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function emptyToNull(value) {
+        if (value === undefined || value === null) return null;
+        const s = String(value).trim();
+        return s === '' ? null : s;
     }
 
     /**
@@ -968,7 +1020,7 @@ module.exports = (pool) => {
     });
 
     // Rota para criar um novo estabelecimento
-    router.post('/bars', async (req, res) => {
+    router.post('/bars', authenticateToken, async (req, res) => {
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
@@ -1249,84 +1301,143 @@ module.exports = (pool) => {
     });
 
     // Rota para atualizar um estabelecimento
-    router.put('/bars/:id', async (req, res) => {
+    router.put('/bars/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { 
             name, slug, description, logoUrl, coverImageUrl, coverImages, address, rating, 
             reviewsCount, latitude, longitude, amenities, popupImageUrl,
-            // ✨ Adicionados os novos campos
             facebook, instagram, whatsapp,
-            // 🎨 Campos de personalização de cores
             menu_category_bg_color, menu_category_text_color,
             menu_subcategory_bg_color, menu_subcategory_text_color,
             mobile_sidebar_bg_color, mobile_sidebar_text_color,
             custom_seals,
-            partner_logos
+            partner_logos,
+            menu_display_style,
         } = req.body;
         
         try {
-            const ratingValue = rating ? parseFloat(rating) : null;
-            const reviewsCountValue = reviewsCount ? parseInt(reviewsCount) : null;
-            const latitudeValue = latitude ? parseFloat(latitude) : null;
-            const longitudeValue = longitude ? parseFloat(longitude) : null;
+            if (!(await assertBarInActorScope(req, res, id))) return;
 
-            let coverImagesValue = '[]';
-            if (coverImages) {
-                if (Array.isArray(coverImages)) {
-                    coverImagesValue = JSON.stringify(coverImages);
-                } else if (typeof coverImages === 'string') {
-                    coverImagesValue = coverImages;
-                }
-            }
-            
-            let customSealsValue = null;
-            if (custom_seals) {
-                if (Array.isArray(custom_seals)) {
-                    customSealsValue = JSON.stringify(custom_seals);
-                } else if (typeof custom_seals === 'string') {
-                    customSealsValue = custom_seals;
-                }
-            }
-
-            let partnerLogosValue = '[]';
-            if (partner_logos) {
-                if (Array.isArray(partner_logos)) {
-                    partnerLogosValue = JSON.stringify(partner_logos.slice(0, 5));
-                } else if (typeof partner_logos === 'string') {
-                    partnerLogosValue = partner_logos;
-                }
-            }
-            
-            // ✨ Query de UPDATE atualizada para incluir as novas colunas
-            await pool.query(
-                'UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5, coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10, longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15, whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18, menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20, mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22, custom_seals = $23, partner_logos = $24 WHERE id = $25',
-                [
-                    name, slug, description, logoUrl, coverImageUrl, coverImagesValue, 
-                    address, ratingValue, reviewsCountValue, latitudeValue, longitudeValue, 
-                    JSON.stringify(amenities), popupImageUrl, 
-                    // ✨ Adicionados os valores dos novos campos
-                    facebook || null, instagram || null, whatsapp || null,
-                    // 🎨 Valores dos campos de cores
-                    menu_category_bg_color || null, menu_category_text_color || null,
-                    menu_subcategory_bg_color || null, menu_subcategory_text_color || null,
-                    mobile_sidebar_bg_color || null, mobile_sidebar_text_color || null,
-                    customSealsValue,
-                    partnerLogosValue,
-                    id
-                ]
+            const ratingValue = toFiniteOrNull(rating);
+            const reviewsCountValue = toIntOrNull(reviewsCount);
+            const latitudeValue = toFiniteOrNull(latitude);
+            const longitudeValue = toFiniteOrNull(longitude);
+            const coverImagesValue = toJsonbParam(coverImages, '[]');
+            const customSealsValue = toJsonbParam(custom_seals, null);
+            const partnerLogosValue = toJsonbParam(
+                Array.isArray(partner_logos) ? partner_logos.slice(0, 5) : partner_logos,
+                '[]',
             );
+            const amenitiesValue = toJsonbParam(amenities, '[]');
+            const displayStyle =
+                menu_display_style === 'clean' || menu_display_style === 'normal'
+                    ? menu_display_style
+                    : null;
+
+            const baseParams = [
+                emptyToNull(name),
+                emptyToNull(slug),
+                emptyToNull(description),
+                emptyToNull(logoUrl),
+                emptyToNull(coverImageUrl),
+                coverImagesValue,
+                emptyToNull(address),
+                ratingValue,
+                reviewsCountValue,
+                latitudeValue,
+                longitudeValue,
+                amenitiesValue,
+                emptyToNull(popupImageUrl),
+                emptyToNull(facebook),
+                emptyToNull(instagram),
+                emptyToNull(whatsapp),
+                emptyToNull(menu_category_bg_color),
+                emptyToNull(menu_category_text_color),
+                emptyToNull(menu_subcategory_bg_color),
+                emptyToNull(menu_subcategory_text_color),
+                emptyToNull(mobile_sidebar_bg_color),
+                emptyToNull(mobile_sidebar_text_color),
+                customSealsValue,
+                partnerLogosValue,
+            ];
+
+            try {
+                if (displayStyle) {
+                    await pool.query(
+                        `UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5,
+                          coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10,
+                          longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15,
+                          whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18,
+                          menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20,
+                          mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22,
+                          custom_seals = $23, partner_logos = $24, menu_display_style = $25
+                         WHERE id = $26`,
+                        [...baseParams, displayStyle, id],
+                    );
+                } else {
+                    await pool.query(
+                        `UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5,
+                          coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10,
+                          longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15,
+                          whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18,
+                          menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20,
+                          mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22,
+                          custom_seals = $23, partner_logos = $24
+                         WHERE id = $25`,
+                        [...baseParams, id],
+                    );
+                }
+            } catch (updateErr) {
+                // Ambiente sem coluna menu_display_style: tenta de novo sem ela.
+                if (
+                    displayStyle &&
+                    updateErr &&
+                    (String(updateErr.message || '').includes('menu_display_style') ||
+                        updateErr.code === '42703')
+                ) {
+                    await pool.query(
+                        `UPDATE bars SET name = $1, slug = $2, description = $3, logoUrl = $4, coverImageUrl = $5,
+                          coverImages = $6, address = $7, rating = $8, reviewsCount = $9, latitude = $10,
+                          longitude = $11, amenities = $12, popupImageUrl = $13, facebook = $14, instagram = $15,
+                          whatsapp = $16, menu_category_bg_color = $17, menu_category_text_color = $18,
+                          menu_subcategory_bg_color = $19, menu_subcategory_text_color = $20,
+                          mobile_sidebar_bg_color = $21, mobile_sidebar_text_color = $22,
+                          custom_seals = $23, partner_logos = $24
+                         WHERE id = $25`,
+                        [...baseParams, id],
+                    );
+                } else {
+                    throw updateErr;
+                }
+            }
             
             res.json({ message: 'Estabelecimento atualizado com sucesso.' });
         } catch (error) {
-            console.error('Erro ao atualizar estabelecimento:', error);
-            res.status(500).json({ error: 'Erro ao atualizar estabelecimento.' });
+            console.error('Erro ao atualizar estabelecimento:', {
+                barId: id,
+                code: error && error.code,
+                message: error && error.message,
+                detail: error && error.detail,
+            });
+            if (error && error.code === '23505') {
+                return res.status(409).json({
+                    error: 'Já existe um estabelecimento com este slug. Escolha outro.',
+                    code: 'SLUG_CONFLICT',
+                });
+            }
+            res.status(500).json({
+                error: 'Erro ao atualizar estabelecimento.',
+                details: error && error.message ? String(error.message) : undefined,
+                code: error && error.code ? String(error.code) : undefined,
+            });
         }
     });
 
     // Rota para deletar um estabelecimento
-    router.delete('/bars/:id', async (req, res) => {
+    router.delete('/bars/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         try {
+            if (!(await assertBarInActorScope(req, res, id))) return;
             await pool.query('DELETE FROM bars WHERE id = $1', [id]);
             res.json({ message: 'Estabelecimento deletado com sucesso.' });
         } catch (error) {
