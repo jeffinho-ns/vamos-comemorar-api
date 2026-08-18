@@ -10,7 +10,10 @@ const { limiter60PerMin } = require('../middleware/rateLimiters');
 const {
     resolveActorScope,
     canAccessOperationalEstablishment,
+    resolveAccessibleBarIds,
+    canAccessBarId,
     sqlEstablishmentInScope,
+    sqlBarIdsInScope,
 } = require('../tenancy/orgIsolation');
 const {
     listPauseSchedules,
@@ -37,25 +40,8 @@ module.exports = (pool) => {
             return false;
         }
         const actor = await resolveActorScope(pool, req.user);
-        if (canAccessOperationalEstablishment(actor, barId)) {
+        if (await canAccessBarId(pool, actor, barId)) {
             return true;
-        }
-        // Place id ≠ bar id (ex.: Sitio Ilha place 10 / bar 15): libera se o bar
-        // pertence à organização do ator.
-        const orgIds = actor.organizationIds || [];
-        if (orgIds.length > 0) {
-            try {
-                const linked = await pool.query(
-                    `SELECT 1 FROM meu_backup_db.establishments
-                      WHERE legacy_bar_id = $1::int
-                        AND organization_id = ANY($2::int[])
-                      LIMIT 1`,
-                    [Number(barId), orgIds],
-                );
-                if (linked.rows.length > 0) return true;
-            } catch (_) {
-                /* tabela ausente em alguns ambientes */
-            }
         }
         res.status(404).json({ error: 'Não encontrado' });
         return false;
@@ -1471,16 +1457,17 @@ module.exports = (pool) => {
             if (barId) {
                 if (req.user) {
                     const actor = await resolveActorScope(pool, req.user);
-                    if (!canAccessOperationalEstablishment(actor, barId)) {
+                    if (!(await canAccessBarId(pool, actor, barId))) {
                         return res.status(404).json({ error: 'Não encontrado' });
                     }
                 }
                 query += ` AND barid = $${paramIndex++}`;
                 params.push(barId);
             } else if (req.user) {
-                // Admin autenticado: isola por org. Super Admin vê tudo.
+                // Admin autenticado: isola por bars da org (place id ≠ bar id).
                 const actor = await resolveActorScope(pool, req.user);
-                const scopeSql = sqlEstablishmentInScope(actor, 'barid', paramIndex);
+                const barIds = await resolveAccessibleBarIds(pool, actor);
+                const scopeSql = sqlBarIdsInScope(barIds, 'barid', paramIndex);
                 query += scopeSql.sql;
                 params.push(...scopeSql.params);
             }
@@ -1515,7 +1502,7 @@ module.exports = (pool) => {
             const row = result.rows[0];
             if (req.user) {
                 const actor = await resolveActorScope(pool, req.user);
-                if (!canAccessOperationalEstablishment(actor, row.barid ?? row.barId)) {
+                if (!(await canAccessBarId(pool, actor, row.barid ?? row.barId))) {
                     return res.status(404).json({ error: 'Categoria não encontrada.' });
                 }
             }
@@ -2083,25 +2070,24 @@ module.exports = (pool) => {
             if (barId) {
                 if (req.user) {
                     const actor = await resolveActorScope(pool, req.user);
-                    if (!canAccessOperationalEstablishment(actor, barId)) {
+                    if (!(await canAccessBarId(pool, actor, barId))) {
                         return res.status(404).json({ error: 'Não encontrado' });
                     }
                 }
                 barFilterSql = 'AND mi.barid = $1';
                 queryParams = [barId];
             } else if (req.user) {
-                // Admin autenticado: isola por org. Super Admin vê tudo.
+                // Admin autenticado: isola por bars da org (place id ≠ bar id).
                 const actor = await resolveActorScope(pool, req.user);
-                if (actor.isSuperAdmin) {
+                const barIds = await resolveAccessibleBarIds(pool, actor);
+                if (barIds == null) {
                     barFilterSql = '';
                     queryParams = [];
+                } else if (barIds.length === 0) {
+                    return res.json([]);
                 } else {
-                    const ids = actor.establishmentIds || [];
-                    if (ids.length === 0) {
-                        return res.json([]);
-                    }
                     barFilterSql = 'AND mi.barid = ANY($1::int[])';
-                    queryParams = [ids];
+                    queryParams = [barIds];
                 }
             }
             // Anônimo sem barId: listagem pública completa (páginas /cardapio/[slug]).
