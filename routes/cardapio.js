@@ -1478,13 +1478,14 @@ module.exports = (pool) => {
                 query += ` AND barid = $${paramIndex++}`;
                 params.push(barId);
             } else if (req.user) {
+                // Admin autenticado: isola por org. Super Admin vê tudo.
                 const actor = await resolveActorScope(pool, req.user);
                 const scopeSql = sqlEstablishmentInScope(actor, 'barid', paramIndex);
                 query += scopeSql.sql;
                 params.push(...scopeSql.params);
-            } else {
-                return res.json([]);
             }
+            // Anônimo sem barId: listagem pública completa (páginas /cardapio/[slug]
+            // filtram no client). NÃO retornar [].
 
             query += ' ORDER BY barid, "order"';
 
@@ -2089,6 +2090,7 @@ module.exports = (pool) => {
                 barFilterSql = 'AND mi.barid = $1';
                 queryParams = [barId];
             } else if (req.user) {
+                // Admin autenticado: isola por org. Super Admin vê tudo.
                 const actor = await resolveActorScope(pool, req.user);
                 if (actor.isSuperAdmin) {
                     barFilterSql = '';
@@ -2101,9 +2103,8 @@ module.exports = (pool) => {
                     barFilterSql = 'AND mi.barid = ANY($1::int[])';
                     queryParams = [ids];
                 }
-            } else {
-                return res.json([]);
             }
+            // Anônimo sem barId: listagem pública completa (páginas /cardapio/[slug]).
             
             const query = `
                 SELECT 
