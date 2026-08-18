@@ -38,6 +38,7 @@ const PROFILE_DEFAULTS = {
   },
   sitio_ilha: {
     reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+    cardapio: { barId: 15 },
   },
   generic: {
     reservations: { excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
@@ -158,6 +159,20 @@ function getCardapioBarId(rules, operationalId) {
   const fromRules = Number(rules?.cardapio?.barId);
   if (Number.isFinite(fromRules) && fromRules > 0) return fromRules;
   return Number(operationalId);
+}
+
+/**
+ * Place id ≠ bar id (ex.: Sitio Ilha place 10 / bar 15, Oh Freguês place 4 / bar 2).
+ * Preferência: config.cardapio.barId → legacy_bar_id → legacy_place_id.
+ */
+function resolveCardapioBarIdForEstablishmentRow(row, rules) {
+  const fromRules = Number(rules?.cardapio?.barId);
+  if (Number.isFinite(fromRules) && fromRules > 0) return fromRules;
+  const legacyBar = Number(row?.legacy_bar_id);
+  if (Number.isFinite(legacyBar) && legacyBar > 0) return legacyBar;
+  const placeId = Number(row?.legacy_place_id);
+  if (Number.isFinite(placeId) && placeId > 0) return placeId;
+  return null;
 }
 
 function buildAreasNameFilterSql(rules, column = 'ra.name') {
@@ -302,7 +317,8 @@ async function listOperationalMappings(pool) {
   const map = {};
   for (const row of rows) {
     const rules = normalizeRules(row.config || {}, row.name, row.legacy_place_id);
-    const barId = getCardapioBarId(rules, row.legacy_place_id);
+    const barId = resolveCardapioBarIdForEstablishmentRow(row, rules);
+    if (!Number.isFinite(barId) || barId <= 0) continue;
     if (row.legacy_place_id) map[row.legacy_place_id] = barId;
     if (row.legacy_bar_id) map[row.legacy_bar_id] = barId;
     const aliases = rules.operationalAliases || [];
@@ -320,6 +336,7 @@ module.exports = {
   getMaxDailyReservations,
   getMaxPartySize,
   getCardapioBarId,
+  resolveCardapioBarIdForEstablishmentRow,
   buildAreasNameFilterSql,
   buildAreasScopeSql,
   areaAllowedForRules,
