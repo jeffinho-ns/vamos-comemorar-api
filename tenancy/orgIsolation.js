@@ -52,7 +52,7 @@ async function resolveAccessibleBarIds(pool, actorScope) {
   try {
     if (orgIds.length > 0) {
       const { rows } = await pool.query(
-        `SELECT legacy_bar_id, legacy_place_id
+        `SELECT legacy_bar_id, legacy_place_id, name, config
            FROM meu_backup_db.establishments
           WHERE organization_id = ANY($1::int[])
             AND (legacy_bar_id IS NOT NULL OR legacy_place_id IS NOT NULL)`,
@@ -63,6 +63,18 @@ async function resolveAccessibleBarIds(pool, actorScope) {
         const placeId = Number(row.legacy_place_id);
         if (Number.isFinite(barId) && barId > 0) ids.add(barId);
         if (Number.isFinite(placeId) && placeId > 0) ids.add(placeId);
+        // Place ≠ bar: se legacy_bar_id estiver null, usa regras/perfil (Sitio → 15).
+        try {
+          const {
+            resolveCardapioBarIdForEstablishmentRow,
+            previewMergedRules,
+          } = require('../services/establishmentRules');
+          const rules = previewMergedRules(row.config || {}, row.name, placeId || barId);
+          const resolved = resolveCardapioBarIdForEstablishmentRow(row, rules);
+          if (Number.isFinite(resolved) && resolved > 0) ids.add(resolved);
+        } catch (_) {
+          /* ignore */
+        }
       }
     }
 
