@@ -75,33 +75,42 @@ async function repairMenuOrganizationIds(pool) {
     steps.push({ table: 'menu_categories', updated: 0, skipped: err.message });
   }
 
-  const images = await runWithRlsBypass(
-    pool,
-    `
-      UPDATE cardapio_images ci
-         SET organization_id = est.organization_id
-        FROM establishments est
-       WHERE ci.organization_id IS NULL
-         AND ci.bar_id IS NOT NULL
-         AND est.legacy_bar_id = ci.bar_id
-         AND est.organization_id IS NOT NULL
-    `,
-  );
-  steps.push({ table: 'cardapio_images', updated: images.rowCount ?? 0 });
+  try {
+    const images = await runWithRlsBypass(
+      pool,
+      `
+        UPDATE cardapio_images ci
+           SET organization_id = est.organization_id
+          FROM establishments est
+         WHERE ci.organization_id IS NULL
+           AND ci.bar_id IS NOT NULL
+           AND est.legacy_bar_id = ci.bar_id
+           AND est.organization_id IS NOT NULL
+      `,
+    );
+    steps.push({ table: 'cardapio_images', updated: images.rowCount ?? 0 });
+  } catch (err) {
+    // Schema legado pode não ter bar_id / organization_id.
+    steps.push({ table: 'cardapio_images', updated: 0, skipped: err.message });
+  }
 
-  const pauses = await runWithRlsBypass(
-    pool,
-    `
-      UPDATE menu_pause_schedules mps
-         SET organization_id = est.organization_id
-        FROM establishments est
-       WHERE mps.organization_id IS NULL
-         AND mps.bar_id IS NOT NULL
-         AND est.legacy_bar_id = mps.bar_id
-         AND est.organization_id IS NOT NULL
-    `,
-  );
-  steps.push({ table: 'menu_pause_schedules', updated: pauses.rowCount ?? 0 });
+  try {
+    const pauses = await runWithRlsBypass(
+      pool,
+      `
+        UPDATE menu_pause_schedules mps
+           SET organization_id = est.organization_id
+          FROM establishments est
+         WHERE mps.organization_id IS NULL
+           AND mps.bar_id IS NOT NULL
+           AND est.legacy_bar_id = mps.bar_id
+           AND est.organization_id IS NOT NULL
+      `,
+    );
+    steps.push({ table: 'menu_pause_schedules', updated: pauses.rowCount ?? 0 });
+  } catch (err) {
+    steps.push({ table: 'menu_pause_schedules', updated: 0, skipped: err.message });
+  }
 
   const { rows: bar15 } = await runWithRlsBypass(
     pool,
