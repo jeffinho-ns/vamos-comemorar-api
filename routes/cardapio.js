@@ -21,6 +21,7 @@ const {
     deletePauseSchedulesForScope,
     applySchedulesToMenuItems,
 } = require('../services/menuPauseScheduleService');
+const { resolveOrganizationIdForBar } = require('../services/menuOrganizationRepair');
 
 module.exports = (pool) => {
     router.use(optionalAuth);
@@ -1437,10 +1438,32 @@ module.exports = (pool) => {
         const { barId, name, order } = req.body;
         try {
             if (!(await assertBarInActorScope(req, res, barId))) return;
-            const result = await pool.query(
-                'INSERT INTO menu_categories (barId, name, "order") VALUES ($1, $2, $3) RETURNING id',
-                [barId, name, order]
+            const organizationId = await resolveOrganizationIdForBar(
+                pool,
+                barId,
+                req.tenant?.primaryOrganizationId,
             );
+            let result;
+            if (organizationId != null) {
+                try {
+                    result = await pool.query(
+                        'INSERT INTO menu_categories (barId, name, "order", organization_id) VALUES ($1, $2, $3, $4) RETURNING id',
+                        [barId, name, order, organizationId],
+                    );
+                } catch (orgErr) {
+                    // Coluna organization_id pode não existir em ambientes legados.
+                    if (!/organization_id/i.test(String(orgErr.message || ''))) throw orgErr;
+                    result = await pool.query(
+                        'INSERT INTO menu_categories (barId, name, "order") VALUES ($1, $2, $3) RETURNING id',
+                        [barId, name, order],
+                    );
+                }
+            } else {
+                result = await pool.query(
+                    'INSERT INTO menu_categories (barId, name, "order") VALUES ($1, $2, $3) RETURNING id',
+                    [barId, name, order],
+                );
+            }
             res.status(201).json({ id: result.rows[0].id, ...req.body });
         } catch (error) {
             res.status(500).json({ error: 'Erro ao criar categoria.' });
@@ -1934,32 +1957,100 @@ module.exports = (pool) => {
     router.post('/items', authenticateToken, async (req, res) => {
         const { name, description, price, imageUrl, categoryId, barId, subCategory, order, toppings, seals } = req.body;
         if (!(await assertBarInActorScope(req, res, barId))) return;
+        const organizationId = await resolveOrganizationIdForBar(
+            pool,
+            barId,
+            req.tenant?.primaryOrganizationId,
+        );
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
+            if (organizationId != null) {
+                await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+                    String(organizationId),
+                ]);
+            }
 
             // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
             let itemId;
 
             try {
-                // Tentar com seals primeiro
+                // Tentar com seals + organization_id
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
-                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id';
-                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order, sealsJson];
-                
-                const result = await client.query(query, values);
-                hasSealsField = true;
-                itemId = result.rows[0].id;
-                console.log('✅ Item criado com selos');
+                if (organizationId != null) {
+                    const query =
+                        'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals, organization_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id';
+                    const values = [
+                        name,
+                        description,
+                        price,
+                        imageUrl,
+                        categoryId,
+                        barId,
+                        subCategory || null,
+                        order,
+                        sealsJson,
+                        organizationId,
+                    ];
+                    const result = await client.query(query, values);
+                    hasSealsField = true;
+                    itemId = result.rows[0].id;
+                    console.log('✅ Item criado com selos e organization_id');
+                } else {
+                    const query =
+                        'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id';
+                    const values = [
+                        name,
+                        description,
+                        price,
+                        imageUrl,
+                        categoryId,
+                        barId,
+                        subCategory || null,
+                        order,
+                        sealsJson,
+                    ];
+                    const result = await client.query(query, values);
+                    hasSealsField = true;
+                    itemId = result.rows[0].id;
+                    console.log('✅ Item criado com selos');
+                }
             } catch (e) {
-                // Se falhar, usar versão sem seals
-                console.log('⚠️ Campo seals não disponível, criando item sem selos');
-                const query = 'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
-                const values = [name, description, price, imageUrl, categoryId, barId, subCategory || null, order];
-                
-                const result = await client.query(query, values);
-                itemId = result.rows[0].id;
+                // Se falhar, usar versão sem seals (mantém organization_id se disponível)
+                console.log('⚠️ Campo seals não disponível, criando item sem selos:', e.message);
+                if (organizationId != null) {
+                    const query =
+                        'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", organization_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id';
+                    const values = [
+                        name,
+                        description,
+                        price,
+                        imageUrl,
+                        categoryId,
+                        barId,
+                        subCategory || null,
+                        order,
+                        organizationId,
+                    ];
+                    const result = await client.query(query, values);
+                    itemId = result.rows[0].id;
+                } else {
+                    const query =
+                        'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
+                    const values = [
+                        name,
+                        description,
+                        price,
+                        imageUrl,
+                        categoryId,
+                        barId,
+                        subCategory || null,
+                        order,
+                    ];
+                    const result = await client.query(query, values);
+                    itemId = result.rows[0].id;
+                }
             }
 
             if (toppings && toppings.length > 0) {
@@ -2307,6 +2398,25 @@ module.exports = (pool) => {
         try {
             await client.query('BEGIN');
 
+            const effectiveBarId = barId != null ? barId : currentBarId;
+            const organizationId = await resolveOrganizationIdForBar(
+                client,
+                effectiveBarId,
+                req.tenant?.primaryOrganizationId,
+            );
+            if (organizationId != null) {
+                await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+                    String(organizationId),
+                ]);
+                await client.query(
+                    `UPDATE menu_items
+                        SET organization_id = $1
+                      WHERE id = $2
+                        AND (organization_id IS NULL OR organization_id IS DISTINCT FROM $1)`,
+                    [organizationId, id],
+                );
+            }
+
             // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
 
@@ -2314,7 +2424,7 @@ module.exports = (pool) => {
                 // Tentar com seals primeiro
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
                 const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8, seals = $9 WHERE id = $10';
-                const values = [name, description, price, imageUrl, categoryId, barId != null ? barId : currentBarId, subCategory || null, order, sealsJson, id];
+                const values = [name, description, price, imageUrl, categoryId, effectiveBarId, subCategory || null, order, sealsJson, id];
                 
                 await client.query(query, values);
                 hasSealsField = true;
@@ -2323,7 +2433,7 @@ module.exports = (pool) => {
                 // Se falhar, usar versão sem seals
                 console.log('⚠️ Campo seals não disponível, atualizando item sem selos');
                 const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8 WHERE id = $9';
-                const values = [name, description, price, imageUrl, categoryId, barId != null ? barId : currentBarId, subCategory || null, order, id];
+                const values = [name, description, price, imageUrl, categoryId, effectiveBarId, subCategory || null, order, id];
                 
                 await client.query(query, values);
             }

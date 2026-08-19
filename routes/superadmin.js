@@ -6,6 +6,7 @@ const billing = require('../billing/billingService');
 const training = require('../billing/trainingService');
 const impersonate = require('../billing/impersonateService');
 const establishmentConfig = require('../billing/establishmentConfigService');
+const { repairMenuOrganizationIds } = require('../services/menuOrganizationRepair');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -574,6 +575,24 @@ module.exports = (pool) => {
     } catch (err) {
       console.error('[superadmin/establishments/config PATCH]', err.message);
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Repara organization_id de menu_items (e auxiliares) via legacy_bar_id.
+   * Necessário quando itens foram criados sem org e o RLS esconde no admin.
+   */
+  router.post('/repair-menu-organization-ids', async (req, res) => {
+    try {
+      const data = await repairMenuOrganizationIds(pool);
+      console.log(
+        `[superadmin/repair-menu-organization-ids] user=${req.user?.id}`,
+        JSON.stringify(data),
+      );
+      res.json({ success: true, data });
+    } catch (err) {
+      console.error('[superadmin/repair-menu-organization-ids]', err.message);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
