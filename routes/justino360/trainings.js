@@ -1,140 +1,395 @@
 'use strict';
 
+/**
+ * Justino360 — Treinamentos (LMS operacional do Seu Justino).
+ *
+ * Ciclo: gestão cria o curso → atribui à equipe → a pessoa abre o conteúdo e
+ * marca conclusão → se o curso tem `validity_days`, a conclusão expira e a
+ * atribuição volta a cobrar reciclagem (`vencido`).
+ *
+ * Regras puras ficam em `services/justino360/trainingRules.js` e o SQL em
+ * `services/justino360/trainingRepository.js` — aqui é só a camada HTTP.
+ */
 const express = require('express');
 const { applyCommonMiddleware, requireManage, writeAudit } = require('./middleware');
-const { str, optionalStr, parseId } = require('../../validators/justino360Validator');
+const repo = require('../../services/justino360/trainingRepository');
+const payloads = require('../../services/justino360/trainingPayload');
+const {
+  ROLE_KEYS,
+  TRAINING_STATUSES,
+  INVALID_ROLE_MESSAGE,
+  INVALID_STATUS_MESSAGE,
+  pickRoleKey,
+  pickStatus,
+  daysUntilExpiry,
+  summarizeAssignments,
+} = require('../../services/justino360/trainingRules');
+const { optionalStr, parseId, parseBoolean } = require('../../validators/justino360Validator');
+
+/** Varredura de vencimento antes de qualquer leitura; nunca derruba a rota. */
+async function sweepExpired(pool, establishmentId) {
+  try {
+    const expired = await repo.expireDueAssignments(pool, establishmentId);
+    if (expired > 0) {
+      console.log(
+        `[j360] treinamentos vencidos por validade (establishment_id=${establishmentId}): ${expired}`
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[j360] varredura de validade (establishment_id=${establishmentId}):`,
+      err.message
+    );
+  }
+}
 
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
   applyCommonMiddleware(router, pool);
 
-  router.get('/trainings', async (req, res) => {
+  /** Metadados dos selects da UI — evita duplicar whitelist no front. */
+  router.get('/trainings/meta', (req, res) => {
+    return res.json({
+      success: true,
+      data: {
+        role_keys: ROLE_KEYS,
+        statuses: TRAINING_STATUSES,
+        can_manage: req.j360CanManage,
+      },
+    });
+  });
+
+  /** Equipe elegível para atribuição (com a situação atual no curso). */
+  router.get('/trainings/team', requireManage, async (req, res) => {
+    const trainingId = parseId(req.query.training_id);
     try {
-      const result = await pool.query(
-        `SELECT t.*,
-                (SELECT COUNT(*)::int FROM j360_training_assignments a WHERE a.training_id = t.id) AS assigned_count,
-                (SELECT COUNT(*)::int FROM j360_training_assignments a WHERE a.training_id = t.id AND a.status = 'concluido') AS completed_count
-           FROM j360_trainings t
-          WHERE t.establishment_id = $1 AND t.is_active = TRUE
-          ORDER BY t.title`,
-        [req.j360EstablishmentId]
-      );
-      return res.json({ success: true, data: result.rows });
+      const rows = await repo.listTeam(pool, {
+        establishmentId: req.j360EstablishmentId,
+        trainingId,
+      });
+      return res.json({ success: true, data: rows });
     } catch (err) {
-      console.error('[j360] trainings:', err.message);
+      console.error(
+        `[j360] training team (establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
+      return res.status(500).json({ success: false, message: 'Falha ao listar a equipe.' });
+    }
+  });
+
+  /** Lista cursos com progresso. Filtros: role_key, status, q, scope. */
+  router.get('/trainings', async (req, res) => {
+    const roleKey = pickRoleKey(req.query.role_key);
+    if (!roleKey.ok) return res.status(400).json({ success: false, message: INVALID_ROLE_MESSAGE });
+    const status = pickStatus(req.query.status);
+    if (!status.ok) return res.status(400).json({ success: false, message: INVALID_STATUS_MESSAGE });
+
+    await sweepExpired(pool, req.j360EstablishmentId);
+    try {
+      const rows = await repo.listTrainings(pool, {
+        establishmentId: req.j360EstablishmentId,
+        roleKey: roleKey.value,
+        status: status.value,
+        q: optionalStr(req.query.q, 200),
+        scope: String(req.query.scope || 'active').trim().toLowerCase(),
+      });
+      return res.json({
+        success: true,
+        data: rows,
+        meta: { can_manage: req.j360CanManage },
+      });
+    } catch (err) {
+      console.error(
+        `[j360] trainings list (establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
       return res.status(500).json({ success: false, message: 'Falha ao listar treinamentos.' });
     }
   });
 
-  router.post('/trainings', requireManage, async (req, res) => {
-    const title = str(req.body.title, 300);
-    if (!title) return res.status(400).json({ success: false, message: 'Título obrigatório.' });
+  /** Detalhe do curso. A lista de quem foi atribuído é só para a gestão. */
+  router.get('/trainings/:id', async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: 'ID inválido.' });
+    await sweepExpired(pool, req.j360EstablishmentId);
     try {
-      const result = await pool.query(
-        `INSERT INTO j360_trainings
-          (establishment_id, title, description, role_key, content_url, content_body,
-           validity_days, is_mandatory, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [
-          req.j360EstablishmentId,
-          title,
-          optionalStr(req.body.description, 4000),
-          optionalStr(req.body.role_key, 80),
-          optionalStr(req.body.content_url, 1000),
-          optionalStr(req.body.content_body, 20000),
-          parseId(req.body.validity_days),
-          req.body.is_mandatory !== false,
-          req.user.id || req.user.userId,
-        ]
+      const training = await repo.getTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        id,
+      });
+      if (!training) {
+        return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
+      }
+      const assignments = req.j360CanManage ? await repo.listAssignments(pool, id) : [];
+      return res.json({
+        success: true,
+        data: {
+          ...training,
+          ...summarizeAssignments(assignments),
+          assignments: assignments.map((a) => ({
+            ...a,
+            days_until_expiry: daysUntilExpiry(a.expires_at),
+          })),
+          can_manage: req.j360CanManage,
+        },
+      });
+    } catch (err) {
+      console.error(
+        `[j360] training get (training_id=${id}, establishment_id=${req.j360EstablishmentId}):`,
+        err.message
       );
+      return res.status(500).json({ success: false, message: 'Falha ao carregar treinamento.' });
+    }
+  });
+
+  router.post('/trainings', requireManage, async (req, res) => {
+    const payload = payloads.parseCreatePayload(req.body);
+    if (!payload.ok) return res.status(400).json({ success: false, message: payload.message });
+
+    const actorUserId = req.user.id || req.user.userId;
+    try {
+      const training = await repo.insertTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        createdBy: actorUserId,
+        ...payload.value,
+      });
       await writeAudit(pool, {
         establishmentId: req.j360EstablishmentId,
         entityType: 'training',
-        entityId: result.rows[0].id,
+        entityId: training.id,
         action: 'create',
-        actorUserId: req.user.id || req.user.userId,
+        actorUserId,
+        payload: {
+          role_key: payload.value.roleKey,
+          validity_days: payload.value.validityDays,
+        },
       });
-      return res.status(201).json({ success: true, data: result.rows[0] });
+      return res.status(201).json({ success: true, data: training });
     } catch (err) {
-      console.error('[j360] training create:', err.message);
+      console.error(
+        `[j360] training create (establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
       return res.status(500).json({ success: false, message: 'Falha ao criar treinamento.' });
     }
   });
 
+  /** Edição de metadados e arquivamento (`is_active = false`). */
+  router.patch('/trainings/:id', requireManage, async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: 'ID inválido.' });
+
+    const payload = payloads.parseUpdatePayload(req.body);
+    if (!payload.ok) return res.status(400).json({ success: false, message: payload.message });
+
+    try {
+      const training = await repo.updateTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        id,
+        sets: payload.sets,
+        params: payload.params,
+      });
+      if (!training) {
+        return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
+      }
+      await writeAudit(pool, {
+        establishmentId: req.j360EstablishmentId,
+        entityType: 'training',
+        entityId: id,
+        action: req.body.is_active === false ? 'archive' : 'update',
+        actorUserId: req.user.id || req.user.userId,
+      });
+      return res.json({ success: true, data: training });
+    } catch (err) {
+      console.error(
+        `[j360] training update (training_id=${id}, establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
+      return res.status(500).json({ success: false, message: 'Falha ao atualizar treinamento.' });
+    }
+  });
+
+  /** Atribuição em lote. `reassign: true` força reciclagem de quem está em dia. */
   router.post('/trainings/:id/assign', requireManage, async (req, res) => {
     const trainingId = parseId(req.params.id);
-    const userIds = Array.isArray(req.body.user_ids) ? req.body.user_ids.map(parseId).filter(Boolean) : [];
-    const userId = parseId(req.body.user_id);
-    if (userId) userIds.push(userId);
+    const ids = Array.isArray(req.body.user_ids) ? req.body.user_ids : [];
+    const single = parseId(req.body.user_id);
+    const userIds = [...new Set([...ids.map(parseId), single].filter(Boolean))];
     if (!trainingId || userIds.length === 0) {
-      return res.status(400).json({ success: false, message: 'training e user_ids obrigatórios.' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Informe o treinamento e ao menos uma pessoa.' });
     }
+
+    // Data inválida vira 400 aqui em vez de estourar o cast no Postgres.
+    const dueAt = optionalStr(req.body.due_at, 40);
+    if (dueAt && Number.isNaN(new Date(dueAt).getTime())) {
+      return res.status(400).json({ success: false, message: 'Prazo inválido.' });
+    }
+
+    const actorUserId = req.user.id || req.user.userId;
     try {
-      const tpl = await pool.query(
-        `SELECT * FROM j360_trainings WHERE id = $1 AND establishment_id = $2`,
-        [trainingId, req.j360EstablishmentId]
-      );
-      if (!tpl.rows[0]) return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
-      const rows = [];
-      for (const uid of userIds) {
-        const r = await pool.query(
-          `INSERT INTO j360_training_assignments (training_id, user_id, due_at, status)
-           VALUES ($1, $2, $3, 'pendente')
-           ON CONFLICT (training_id, user_id) DO UPDATE SET status = 'pendente', assigned_at = NOW()
-           RETURNING *`,
-          [trainingId, uid, optionalStr(req.body.due_at, 40)]
-        );
-        rows.push(r.rows[0]);
+      const training = await repo.getTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        id: trainingId,
+      });
+      if (!training) {
+        return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
       }
-      return res.status(201).json({ success: true, data: rows });
+      const outcome = await repo.assignUsers(pool, {
+        establishmentId: req.j360EstablishmentId,
+        trainingId,
+        userIds,
+        dueAt,
+        force: parseBoolean(req.body.reassign, false),
+      });
+      if (outcome.skipped.length > 0) {
+        console.warn(
+          `[j360] assign ignorou usuários sem vínculo ativo ` +
+            `(establishment_id=${req.j360EstablishmentId}, training_id=${trainingId}): ` +
+            outcome.skipped.join(',')
+        );
+      }
+      if (outcome.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhuma das pessoas selecionadas tem acesso ativo ao Justino360.',
+        });
+      }
+      await writeAudit(pool, {
+        establishmentId: req.j360EstablishmentId,
+        entityType: 'training',
+        entityId: trainingId,
+        action: 'assign',
+        actorUserId,
+        payload: {
+          created: outcome.created,
+          reset: outcome.reset,
+          kept: outcome.kept,
+          skipped: outcome.skipped,
+        },
+      });
+      return res.status(201).json({
+        success: true,
+        data: outcome.rows,
+        meta: {
+          created: outcome.created,
+          reset: outcome.reset,
+          kept: outcome.kept,
+          skipped: outcome.skipped,
+        },
+      });
     } catch (err) {
-      console.error('[j360] training assign:', err.message);
+      console.error(
+        `[j360] training assign (training_id=${trainingId}, establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
       return res.status(500).json({ success: false, message: 'Falha ao atribuir treinamento.' });
     }
   });
 
-  router.post('/trainings/:id/complete', async (req, res) => {
+  /** Abrir o conteúdo marca "em andamento" sem exigir conclusão. */
+  router.post('/trainings/:id/start', async (req, res) => {
     const trainingId = parseId(req.params.id);
-    const userId = req.user.id || req.user.userId;
     if (!trainingId) return res.status(400).json({ success: false, message: 'ID inválido.' });
     try {
-      const training = await pool.query(
-        `SELECT * FROM j360_trainings WHERE id = $1 AND establishment_id = $2`,
-        [trainingId, req.j360EstablishmentId]
-      );
-      if (!training.rows[0]) return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
-      const validity = training.rows[0].validity_days;
-      const result = await pool.query(
-        `INSERT INTO j360_training_assignments (training_id, user_id, status, completed_at, result, expires_at)
-         VALUES ($1, $2, 'concluido', NOW(), $3,
-           CASE WHEN $4::int IS NOT NULL THEN NOW() + ($4 || ' days')::interval ELSE NULL END)
-         ON CONFLICT (training_id, user_id) DO UPDATE
-           SET status = 'concluido', completed_at = NOW(), result = EXCLUDED.result,
-               expires_at = EXCLUDED.expires_at
-         RETURNING *`,
-        [trainingId, userId, optionalStr(req.body.result, 80) || 'concluido', validity]
-      );
-      return res.json({ success: true, data: result.rows[0] });
+      const training = await repo.getTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        id: trainingId,
+      });
+      if (!training) {
+        return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
+      }
+      const assignment = await repo.startAssignment(pool, {
+        trainingId,
+        userId: req.user.id || req.user.userId,
+      });
+      return res.json({ success: true, data: assignment });
     } catch (err) {
-      console.error('[j360] training complete:', err.message);
+      console.error(
+        `[j360] training start (training_id=${trainingId}, establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
+      return res.status(500).json({ success: false, message: 'Falha ao iniciar treinamento.' });
+    }
+  });
+
+  /**
+   * Conclusão. A pessoa conclui o dela; a gestão pode registrar por outra
+   * (treinamento presencial) mandando `user_id`.
+   */
+  router.post('/trainings/:id/complete', async (req, res) => {
+    const trainingId = parseId(req.params.id);
+    if (!trainingId) return res.status(400).json({ success: false, message: 'ID inválido.' });
+    const actorUserId = req.user.id || req.user.userId;
+    const targetUserId = parseId(req.body.user_id) || actorUserId;
+    if (targetUserId !== actorUserId && !req.j360CanManage) {
+      return res
+        .status(403)
+        .json({ success: false, message: 'Só a gestão pode concluir por outra pessoa.' });
+    }
+    try {
+      const training = await repo.getTraining(pool, {
+        establishmentId: req.j360EstablishmentId,
+        id: trainingId,
+      });
+      if (!training) {
+        return res.status(404).json({ success: false, message: 'Treinamento não encontrado.' });
+      }
+      const assignment = await repo.completeAssignment(pool, {
+        trainingId,
+        userId: targetUserId,
+        result: optionalStr(req.body.result, 80) || 'concluido',
+        validityDays: training.validity_days,
+      });
+      await writeAudit(pool, {
+        establishmentId: req.j360EstablishmentId,
+        entityType: 'training',
+        entityId: trainingId,
+        action: 'complete',
+        actorUserId,
+        payload: {
+          user_id: targetUserId,
+          result: assignment.result,
+          expires_at: assignment.expires_at,
+        },
+      });
+      return res.json({
+        success: true,
+        data: { ...assignment, days_until_expiry: daysUntilExpiry(assignment.expires_at) },
+      });
+    } catch (err) {
+      console.error(
+        `[j360] training complete (training_id=${trainingId}, user_id=${targetUserId}, ` +
+          `establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
       return res.status(500).json({ success: false, message: 'Falha ao concluir treinamento.' });
     }
   });
 
   router.get('/my-trainings', async (req, res) => {
-    const userId = req.user.id || req.user.userId;
+    const status = pickStatus(req.query.status);
+    if (!status.ok) return res.status(400).json({ success: false, message: INVALID_STATUS_MESSAGE });
+    await sweepExpired(pool, req.j360EstablishmentId);
     try {
-      const result = await pool.query(
-        `SELECT ta.*, t.title, t.description, t.content_url, t.content_body, t.is_mandatory, t.role_key
-           FROM j360_training_assignments ta
-           JOIN j360_trainings t ON t.id = ta.training_id
-          WHERE t.establishment_id = $1 AND ta.user_id = $2
-          ORDER BY ta.status, ta.due_at NULLS LAST`,
-        [req.j360EstablishmentId, userId]
-      );
-      return res.json({ success: true, data: result.rows });
+      const rows = await repo.listMyTrainings(pool, {
+        establishmentId: req.j360EstablishmentId,
+        userId: req.user.id || req.user.userId,
+        status: status.value,
+      });
+      return res.json({
+        success: true,
+        data: rows.map((row) => ({
+          ...row,
+          days_until_expiry: daysUntilExpiry(row.expires_at),
+        })),
+      });
     } catch (err) {
-      console.error('[j360] my-trainings:', err.message);
+      console.error(
+        `[j360] my-trainings (establishment_id=${req.j360EstablishmentId}):`,
+        err.message
+      );
       return res.status(500).json({ success: false, message: 'Falha ao listar meus treinamentos.' });
     }
   });

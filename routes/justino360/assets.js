@@ -1,28 +1,63 @@
 'use strict';
 
+/**
+ * Justino360 — inventário de ativos (freezer, chopeira, câmara fria…).
+ * Chamados de manutenção ficam em routes/justino360/maintenance.js.
+ */
 const express = require('express');
 const { applyCommonMiddleware, requireManage, writeAudit } = require('./middleware');
-const { str, optionalStr, parseId } = require('../../validators/justino360Validator');
+const {
+  str,
+  optionalStr,
+  parseId,
+  parseBoolean,
+} = require('../../validators/justino360Validator');
+const { MAINTENANCE_OPEN_STATUSES } = require('../../services/justino360/constants');
+
+const ASSET_COLUMNS = `
+  a.id, a.establishment_id, a.sector_id, a.name, a.code, a.location,
+  a.manufacturer, a.notes, a.next_maintenance_at, a.is_active, a.created_at`;
 
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
   applyCommonMiddleware(router, pool);
 
+  const actor = (req) => req.user.id || req.user.userId;
+
   router.get('/assets', async (req, res) => {
+    const params = [req.j360EstablishmentId, MAINTENANCE_OPEN_STATUSES];
+    let sql = `
+      SELECT ${ASSET_COLUMNS},
+             s.name AS sector_name,
+             (SELECT COUNT(*)::int FROM j360_asset_maintenance m
+               WHERE m.asset_id = a.id AND m.status = ANY($2::text[])) AS open_tickets,
+             (SELECT MAX(m.performed_at) FROM j360_asset_maintenance m
+               WHERE m.asset_id = a.id AND m.performed_at IS NOT NULL) AS last_maintenance_at
+        FROM j360_assets a
+        LEFT JOIN j360_sectors s ON s.id = a.sector_id
+       WHERE a.establishment_id = $1`;
+
+    if (!parseBoolean(req.query.include_inactive, false)) {
+      sql += ' AND a.is_active = TRUE';
+    }
+    const sectorId = parseId(req.query.sector_id);
+    if (sectorId) {
+      params.push(sectorId);
+      sql += ` AND a.sector_id = $${params.length}`;
+    }
+    const search = optionalStr(req.query.q, 120);
+    if (search) {
+      params.push(`%${search}%`);
+      sql += ` AND (a.name ILIKE $${params.length} OR a.code ILIKE $${params.length}
+                    OR a.location ILIKE $${params.length})`;
+    }
+    sql += ' ORDER BY s.sort_order NULLS LAST, a.name LIMIT 300';
+
     try {
-      const result = await pool.query(
-        `SELECT a.*, s.name AS sector_name,
-                (SELECT COUNT(*)::int FROM j360_asset_maintenance m
-                  WHERE m.asset_id = a.id AND m.status IN ('aberta','em_andamento')) AS open_tickets
-           FROM j360_assets a
-           LEFT JOIN j360_sectors s ON s.id = a.sector_id
-          WHERE a.establishment_id = $1 AND a.is_active = TRUE
-          ORDER BY a.name`,
-        [req.j360EstablishmentId]
-      );
+      const result = await pool.query(sql, params);
       return res.json({ success: true, data: result.rows });
     } catch (err) {
-      console.error('[j360] assets:', err.message);
+      console.error(`[j360] assets list est=${req.j360EstablishmentId}:`, err.message);
       return res.status(500).json({ success: false, message: 'Falha ao listar equipamentos.' });
     }
   });
@@ -51,114 +86,117 @@ module.exports = (pool) => {
         entityType: 'asset',
         entityId: result.rows[0].id,
         action: 'create',
-        actorUserId: req.user.id || req.user.userId,
+        actorUserId: actor(req),
       });
       return res.status(201).json({ success: true, data: result.rows[0] });
     } catch (err) {
-      console.error('[j360] asset create:', err.message);
+      console.error(`[j360] asset create est=${req.j360EstablishmentId}:`, err.message);
       return res.status(500).json({ success: false, message: 'Falha ao cadastrar equipamento.' });
     }
   });
 
-  router.get('/assets/:id/maintenance', async (req, res) => {
+  router.patch('/assets/:id', requireManage, async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ success: false, message: 'ID inválido.' });
+    const fields = [];
+    const params = [];
+    const push = (col, val) => {
+      params.push(val);
+      fields.push(`${col} = $${params.length}`);
+    };
+    if (req.body.name !== undefined) {
+      const name = str(req.body.name, 200);
+      if (!name) return res.status(400).json({ success: false, message: 'Nome obrigatório.' });
+      push('name', name);
+    }
+    if (req.body.sector_id !== undefined) push('sector_id', parseId(req.body.sector_id));
+    if (req.body.code !== undefined) push('code', optionalStr(req.body.code, 80));
+    if (req.body.location !== undefined) push('location', optionalStr(req.body.location, 200));
+    if (req.body.manufacturer !== undefined) {
+      push('manufacturer', optionalStr(req.body.manufacturer, 200));
+    }
+    if (req.body.notes !== undefined) push('notes', optionalStr(req.body.notes, 2000));
+    if (req.body.next_maintenance_at !== undefined) {
+      push('next_maintenance_at', optionalStr(req.body.next_maintenance_at, 10));
+    }
+    if (req.body.is_active !== undefined) push('is_active', parseBoolean(req.body.is_active, true));
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, message: 'Nada para atualizar.' });
+    }
+    fields.push('updated_at = NOW()');
+    params.push(id, req.j360EstablishmentId);
+
     try {
       const result = await pool.query(
-        `SELECT * FROM j360_asset_maintenance
-          WHERE asset_id = $1 AND establishment_id = $2
-          ORDER BY created_at DESC`,
-        [id, req.j360EstablishmentId]
+        `UPDATE j360_assets SET ${fields.join(', ')}
+          WHERE id = $${params.length - 1} AND establishment_id = $${params.length}
+          RETURNING *`,
+        params
       );
-      return res.json({ success: true, data: result.rows });
+      if (!result.rows[0]) {
+        return res.status(404).json({ success: false, message: 'Equipamento não encontrado.' });
+      }
+      await writeAudit(pool, {
+        establishmentId: req.j360EstablishmentId,
+        entityType: 'asset',
+        entityId: id,
+        action: 'update',
+        actorUserId: actor(req),
+      });
+      return res.json({ success: true, data: result.rows[0] });
     } catch (err) {
-      console.error('[j360] maintenance list:', err.message);
-      return res.status(500).json({ success: false, message: 'Falha ao listar manutenções.' });
+      console.error(`[j360] asset patch asset_id=${id}:`, err.message);
+      return res.status(500).json({ success: false, message: 'Falha ao atualizar equipamento.' });
     }
   });
 
-  router.post('/assets/:id/maintenance', async (req, res) => {
-    const assetId = parseId(req.params.id);
-    const title = str(req.body.title, 300);
-    if (!assetId || !title) {
-      return res.status(400).json({ success: false, message: 'asset e título obrigatórios.' });
-    }
+  /** Detalhe com histórico de manutenção e as ocorrências ligadas ao ativo. */
+  router.get('/assets/:id', async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ success: false, message: 'ID inválido.' });
     try {
       const asset = await pool.query(
-        `SELECT id FROM j360_assets WHERE id = $1 AND establishment_id = $2`,
-        [assetId, req.j360EstablishmentId]
+        `SELECT ${ASSET_COLUMNS}, s.name AS sector_name
+           FROM j360_assets a
+           LEFT JOIN j360_sectors s ON s.id = a.sector_id
+          WHERE a.id = $1 AND a.establishment_id = $2`,
+        [id, req.j360EstablishmentId]
       );
-      if (!asset.rows[0]) return res.status(404).json({ success: false, message: 'Equipamento não encontrado.' });
-      const result = await pool.query(
-        `INSERT INTO j360_asset_maintenance
-          (asset_id, establishment_id, kind, title, description, status, evidence_url, due_at, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [
-          assetId,
-          req.j360EstablishmentId,
-          str(req.body.kind || 'corretiva', 40),
-          title,
-          optionalStr(req.body.description, 4000),
-          str(req.body.status || 'aberta', 40),
-          optionalStr(req.body.evidence_url, 1000),
-          optionalStr(req.body.due_at, 40),
-          req.user.id || req.user.userId,
-        ]
-      );
-      return res.status(201).json({ success: true, data: result.rows[0] });
+      if (!asset.rows[0]) {
+        return res.status(404).json({ success: false, message: 'Equipamento não encontrado.' });
+      }
+      const [maintenance, incidents] = await Promise.all([
+        pool.query(
+          `SELECT m.*, cu.name AS created_by_name, pu.name AS performed_by_name
+             FROM j360_asset_maintenance m
+             LEFT JOIN users cu ON cu.id = m.created_by
+             LEFT JOIN users pu ON pu.id = m.performed_by
+            WHERE m.asset_id = $1 AND m.establishment_id = $2
+            ORDER BY m.created_at DESC
+            LIMIT 100`,
+          [id, req.j360EstablishmentId]
+        ),
+        pool.query(
+          `SELECT i.id, i.title, i.status, i.priority, i.created_at, i.resolved_at, i.solution
+             FROM j360_incidents i
+            WHERE i.asset_id = $1 AND i.establishment_id = $2
+            ORDER BY i.created_at DESC
+            LIMIT 50`,
+          [id, req.j360EstablishmentId]
+        ),
+      ]);
+      return res.json({
+        success: true,
+        data: {
+          asset: asset.rows[0],
+          maintenance: maintenance.rows,
+          incidents: incidents.rows,
+          can_manage: req.j360CanManage,
+        },
+      });
     } catch (err) {
-      console.error('[j360] maintenance create:', err.message);
-      return res.status(500).json({ success: false, message: 'Falha ao abrir chamado.' });
-    }
-  });
-
-  router.patch('/maintenance/:id', async (req, res) => {
-    const id = parseId(req.params.id);
-    if (!id) return res.status(400).json({ success: false, message: 'ID inválido.' });
-    try {
-      const status = optionalStr(req.body.status, 40);
-      const result = await pool.query(
-        `UPDATE j360_asset_maintenance
-            SET status = COALESCE($1, status),
-                evidence_url = COALESCE($2, evidence_url),
-                description = COALESCE($3, description),
-                performed_by = CASE WHEN $1 IN ('concluida','concluido') THEN $4 ELSE performed_by END,
-                performed_at = CASE WHEN $1 IN ('concluida','concluido') THEN NOW() ELSE performed_at END
-          WHERE id = $5 AND establishment_id = $6
-          RETURNING *`,
-        [
-          status,
-          optionalStr(req.body.evidence_url, 1000),
-          optionalStr(req.body.description, 4000),
-          req.user.id || req.user.userId,
-          id,
-          req.j360EstablishmentId,
-        ]
-      );
-      if (!result.rows[0]) return res.status(404).json({ success: false, message: 'Chamado não encontrado.' });
-      return res.json({ success: true, data: result.rows[0] });
-    } catch (err) {
-      console.error('[j360] maintenance patch:', err.message);
-      return res.status(500).json({ success: false, message: 'Falha ao atualizar chamado.' });
-    }
-  });
-
-  router.get('/maintenance-metrics', async (req, res) => {
-    try {
-      const result = await pool.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE status IN ('aberta','em_andamento'))::int AS abertos,
-           COUNT(*) FILTER (WHERE status IN ('concluida','concluido'))::int AS concluidos,
-           AVG(EXTRACT(EPOCH FROM (performed_at - created_at)) / 3600)
-             FILTER (WHERE performed_at IS NOT NULL)::numeric(10,1) AS tempo_medio_horas
-         FROM j360_asset_maintenance
-         WHERE establishment_id = $1`,
-        [req.j360EstablishmentId]
-      );
-      return res.json({ success: true, data: result.rows[0] });
-    } catch (err) {
-      console.error('[j360] maintenance metrics:', err.message);
-      return res.status(500).json({ success: false, message: 'Falha ao carregar indicadores.' });
+      console.error(`[j360] asset detail asset_id=${id}:`, err.message);
+      return res.status(500).json({ success: false, message: 'Falha ao carregar equipamento.' });
     }
   });
 

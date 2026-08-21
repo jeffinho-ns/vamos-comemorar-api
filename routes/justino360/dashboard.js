@@ -3,6 +3,7 @@
 const express = require('express');
 const { applyCommonMiddleware, writeAudit } = require('./middleware');
 const { str, optionalStr, parseId } = require('../../validators/justino360Validator');
+const { MAINTENANCE_OPEN_STATUSES } = require('../../services/justino360/constants');
 
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
@@ -40,6 +41,7 @@ module.exports = (pool) => {
         tasksOverdue,
         incidentsCritical,
         runsPendingToday,
+        maintenanceOpen,
       ] = await Promise.all([
           pool.query(
             `SELECT COUNT(*)::int AS c FROM j360_checklist_runs
@@ -112,6 +114,11 @@ module.exports = (pool) => {
                 )`,
             [est, today]
           ),
+          pool.query(
+            `SELECT COUNT(*)::int AS c FROM j360_asset_maintenance
+              WHERE establishment_id = $1 AND status = ANY($2::text[])`,
+            [est, MAINTENANCE_OPEN_STATUSES]
+          ),
         ]);
 
       const bySector = await pool.query(
@@ -153,6 +160,7 @@ module.exports = (pool) => {
           tarefas_atrasadas: tasksOverdue.rows[0].c,
           ocorrencias_criticas: incidentsCritical.rows[0].c,
           checklists_nao_iniciados_hoje: runsPendingToday.rows[0].c,
+          manutencoes_abertas: maintenanceOpen.rows[0].c,
           por_setor: bySector.rows,
           problemas_recorrentes: recurring.rows,
           can_manage: req.j360CanManage,
@@ -222,6 +230,7 @@ module.exports = (pool) => {
           `SELECT id, title, starts_at, event_type, briefing
              FROM j360_calendar_events
             WHERE establishment_id = $1
+              AND is_active = TRUE
               AND starts_at::date >= $2::date
               AND starts_at < ($2::date + INTERVAL '7 days')
             ORDER BY starts_at

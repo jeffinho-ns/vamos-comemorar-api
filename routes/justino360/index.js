@@ -27,6 +27,7 @@ module.exports = (pool) => {
   router.use(require('./calendar')(pool));
   router.use(require('./meetings')(pool));
   router.use(require('./assets')(pool));
+  router.use(require('./maintenance')(pool));
   router.use(require('./upload')(pool));
   router.use(require('./ai')(pool));
 

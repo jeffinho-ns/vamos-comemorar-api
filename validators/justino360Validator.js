@@ -6,6 +6,8 @@ const {
   TASK_STATUSES,
   RUN_ITEM_STATUSES,
   PRIORITIES,
+  MAINTENANCE_KINDS,
+  MAINTENANCE_STATUSES,
 } = require('../services/justino360/constants');
 
 function parseEstablishmentId(value) {
@@ -58,6 +60,28 @@ function parseBoolean(value, defaultValue = false) {
   return Boolean(value);
 }
 
+/**
+ * Timestamp tri-state para PATCH/POST: distingue "não informado" de "limpar".
+ * Aceita ISO e o `YYYY-MM-DDTHH:mm` que o <input type="datetime-local"> envia.
+ * @returns {{ ok: boolean, value: string|null }}
+ */
+function parseTimestamp(value) {
+  if (value === undefined || value === null || value === '') return { ok: true, value: null };
+  const parsed = new Date(str(value, 40));
+  if (Number.isNaN(parsed.getTime())) return { ok: false, value: null };
+  return { ok: true, value: parsed.toISOString() };
+}
+
+/** Data `YYYY-MM-DD` para filtros por janela. */
+function parseDateOnly(value) {
+  if (value === undefined || value === null || value === '') return { ok: true, value: null };
+  const raw = str(value, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { ok: false, value: null };
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return { ok: false, value: null };
+  return { ok: true, value: raw };
+}
+
 function oneOf(value, allowed, fallback = null) {
   const v = String(value || '').trim().toLowerCase();
   if (allowed.includes(v)) return v;
@@ -80,6 +104,14 @@ function validateRunItemStatus(value) {
   return oneOf(value, RUN_ITEM_STATUSES, null);
 }
 
+function validateMaintenanceKind(value) {
+  return oneOf(value, MAINTENANCE_KINDS, 'corretiva');
+}
+
+function validateMaintenanceStatus(value) {
+  return oneOf(value, MAINTENANCE_STATUSES, null);
+}
+
 module.exports = {
   parseEstablishmentId,
   assertJustinoEstablishment,
@@ -87,9 +119,14 @@ module.exports = {
   optionalStr,
   parseId,
   parseBoolean,
+  parseTimestamp,
+  parseDateOnly,
+  oneOf,
   validatePriority,
   validateIncidentStatus,
   validateTaskStatus,
   validateRunItemStatus,
+  validateMaintenanceKind,
+  validateMaintenanceStatus,
   SEU_JUSTINO_ESTABLISHMENT_ID,
 };
