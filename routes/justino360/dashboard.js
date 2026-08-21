@@ -4,6 +4,7 @@ const express = require('express');
 const { applyCommonMiddleware, writeAudit } = require('./middleware');
 const { str, optionalStr, parseId } = require('../../validators/justino360Validator');
 const { MAINTENANCE_OPEN_STATUSES } = require('../../services/justino360/constants');
+const trainingRepo = require('../../services/justino360/trainingRepository');
 
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
@@ -22,6 +23,31 @@ module.exports = (pool) => {
     } catch (err) {
       console.error('[j360] sectors:', err.message);
       return res.status(500).json({ success: false, message: 'Falha ao listar setores.' });
+    }
+  });
+
+  /** Equipe com UEP Justino360 — para atribuir tarefas/decisões. */
+  router.get('/team', async (req, res) => {
+    try {
+      const rows = await trainingRepo.listTeam(pool, {
+        establishmentId: req.j360EstablishmentId,
+        trainingId: null,
+      });
+      return res.json({
+        success: true,
+        data: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          role: r.role,
+        })),
+      });
+    } catch (err) {
+      console.error(
+        `[j360] team list establishment_id=${req.j360EstablishmentId}:`,
+        err.message
+      );
+      return res.status(500).json({ success: false, message: 'Falha ao listar a equipe.' });
     }
   });
 
