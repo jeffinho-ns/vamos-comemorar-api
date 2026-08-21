@@ -363,6 +363,7 @@ WHERE establishment_id = 1
   AND can_access_justino360 IS NOT TRUE;
 
 -- Gestão e validação só para admin/gerência — nunca para a equipe de operação.
+-- role é enum users_role: nunca COALESCE com '' (valor inválido no enum).
 UPDATE user_establishment_permissions uep
 SET
   can_manage_justino360 = TRUE,
@@ -371,7 +372,7 @@ FROM users u
 WHERE u.id = uep.user_id
   AND uep.establishment_id = 1
   AND uep.is_active = TRUE
-  AND LOWER(TRIM(COALESCE(u.role, ''))) IN (
+  AND LOWER(TRIM(u.role::text)) IN (
     'admin', 'administrador', 'gerente', 'subgerente'
   )
   AND (uep.can_manage_justino360 IS NOT TRUE OR uep.can_validate_justino360 IS NOT TRUE);
