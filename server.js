@@ -303,6 +303,8 @@ app.use('/api/operational-details', operationalDetailsRoutes(pool));
 app.use('/api/executive-events', executiveEventsRoutes(pool));
 // Rotas de Permissões por Estabelecimento
 app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
+// Justino360 — operação Seu Justino (concepção Isa)
+app.use('/api/justino360', require('./routes/justino360')(pool));
 // Condução Fluxo Rooftop (GET/POST /api/rooftop/conduction)
 app.use('/api/rooftop', rooftopConductionRoutes(pool));
 app.use('/api/relatorios', relatoriosRoutes);

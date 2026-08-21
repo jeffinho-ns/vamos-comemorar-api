@@ -180,6 +180,14 @@ module.exports = (pool) => {
           error: 'Permissão não encontrada'
         });
       }
+
+      const actor = await resolveActorScope(pool, req.user);
+      if (!canAccessOperationalEstablishment(actor, result.rows[0].establishment_id)) {
+        return res.status(404).json({
+          success: false,
+          error: 'Não encontrado'
+        });
+      }
       
       res.json({
         success: true,
@@ -223,6 +231,9 @@ module.exports = (pool) => {
         can_create_cardapio,
         can_edit_cardapio,
         can_delete_cardapio,
+        can_access_justino360,
+        can_manage_justino360,
+        can_validate_justino360,
         is_active
       } = req.body;
 
@@ -263,9 +274,10 @@ module.exports = (pool) => {
           can_create_edit_reservations,
           can_manage_whatsapp, can_configure_ia,
           can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
+          can_access_justino360, can_manage_justino360, can_validate_justino360,
           is_active, created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
         ) RETURNING *
       `;
       
@@ -292,6 +304,9 @@ module.exports = (pool) => {
         can_create_cardapio !== undefined ? can_create_cardapio : true,
         can_edit_cardapio !== undefined ? can_edit_cardapio : true,
         can_delete_cardapio !== undefined ? can_delete_cardapio : true,
+        !!can_access_justino360,
+        !!can_manage_justino360,
+        !!can_validate_justino360,
         is_active !== undefined ? is_active : true,
         req.user.id
       ];
@@ -378,6 +393,9 @@ module.exports = (pool) => {
         can_create_cardapio,
         can_edit_cardapio,
         can_delete_cardapio,
+        can_access_justino360,
+        can_manage_justino360,
+        can_validate_justino360,
         is_active
       } = req.body;
       
@@ -421,10 +439,13 @@ module.exports = (pool) => {
           can_create_cardapio = COALESCE($15, can_create_cardapio),
           can_edit_cardapio = COALESCE($16, can_edit_cardapio),
           can_delete_cardapio = COALESCE($17, can_delete_cardapio),
-          is_active = COALESCE($18, is_active),
-          updated_by = $19,
+          can_access_justino360 = COALESCE($18, can_access_justino360),
+          can_manage_justino360 = COALESCE($19, can_manage_justino360),
+          can_validate_justino360 = COALESCE($20, can_validate_justino360),
+          is_active = COALESCE($21, is_active),
+          updated_by = $22,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $20
+        WHERE id = $23
         RETURNING *
       `;
       
@@ -446,6 +467,9 @@ module.exports = (pool) => {
         can_create_cardapio,
         can_edit_cardapio,
         can_delete_cardapio,
+        can_access_justino360,
+        can_manage_justino360,
+        can_validate_justino360,
         is_active,
         req.user.id,
         id
@@ -571,6 +595,11 @@ module.exports = (pool) => {
   router.get('/audit-logs', auth, async (req, res) => {
     try {
       const { user_id, target_user_id, establishment_id, action_type, limit = 100 } = req.query;
+      const actor = await resolveActorScope(pool, req.user);
+
+      if (establishment_id && !canAccessOperationalEstablishment(actor, establishment_id)) {
+        return res.status(404).json({ success: false, error: 'Não encontrado' });
+      }
       
       let query = `
         SELECT 
@@ -587,6 +616,11 @@ module.exports = (pool) => {
       
       const params = [];
       let paramIndex = 1;
+
+      const scopeSql = sqlEstablishmentInScope(actor, 'pal.establishment_id', paramIndex);
+      query += ` ${scopeSql.sql}`;
+      params.push(...scopeSql.params);
+      paramIndex += scopeSql.params.length;
       
       if (user_id) {
         query += ` AND pal.user_id = $${paramIndex++}`;
@@ -609,7 +643,7 @@ module.exports = (pool) => {
       }
       
       query += ` ORDER BY pal.created_at DESC LIMIT $${paramIndex++}`;
-      params.push(parseInt(limit));
+      params.push(parseInt(limit, 10) || 100);
       
       const result = await pool.query(query, params);
       

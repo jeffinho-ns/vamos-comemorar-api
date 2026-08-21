@@ -19,6 +19,11 @@ const MODULE_UEP_FIELDS = {
   eventos: ['can_view_os', 'can_download_os', 'can_create_os', 'can_edit_os'],
   relatorios: ['can_view_reports'],
   promoters: [],
+  justino360: [
+    'can_access_justino360',
+    'can_manage_justino360',
+    'can_validate_justino360',
+  ],
 };
 
 const ALL_UEP_FIELDS = [
