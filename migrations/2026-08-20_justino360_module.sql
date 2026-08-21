@@ -17,10 +17,11 @@ WHERE e.legacy_place_id = 1
   AND m.key = 'justino360'
 ON CONFLICT (establishment_id, module_id) DO UPDATE SET is_enabled = TRUE;
 
--- Também na organização (a tabela só existe após migrations/saas/002)
+-- Também na organização (tabela pode estar em public ou meu_backup_db)
 DO $$
 BEGIN
-  IF to_regclass('public.organization_modules') IS NOT NULL THEN
+  IF to_regclass('public.organization_modules') IS NOT NULL
+     OR to_regclass('meu_backup_db.organization_modules') IS NOT NULL THEN
     INSERT INTO organization_modules (organization_id, module_id, is_enabled)
     SELECT DISTINCT e.organization_id, m.id, TRUE
     FROM establishments e

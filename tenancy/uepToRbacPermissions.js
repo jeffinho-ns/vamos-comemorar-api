@@ -55,6 +55,13 @@ function mergeUepRowIntoPermissionSet(perms, row) {
   if (viewReports) {
     perms.add('relatorios:read');
   }
+
+  if (row.can_access_justino360 || row.can_manage_justino360 || row.can_validate_justino360) {
+    perms.add('justino360:read');
+  }
+  if (row.can_manage_justino360 || row.can_validate_justino360) {
+    perms.add('justino360:update');
+  }
 }
 
 /**
@@ -82,7 +89,10 @@ async function loadUepRbacPermissions(pool, userId) {
          can_edit_os,
          can_view_operational_detail,
          can_create_operational_detail,
-         can_edit_operational_detail
+         can_edit_operational_detail,
+         can_access_justino360,
+         can_manage_justino360,
+         can_validate_justino360
          FROM user_establishment_permissions
         WHERE user_id = $1 AND is_active = TRUE`,
       [userId],
