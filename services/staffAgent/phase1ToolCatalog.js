@@ -183,8 +183,8 @@ const PHASE1_TOOLS = [
       'Busca itens/categorias do cardápio da casa (barId da sessão) por nome. Usado antes de pausar.',
     args: [
       { name: 'query', type: 'string', description: 'Nome parcial do item ou categoria', required: true },
-      { name: 'include_paused', type: 'boolean', description: 'Incluir itens pausados/ocultos (obrigatório ao reativar)', required: false },
-      { name: 'only_paused', type: 'boolean', description: 'Só itens já pausados (útil para reativar)', required: false },
+      { name: 'include_paused', type: 'string', description: 'Incluir pausados: "true" ou "false" (use true ao reativar)', required: false },
+      { name: 'only_paused', type: 'string', description: 'Só pausados: "true" ou "false"', required: false },
     ],
     requiresConfirmation: false,
     isWrite: false,

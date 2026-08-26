@@ -22,6 +22,17 @@ function parseDateOrToday(date) {
   return todayIsoSp();
 }
 
+function coerceBool(value, defaultValue = false) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === 'true' || s === '1' || s === 'sim' || s === 'yes') return true;
+    if (s === 'false' || s === '0' || s === 'nao' || s === 'não' || s === 'no') return false;
+  }
+  return defaultValue;
+}
+
 async function resolveBarId(pool, establishmentId) {
   try {
     const rules = await establishmentRules.getEstablishmentRules(pool, establishmentId);
@@ -259,8 +270,9 @@ async function chamarEspera(pool, { establishmentId, args, mode }) {
 async function listarItensCardapio(pool, { establishmentId, args }) {
   const barId = await resolveBarId(pool, establishmentId);
   const q = `%${String(args.query || '').trim()}%`;
-  const includePaused = Boolean(args.include_paused) || Boolean(args.only_paused);
-  const onlyPaused = Boolean(args.only_paused);
+  const includePaused =
+    coerceBool(args.include_paused) || coerceBool(args.only_paused);
+  const onlyPaused = coerceBool(args.only_paused);
   let visibilitySql = '';
   if (onlyPaused) {
     visibilitySql = 'AND COALESCE(visible, TRUE) = FALSE';

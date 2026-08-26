@@ -53,17 +53,97 @@ function detectMenuWriteIntent(text) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  // "ativar" / "reativar" / "voltar no cardapio"
+  // "ativar" / "ativa" / "reativar" / "voltar no cardapio"
   if (
-    /\b(reativar|ativar)\b/.test(t) ||
+    /\b(reativ\w*|ativ\w*)\b/.test(t) ||
     (/\b(voltar|liberar)\b/.test(t) && /\b(cardapio|item|prato|drink)\b/.test(t))
   ) {
     return 'reativar_item_cardapio';
   }
-  if (/\b(pausar|pause|tirar|esconder|ocultar)\b/.test(t)) {
+  if (/\b(paus\w*|pause|tirar|esconder|ocultar)\b/.test(t)) {
     return 'pausar_item_cardapio';
   }
   return null;
+}
+
+function extractMenuItemQuery(text) {
+  let q = String(text || '').trim();
+  q = q.replace(
+    /^(paus\w*|pause|ativ\w*|reativ\w*|tirar|esconder|ocultar|voltar|liberar)\s+(o\s+|a\s+|os\s+|as\s+)?(item(s)?\s+)?(do\s+card[aá]pio\s+)?/i,
+    ''
+  );
+  return q.trim();
+}
+
+async function finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, result }) {
+  if (!menuWriteIntent || !result?.ok || !Array.isArray(result.items)) {
+    return null;
+  }
+  if (result.items.length === 1) {
+    await assertCanUseTool(pool, {
+      user,
+      establishmentId: estId,
+      toolName: menuWriteIntent,
+    });
+    return buildWriteConfirm(pool, {
+      user,
+      estId,
+      toolName: menuWriteIntent,
+      args: { item_id: result.items[0].id },
+    });
+  }
+  return {
+    ok: true,
+    type: 'result',
+    reply: result.message || (result.items.length ? 'Pronto.' : 'Nenhum item encontrado.'),
+    tool: 'listar_itens_cardapio',
+    data: result,
+    meta: getPhase1Meta(),
+  };
+}
+
+/** Pausar/ativar sem passar pela Groq na busca — evita schema boolean e acelera. */
+async function tryMenuWriteTurn(pool, { user, estId, text, menuWriteIntent }) {
+  const idMatch = String(text).match(/#(\d+)/);
+  if (idMatch) {
+    const itemId = Number(idMatch[1]);
+    if (Number.isFinite(itemId) && itemId > 0) {
+      await assertCanUseTool(pool, {
+        user,
+        establishmentId: estId,
+        toolName: menuWriteIntent,
+      });
+      return buildWriteConfirm(pool, {
+        user,
+        estId,
+        toolName: menuWriteIntent,
+        args: { item_id: itemId },
+      });
+    }
+  }
+
+  const query = extractMenuItemQuery(text);
+  if (!query || query.length < 2) return null;
+
+  await assertCanUseTool(pool, {
+    user,
+    establishmentId: estId,
+    toolName: 'listar_itens_cardapio',
+  });
+
+  const isReativar = menuWriteIntent === 'reativar_item_cardapio';
+  const result = await executeTool(pool, {
+    toolName: 'listar_itens_cardapio',
+    args: {
+      query,
+      include_paused: isReativar,
+      only_paused: isReativar,
+    },
+    establishmentId: estId,
+    mode: 'read',
+  });
+
+  return finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, result });
 }
 
 function toolResultPayload(result) {
@@ -153,6 +233,12 @@ async function runTurn(pool, { user, establishmentId, message }) {
   ];
 
   const menuWriteIntent = detectMenuWriteIntent(text);
+
+  if (menuWriteIntent) {
+    const fast = await tryMenuWriteTurn(pool, { user, estId, text, menuWriteIntent });
+    if (fast) return fast;
+  }
+
   let lastReadReply = null;
   let lastToolName = null;
   let lastData = null;
@@ -215,24 +301,14 @@ async function runTurn(pool, { user, establishmentId, message }) {
     lastData = result;
 
     // Pediu pausar/reativar e a busca achou exatamente 1 item → abre o Confirmar.
-    if (
-      toolName === 'listar_itens_cardapio' &&
-      menuWriteIntent &&
-      result.ok &&
-      Array.isArray(result.items) &&
-      result.items.length === 1
-    ) {
-      await assertCanUseTool(pool, {
-        user,
-        establishmentId: estId,
-        toolName: menuWriteIntent,
-      });
-      return buildWriteConfirm(pool, {
+    if (toolName === 'listar_itens_cardapio' && menuWriteIntent) {
+      const finished = await finishMenuWriteAfterList(pool, {
         user,
         estId,
-        toolName: menuWriteIntent,
-        args: { item_id: result.items[0].id },
+        menuWriteIntent,
+        result,
       });
+      if (finished) return finished;
     }
 
     messages.push({
@@ -245,23 +321,6 @@ async function runTurn(pool, { user, establishmentId, message }) {
       tool_call_id: call.id,
       content: toolResultPayload(result),
     });
-
-    // Vários itens: devolve a lista com #id e para (usuário escolhe).
-    if (
-      toolName === 'listar_itens_cardapio' &&
-      menuWriteIntent &&
-      Array.isArray(result.items) &&
-      result.items.length > 1
-    ) {
-      return {
-        ok: true,
-        type: 'result',
-        reply: lastReadReply,
-        tool: toolName,
-        data: result,
-        meta: getPhase1Meta(),
-      };
-    }
   }
 
   return {
