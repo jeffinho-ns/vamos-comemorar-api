@@ -2530,6 +2530,20 @@ module.exports = (pool) => {
             
             // Atualizar visibilidade
             await pool.query('UPDATE menu_items SET visible = $1 WHERE id = $2', [newVisibility, id]);
+
+            try {
+                const barRes = await pool.query('SELECT barid FROM menu_items WHERE id = $1', [id]);
+                const barId = barRes.rows[0]?.barid;
+                const { emitMenuItemVisibilityChanged } = require('../utils/menuRealtime');
+                emitMenuItemVisibilityChanged({
+                    barId,
+                    itemId: Number(id),
+                    name: currentItem.name,
+                    visible: newVisibility,
+                });
+            } catch (_) {
+                /* realtime opcional */
+            }
             
             res.json({ 
                 message: newVisibility ? 'Item tornado visível com sucesso.' : 'Item ocultado com sucesso.',

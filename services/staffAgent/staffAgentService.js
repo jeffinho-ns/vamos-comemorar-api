@@ -29,9 +29,10 @@ Use tools quando o pedido exigir dados ou ações. Não invente IDs.
 
 Cardápio (pausar/reativar):
 1) Chame listar_itens_cardapio com o nome pedido.
+   - Se o usuário pediu ATIVAR/REATIVAR, use include_paused=true (itens pausados não aparecem sem isso).
 2) Se vier exatamente 1 item, chame em seguida pausar_item_cardapio ou reativar_item_cardapio com esse item_id.
-3) Se vierem vários, cite os #id e nomes e peça qual; nunca pause mais de um por vez.
-4) Não responda só "encontrei N itens" quando o usuário pediu pausar e há 1 match — chame a tool de escrita.
+3) Se vierem vários, cite os #id e nomes e peça qual; nunca pause/ative mais de um por vez.
+4) Não responda só "encontrei N itens" quando o usuário pediu pausar/ativar e há 1 match — chame a tool de escrita.
 
 Nunca diga que já executou uma ação de escrita — o sistema pede confirmação ao colaborador.
 Se faltar dado (data, item_id, waitlist_id, wa_id), pergunte em uma frase.
@@ -52,7 +53,11 @@ function detectMenuWriteIntent(text) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  if (/\breativar\b/.test(t) || (/\b(voltar|liberar)\b/.test(t) && /\b(cardapio|item|prato|drink)\b/.test(t))) {
+  // "ativar" / "reativar" / "voltar no cardapio"
+  if (
+    /\b(reativar|ativar)\b/.test(t) ||
+    (/\b(voltar|liberar)\b/.test(t) && /\b(cardapio|item|prato|drink)\b/.test(t))
+  ) {
     return 'reativar_item_cardapio';
   }
   if (/\b(pausar|pause|tirar|esconder|ocultar)\b/.test(t)) {
@@ -179,7 +184,14 @@ async function runTurn(pool, { user, establishmentId, message }) {
 
     const call = toolCalls[0];
     const toolName = call.function?.name;
-    const args = parseToolArgs(call.function?.arguments);
+    let args = parseToolArgs(call.function?.arguments);
+    // Reativar: a busca padrão esconde pausados — força include_paused.
+    if (
+      toolName === 'listar_itens_cardapio' &&
+      menuWriteIntent === 'reativar_item_cardapio'
+    ) {
+      args = { ...args, include_paused: true, only_paused: true };
+    }
     const toolDef = getPhase1ToolByName(toolName);
     if (!toolDef) {
       return { ok: false, type: 'message', reply: 'Ação não disponível nesta fase.' };

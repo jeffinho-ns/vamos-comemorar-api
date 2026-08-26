@@ -100,11 +100,12 @@ STAFF_AGENT_GROQ_FALLBACK_MODELS=...
 - Whitelist real só com `STAFF_AGENT_PHASE1_STRICT=true`.
 - `/api/staff-agent/status` saudável: `allow_all: true`, `code_rev: "staff-agent-allow-all-v3"`, `establishment_enabled: true`.
 
-### Modelo Groq
+### Cardápio (pausar / ativar)
 
-`llama-3.3-70b-versatile` saiu do ar em **16/08/2026**.  
-Default: `openai/gpt-oss-120b` (fallbacks `qwen/qwen3.6-27b`, `openai/gpt-oss-20b`).  
-Se o Render ainda tiver `STAFF_AGENT_GROQ_MODEL=llama-...`, apague ou troque.
+- Pausar: ok.
+- **Ativar/reativar:** a busca precisa incluir pausados (`include_paused` / `only_paused`). Pedidos com “ativar” também contam.
+- **Tempo real:** após apply, a API emite Socket.IO `menu_item_visibility` (rooms `cardapio_bar_{barId}`). O admin `/admin/cardapio` escuta e atualiza sem F5.
+
 
 ---
 

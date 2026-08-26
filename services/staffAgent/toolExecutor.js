@@ -259,14 +259,21 @@ async function chamarEspera(pool, { establishmentId, args, mode }) {
 async function listarItensCardapio(pool, { establishmentId, args }) {
   const barId = await resolveBarId(pool, establishmentId);
   const q = `%${String(args.query || '').trim()}%`;
-  const includePaused = Boolean(args.include_paused);
+  const includePaused = Boolean(args.include_paused) || Boolean(args.only_paused);
+  const onlyPaused = Boolean(args.only_paused);
+  let visibilitySql = '';
+  if (onlyPaused) {
+    visibilitySql = 'AND COALESCE(visible, TRUE) = FALSE';
+  } else if (!includePaused) {
+    visibilitySql = 'AND COALESCE(visible, TRUE) = TRUE';
+  }
   const { rows } = await pool.query(
     `SELECT id, name, price, visible, categoryid
        FROM menu_items
       WHERE barid = $1
         AND name ILIKE $2
         AND deleted_at IS NULL
-        ${includePaused ? '' : 'AND COALESCE(visible, TRUE) = TRUE'}
+        ${visibilitySql}
       ORDER BY name
       LIMIT 20`,
     [barId, q]
@@ -278,7 +285,7 @@ async function listarItensCardapio(pool, { establishmentId, args }) {
     visible: r.visible,
     category_id: r.categoryid,
   }));
-  const lines = items.map((i) => `#${i.id} ${i.name}${i.visible === false ? ' (já pausado)' : ''}`);
+  const lines = items.map((i) => `#${i.id} ${i.name}${i.visible === false ? ' (pausado)' : ''}`);
   return {
     ok: true,
     bar_id: barId,
@@ -288,7 +295,9 @@ async function listarItensCardapio(pool, { establishmentId, args }) {
       ? `Encontrei ${items.length} item(ns):\n${lines.join('\n')}${
           items.length > 1 ? '\nDiga o #id (ou o nome exato) para pausar/reativar um por vez.' : ''
         }`
-      : 'Nenhum item encontrado com esse nome.',
+      : onlyPaused
+        ? 'Nenhum item pausado com esse nome.'
+        : 'Nenhum item encontrado com esse nome.',
   };
 }
 
@@ -325,6 +334,20 @@ async function setItemVisibility(pool, { establishmentId, args, mode, visible })
     itemId,
     barId,
   ]);
+
+  try {
+    const { emitMenuItemVisibilityChanged } = require('../../utils/menuRealtime');
+    emitMenuItemVisibilityChanged({
+      barId,
+      establishmentId,
+      itemId: item.id,
+      name: item.name,
+      visible,
+    });
+  } catch (_) {
+    /* realtime opcional */
+  }
+
   return {
     ok: true,
     applied: true,

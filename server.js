@@ -25,6 +25,11 @@ const io = new Server(server, {
 app.set('trust proxy', 1);
 
 app.set('socketio', io);
+try {
+  require('./utils/menuRealtime').attachMenuRealtime(io);
+} catch (e) {
+  console.warn('[menuRealtime] attach falhou:', e.message);
+}
 
 /** Render exige porta aberta rápido; rotas pesadas carregam depois do listen. */
 const BIND_HOST = process.env.HOST || config.server.host || '0.0.0.0';
@@ -464,6 +469,17 @@ io.on('connection', (socket) => {
 
   socket.on('join_whatsapp_inbox', () => {
     socket.join('whatsapp_inbox');
+  });
+
+  socket.on('join_cardapio', (payload) => {
+    const barId = Number(payload?.barId ?? payload?.bar_id);
+    const establishmentId = Number(payload?.establishmentId ?? payload?.establishment_id);
+    if (Number.isFinite(barId) && barId > 0) {
+      socket.join(`cardapio_bar_${barId}`);
+    }
+    if (Number.isFinite(establishmentId) && establishmentId > 0) {
+      socket.join(`cardapio_est_${establishmentId}`);
+    }
   });
 });
 
