@@ -35,36 +35,63 @@ async function resolveBarId(pool, establishmentId) {
 
 async function briefingTurno(pool, { establishmentId, args }) {
   const date = parseDateOrToday(args.date);
-  const reservations = await pool.query(
-    `SELECT status, COUNT(*)::int AS n, COALESCE(SUM(number_of_people),0)::int AS people
-       FROM restaurant_reservations
-      WHERE establishment_id = $1
-        AND reservation_date = $2
-        AND COALESCE(UPPER(status::text), '') NOT IN ('CANCELADA', 'CANCELLED', 'CANCELED')
-      GROUP BY status`,
-    [establishmentId, date]
-  );
-  const waitlist = await pool.query(
-    `SELECT status, COUNT(*)::int AS n
-       FROM waitlist
-      WHERE establishment_id = $1
-        AND preferred_date = $2
-      GROUP BY status`,
-    [establishmentId, date]
-  );
-  const blocks = await pool.query(
-    `SELECT COUNT(*)::int AS n
-       FROM restaurant_reservation_blocks
-      WHERE establishment_id = $1
-        AND start_datetime::date <= $2::date
-        AND end_datetime::date >= $2::date`,
-    [establishmentId, date]
-  );
+  let totalReservations = 0;
+  let totalPeople = 0;
+  let byStatus = {};
+  let waitByStatus = {};
+  let activeBlocks = 0;
+  const warnings = [];
 
-  const byStatus = Object.fromEntries(reservations.rows.map((r) => [r.status, r]));
-  const totalReservations = reservations.rows.reduce((s, r) => s + r.n, 0);
-  const totalPeople = reservations.rows.reduce((s, r) => s + r.people, 0);
-  const waitByStatus = Object.fromEntries(waitlist.rows.map((r) => [r.status, r.n]));
+  try {
+    const reservations = await pool.query(
+      `SELECT status, COUNT(*)::int AS n, COALESCE(SUM(number_of_people),0)::int AS people
+         FROM restaurant_reservations
+        WHERE establishment_id = $1
+          AND reservation_date = $2
+          AND COALESCE(UPPER(status::text), '') NOT IN ('CANCELADA', 'CANCELLED', 'CANCELED')
+        GROUP BY status`,
+      [establishmentId, date]
+    );
+    byStatus = Object.fromEntries(reservations.rows.map((r) => [r.status, r]));
+    totalReservations = reservations.rows.reduce((s, r) => s + r.n, 0);
+    totalPeople = reservations.rows.reduce((s, r) => s + r.people, 0);
+  } catch (e) {
+    warnings.push('reservas');
+    console.warn('[staffAgent] briefing reservas:', e.message);
+  }
+
+  try {
+    const waitlist = await pool.query(
+      `SELECT status, COUNT(*)::int AS n
+         FROM waitlist
+        WHERE establishment_id = $1
+          AND preferred_date = $2
+        GROUP BY status`,
+      [establishmentId, date]
+    );
+    waitByStatus = Object.fromEntries(waitlist.rows.map((r) => [r.status, r.n]));
+  } catch (e) {
+    warnings.push('espera');
+    console.warn('[staffAgent] briefing espera:', e.message);
+  }
+
+  try {
+    const blocks = await pool.query(
+      `SELECT COUNT(*)::int AS n
+         FROM restaurant_reservation_blocks
+        WHERE establishment_id = $1
+          AND start_datetime::date <= $2::date
+          AND end_datetime::date >= $2::date`,
+      [establishmentId, date]
+    );
+    activeBlocks = blocks.rows[0]?.n || 0;
+  } catch (e) {
+    warnings.push('bloqueios');
+    console.warn('[staffAgent] briefing bloqueios:', e.message);
+  }
+
+  const waitWaiting =
+    waitByStatus.AGUARDANDO || waitByStatus.WAITING || waitByStatus.waiting || 0;
 
   return {
     ok: true,
@@ -74,9 +101,11 @@ async function briefingTurno(pool, { establishmentId, args }) {
       people_total: totalPeople,
       by_status: byStatus,
       waitlist: waitByStatus,
-      active_blocks: blocks.rows[0]?.n || 0,
+      active_blocks: activeBlocks,
     },
-    message: `Dia ${date}: ${totalReservations} reservas (${totalPeople} pessoas), espera ${waitByStatus.AGUARDANDO || 0}, bloqueios ${blocks.rows[0]?.n || 0}.`,
+    message: `Dia ${date}: ${totalReservations} reservas (${totalPeople} pessoas), espera ${waitWaiting}, bloqueios ${activeBlocks}.${
+      warnings.length ? ` (parcial: falhou ${warnings.join(', ')})` : ''
+    }`,
   };
 }
 
@@ -298,7 +327,7 @@ async function resumirConversaWhatsapp(pool, { establishmentId, args }) {
   const waId = String(args.wa_id || '').trim();
   const limit = Math.min(Math.max(Number(args.max_messages) || 20, 5), 40);
   const conv = await pool.query(
-    `SELECT id, wa_id, customer_name, establishment_id, human_takeover_until
+    `SELECT id, wa_id, contact_name, establishment_id, human_takeover_until
        FROM whatsapp_conversations
       WHERE wa_id = $1
       LIMIT 1`,
@@ -319,15 +348,16 @@ async function resumirConversaWhatsapp(pool, { establishmentId, args }) {
   );
   const chronological = [...msgs.rows].reverse();
   const lines = chronological.map(
-    (m) => `${m.direction === 'inbound' || m.direction === 'in' ? 'Cliente' : 'Casa'}: ${String(m.body || '').slice(0, 200)}`
+    (m) =>
+      `${m.direction === 'inbound' || m.direction === 'in' ? 'Cliente' : 'Casa'}: ${String(m.body || '').slice(0, 200)}`
   );
   return {
     ok: true,
     wa_id: waId,
-    customer_name: c.customer_name,
+    customer_name: c.contact_name,
     transcript_preview: lines.slice(-12),
     message: lines.length
-      ? `Resumo bruto (${lines.length} msgs). Cliente: ${c.customer_name || waId}. Últimas falas:\n${lines.slice(-6).join('\n')}`
+      ? `Resumo bruto (${lines.length} msgs). Cliente: ${c.contact_name || waId}. Últimas falas:\n${lines.slice(-6).join('\n')}`
       : 'Conversa sem mensagens.',
   };
 }
@@ -353,42 +383,55 @@ async function sugerirRespostaWhatsapp(pool, ctx) {
  */
 async function executeTool(pool, { toolName, args, establishmentId, mode }) {
   const a = args && typeof args === 'object' ? args : {};
-  switch (toolName) {
-    case 'briefing_turno':
-      return briefingTurno(pool, { establishmentId, args: a });
-    case 'buscar_reservas':
-      return buscarReservas(pool, { establishmentId, args: a });
-    case 'checar_capacidade':
-      return checarCapacidade(pool, { establishmentId, args: a });
-    case 'listar_espera':
-      return listarEspera(pool, { establishmentId, args: a });
-    case 'chamar_espera':
-      return chamarEspera(pool, { establishmentId, args: a, mode: mode === 'apply' ? 'apply' : 'preview' });
-    case 'listar_itens_cardapio':
-      return listarItensCardapio(pool, { establishmentId, args: a });
-    case 'pausar_item_cardapio':
-      return setItemVisibility(pool, {
-        establishmentId,
-        args: a,
-        mode: mode === 'apply' ? 'apply' : 'preview',
-        visible: false,
-      });
-    case 'reativar_item_cardapio':
-      return setItemVisibility(pool, {
-        establishmentId,
-        args: a,
-        mode: mode === 'apply' ? 'apply' : 'preview',
-        visible: true,
-      });
-    case 'resumir_conversa_whatsapp':
-      return resumirConversaWhatsapp(pool, { establishmentId, args: a });
-    case 'sugerir_resposta_whatsapp':
-      return sugerirRespostaWhatsapp(pool, { establishmentId, args: a });
-    default: {
-      const err = new Error(`Tool não implementada: ${toolName}`);
-      err.code = 'unknown_tool';
-      throw err;
+  try {
+    switch (toolName) {
+      case 'briefing_turno':
+        return await briefingTurno(pool, { establishmentId, args: a });
+      case 'buscar_reservas':
+        return await buscarReservas(pool, { establishmentId, args: a });
+      case 'checar_capacidade':
+        return await checarCapacidade(pool, { establishmentId, args: a });
+      case 'listar_espera':
+        return await listarEspera(pool, { establishmentId, args: a });
+      case 'chamar_espera':
+        return await chamarEspera(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'listar_itens_cardapio':
+        return await listarItensCardapio(pool, { establishmentId, args: a });
+      case 'pausar_item_cardapio':
+        return await setItemVisibility(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          visible: false,
+        });
+      case 'reativar_item_cardapio':
+        return await setItemVisibility(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          visible: true,
+        });
+      case 'resumir_conversa_whatsapp':
+        return await resumirConversaWhatsapp(pool, { establishmentId, args: a });
+      case 'sugerir_resposta_whatsapp':
+        return await sugerirRespostaWhatsapp(pool, { establishmentId, args: a });
+      default: {
+        const err = new Error(`Tool não implementada: ${toolName}`);
+        err.code = 'unknown_tool';
+        throw err;
+      }
     }
+  } catch (e) {
+    if (e.code === 'unknown_tool') throw e;
+    console.error('[staffAgent] tool error', { toolName, message: e.message });
+    return {
+      ok: false,
+      message: `Não consegui executar "${toolName}" agora. Tente de novo ou use o painel.`,
+    };
   }
 }
 

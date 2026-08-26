@@ -12,7 +12,11 @@ const {
   PHASE1_TOOLS,
   PHASE1_EXCLUDED,
 } = require('../../services/staffAgent/phase1ToolCatalog');
-const { isEstablishmentEnabled, parseAllowedIds } = require('../../services/staffAgent/featureFlag');
+const {
+  isEstablishmentEnabled,
+  isAllowAllMode,
+  parseAllowedIds,
+} = require('../../services/staffAgent/featureFlag');
 
 assert.equal(PHASE1_TOOLS.length, 10, 'Fase 1 deve ter 10 tools');
 assert.ok(PHASE1_EXCLUDED.includes('criar_reserva'));
@@ -29,8 +33,18 @@ assert.equal(meta.phase, 1);
 assert.equal(meta.providerHint, 'groq');
 
 process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1, 7';
+assert.equal(isAllowAllMode(), false);
 assert.deepEqual(parseAllowedIds(), [1, 7]);
 assert.equal(isEstablishmentEnabled(1), true);
 assert.equal(isEstablishmentEnabled(99), false);
+
+process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '*';
+assert.equal(isAllowAllMode(), true);
+assert.equal(isEstablishmentEnabled(17), true);
+assert.equal(isEstablishmentEnabled(99), true);
+
+process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = 'all';
+assert.equal(isAllowAllMode(), true);
+assert.equal(isEstablishmentEnabled(17), true);
 
 console.log('staffAgentPhase1Catalog.test.js OK');

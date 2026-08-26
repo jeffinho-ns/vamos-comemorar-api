@@ -41,7 +41,7 @@ async function runTurn(pool, { user, establishmentId, message }) {
   }
   if (!isEstablishmentEnabled(estId)) {
     const err = new Error(
-      'Staff Agent não está ligado nesta casa. Peça ao admin para incluir o ID em STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS.'
+      `Staff Agent não está ligado nesta casa (ID ${estId}). No Render, use STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=* ou inclua este ID na lista.`
     );
     err.code = 'feature_disabled';
     throw err;
