@@ -34,34 +34,31 @@ assert.equal(meta.providerHint, 'groq');
 
 delete process.env.STAFF_AGENT_PHASE1_STRICT;
 
-// Piloto: qualquer lista não-vazia libera todas as casas.
-process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1, 7';
+// Piloto: qualquer valor não-vazio libera todas as casas.
+process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1';
 assert.equal(isAllowAllMode(), true);
-assert.deepEqual(parseAllowedIds(), [1, 7]);
 assert.equal(isEstablishmentEnabled(1), true);
 assert.equal(isEstablishmentEnabled(4), true);
-assert.equal(isEstablishmentEnabled(99), true);
-
-// STRICT=true volta a ser whitelist.
-process.env.STAFF_AGENT_PHASE1_STRICT = 'true';
-assert.equal(isAllowAllMode(), false);
-assert.equal(isEstablishmentEnabled(1), true);
-assert.equal(isEstablishmentEnabled(99), false);
-delete process.env.STAFF_AGENT_PHASE1_STRICT;
+assert.equal(isEstablishmentEnabled(7), true);
+assert.equal(isEstablishmentEnabled(8), true);
+assert.equal(isEstablishmentEnabled(9), true);
+assert.equal(isEstablishmentEnabled(17), true);
 
 process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '*';
 assert.equal(isAllowAllMode(), true);
-assert.equal(isEstablishmentEnabled(17), true);
-assert.equal(isEstablishmentEnabled(99), true);
-
-process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = 'all';
-assert.equal(isAllowAllMode(), true);
-assert.equal(isEstablishmentEnabled(17), true);
-
-// Só o "1" do Render atual também libera todas (piloto).
-process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1';
-assert.equal(isAllowAllMode(), true);
 assert.equal(isEstablishmentEnabled(7), true);
-assert.equal(isEstablishmentEnabled(4), true);
+
+process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1,7';
+assert.deepEqual(parseAllowedIds(), [1, 7]);
+assert.equal(isAllowAllMode(), true);
+assert.equal(isEstablishmentEnabled(9), true);
+
+// STRICT=true volta a ser whitelist.
+process.env.STAFF_AGENT_PHASE1_STRICT = 'true';
+process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS = '1';
+assert.equal(isAllowAllMode(), false);
+assert.equal(isEstablishmentEnabled(1), true);
+assert.equal(isEstablishmentEnabled(7), false);
+delete process.env.STAFF_AGENT_PHASE1_STRICT;
 
 console.log('staffAgentPhase1Catalog.test.js OK');

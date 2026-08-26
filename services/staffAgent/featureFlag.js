@@ -4,21 +4,22 @@
  * Feature flag do Staff Agent Fase 1.
  *
  * STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=
- *   - vazio          → desligado
- *   - * / all / todas → ligado (todas as casas)
- *   - 1,7,17         → ligado (piloto: todas as casas, ver STRICT abaixo)
+ *   - vazio → desligado
+ *   - qualquer valor (*, all, 1, 1,7,…) → ligado
  *
- * STAFF_AGENT_PHASE1_STRICT=true
- *   → a lista CSV vira whitelist de verdade (só esses IDs)
- *   → default do piloto: false (qualquer lista não-vazia libera todas)
+ * Comportamento padrão (piloto): ligado = TODAS as casas.
+ * Whitelist de verdade só com STAFF_AGENT_PHASE1_STRICT=true.
  *
  * STAFF_AGENT_ENABLED=false → desliga tudo
  */
 
-const { FEATURE_FLAG_ENV } = require('./phase1ToolCatalog');
+const FLAG_ENV = 'STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS';
 
 function rawFlagValue() {
-  return String(process.env[FEATURE_FLAG_ENV] || '')
+  const direct = process.env[FLAG_ENV];
+  // Fallback se o catálogo/export divergir em algum deploy antigo.
+  const value = direct != null ? direct : process.env.STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS;
+  return String(value || '')
     .trim()
     .replace(/^["']+|["']+$/g, '');
 }
@@ -28,14 +29,6 @@ function isStrictWhitelist() {
     .trim()
     .toLowerCase();
   return flag === '1' || flag === 'true' || flag === 'yes' || flag === 'on';
-}
-
-function isAllowAllMode() {
-  const raw = rawFlagValue().toLowerCase();
-  if (raw === '*' || raw === 'all' || raw === 'todas') return true;
-  // Piloto: lista preenchida sem STRICT = todas as casas.
-  if (!isStrictWhitelist() && parseAllowedIds().length > 0) return true;
-  return false;
 }
 
 function parseAllowedIds() {
@@ -52,9 +45,15 @@ function parseAllowedIds() {
 function isStaffAgentGloballyEnabled() {
   const flag = String(process.env.STAFF_AGENT_ENABLED || 'true').trim().toLowerCase();
   if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') return false;
+  return rawFlagValue().length > 0;
+}
+
+/** Piloto: se a feature está on, libera todas — salvo STRICT. */
+function isAllowAllMode() {
+  if (!isStaffAgentGloballyEnabled()) return false;
+  if (!isStrictWhitelist()) return true;
   const raw = rawFlagValue().toLowerCase();
-  if (raw === '*' || raw === 'all' || raw === 'todas') return true;
-  return parseAllowedIds().length > 0;
+  return raw === '*' || raw === 'all' || raw === 'todas';
 }
 
 function isEstablishmentEnabled(establishmentId) {
@@ -71,4 +70,5 @@ module.exports = {
   isStrictWhitelist,
   isStaffAgentGloballyEnabled,
   isEstablishmentEnabled,
+  FLAG_ENV,
 };

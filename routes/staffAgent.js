@@ -54,8 +54,9 @@ module.exports = (pool) => {
           ? isEstablishmentEnabled(establishmentId)
           : false,
         allow_all: isAllowAllMode(),
-        // Em modo piloto (não-strict) a lista só indica que a feature está on.
         allowed_ids: parseAllowedIds(),
+        // Ajuda a saber se o Render já pegou este código.
+        code_rev: 'staff-agent-allow-all-v3',
         meta: getPhase1Meta(),
       });
     } catch (e) {
