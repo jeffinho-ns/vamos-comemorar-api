@@ -47,10 +47,12 @@ module.exports = (pool) => {
       const message = req.body?.message;
 
       if (req.tenant && establishmentId) {
-        const ok = await canAccessEstablishment(pool, req.user, establishmentId).catch(() => true);
-        // canAccessEstablishment pode não existir com essa assinatura — fallback abaixo
-        if (ok === false) {
-          return res.status(403).json({ ok: false, code: 'forbidden_establishment', error: 'Casa fora do seu escopo.' });
+        if (!canAccessEstablishment(req.tenant, establishmentId)) {
+          return res.status(403).json({
+            ok: false,
+            code: 'forbidden_establishment',
+            error: 'Casa fora do seu escopo.',
+          });
         }
       }
 
