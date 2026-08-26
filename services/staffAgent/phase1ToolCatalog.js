@@ -11,8 +11,8 @@
  * 4. Feature flag por casa (ex.: STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS).
  * 5. Auditoria: user_id, tool, args, preview/apply, resultado.
  *
- * Provider sugerido: Groq (llama-3.3-70b-versatile) com fallback silencioso
- * se 429. WhatsApp do cliente permanece em OpenAI gpt-5.5.
+ * Provider sugerido: Groq (openai/gpt-oss-120b; fallback qwen/qwen3.6-27b).
+ * WhatsApp do cliente permanece em OpenAI gpt-5.5.
  *
  * Este arquivo é a fonte da verdade da Fase 1. Implementação futura:
  * services/staffAgent/* consome getPhase1ToolDefinitions() / executePhase1Tool().
@@ -345,7 +345,7 @@ function getPhase1Meta() {
     writeToolCount: listPhase1WriteTools().length,
     excluded: PHASE1_EXCLUDED,
     providerHint: 'groq',
-    modelHint: 'llama-3.3-70b-versatile',
+    modelHint: 'openai/gpt-oss-120b',
   };
 }
 
