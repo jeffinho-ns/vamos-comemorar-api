@@ -66,6 +66,8 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
 **Escrita (Confirmar):** `chamar_espera`, `pausar_item_cardapio`, `reativar_item_cardapio`
 
+(Nomes canônicos em `phase1ToolCatalog.js` — se divergir deste resumo, o catálogo vence.)
+
 **Fora de escopo (não implementar sem novo acordo):**  
 `criar_reserva`, `editar_reserva`, `cancelar_reserva`, `bloquear_agenda`, `reativar_bloqueio`, `ajustar_horarios`, usuários/cargos, enviar WA, campanhas, config IA cliente.
 
@@ -110,12 +112,14 @@ Se o Render ainda tiver `STAFF_AGENT_GROQ_MODEL=llama-...`, apague ou troque.
 - `4c17209` — status/tools/flag
 - `0b64e6a` — modelo Groq novo
 - `2899e72` / `5577ff7` — piloto allow-all + `code_rev`
+- `2bb4d13` — este guia de continuidade
 
 **Next (`main`):**
 
 - `5583914a` — float em todas as `/admin`
 - `c8d4b6fc` — seletor estável
 - `93a3b171` — allow_all / aviso de redeploy
+- `1b3040af` — ponte `STAFF_AGENT_CONTINUIDADE.md`
 
 ---
 
