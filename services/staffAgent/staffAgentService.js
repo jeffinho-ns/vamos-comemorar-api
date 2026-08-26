@@ -2,6 +2,12 @@
 
 /**
  * Orquestra um turno do Staff Agent (Groq + tools Fase 1).
+ *
+ * Problema corrigido: antes só rodava a 1ª tool (ex.: listar) e parava,
+ * então "Pausar Japão" nunca chegava em pausar_item_cardapio.
+ *
+ * Agora: loop de tools (até MAX_TOOL_STEPS). Se o pedido for pausar/reativar
+ * e a busca achar exatamente 1 item, já abre o preview de confirmação.
  */
 
 const groqClient = require('./groqClient');
@@ -15,9 +21,18 @@ const {
   getPhase1Meta,
 } = require('./phase1ToolCatalog');
 
+const MAX_TOOL_STEPS = 3;
+
 const SYSTEM_PROMPT = `Você é o assistente interno de operação do Agilizaiapp (Staff Agent Fase 1).
 Responda em português do Brasil, curto e claro, sem bullets longos.
 Use tools quando o pedido exigir dados ou ações. Não invente IDs.
+
+Cardápio (pausar/reativar):
+1) Chame listar_itens_cardapio com o nome pedido.
+2) Se vier exatamente 1 item, chame em seguida pausar_item_cardapio ou reativar_item_cardapio com esse item_id.
+3) Se vierem vários, cite os #id e nomes e peça qual; nunca pause mais de um por vez.
+4) Não responda só "encontrei N itens" quando o usuário pediu pausar e há 1 match — chame a tool de escrita.
+
 Nunca diga que já executou uma ação de escrita — o sistema pede confirmação ao colaborador.
 Se faltar dado (data, item_id, waitlist_id, wa_id), pergunte em uma frase.
 Escopo: só a casa informada no contexto.`;
@@ -30,6 +45,63 @@ function parseToolArgs(raw) {
   } catch {
     return {};
   }
+}
+
+function detectMenuWriteIntent(text) {
+  const t = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/\breativar\b/.test(t) || (/\b(voltar|liberar)\b/.test(t) && /\b(cardapio|item|prato|drink)\b/.test(t))) {
+    return 'reativar_item_cardapio';
+  }
+  if (/\b(pausar|pause|tirar|esconder|ocultar)\b/.test(t)) {
+    return 'pausar_item_cardapio';
+  }
+  return null;
+}
+
+function toolResultPayload(result) {
+  const items = Array.isArray(result.items)
+    ? result.items.map((i) => ({ id: i.id, name: i.name, visible: i.visible }))
+    : undefined;
+  return JSON.stringify({
+    ok: result.ok,
+    message: result.message,
+    count: result.count,
+    items,
+  });
+}
+
+async function buildWriteConfirm(pool, { user, estId, toolName, args }) {
+  const preview = await executeTool(pool, {
+    toolName,
+    args,
+    establishmentId: estId,
+    mode: 'preview',
+  });
+  if (!preview.ok) {
+    return {
+      ok: false,
+      type: 'message',
+      reply: preview.message || 'Não foi possível preparar a ação.',
+    };
+  }
+  const confirmId = createPendingAction({
+    userId: user.id || user.userId,
+    establishmentId: estId,
+    toolName,
+    args,
+  });
+  return {
+    ok: true,
+    type: 'confirm',
+    reply: preview.message,
+    confirm_id: confirmId,
+    tool: toolName,
+    preview: preview.preview || preview,
+    meta: getPhase1Meta(),
+  };
 }
 
 async function runTurn(pool, { user, establishmentId, message }) {
@@ -47,7 +119,6 @@ async function runTurn(pool, { user, establishmentId, message }) {
     throw err;
   }
   if (!isStaffRole(user?.role) && !user?.is_super_admin && !user?.isSuperAdmin) {
-    // hostess/recepção também estão em isStaffRole; se falhar, ainda tenta
     if (!user?.id && !user?.userId) {
       const err = new Error('Não autenticado');
       err.code = 'unauthorized';
@@ -67,86 +138,126 @@ async function runTurn(pool, { user, establishmentId, message }) {
     throw err;
   }
 
-  const completion = await groqClient.chatCompletion({
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      {
-        role: 'system',
-        content: `Contexto: establishment_id=${estId}. Data de referência: use YYYY-MM-DD. Não altere establishment_id.`,
-      },
-      { role: 'user', content: text },
-    ],
-    tools: getPhase1ToolDefinitions(),
-    tool_choice: 'auto',
-  });
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'system',
+      content: `Contexto: establishment_id=${estId}. Data de referência: use YYYY-MM-DD. Não altere establishment_id.`,
+    },
+    { role: 'user', content: text },
+  ];
 
-  const choice = completion.choices?.[0]?.message || {};
-  const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+  const menuWriteIntent = detectMenuWriteIntent(text);
+  let lastReadReply = null;
+  let lastToolName = null;
+  let lastData = null;
 
-  if (toolCalls.length === 0) {
-    return {
-      ok: true,
-      type: 'message',
-      reply: String(choice.content || 'Não entendi o pedido. Tente: “como está o dia de hoje?”').trim(),
-      meta: getPhase1Meta(),
-    };
-  }
-
-  // Fase 1: executa a primeira tool call (evita efeitos colaterais em paralelo)
-  const call = toolCalls[0];
-  const toolName = call.function?.name;
-  const args = parseToolArgs(call.function?.arguments);
-  const toolDef = getPhase1ToolByName(toolName);
-  if (!toolDef) {
-    return {
-      ok: false,
-      type: 'message',
-      reply: 'Ação não disponível nesta fase.',
-    };
-  }
-
-  await assertCanUseTool(pool, { user, establishmentId: estId, toolName });
-
-  if (toolDef.isWrite || toolDef.requiresConfirmation) {
-    const preview = await executeTool(pool, {
-      toolName,
-      args,
-      establishmentId: estId,
-      mode: 'preview',
+  for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
+    const completion = await groqClient.chatCompletion({
+      messages,
+      tools: getPhase1ToolDefinitions(),
+      tool_choice: 'auto',
     });
-    if (!preview.ok) {
-      return { ok: false, type: 'message', reply: preview.message || 'Não foi possível preparar a ação.' };
+
+    const choice = completion.choices?.[0]?.message || {};
+    const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+
+    if (toolCalls.length === 0) {
+      return {
+        ok: true,
+        type: lastReadReply ? 'result' : 'message',
+        reply: String(
+          choice.content ||
+            lastReadReply ||
+            'Não entendi o pedido. Tente: “como está o dia de hoje?”'
+        ).trim(),
+        tool: lastToolName || undefined,
+        data: lastData || undefined,
+        meta: getPhase1Meta(),
+      };
     }
-    const confirmId = createPendingAction({
-      userId: user.id || user.userId,
-      establishmentId: estId,
+
+    const call = toolCalls[0];
+    const toolName = call.function?.name;
+    const args = parseToolArgs(call.function?.arguments);
+    const toolDef = getPhase1ToolByName(toolName);
+    if (!toolDef) {
+      return { ok: false, type: 'message', reply: 'Ação não disponível nesta fase.' };
+    }
+
+    await assertCanUseTool(pool, { user, establishmentId: estId, toolName });
+
+    if (toolDef.isWrite || toolDef.requiresConfirmation) {
+      return buildWriteConfirm(pool, { user, estId, toolName, args });
+    }
+
+    const result = await executeTool(pool, {
       toolName,
       args,
+      establishmentId: estId,
+      mode: 'read',
     });
-    return {
-      ok: true,
-      type: 'confirm',
-      reply: preview.message,
-      confirm_id: confirmId,
-      tool: toolName,
-      preview: preview.preview || preview,
-      meta: getPhase1Meta(),
-    };
-  }
 
-  const result = await executeTool(pool, {
-    toolName,
-    args,
-    establishmentId: estId,
-    mode: 'read',
-  });
+    lastReadReply = result.message || (result.ok ? 'Pronto.' : 'Não encontrei dados.');
+    lastToolName = toolName;
+    lastData = result;
+
+    // Pediu pausar/reativar e a busca achou exatamente 1 item → abre o Confirmar.
+    if (
+      toolName === 'listar_itens_cardapio' &&
+      menuWriteIntent &&
+      result.ok &&
+      Array.isArray(result.items) &&
+      result.items.length === 1
+    ) {
+      await assertCanUseTool(pool, {
+        user,
+        establishmentId: estId,
+        toolName: menuWriteIntent,
+      });
+      return buildWriteConfirm(pool, {
+        user,
+        estId,
+        toolName: menuWriteIntent,
+        args: { item_id: result.items[0].id },
+      });
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: choice.content || null,
+      tool_calls: toolCalls,
+    });
+    messages.push({
+      role: 'tool',
+      tool_call_id: call.id,
+      content: toolResultPayload(result),
+    });
+
+    // Vários itens: devolve a lista com #id e para (usuário escolhe).
+    if (
+      toolName === 'listar_itens_cardapio' &&
+      menuWriteIntent &&
+      Array.isArray(result.items) &&
+      result.items.length > 1
+    ) {
+      return {
+        ok: true,
+        type: 'result',
+        reply: lastReadReply,
+        tool: toolName,
+        data: result,
+        meta: getPhase1Meta(),
+      };
+    }
+  }
 
   return {
-    ok: Boolean(result.ok),
+    ok: Boolean(lastData?.ok !== false),
     type: 'result',
-    reply: result.message || (result.ok ? 'Pronto.' : 'Não encontrei dados.'),
-    tool: toolName,
-    data: result,
+    reply: lastReadReply || 'Pronto.',
+    tool: lastToolName || undefined,
+    data: lastData || undefined,
     meta: getPhase1Meta(),
   };
 }

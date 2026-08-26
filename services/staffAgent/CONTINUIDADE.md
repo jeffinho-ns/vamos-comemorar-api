@@ -1,8 +1,13 @@
 # Staff Agent — Continuidade (retomar depois)
 
-**Status em 26/08/2026:** Fase 1 **no ar e validada** (chat + tools + Groq).  
-**Próximo passo acordado:** Fase 2 — **bloquear / liberar dia** na agenda (preview → Confirmar).  
-**Não misturar com:** agente WhatsApp do **cliente** (OpenAI `gpt-5.5` / `services/agent/*`).
+/**
+ * Status em 26/08/2026:** Fase 1 **no ar**.  
+ * **Bug corrigido (pausar cardápio):** o turno só rodava a 1ª tool (`listar`) e parava —
+ * commit recente adiciona loop + auto-preview quando há 1 match. Redeploy da API necessário.
+ *
+ * **Próximo passo acordado:** Fase 2 — **bloquear / liberar dia** na agenda (preview → Confirmar).  
+ * **Não misturar com:** agente WhatsApp do **cliente** (OpenAI `gpt-5.5` / `services/agent/*`).
+ */
 
 ### Prompt para colar no Cursor (outro PC)
 

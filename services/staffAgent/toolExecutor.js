@@ -271,13 +271,23 @@ async function listarItensCardapio(pool, { establishmentId, args }) {
       LIMIT 20`,
     [barId, q]
   );
+  const items = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    price: r.price,
+    visible: r.visible,
+    category_id: r.categoryid,
+  }));
+  const lines = items.map((i) => `#${i.id} ${i.name}${i.visible === false ? ' (já pausado)' : ''}`);
   return {
     ok: true,
     bar_id: barId,
-    count: rows.length,
-    items: rows,
-    message: rows.length
-      ? `Encontrei ${rows.length} item(ns).`
+    count: items.length,
+    items,
+    message: items.length
+      ? `Encontrei ${items.length} item(ns):\n${lines.join('\n')}${
+          items.length > 1 ? '\nDiga o #id (ou o nome exato) para pausar/reativar um por vez.' : ''
+        }`
       : 'Nenhum item encontrado com esse nome.',
   };
 }
