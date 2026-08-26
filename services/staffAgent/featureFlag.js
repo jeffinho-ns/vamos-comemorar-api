@@ -5,27 +5,44 @@
  *
  * STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=
  *   - vazio          → desligado
- *   - * ou all       → todas as casas (piloto)
- *   - 1,7,17         → só esses IDs operacionais (places/bars)
+ *   - * / all / todas → ligado (todas as casas)
+ *   - 1,7,17         → ligado (piloto: todas as casas, ver STRICT abaixo)
  *
- * STAFF_AGENT_ENABLED=false  → desliga mesmo com IDs
+ * STAFF_AGENT_PHASE1_STRICT=true
+ *   → a lista CSV vira whitelist de verdade (só esses IDs)
+ *   → default do piloto: false (qualquer lista não-vazia libera todas)
+ *
+ * STAFF_AGENT_ENABLED=false → desliga tudo
  */
 
 const { FEATURE_FLAG_ENV } = require('./phase1ToolCatalog');
 
 function rawFlagValue() {
-  return String(process.env[FEATURE_FLAG_ENV] || '').trim();
+  return String(process.env[FEATURE_FLAG_ENV] || '')
+    .trim()
+    .replace(/^["']+|["']+$/g, '');
+}
+
+function isStrictWhitelist() {
+  const flag = String(process.env.STAFF_AGENT_PHASE1_STRICT || '')
+    .trim()
+    .toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes' || flag === 'on';
 }
 
 function isAllowAllMode() {
   const raw = rawFlagValue().toLowerCase();
-  return raw === '*' || raw === 'all' || raw === 'todas';
+  if (raw === '*' || raw === 'all' || raw === 'todas') return true;
+  // Piloto: lista preenchida sem STRICT = todas as casas.
+  if (!isStrictWhitelist() && parseAllowedIds().length > 0) return true;
+  return false;
 }
 
 function parseAllowedIds() {
-  if (isAllowAllMode()) return [];
   const raw = rawFlagValue();
   if (!raw) return [];
+  const lower = raw.toLowerCase();
+  if (lower === '*' || lower === 'all' || lower === 'todas') return [];
   return raw
     .split(/[,;\s]+/)
     .map((s) => Number(s.trim()))
@@ -35,7 +52,8 @@ function parseAllowedIds() {
 function isStaffAgentGloballyEnabled() {
   const flag = String(process.env.STAFF_AGENT_ENABLED || 'true').trim().toLowerCase();
   if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') return false;
-  if (isAllowAllMode()) return true;
+  const raw = rawFlagValue().toLowerCase();
+  if (raw === '*' || raw === 'all' || raw === 'todas') return true;
   return parseAllowedIds().length > 0;
 }
 
@@ -50,6 +68,7 @@ function isEstablishmentEnabled(establishmentId) {
 module.exports = {
   parseAllowedIds,
   isAllowAllMode,
+  isStrictWhitelist,
   isStaffAgentGloballyEnabled,
   isEstablishmentEnabled,
 };

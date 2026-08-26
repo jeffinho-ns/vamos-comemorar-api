@@ -54,7 +54,8 @@ module.exports = (pool) => {
           ? isEstablishmentEnabled(establishmentId)
           : false,
         allow_all: isAllowAllMode(),
-        allowed_ids: isAllowAllMode() ? [] : parseAllowedIds(),
+        // Em modo piloto (não-strict) a lista só indica que a feature está on.
+        allowed_ids: parseAllowedIds(),
         meta: getPhase1Meta(),
       });
     } catch (e) {
