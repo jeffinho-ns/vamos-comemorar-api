@@ -15,6 +15,7 @@ const { isEstablishmentEnabled } = require('./featureFlag');
 const { assertCanUseTool, isStaffRole } = require('./permissions');
 const { executeTool } = require('./toolExecutor');
 const { createPendingAction, consumePendingAction } = require('./pendingActions');
+const { parseOsFromText } = require('./artistOSTextParser');
 const {
   getPhase1ToolDefinitions,
   getPhase1ToolByName,
@@ -302,20 +303,53 @@ async function runTurn(pool, { user, establishmentId, message }) {
 
   const osIntent = detectOsIntent(text);
 
+  // Pedido de OS costuma vir completo numa frase só: monta direto, sem depender da Groq.
+  if (osIntent === 'criar_os_artista') {
+    const parsed = parseOsFromText(text);
+    if (parsed) {
+      await assertCanUseTool(pool, {
+        user,
+        establishmentId: estId,
+        toolName: 'criar_os_artista',
+      });
+      return buildWriteConfirm(pool, {
+        user,
+        estId,
+        toolName: 'criar_os_artista',
+        args: parsed,
+      });
+    }
+  }
+
   let lastReadReply = null;
   let lastToolName = null;
   let lastData = null;
 
   for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
-    // Pedido de OS reconhecido: não deixa o modelo responder "não tenho essa função".
+    // Pedido de OS reconhecido: empurra o modelo para a tool, mas sem depender disso —
+    // alguns modelos da Groq devolvem 400 quando a função é forçada pelo nome.
     const forceOsTool = step === 0 && osIntent;
-    const completion = await groqClient.chatCompletion({
-      messages,
-      tools: getPhase1ToolDefinitions(),
-      tool_choice: forceOsTool
-        ? { type: 'function', function: { name: osIntent } }
-        : 'auto',
-    });
+    let completion;
+    try {
+      completion = await groqClient.chatCompletion({
+        messages,
+        tools: getPhase1ToolDefinitions(),
+        tool_choice: forceOsTool
+          ? { type: 'function', function: { name: osIntent } }
+          : 'auto',
+      });
+    } catch (e) {
+      if (!forceOsTool || e.code === 'groq_rate_limit') throw e;
+      console.warn('[staffAgent] tool_choice forçado falhou, refazendo em auto', {
+        tool: osIntent,
+        message: e.message,
+      });
+      completion = await groqClient.chatCompletion({
+        messages,
+        tools: getPhase1ToolDefinitions(),
+        tool_choice: 'auto',
+      });
+    }
 
     const choice = completion.choices?.[0]?.message || {};
     const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];

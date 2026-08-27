@@ -264,7 +264,7 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
     }
 
     // Campo que o colaborador negou ("sem briefing") já foi respondido: não perguntar de novo.
-    const respondido = (arg, valor) => Boolean(valor) || Boolean(cleanText(arg));
+    const respondido = (arg, valor) => Boolean(valor) || String(arg || '').trim() !== '';
     const faltando = [
       !respondido(args.ticket_values, ticketValues) && 'valores de entrada',
       !respondido(args.promotions, promotions) && 'promoções',
