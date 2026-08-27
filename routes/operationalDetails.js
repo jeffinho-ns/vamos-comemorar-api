@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const optionalAuth = require('../middleware/optionalAuth');
+const { emitOperationalDetailChanged } = require('../utils/osRealtime');
 const {
   resolveActorScope,
   canAccessOperationalEstablishment,
@@ -28,6 +29,15 @@ const PUBLIC_DETAIL_FIELDS = [
   'visual_reference_url',
   'is_active',
 ];
+
+/** Realtime é opcional: nunca deve falhar a requisição. */
+function notifyOsChange(params) {
+  try {
+    emitOperationalDetailChanged(params);
+  } catch (error) {
+    console.warn('[operationalDetails] realtime indisponível:', error.message);
+  }
+}
 
 function publicOperationalDetail(row) {
   if (!row) return row;
@@ -308,6 +318,15 @@ module.exports = (pool) => {
       });
 
       const result = await pool.query(query, values);
+
+      notifyOsChange({
+        establishmentId: establishment_id,
+        action: 'created',
+        detailId: result.rows[0].id,
+        osType: os_type,
+        date: event_date,
+        projectName: artistic_attraction,
+      });
 
       res.status(201).json({
         success: true,
@@ -830,6 +849,15 @@ module.exports = (pool) => {
 
       await pool.query(query, updateValues);
 
+      notifyOsChange({
+        establishmentId: establishment_id || existingEstId,
+        action: 'updated',
+        detailId: Number(id),
+        osType: os_type,
+        date: event_date,
+        projectName: artistic_attraction,
+      });
+
       res.json({
         success: true,
         message: 'Detalhe operacional atualizado com sucesso'
@@ -875,6 +903,12 @@ module.exports = (pool) => {
       }
 
       await pool.query('DELETE FROM operational_details WHERE id = $1', [id]);
+
+      notifyOsChange({
+        establishmentId: existingResult.rows[0].establishment_id,
+        action: 'deleted',
+        detailId: Number(id),
+      });
 
       res.json({
         success: true,

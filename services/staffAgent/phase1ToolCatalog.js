@@ -348,7 +348,8 @@ const PHASE1_TOOLS = [
     risk: 'medium',
     minRbac: ['os:create'],
     minUepAny: ['can_create_os'],
-    minRoles: ['recepcao', 'gerente', 'admin', 'account_admin'],
+    // Criar OS é restrito a gerente / admin / super admin — recepção não cria.
+    minRoles: ['gerente', 'admin', 'account_admin'],
     apiHint: 'POST /api/v1/operational-details (os_type=artist)',
     exampleUtterances: [
       'Cria uma OS de artista para o dia 30/08, projeto Samba do Ivan, das 18h às 2h',

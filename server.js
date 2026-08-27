@@ -35,6 +35,11 @@ try {
 } catch (e) {
   console.warn('[agendaRealtime] attach falhou:', e.message);
 }
+try {
+  require('./utils/osRealtime').attachOsRealtime(io);
+} catch (e) {
+  console.warn('[osRealtime] attach falhou:', e.message);
+}
 
 /** Render exige porta aberta rápido; rotas pesadas carregam depois do listen. */
 const BIND_HOST = process.env.HOST || config.server.host || '0.0.0.0';
@@ -491,6 +496,13 @@ io.on('connection', (socket) => {
     const establishmentId = Number(payload?.establishmentId ?? payload?.establishment_id);
     if (Number.isFinite(establishmentId) && establishmentId > 0) {
       socket.join(`agenda_est_${establishmentId}`);
+    }
+  });
+
+  socket.on('join_os', (payload) => {
+    const establishmentId = Number(payload?.establishmentId ?? payload?.establishment_id);
+    if (Number.isFinite(establishmentId) && establishmentId > 0) {
+      socket.join(`os_est_${establishmentId}`);
     }
   });
 });

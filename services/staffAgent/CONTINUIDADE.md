@@ -198,8 +198,12 @@ Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, b
 - `extra_fields` aceita JSON (`{"Estacionamento":"grátis"}`) ou texto (`Estacionamento: grátis; ...`);
   as chaves viram slug legível, porque o `ArtistOSViewModal` deriva o rótulo trocando `_` por espaço.
 - **Não coleta** CPF/CNPJ, endereço, dados bancários nem cachê — isso continua na tela de edição.
-- Permissão: UEP `can_create_os` (default FALSE). O backend da rota REST **não** checa essa flag;
-  no Staff Agent ela é obrigatória.
+- **Quem pode criar:** apenas **gerente, admin e super admin** (`minRoles` sem `recepcao`) + UEP
+  `can_create_os` (default FALSE). O backend da rota REST **não** checa essa flag; no Staff Agent
+  ela é obrigatória. Leitura (`listar_os_artista`) continua liberada para recepção/promoter.
+- **Tempo real:** `utils/osRealtime.js` emite `operational_detail_changed` na room `os_est_{id}`
+  (join via `join_os`). Emitem o Staff Agent e as rotas `/api/v1/operational-details`
+  (POST/PUT/DELETE); `app/admin/detalhes-operacionais/page.tsx` recarrega a lista ao receber.
 
 ### Pendência conhecida: UNIQUE (event_date)
 

@@ -15,6 +15,15 @@
 
 const { parseFlexibleDate, formatBr } = require('./agendaBlockHelpers');
 
+/** Realtime é opcional: nunca deve derrubar a criação da OS. */
+function emitOsChange(params) {
+  try {
+    require('../../utils/osRealtime').emitOperationalDetailChanged(params);
+  } catch (e) {
+    console.warn('[staffAgent] OS realtime indisponível:', e.message);
+  }
+}
+
 /** Campos livres do modal, na ordem em que aparecem na tela. */
 const DYNAMIC_FIELDS = [
   ['benefits', 'Benefícios'],
@@ -297,6 +306,15 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
       ]
     ));
   }
+
+  emitOsChange({
+    establishmentId,
+    action: 'created',
+    detailId: inserted?.id,
+    osType: 'artist',
+    date: dateIso,
+    projectName,
+  });
 
   return {
     ok: true,
