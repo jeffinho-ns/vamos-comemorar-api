@@ -36,8 +36,24 @@ function consumePendingAction(id, userId) {
   return entry.payload;
 }
 
+/** Lê sem consumir — usado quando o colaborador complementa a ação em vez de confirmar. */
+function peekPendingAction(id, userId) {
+  sweep();
+  const entry = store.get(String(id || ''));
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) return null;
+  if (Number(entry.payload.userId) !== Number(userId)) return null;
+  return entry.payload;
+}
+
+function dropPendingAction(id) {
+  store.delete(String(id || ''));
+}
+
 module.exports = {
   createPendingAction,
   consumePendingAction,
+  peekPendingAction,
+  dropPendingAction,
   TTL_MS,
 };

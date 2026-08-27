@@ -88,6 +88,7 @@ module.exports = (pool) => {
         user: req.user,
         establishmentId,
         message,
+        pendingConfirmId: req.body?.confirm_id || null,
       });
       return res.json(result);
     } catch (e) {

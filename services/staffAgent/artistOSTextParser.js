@@ -238,8 +238,79 @@ function parseOsFromText(text) {
   };
 }
 
+/** Rótulos que têm campo próprio na OS; o resto vira campo extra. */
+const KNOWN_FIELDS = [
+  ['ticket_values', /^(valores?(\s+de\s+entrada)?|entrada|ingressos?|couvert)$/i],
+  ['promotions', /^(promo[çc][õo]es|promo[çc][ãa]o)$/i],
+  ['benefits', /^(benef[ií]cios?|cortesias?)$/i],
+  ['menu', /^(card[aá]pio|menu)$/i],
+  ['briefing', /^briefing$/i],
+  ['partnership', /^(parceria|parcerias?|patroc[ií]nio)$/i],
+  ['tv_games', /^(jogos?(\s+n?a?\s*tv)?|tv)$/i],
+];
+
+function knownFieldFor(label) {
+  const clean = String(label || '').trim();
+  return KNOWN_FIELDS.find(([, re]) => re.test(clean))?.[0] || null;
+}
+
+/**
+ * Complemento a uma OS já em preview ("o briefing é X", "Open bar: até 20h").
+ * Diferente de parseOsFromText, não exige os obrigatórios.
+ *
+ * @returns {null | { fields: object, extra_fields: string|null }}
+ */
+function parseOsAmendment(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+
+  const fields = {};
+  const extras = [];
+
+  // "Rótulo: valor" separados por ; ou quebra de linha.
+  const pares = t
+    .split(/[;\n]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => p.match(/^([^:]{2,40}):\s*(.+)$/))
+    .filter(Boolean);
+
+  for (const [, rawLabel, rawValue] of pares) {
+    const label = rawLabel.replace(/^(adiciona\w*|inclui\w*|acrescent\w*|coloca\w*|o|a)\s+/i, '').trim();
+    const value = rawValue.trim();
+    const known = knownFieldFor(label);
+    if (known) fields[known] = value;
+    else extras.push(`${label}: ${value}`);
+  }
+
+  if (!pares.length) {
+    // Sem rótulo explícito: tenta reconhecer os campos conhecidos no texto corrido.
+    const porSecao = {
+      ticket_values: /\bvalores?\s+(?:de\s+)?entrada\s*(?:é|e|eh|:|s[ãa]o|de)?\s*/i,
+      promotions: /\bpromo[çc][ãa]o\s*(?::|é|e|:)?\s*/i,
+      benefits: /\bbenef[ií]cios?\s*(?::|s[ãa]o|é|e)?\s*/i,
+      menu: /\bcard[aá]pio\s*(?::|é|e)?\s*/i,
+      briefing: /\bbriefing\s*(?::|é|e)?\s*/i,
+      partnership: /\bparceria\s*(?::|é|e|com)?\s*/i,
+      tv_games: /\bjogos?\b[^.;:]{0,30}?(?:tv|televis[ãa]o)?\s*(?::)?\s*/i,
+    };
+    for (const [key, re] of Object.entries(porSecao)) {
+      const v = extractSection(t, re, `sem ${key}`);
+      if (v) fields[key] = v;
+    }
+    if (!Object.keys(fields).length) {
+      const livre = t.replace(/^(adiciona\w*|inclui\w*|acrescent\w*|coloca\w*|p[õo]e)\s+/i, '').trim();
+      if (livre) extras.push(`Observações: ${livre}`);
+    }
+  }
+
+  if (!Object.keys(fields).length && !extras.length) return null;
+  return { fields, extra_fields: extras.length ? extras.join('; ') : null };
+}
+
 module.exports = {
   parseOsFromText,
+  parseOsAmendment,
   extractDates,
   extractProjectName,
   extractWorkingHours,

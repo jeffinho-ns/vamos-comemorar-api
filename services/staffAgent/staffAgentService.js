@@ -14,8 +14,13 @@ const groqClient = require('./groqClient');
 const { isEstablishmentEnabled } = require('./featureFlag');
 const { assertCanUseTool, isStaffRole } = require('./permissions');
 const { executeTool } = require('./toolExecutor');
-const { createPendingAction, consumePendingAction } = require('./pendingActions');
-const { parseOsFromText } = require('./artistOSTextParser');
+const {
+  createPendingAction,
+  consumePendingAction,
+  peekPendingAction,
+  dropPendingAction,
+} = require('./pendingActions');
+const { parseOsFromText, parseOsAmendment } = require('./artistOSTextParser');
 const {
   getPhase1ToolDefinitions,
   getPhase1ToolByName,
@@ -251,7 +256,51 @@ async function buildWriteConfirm(pool, { user, estId, toolName, args }) {
   };
 }
 
-async function runTurn(pool, { user, establishmentId, message }) {
+/** "sim", "pode criar", "confirma" — segue direto para o apply. */
+function isConfirmationText(text) {
+  const t = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
+  if (!t || t.length > 40) return false;
+  return /^(sim|isso|ok|okay|beleza|blz|confirma\w*|pode\s+(criar|confirmar|salvar|mandar|ir)|manda|cria\w*|salva\w*|so\s+isso|nada\s+mais|mais\s+nada|e\s+isso|ta\s+bom)$/.test(t);
+}
+
+/**
+ * Complemento de uma OS em preview: mescla os campos novos e reabre a confirmação.
+ * Retorna null quando não há OS pendente ou a mensagem não acrescenta nada.
+ */
+async function tryAmendPendingOs(pool, { user, estId, text, pendingConfirmId }) {
+  const userId = user.id || user.userId;
+  const pending = peekPendingAction(pendingConfirmId, userId);
+  if (!pending || pending.toolName !== 'criar_os_artista') return null;
+
+  if (isConfirmationText(text)) {
+    return confirmTurn(pool, { user, confirmId: pendingConfirmId });
+  }
+
+  const amendment = parseOsAmendment(text);
+  if (!amendment) return null;
+
+  const args = { ...pending.args, ...amendment.fields };
+  if (amendment.extra_fields) {
+    args.extra_fields = [pending.args.extra_fields, amendment.extra_fields]
+      .filter(Boolean)
+      .join('; ');
+  }
+
+  dropPendingAction(pendingConfirmId);
+  return buildWriteConfirm(pool, {
+    user,
+    estId: pending.establishmentId || estId,
+    toolName: 'criar_os_artista',
+    args,
+  });
+}
+
+async function runTurn(pool, { user, establishmentId, message, pendingConfirmId = null }) {
   const estId = Number(establishmentId);
   if (!Number.isFinite(estId) || estId <= 0) {
     const err = new Error('establishment_id inválido');
@@ -293,6 +342,18 @@ async function runTurn(pool, { user, establishmentId, message }) {
     },
     { role: 'user', content: text },
   ];
+
+  // Ação em preview e o colaborador respondeu com mais dados em vez de confirmar:
+  // complementa a OS e devolve um preview novo.
+  if (pendingConfirmId) {
+    const amended = await tryAmendPendingOs(pool, {
+      user,
+      estId,
+      text,
+      pendingConfirmId,
+    });
+    if (amended) return amended;
+  }
 
   const menuWriteIntent = detectMenuWriteIntent(text);
 

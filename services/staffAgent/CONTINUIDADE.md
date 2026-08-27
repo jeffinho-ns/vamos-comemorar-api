@@ -212,9 +212,27 @@ Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, b
 
 ### Como o pedido é reconhecido
 
-`detectOsIntent()` (em `staffAgentService.js`) identifica o pedido e **força a tool**
-(`tool_choice`) em vez de torcer para o modelo escolher — foi assim que evitamos o
-"não tenho função para isso".
+`detectOsIntent()` (em `staffAgentService.js`) identifica o pedido. Com a intenção
+reconhecida, `artistOSTextParser.parseOsFromText()` monta a OS **direto do texto, sem LLM**,
+desde que ache os três obrigatórios (data do evento, projeto, horários) — mesma estratégia
+do fast path de cardápio.
+
+Por quê: forçar `tool_choice` pelo nome da função fazia a Groq responder
+`400 Failed to call a function` com o `gpt-oss`. O `tool_choice` ainda é tentado como
+empurrão, mas em caso de erro o turno é refeito em `auto` em vez de quebrar.
+
+O parser trata: duas datas na mesma frase (emissão × evento), nomes com ponto
+("Justa2.0"), horários por extenso ("das 18h às 02h") sem confundir com datas, e
+negações ("sem briefing") — que viram campo vazio e não são perguntadas de novo.
+Regressão em `tests/unit/staffAgentOsTextParser.test.js`.
+
+### Complementar a OS antes de confirmar
+
+Com o preview aberto, o colaborador pode responder com mais informação em vez de
+confirmar. O front envia o `confirm_id` junto no `POST /turn`; `tryAmendPendingOs()`
+mescla os campos (`parseOsAmendment`) e devolve um preview novo. Rótulo conhecido vai
+para a coluna certa, rótulo desconhecido vira `extra_fields`, e "sim/pode criar" aplica
+direto. Coberto por `tests/unit/staffAgentOsAmendment.test.js`.
 
 - Aceita: criar / abrir / montar / gerar / cadastrar / lançar / registrar / emitir /
   preencher / fazer + "OS", "O.S.", "ordem de serviço", "nova OS".
