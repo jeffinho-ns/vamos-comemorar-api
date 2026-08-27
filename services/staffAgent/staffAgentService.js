@@ -34,6 +34,12 @@ Cardápio (pausar/reativar):
 3) Se vierem vários, cite os #id e nomes e peça qual; nunca pause/ative mais de um por vez.
 4) Não responda só "encontrei N itens" quando o usuário pediu pausar/ativar e há 1 match — chame a tool de escrita.
 
+Agenda (bloquear/liberar dia):
+- "bloqueia/fecha o dia X" → bloquear_dia_agenda com date=X (repasse a data como o usuário falou: 15/09, amanhã etc.).
+- "libera/desbloqueia o dia X" → liberar_dia_agenda.
+- "quais dias estão bloqueados" → listar_bloqueios_agenda.
+- Um dia por vez, casa inteira. Bloquear não cancela reservas já existentes.
+
 Nunca diga que já executou uma ação de escrita — o sistema pede confirmação ao colaborador.
 Se faltar dado (data, item_id, waitlist_id, wa_id), pergunte em uma frase.
 Escopo: só a casa informada no contexto.`;
@@ -360,6 +366,7 @@ async function confirmTurn(pool, { user, confirmId }) {
     args: pending.args,
     establishmentId: pending.establishmentId,
     mode: 'apply',
+    userId,
   });
 
   return {

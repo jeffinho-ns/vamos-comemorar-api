@@ -43,7 +43,9 @@ Pasta: `services/staffAgent/`
 
 | Arquivo | Função |
 |---------|--------|
-| `phase1ToolCatalog.js` | Catálogo das 10 tools + excluídas |
+| `phase1ToolCatalog.js` | Catálogo das tools + excluídas |
+| `dateUtils.js` | `todayIsoSp` / `parseDateOrToday` (fuso SP) |
+| `agendaBlocks.js` | Fase 2: bloquear / liberar dia na agenda |
 | `featureFlag.js` | Flag / piloto allow-all |
 | `groqClient.js` | Cliente Groq + fallbacks |
 | `toolExecutor.js` | Execução real (SQL/ações) |
@@ -65,16 +67,16 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
 ---
 
-## Tools Fase 1 (10)
+## Tools (13 — Fase 1 + agenda da Fase 2)
 
-**Leitura:** `briefing_turno`, `buscar_reservas`, `checar_capacidade`, `listar_espera`, `listar_itens_cardapio`, `resumir_conversa_whatsapp`, `sugerir_resposta_whatsapp`
+**Leitura:** `briefing_turno`, `buscar_reservas`, `checar_capacidade`, `listar_espera`, `listar_itens_cardapio`, `listar_bloqueios_agenda`, `resumir_conversa_whatsapp`, `sugerir_resposta_whatsapp`
 
-**Escrita (Confirmar):** `chamar_espera`, `pausar_item_cardapio`, `reativar_item_cardapio`
+**Escrita (Confirmar):** `chamar_espera`, `pausar_item_cardapio`, `reativar_item_cardapio`, `bloquear_dia_agenda`, `liberar_dia_agenda`
 
 (Nomes canônicos em `phase1ToolCatalog.js` — se divergir deste resumo, o catálogo vence.)
 
 **Fora de escopo (não implementar sem novo acordo):**  
-`criar_reserva`, `editar_reserva`, `cancelar_reserva`, `bloquear_agenda`, `reativar_bloqueio`, `ajustar_horarios`, usuários/cargos, enviar WA, campanhas, config IA cliente.
+`criar_reserva`, `editar_reserva`, `cancelar_reserva`, `ajustar_horarios`, usuários/cargos, enviar WA, campanhas, config IA cliente.
 
 ---
 
@@ -136,20 +138,29 @@ Admin → FAB → casa (Justino ou Highline):
 1. `Como está o dia de hoje?`
 2. `Quem está na espera?`
 3. `Pausar X` → Confirmar
+4. `Quais dias estão bloqueados?`
+5. `Bloqueia o dia 15/09 por evento privado` → Confirmar → conferir no painel de bloqueios
+6. `Libera o dia 15/09` → Confirmar
 
 Se o aviso amarelo voltar: Network → `/api/staff-agent/status` → sem `code_rev` = Render no código antigo → Manual Deploy.
 
 ---
 
-## Próximo passo (Fase 2)
+## Fase 2 — agenda (implementada)
 
-1. Tools `bloquear_agenda` + `reativar_bloqueio` (já listadas como excluídas na Fase 1).
-2. Obrigatório: dry-run / preview → `pendingActions` → Confirmar.
-3. Reusar lógica/tabelas de bloqueio já existentes (`restaurant_reservation_blocks` / rotas de blocks) — não inventar schema.
-4. Highline: logar `establishment_id` + contexto; nada de falha silenciosa.
-5. Continuar **fora**: criar reserva pelo chat, campanhas WA, RBAC.
+`services/staffAgent/agendaBlocks.js` grava na **mesma** tabela do painel
+(`restaurant_reservation_blocks`), então o bloqueio feito pelo chat aparece no admin
+e fecha a página `/reservar`.
 
-### Backlog depois da Fase 2
+- Um **dia inteiro** por vez, casa inteira (`area_id NULL`), sem recorrência.
+- Bloquear **não cancela** reservas existentes — o preview avisa quantas existem no dia.
+- Datas aceitas: `YYYY-MM-DD`, `15/09`, `hoje`, `amanhã`, dia da semana. Dia/mês sem ano que já passou → próximo ano.
+- Insert/delete via `queryWithRlsContext` com `organization_id` resolvido pelo establishment.
+- `created_by` = usuário que confirmou (`userId` chega ao `executeTool` pelo `confirmTurn`).
+
+Ainda **fora**: criar/editar/cancelar reserva pelo chat, bloquear só uma área, faixa de horário, recorrência.
+
+### Backlog
 
 1. Rascunho WA ao **assumir** conversa no inbox (tool já existe; falta UX).
 2. Chip sugestão área/mesa no alocar (IA embutida na tela).

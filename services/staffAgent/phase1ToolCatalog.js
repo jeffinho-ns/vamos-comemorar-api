@@ -245,6 +245,64 @@ const PHASE1_TOOLS = [
     ],
   },
   {
+    name: 'listar_bloqueios_agenda',
+    description:
+      'Lista dias bloqueados para reservas (futuros, ou de uma data específica). Use antes de bloquear/liberar.',
+    args: [
+      { name: 'date', type: 'string', description: 'Data (YYYY-MM-DD, DD/MM, hoje, amanhã). Vazio = próximos bloqueios', required: false },
+    ],
+    requiresConfirmation: false,
+    isWrite: false,
+    risk: 'low',
+    minRbac: ['reservas:read'],
+    minUepAny: ['can_view_reservations', 'can_edit_reservations', 'can_create_reservations'],
+    minRoles: ['recepcao', 'gerente', 'admin', 'account_admin', 'promoter'],
+    apiHint: 'GET /api/restaurant-reservation-blocks',
+    exampleUtterances: [
+      'Quais dias estão bloqueados?',
+      'O dia 15/09 está bloqueado?',
+    ],
+  },
+  {
+    name: 'bloquear_dia_agenda',
+    description:
+      'Bloqueia UM dia inteiro para novas reservas (casa inteira). Não cancela reservas existentes. Preview obrigatório.',
+    args: [
+      { name: 'date', type: 'string', description: 'Data do bloqueio (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
+      { name: 'reason', type: 'string', description: 'Motivo do bloqueio (ex.: evento privado, manutenção)', required: false },
+    ],
+    requiresConfirmation: true,
+    isWrite: true,
+    risk: 'high',
+    minRbac: ['reservas:update'],
+    minUepAny: ['can_edit_reservations'],
+    minRoles: ['gerente', 'admin', 'account_admin'],
+    apiHint: 'POST /api/restaurant-reservation-blocks (dia inteiro, area_id NULL)',
+    exampleUtterances: [
+      'Bloqueia o dia 15/09',
+      'Fecha a agenda de amanhã por evento privado',
+    ],
+  },
+  {
+    name: 'liberar_dia_agenda',
+    description:
+      'Remove o bloqueio de UM dia, reabrindo a agenda para reservas. Preview obrigatório.',
+    args: [
+      { name: 'date', type: 'string', description: 'Data a liberar (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
+    ],
+    requiresConfirmation: true,
+    isWrite: true,
+    risk: 'high',
+    minRbac: ['reservas:update'],
+    minUepAny: ['can_edit_reservations'],
+    minRoles: ['gerente', 'admin', 'account_admin'],
+    apiHint: 'DELETE /api/restaurant-reservation-blocks/:id',
+    exampleUtterances: [
+      'Libera o dia 15/09',
+      'Desbloqueia a agenda de amanhã',
+    ],
+  },
+  {
     name: 'resumir_conversa_whatsapp',
     description:
       'Gera resumo curto da conversa WhatsApp (para takeover). Não envia mensagem ao cliente.',
@@ -291,8 +349,6 @@ const PHASE1_EXCLUDED = [
   'criar_reserva',
   'editar_reserva',
   'cancelar_reserva',
-  'bloquear_agenda',
-  'reativar_bloqueio',
   'ajustar_horarios',
   'criar_usuario',
   'alterar_cargo',

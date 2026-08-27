@@ -7,20 +7,12 @@
 
 const establishmentRules = require('../establishmentRules');
 
-function todayIsoSp() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
-function parseDateOrToday(date) {
-  const raw = String(date || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  return todayIsoSp();
-}
+const { todayIsoSp, parseDateOrToday } = require('./dateUtils');
+const {
+  listarBloqueiosAgenda,
+  bloquearDiaAgenda,
+  liberarDiaAgenda,
+} = require('./agendaBlocks');
 
 function coerceBool(value, defaultValue = false) {
   if (value === true || value === 1) return true;
@@ -426,7 +418,7 @@ async function sugerirRespostaWhatsapp(pool, ctx) {
 /**
  * @param {'preview'|'apply'|'read'} mode
  */
-async function executeTool(pool, { toolName, args, establishmentId, mode }) {
+async function executeTool(pool, { toolName, args, establishmentId, mode, userId }) {
   const a = args && typeof args === 'object' ? args : {};
   try {
     switch (toolName) {
@@ -459,6 +451,21 @@ async function executeTool(pool, { toolName, args, establishmentId, mode }) {
           args: a,
           mode: mode === 'apply' ? 'apply' : 'preview',
           visible: true,
+        });
+      case 'listar_bloqueios_agenda':
+        return await listarBloqueiosAgenda(pool, { establishmentId, args: a });
+      case 'bloquear_dia_agenda':
+        return await bloquearDiaAgenda(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          userId,
+        });
+      case 'liberar_dia_agenda':
+        return await liberarDiaAgenda(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
         });
       case 'resumir_conversa_whatsapp':
         return await resumirConversaWhatsapp(pool, { establishmentId, args: a });
