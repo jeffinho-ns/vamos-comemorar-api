@@ -266,10 +266,13 @@ const PHASE1_TOOLS = [
   {
     name: 'bloquear_dia_agenda',
     description:
-      'Bloqueia UM dia inteiro para novas reservas (casa inteira). Não cancela reservas existentes. Preview obrigatório.',
+      'Bloqueia UM dia para novas reservas. Sem área = casa inteira; sem horários = dia inteiro. Não cancela reservas existentes. Preview obrigatório.',
     args: [
       { name: 'date', type: 'string', description: 'Data do bloqueio (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
       { name: 'reason', type: 'string', description: 'Motivo do bloqueio (ex.: evento privado, manutenção)', required: false },
+      { name: 'area_name', type: 'string', description: 'Nome da área (ex.: Rooftop). Vazio = casa inteira', required: false },
+      { name: 'start_time', type: 'string', description: 'Início da faixa, HH:MM (ex.: 18:00). Vazio = dia inteiro', required: false },
+      { name: 'end_time', type: 'string', description: 'Fim da faixa, HH:MM (ex.: 22:00)', required: false },
     ],
     requiresConfirmation: true,
     isWrite: true,
@@ -281,14 +284,16 @@ const PHASE1_TOOLS = [
     exampleUtterances: [
       'Bloqueia o dia 15/09',
       'Fecha a agenda de amanhã por evento privado',
+      'Bloqueia o Rooftop no dia 20/09 das 18h às 22h',
     ],
   },
   {
     name: 'liberar_dia_agenda',
     description:
-      'Remove o bloqueio de UM dia, reabrindo a agenda para reservas. Preview obrigatório.',
+      'Remove o bloqueio de UM dia, reabrindo a agenda para reservas. Com area_name, remove só o bloqueio daquela área. Preview obrigatório.',
     args: [
       { name: 'date', type: 'string', description: 'Data a liberar (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
+      { name: 'area_name', type: 'string', description: 'Nome da área. Vazio = todos os bloqueios do dia', required: false },
     ],
     requiresConfirmation: true,
     isWrite: true,

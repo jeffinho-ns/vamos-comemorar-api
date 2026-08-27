@@ -45,7 +45,8 @@ Pasta: `services/staffAgent/`
 |---------|--------|
 | `phase1ToolCatalog.js` | Catálogo das tools + excluídas |
 | `dateUtils.js` | `todayIsoSp` / `parseDateOrToday` (fuso SP) |
-| `agendaBlocks.js` | Fase 2: bloquear / liberar dia na agenda |
+| `agendaBlocks.js` | Fase 2: tools de bloquear / liberar dia |
+| `agendaBlockHelpers.js` | Datas, horários, resolução de área e conflito |
 | `featureFlag.js` | Flag / piloto allow-all |
 | `groqClient.js` | Cliente Groq + fallbacks |
 | `toolExecutor.js` | Execução real (SQL/ações) |
@@ -141,6 +142,8 @@ Admin → FAB → casa (Justino ou Highline):
 4. `Quais dias estão bloqueados?`
 5. `Bloqueia o dia 15/09 por evento privado` → Confirmar → conferir no painel de bloqueios
 6. `Libera o dia 15/09` → Confirmar
+7. `Bloqueia o Rooftop no dia 20/09 das 18h às 22h` → Confirmar
+8. `Libera o Rooftop no dia 20/09` → Confirmar
 
 Se o aviso amarelo voltar: Network → `/api/staff-agent/status` → sem `code_rev` = Render no código antigo → Manual Deploy.
 
@@ -152,7 +155,14 @@ Se o aviso amarelo voltar: Network → `/api/staff-agent/status` → sem `code_r
 (`restaurant_reservation_blocks`), então o bloqueio feito pelo chat aparece no admin
 e fecha a página `/reservar`.
 
-- Um **dia inteiro** por vez, casa inteira (`area_id NULL`), sem recorrência.
+- Um **dia** por vez, sem recorrência. Sem área = casa inteira (`area_id NULL`); sem horário = dia inteiro.
+- **Área:** `area_name` é resolvido pelo escopo real da casa via `areasFilterForEstablishment`
+  (extraído de `routes/restaurantAreas.js` para `services/establishmentRules.js` — não duplicar).
+  Nome ambíguo devolve as opções em vez de chutar.
+- **Faixa de horário:** `start_time`/`end_time` aceitam `18:00`, `18h`, `18h30`. Fim antes do início
+  fecha no fim do dia (não vira madrugada).
+- **Conflito:** só recusa se os horários se sobrepõem E os escopos se tocam — bloqueio da casa
+  inteira conflita com qualquer área; áreas distintas convivem no mesmo horário.
 - Bloquear **não cancela** reservas existentes — o preview avisa quantas existem no dia.
 - Datas aceitas: `YYYY-MM-DD`, `15/09`, `hoje`, `amanhã`, dia da semana. Dia/mês sem ano que já passou → próximo ano.
 - Insert/delete via `queryWithRlsContext` com `organization_id` resolvido pelo establishment.
@@ -163,7 +173,7 @@ e fecha a página `/reservar`.
   painel também aparece no calendário de quem está com a tela aberta.
   O front (`app/admin/restaurant-reservations/page.tsx`) recarrega `loadBlocks()` ao receber.
 
-Ainda **fora**: criar/editar/cancelar reserva pelo chat, bloquear só uma área, faixa de horário, recorrência.
+Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, bloquear várias datas de uma vez.
 
 ### Backlog
 

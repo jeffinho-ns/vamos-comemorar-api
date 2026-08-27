@@ -16,24 +16,8 @@ const {
   areaAllowedForEstablishment,
   areasManagementFrozen,
   establishmentHasOwnedAreas,
+  areasFilterForEstablishment,
 } = require('../services/establishmentRules');
-
-async function areasFilterForEstablishment(pool, establishmentId) {
-  const rules = await getEstablishmentRules(pool, establishmentId);
-  const canonicalSql = buildCanonicalAreasSql(rules, { idColumn: 'ra.id' });
-  // Self-managed (já tem áreas próprias): próprias + canônicas do perfil.
-  // Caso contrário: catálogo legado por convenção de nome (+ canônicas).
-  const hasOwned = await establishmentHasOwnedAreas(pool, establishmentId);
-  if (hasOwned) {
-    const owned = `ra.establishment_id = ${Number(establishmentId)}`;
-    return canonicalSql ? `(${owned} OR ${canonicalSql})` : owned;
-  }
-  const scopeSql = buildAreasScopeSql(rules, establishmentId, {
-    nameColumn: 'ra.name',
-    establishmentColumn: 'ra.establishment_id',
-  });
-  return canonicalSql ? `(${scopeSql} OR ${canonicalSql})` : scopeSql;
-}
 
 /**
  * Clona as áreas legadas visíveis (e suas mesas) para o estabelecimento,

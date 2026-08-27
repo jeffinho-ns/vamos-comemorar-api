@@ -6,7 +6,8 @@
  * Reusa a tabela restaurant_reservation_blocks (mesma de /api/restaurant-reservation-blocks),
  * então o bloqueio criado aqui aparece no painel e bloqueia a página /reservar.
  *
- * Fase 2: um dia inteiro por vez, casa inteira (area_id NULL). Sem recorrência.
+ * Fase 2: um dia por vez. Opcionalmente restrito a uma área e/ou faixa de horário.
+ * Sem recorrência.
  */
 
 const { queryWithRlsContext } = require('../../tenancy/scopedQuery');
@@ -14,8 +15,24 @@ const {
   resolveOrganizationIdForEstablishment,
 } = require('../../tenancy/resolveOrganizationId');
 const { todayIsoSp } = require('./dateUtils');
+const {
+  parseFlexibleDate,
+  parseTimeHHMM,
+  blockBounds,
+  formatBr,
+  formatTimeRange,
+  resolveArea,
+  describeScope,
+  findBlocksOnDate,
+  conflictingBlocks,
+} = require('./agendaBlockHelpers');
 
 const DEFAULT_REASON = 'Bloqueio manual (Staff Agent)';
+
+async function rlsCtxFor(pool, establishmentId) {
+  const organizationId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
+  return organizationId ? { organizationId } : { isAdmin: true };
+}
 
 /** Realtime é opcional: nunca deve derrubar a aplicação do bloqueio. */
 function emitBlockChange(params) {
@@ -26,97 +43,6 @@ function emitBlockChange(params) {
   }
 }
 
-function addDaysIso(iso, days) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
-const WEEKDAYS = [
-  ['domingo'],
-  ['segunda', 'segunda-feira'],
-  ['terca', 'terça', 'terca-feira', 'terça-feira'],
-  ['quarta', 'quarta-feira'],
-  ['quinta', 'quinta-feira'],
-  ['sexta', 'sexta-feira'],
-  ['sabado', 'sábado'],
-];
-
-function normalize(text) {
-  return String(text || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
-/** Aceita YYYY-MM-DD, DD/MM, DD/MM/YYYY, hoje, amanhã, dia da semana. */
-function parseFlexibleDate(input) {
-  const raw = String(input || '').trim();
-  if (!raw) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-
-  const today = todayIsoSp();
-  const n = normalize(raw);
-
-  if (n === 'hoje') return today;
-  if (n === 'amanha') return addDaysIso(today, 1);
-  if (n === 'depois de amanha' || n === 'depois-de-amanha') return addDaysIso(today, 2);
-
-  const br = raw.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
-  if (br) {
-    const day = Number(br[1]);
-    const month = Number(br[2]);
-    let year = br[3] ? Number(br[3]) : Number(today.slice(0, 4));
-    if (year < 100) year += 2000;
-    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    // "15/09" sem ano e já passou → assume próximo ano.
-    if (!br[3] && iso < today) {
-      return `${year + 1}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    }
-    return iso;
-  }
-
-  const weekdayIndex = WEEKDAYS.findIndex((names) => names.includes(n));
-  if (weekdayIndex >= 0) {
-    const [y, m, d] = today.split('-').map(Number);
-    const current = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    const delta = (weekdayIndex - current + 7) % 7 || 7;
-    return addDaysIso(today, delta);
-  }
-
-  return null;
-}
-
-function formatBr(iso) {
-  const [y, m, d] = String(iso).split('-');
-  return `${d}/${m}/${y}`;
-}
-
-function dayBounds(iso) {
-  return { start: `${iso} 00:00:00`, end: `${iso} 23:59:59` };
-}
-
-async function rlsCtxFor(pool, establishmentId) {
-  const organizationId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
-  return organizationId ? { organizationId } : { isAdmin: true };
-}
-
-async function findBlocksOnDate(pool, establishmentId, dateIso) {
-  const { rows } = await pool.query(
-    `SELECT id, reason, area_id, start_datetime, end_datetime
-       FROM restaurant_reservation_blocks
-      WHERE establishment_id = $1
-        AND start_datetime::date <= $2
-        AND end_datetime::date >= $2
-      ORDER BY start_datetime ASC`,
-    [establishmentId, dateIso]
-  );
-  return rows;
-}
 
 async function listarBloqueiosAgenda(pool, { establishmentId, args }) {
   const dateIso = args.date ? parseFlexibleDate(args.date) : null;
@@ -129,11 +55,12 @@ async function listarBloqueiosAgenda(pool, { establishmentId, args }) {
     ? await findBlocksOnDate(pool, establishmentId, dateIso)
     : (
         await pool.query(
-          `SELECT id, reason, area_id, start_datetime, end_datetime
-             FROM restaurant_reservation_blocks
-            WHERE establishment_id = $1
-              AND end_datetime::date >= $2
-            ORDER BY start_datetime ASC
+          `SELECT b.id, b.reason, b.area_id, b.start_datetime, b.end_datetime, ra.name AS area_name
+             FROM restaurant_reservation_blocks b
+             LEFT JOIN restaurant_areas ra ON ra.id = b.area_id
+            WHERE b.establishment_id = $1
+              AND b.end_datetime::date >= $2
+            ORDER BY b.start_datetime ASC
             LIMIT 20`,
           [establishmentId, todayIsoSp()]
         )
@@ -144,9 +71,14 @@ async function listarBloqueiosAgenda(pool, { establishmentId, args }) {
     date: String(r.start_datetime).slice(0, 10),
     reason: r.reason,
     area_id: r.area_id,
+    area_name: r.area_name || null,
+    time_range: formatTimeRange(r.start_datetime, r.end_datetime),
   }));
 
-  const lines = blocks.map((b) => `#${b.id} ${formatBr(b.date)} — ${b.reason}`);
+  const lines = blocks.map(
+    (b) =>
+      `#${b.id} ${formatBr(b.date)} — ${b.area_name || 'casa inteira'}, ${b.time_range} — ${b.reason}`
+  );
 
   return {
     ok: true,
@@ -167,45 +99,79 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
   }
 
   const reason = String(args.reason || '').trim() || DEFAULT_REASON;
-  const existing = await findBlocksOnDate(pool, establishmentId, dateIso);
 
-  if (existing.length) {
+  let area = null;
+  if (args.area_name) {
+    const resolved = await resolveArea(pool, establishmentId, args.area_name);
+    if (!resolved.area) {
+      const names = (resolved.ambiguous || resolved.options).map((o) => o.name).join(', ');
+      return {
+        ok: false,
+        message: resolved.ambiguous
+          ? `"${args.area_name}" ficou ambíguo. Qual delas: ${names}?`
+          : `Não achei a área "${args.area_name}" nesta casa. Disponíveis: ${names || 'nenhuma'}.`,
+      };
+    }
+    area = resolved.area;
+  }
+
+  const startTime = args.start_time ? parseTimeHHMM(args.start_time) : null;
+  const endTime = args.end_time ? parseTimeHHMM(args.end_time) : null;
+  if ((args.start_time && !startTime) || (args.end_time && !endTime)) {
+    return { ok: false, message: 'Não entendi o horário. Use algo como 18:00 e 22:00.' };
+  }
+
+  const { start, end } = blockBounds(dateIso, startTime, endTime);
+  const existing = await findBlocksOnDate(pool, establishmentId, dateIso);
+  const conflicts = conflictingBlocks(existing, { areaId: area?.id ?? null, start, end });
+
+  if (conflicts.length) {
+    const c = conflicts[0];
     return {
       ok: false,
-      message: `${formatBr(dateIso)} já está bloqueado (#${existing[0].id} — ${existing[0].reason}).`,
+      message: `Já existe bloqueio nesse período: #${c.id} ${c.area_name || 'casa inteira'}, ${formatTimeRange(c.start_datetime, c.end_datetime)} — ${c.reason}.`,
     };
   }
 
+  const reservationParams = [establishmentId, dateIso];
+  let areaFilter = '';
+  if (area) {
+    reservationParams.push(area.id);
+    areaFilter = ` AND area_id = $${reservationParams.length}`;
+  }
   const { rows: reservationRows } = await pool.query(
     `SELECT COUNT(*)::int AS total
        FROM restaurant_reservations
       WHERE establishment_id = $1
         AND reservation_date = $2
-        AND COALESCE(UPPER(status::text), '') NOT IN ('CANCELADA', 'CANCELLED', 'CANCELED')`,
-    [establishmentId, dateIso]
+        AND COALESCE(UPPER(status::text), '') NOT IN ('CANCELADA', 'CANCELLED', 'CANCELED')
+        ${areaFilter}`,
+    reservationParams
   );
   const affectedReservations = reservationRows[0]?.total || 0;
 
   const preview = {
     date: dateIso,
     reason,
-    area_id: null,
+    area_id: area?.id ?? null,
+    area_name: area?.name ?? null,
+    start_datetime: start,
+    end_datetime: end,
     affected_reservations: affectedReservations,
   };
 
   if (mode === 'preview') {
     const warn = affectedReservations
-      ? ` Atenção: já existem ${affectedReservations} reserva(s) nesse dia — elas não são canceladas automaticamente.`
+      ? ` Atenção: já existem ${affectedReservations} reserva(s) nesse escopo — elas não são canceladas automaticamente.`
       : '';
     return {
       ok: true,
       needs_confirmation: true,
       preview,
-      message: `Vou bloquear ${formatBr(dateIso)} para novas reservas (motivo: ${reason}).${warn} Confirmar?`,
+      message: `Vou bloquear ${formatBr(dateIso)} em ${describeScope(area?.name, start, end)} para novas reservas (motivo: ${reason}).${warn} Confirmar?`,
     };
   }
 
-  const { start, end } = dayBounds(dateIso);
   const ctx = await rlsCtxFor(pool, establishmentId);
   const organizationId = ctx.organizationId || null;
 
@@ -215,9 +181,9 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     `INSERT INTO restaurant_reservation_blocks
        (establishment_id, area_id, start_datetime, end_datetime, reason,
         recurrence_type, recurrence_weekday, max_people_capacity, created_by, organization_id)
-     VALUES ($1, NULL, $2, $3, $4, 'none', NULL, NULL, $5, $6)
+     VALUES ($1, $2, $3, $4, $5, 'none', NULL, NULL, $6, $7)
      RETURNING id`,
-    [establishmentId, start, end, reason, userId || null, organizationId]
+    [establishmentId, area?.id ?? null, start, end, reason, userId || null, organizationId]
   );
 
   emitBlockChange({
@@ -232,7 +198,7 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     ok: true,
     applied: true,
     preview: { ...preview, block_id: rows[0]?.id },
-    message: `${formatBr(dateIso)} bloqueado (#${rows[0]?.id}).`,
+    message: `${formatBr(dateIso)} bloqueado em ${describeScope(area?.name, start, end)} (#${rows[0]?.id}).`,
   };
 }
 
@@ -242,9 +208,28 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
     return { ok: false, message: 'Preciso da data. Ex.: "libera o dia 15/09".' };
   }
 
-  const existing = await findBlocksOnDate(pool, establishmentId, dateIso);
-  if (!existing.length) {
+  const allOnDate = await findBlocksOnDate(pool, establishmentId, dateIso);
+  if (!allOnDate.length) {
     return { ok: false, message: `${formatBr(dateIso)} não está bloqueado.` };
+  }
+
+  let existing = allOnDate;
+  if (args.area_name) {
+    const resolved = await resolveArea(pool, establishmentId, args.area_name);
+    if (!resolved.area) {
+      const names = (resolved.ambiguous || resolved.options).map((o) => o.name).join(', ');
+      return {
+        ok: false,
+        message: `Não achei a área "${args.area_name}" nesta casa. Disponíveis: ${names || 'nenhuma'}.`,
+      };
+    }
+    existing = allOnDate.filter((b) => Number(b.area_id) === Number(resolved.area.id));
+    if (!existing.length) {
+      return {
+        ok: false,
+        message: `Não há bloqueio da área ${resolved.area.name} em ${formatBr(dateIso)}.`,
+      };
+    }
   }
 
   const preview = {
@@ -254,7 +239,12 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
   };
 
   if (mode === 'preview') {
-    const detail = existing.map((b) => `#${b.id} ${b.reason}`).join(', ');
+    const detail = existing
+      .map(
+        (b) =>
+          `#${b.id} ${b.area_name || 'casa inteira'}, ${formatTimeRange(b.start_datetime, b.end_datetime)} — ${b.reason}`
+      )
+      .join('; ');
     return {
       ok: true,
       needs_confirmation: true,
@@ -284,13 +274,13 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
     ok: true,
     applied: true,
     preview,
-    message: `${formatBr(dateIso)} liberado para reservas.`,
+    message: args.area_name
+      ? `${formatBr(dateIso)} liberado na área ${existing[0].area_name}.`
+      : `${formatBr(dateIso)} liberado para reservas.`,
   };
 }
 
 module.exports = {
-  parseFlexibleDate,
-  formatBr,
   listarBloqueiosAgenda,
   bloquearDiaAgenda,
   liberarDiaAgenda,

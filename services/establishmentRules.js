@@ -294,6 +294,25 @@ function areaAllowedForEstablishment(rules, area, establishmentId) {
   return areaAllowedForRules(rules, area.name);
 }
 
+/**
+ * SQL de escopo das áreas visíveis para um estabelecimento.
+ * Self-managed (já tem áreas próprias): próprias + canônicas do perfil.
+ * Caso contrário: catálogo legado por convenção de nome (+ canônicas).
+ */
+async function areasFilterForEstablishment(pool, establishmentId, { idColumn = 'ra.id', nameColumn = 'ra.name', establishmentColumn = 'ra.establishment_id' } = {}) {
+  const rules = await getEstablishmentRules(pool, establishmentId);
+  const canonicalSql = buildCanonicalAreasSql(rules, { idColumn });
+  if (await establishmentHasOwnedAreas(pool, establishmentId)) {
+    const owned = `${establishmentColumn} = ${Number(establishmentId)}`;
+    return canonicalSql ? `(${owned} OR ${canonicalSql})` : owned;
+  }
+  const scopeSql = buildAreasScopeSql(rules, establishmentId, {
+    nameColumn,
+    establishmentColumn,
+  });
+  return canonicalSql ? `(${scopeSql} OR ${canonicalSql})` : scopeSql;
+}
+
 function usesTableOverlapBlocking(rules) {
   if (rules?.reservations?.tableBlocking === 'overlap') return true;
   if (rules?.reservations?.tableBlocking === 'full_day') return false;
@@ -345,6 +364,7 @@ module.exports = {
   getCanonicalAreaIdsForRules,
   buildCanonicalAreasSql,
   establishmentHasOwnedAreas,
+  areasFilterForEstablishment,
   usesTableOverlapBlocking,
   usesExtendedGuestListWindow,
   listOperationalMappings,
