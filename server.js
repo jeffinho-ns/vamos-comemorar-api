@@ -30,6 +30,11 @@ try {
 } catch (e) {
   console.warn('[menuRealtime] attach falhou:', e.message);
 }
+try {
+  require('./utils/agendaRealtime').attachAgendaRealtime(io);
+} catch (e) {
+  console.warn('[agendaRealtime] attach falhou:', e.message);
+}
 
 /** Render exige porta aberta rápido; rotas pesadas carregam depois do listen. */
 const BIND_HOST = process.env.HOST || config.server.host || '0.0.0.0';
@@ -479,6 +484,13 @@ io.on('connection', (socket) => {
     }
     if (Number.isFinite(establishmentId) && establishmentId > 0) {
       socket.join(`cardapio_est_${establishmentId}`);
+    }
+  });
+
+  socket.on('join_agenda', (payload) => {
+    const establishmentId = Number(payload?.establishmentId ?? payload?.establishment_id);
+    if (Number.isFinite(establishmentId) && establishmentId > 0) {
+      socket.join(`agenda_est_${establishmentId}`);
     }
   });
 });

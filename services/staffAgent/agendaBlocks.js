@@ -17,6 +17,15 @@ const { todayIsoSp } = require('./dateUtils');
 
 const DEFAULT_REASON = 'Bloqueio manual (Staff Agent)';
 
+/** Realtime é opcional: nunca deve derrubar a aplicação do bloqueio. */
+function emitBlockChange(params) {
+  try {
+    require('../../utils/agendaRealtime').emitReservationBlockChanged(params);
+  } catch (e) {
+    console.warn('[staffAgent] agenda realtime indisponível:', e.message);
+  }
+}
+
 function addDaysIso(iso, days) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -211,6 +220,14 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     [establishmentId, start, end, reason, userId || null, organizationId]
   );
 
+  emitBlockChange({
+    establishmentId,
+    action: 'created',
+    blockIds: rows[0]?.id ? [rows[0].id] : [],
+    date: dateIso,
+    reason,
+  });
+
   return {
     ok: true,
     applied: true,
@@ -255,6 +272,13 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
         AND id = ANY($2::int[])`,
     [establishmentId, preview.block_ids]
   );
+
+  emitBlockChange({
+    establishmentId,
+    action: 'deleted',
+    blockIds: preview.block_ids,
+    date: dateIso,
+  });
 
   return {
     ok: true,

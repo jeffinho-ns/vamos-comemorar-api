@@ -11,6 +11,16 @@ const {
 const { queryWithRlsContext } = require('../tenancy/scopedQuery');
 const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
 const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
+const { emitReservationBlockChanged } = require('../utils/agendaRealtime');
+
+/** Realtime é opcional: nunca deve falhar a requisição. */
+const notifyBlockChange = (params) => {
+  try {
+    emitReservationBlockChanged(params);
+  } catch (error) {
+    console.warn('[reservationBlocks] realtime indisponível:', error.message);
+  }
+};
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -186,7 +196,16 @@ module.exports = (pool) => {
         }
       }
 
-      res.status(201).json({ success: true, block: result.rows[0] });
+      const created = result.rows[0];
+      notifyBlockChange({
+        establishmentId: created.establishment_id,
+        action: 'created',
+        blockIds: [created.id],
+        date: String(created.start_datetime).slice(0, 10),
+        reason: created.reason,
+      });
+
+      res.status(201).json({ success: true, block: created });
     } catch (error) {
       console.error('❌ Erro ao criar bloqueio de agenda:', error);
       res.status(500).json({ success: false, error: 'Erro interno do servidor' });
@@ -249,6 +268,14 @@ module.exports = (pool) => {
         params
       );
 
+      notifyBlockChange({
+        establishmentId: existing.rows[0].establishment_id,
+        action: 'updated',
+        blockIds: [Number(id)],
+        date: start_datetime ? String(start_datetime).slice(0, 10) : null,
+        reason: reason || null,
+      });
+
       res.json({ success: true });
     } catch (error) {
       console.error('❌ Erro ao atualizar bloqueio de agenda:', error);
@@ -261,7 +288,7 @@ module.exports = (pool) => {
     try {
       const { id } = req.params;
       const existing = await pool.query(
-        'SELECT establishment_id FROM restaurant_reservation_blocks WHERE id = $1 LIMIT 1',
+        'SELECT establishment_id, start_datetime FROM restaurant_reservation_blocks WHERE id = $1 LIMIT 1',
         [id],
       );
       if (existing.rows.length === 0) {
@@ -271,6 +298,14 @@ module.exports = (pool) => {
         return;
       }
       await pool.query('DELETE FROM restaurant_reservation_blocks WHERE id = $1', [id]);
+
+      notifyBlockChange({
+        establishmentId: existing.rows[0].establishment_id,
+        action: 'deleted',
+        blockIds: [Number(id)],
+        date: String(existing.rows[0].start_datetime).slice(0, 10),
+      });
+
       res.json({ success: true });
     } catch (error) {
       console.error('❌ Erro ao deletar bloqueio de agenda:', error);

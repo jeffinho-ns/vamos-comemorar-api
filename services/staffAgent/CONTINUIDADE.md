@@ -157,6 +157,11 @@ e fecha a página `/reservar`.
 - Datas aceitas: `YYYY-MM-DD`, `15/09`, `hoje`, `amanhã`, dia da semana. Dia/mês sem ano que já passou → próximo ano.
 - Insert/delete via `queryWithRlsContext` com `organization_id` resolvido pelo establishment.
 - `created_by` = usuário que confirmou (`userId` chega ao `executeTool` pelo `confirmTurn`).
+- **Tempo real:** `utils/agendaRealtime.js` emite `reservation_block_changed` na room
+  `agenda_est_{establishmentId}` (join via `join_agenda`). Emitem tanto o Staff Agent quanto
+  as rotas `/api/restaurant-reservation-blocks` (POST/PUT/DELETE), então bloqueio feito no
+  painel também aparece no calendário de quem está com a tela aberta.
+  O front (`app/admin/restaurant-reservations/page.tsx`) recarrega `loadBlocks()` ao receber.
 
 Ainda **fora**: criar/editar/cancelar reserva pelo chat, bloquear só uma área, faixa de horário, recorrência.
 
