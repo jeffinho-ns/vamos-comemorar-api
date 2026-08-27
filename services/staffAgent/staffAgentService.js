@@ -43,6 +43,8 @@ Agenda (bloquear/liberar dia):
 - Se citarem horário ("das 18h às 22h"), passe start_time/end_time em HH:MM; senão, dia inteiro.
 
 OS de Artista/Banda/DJ (criar_os_artista):
+- Gatilhos (todos significam criar_os_artista): "criar/abrir/montar/gerar/cadastrar/lançar/registrar/emitir/preencher/fazer uma OS", "nova OS", "OS nova", "O.S.", "ordem de serviço", "OS do DJ/da banda/do show/da atração/do evento/de sexta".
+- "Quais OS temos", "tem OS para o dia X", "me mostra as OS" → listar_os_artista.
 - Obrigatórios: event_date, project_name, working_hours. O número da OS é automático e a casa vem do contexto — não pergunte por eles.
 - Faltando um obrigatório, pergunte só o que falta, uma pergunta por vez.
 - Aproveite tudo que o colaborador já disse na mensagem (entrada, promoções, benefícios, briefing, parceria, jogos na TV).
@@ -81,6 +83,47 @@ function detectMenuWriteIntent(text) {
   if (/\b(paus\w*|pause|tirar|esconder|ocultar)\b/.test(t)) {
     return 'pausar_item_cardapio';
   }
+  return null;
+}
+
+/**
+ * O colaborador escreve de muitas formas ("abre uma OS", "monta a ordem de serviço
+ * do DJ", "lança a O.S. de sábado"). Quando o pedido é claramente de OS, forçamos a
+ * tool certa em vez de torcer para o modelo escolher.
+ *
+ * Cuidado com o artigo "os" (os itens, os pratos): só contamos como OS quando vier
+ * em maiúsculas, com pontos, ou escrito por extenso.
+ */
+function mentionsOs(text) {
+  const raw = String(text || '');
+  if (/\bOS\b/.test(raw)) return true;
+  if (/\bO\.\s?S\.?/i.test(raw)) return true;
+  const t = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bord(em|ens) de servico\b/.test(t);
+}
+
+function detectOsIntent(text) {
+  if (!mentionsOs(text)) return null;
+
+  const t = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const criar =
+    /\b(cria|criar|crie|criando|nova|novo|abre|abrir|abra|monta|montar|monte|gera|gerar|gere|cadastra|cadastrar|cadastre|lanca|lancar|lance|registra|registrar|registre|faz|fazer|faca|preenche|preencher|preencha|adiciona|adicionar|adicione|emite|emitir|emita|subir|subo)\b/.test(
+      t
+    );
+  const listar =
+    /\b(quais|qual|lista|listar|liste|listagem|ver|vejo|mostra|mostrar|mostre|confere|conferir|confira|existe|existem|tem|temos|cadastradas?|criadas?)\b/.test(
+      t
+    );
+
+  if (criar) return 'criar_os_artista';
+  if (listar) return 'listar_os_artista';
   return null;
 }
 
@@ -257,15 +300,21 @@ async function runTurn(pool, { user, establishmentId, message }) {
     if (fast) return fast;
   }
 
+  const osIntent = detectOsIntent(text);
+
   let lastReadReply = null;
   let lastToolName = null;
   let lastData = null;
 
   for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
+    // Pedido de OS reconhecido: não deixa o modelo responder "não tenho essa função".
+    const forceOsTool = step === 0 && osIntent;
     const completion = await groqClient.chatCompletion({
       messages,
       tools: getPhase1ToolDefinitions(),
-      tool_choice: 'auto',
+      tool_choice: forceOsTool
+        ? { type: 'function', function: { name: osIntent } }
+        : 'auto',
     });
 
     const choice = completion.choices?.[0]?.message || {};
@@ -393,4 +442,5 @@ async function confirmTurn(pool, { user, confirmId }) {
 module.exports = {
   runTurn,
   confirmTurn,
+  detectOsIntent,
 };

@@ -18,13 +18,26 @@ const {
   parseAllowedIds,
 } = require('../../services/staffAgent/featureFlag');
 
-assert.equal(PHASE1_TOOLS.length, 10, 'Fase 1 deve ter 10 tools');
+// Fase 1 (10) + agenda Fase 2 (3) + OS Fase 3 (2).
+const EXPECTED_TOOLS = 15;
+
+assert.equal(PHASE1_TOOLS.length, EXPECTED_TOOLS, `catálogo deve ter ${EXPECTED_TOOLS} tools`);
 assert.ok(PHASE1_EXCLUDED.includes('criar_reserva'));
 assert.ok(getPhase1ToolByName('briefing_turno'));
 assert.ok(!getPhase1ToolByName('criar_reserva'));
 
+// Criar OS é restrito a gerente/admin/super admin — recepção não entra.
+const criarOs = getPhase1ToolByName('criar_os_artista');
+assert.ok(criarOs, 'criar_os_artista deve existir');
+assert.ok(!criarOs.minRoles.includes('recepcao'), 'recepção não pode criar OS');
+assert.deepEqual(criarOs.minUepAny, ['can_create_os']);
+assert.deepEqual(
+  criarOs.args.filter((a) => a.required).map((a) => a.name),
+  ['event_date', 'project_name', 'working_hours'],
+);
+
 const defs = getPhase1ToolDefinitions();
-assert.equal(defs.length, 10);
+assert.equal(defs.length, EXPECTED_TOOLS);
 assert.equal(defs[0].type, 'function');
 assert.ok(defs[0].function.name);
 

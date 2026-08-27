@@ -310,7 +310,8 @@ const PHASE1_TOOLS = [
   {
     name: 'listar_os_artista',
     description:
-      'Lista as OS de Artista/Banda/DJ da casa (opcionalmente de uma data). Use para conferir se a data já tem OS.',
+      'Lista as OS (Ordens de Serviço) de Artista/Banda/DJ da casa, opcionalmente de uma data. ' +
+      'Use quando perguntarem quais OS existem, se uma data já tem OS, qual a atração de um dia, ou pedirem para ver/conferir as OS.',
     args: [
       { name: 'date', type: 'string', description: 'Data (YYYY-MM-DD, DD/MM, hoje, amanhã). Vazio = últimas OS', required: false },
     ],
@@ -329,7 +330,11 @@ const PHASE1_TOOLS = [
   {
     name: 'criar_os_artista',
     description:
-      'Cria a OS de Artista/Banda/DJ (mesmo modal "Nova OS"). Obrigatórios: event_date, project_name, working_hours — o número da OS é gerado automaticamente e a casa vem da sessão. Os demais campos são opcionais, mas pergunte por eles antes de confirmar. Não coleta contrato, CPF/CNPJ, dados bancários nem cachê: isso fica na tela de edição. Preview obrigatório.',
+      'Cria a OS (Ordem de Serviço) de Artista/Banda/DJ — mesmo modal "Nova OS". ' +
+      'Use SEMPRE que pedirem para criar, abrir, montar, gerar, cadastrar, lançar, fazer ou registrar uma OS / O.S. / ordem de serviço / OS de show, de atração, de evento, de artista, de banda ou de DJ. ' +
+      'Obrigatórios: event_date, project_name, working_hours — o número da OS é gerado automaticamente e a casa vem da sessão. ' +
+      'Os demais campos são opcionais, mas pergunte por eles antes de confirmar. ' +
+      'Não coleta contrato, CPF/CNPJ, dados bancários nem cachê: isso fica na tela de edição. Preview obrigatório.',
     args: [
       { name: 'event_date', type: 'string', description: 'Data em que o EVENTO acontece (YYYY-MM-DD, DD/MM, amanhã)', required: true },
       { name: 'os_date', type: 'string', description: 'Data de emissão da OS, quando citada separadamente ("criar OS de 29/08 para o evento de 31/08"). Vazio = mesma do evento', required: false },

@@ -210,6 +210,19 @@ Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, b
   (join via `join_os`). Emitem o Staff Agent e as rotas `/api/v1/operational-details`
   (POST/PUT/DELETE); `app/admin/detalhes-operacionais/page.tsx` recarrega a lista ao receber.
 
+### Como o pedido é reconhecido
+
+`detectOsIntent()` (em `staffAgentService.js`) identifica o pedido e **força a tool**
+(`tool_choice`) em vez de torcer para o modelo escolher — foi assim que evitamos o
+"não tenho função para isso".
+
+- Aceita: criar / abrir / montar / gerar / cadastrar / lançar / registrar / emitir /
+  preencher / fazer + "OS", "O.S.", "ordem de serviço", "nova OS".
+- Consulta ("quais OS", "tem OS para o dia X") cai em `listar_os_artista`.
+- **Cuidado com o artigo "os"**: só conta como OS se vier em MAIÚSCULAS, com pontos,
+  ou por extenso. Senão "pausa os itens" viraria Ordem de Serviço.
+- Regressão coberta por `tests/unit/staffAgentOsIntent.test.js` (23 frases reais).
+
 ### Pendência conhecida: UNIQUE (event_date)
 
 `operational_details` tem `UNIQUE (event_date)` **global**, não por estabelecimento — duas casas
