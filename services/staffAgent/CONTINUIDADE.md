@@ -195,6 +195,11 @@ Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, b
 - **Obrigatórios:** `event_date`, `project_name`, `working_hours`. Número da OS é gerado
   (`DDMMYYYY-NNN`, série por data) e a casa vem da sessão.
 - O preview lista o que ficou vazio e **pergunta se falta algo antes de criar**.
+- **Duas datas:** "crie a OS na data de 29/08, o evento acontece em 31/08" → `event_date` = 31/08
+  (é o que vai para a tabela) e `os_date` = 29/08 (usada só para numerar: `29082026-001`).
+  Uma data só = ambas iguais.
+- **Negações viram vazio:** "sem briefing", "sem parceria", "não vai ter jogo" gravam campo nulo,
+  não o texto da negação (`cleanOptionalText`), e o preview não volta a perguntar por eles.
 - `extra_fields` aceita JSON (`{"Estacionamento":"grátis"}`) ou texto (`Estacionamento: grátis; ...`);
   as chaves viram slug legível, porque o `ArtistOSViewModal` deriva o rótulo trocando `_` por espaço.
 - **Não coleta** CPF/CNPJ, endereço, dados bancários nem cachê — isso continua na tela de edição.

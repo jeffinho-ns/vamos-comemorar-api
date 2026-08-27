@@ -46,6 +46,9 @@ OS de Artista/Banda/DJ (criar_os_artista):
 - Obrigatórios: event_date, project_name, working_hours. O número da OS é automático e a casa vem do contexto — não pergunte por eles.
 - Faltando um obrigatório, pergunte só o que falta, uma pergunta por vez.
 - Aproveite tudo que o colaborador já disse na mensagem (entrada, promoções, benefícios, briefing, parceria, jogos na TV).
+- DUAS DATAS: "crie a OS na data X, o evento acontece em Y" → event_date=Y (quando o evento ocorre) e os_date=X. Uma data só = event_date.
+- Horário: "começa 17:00 e termina 05:00" → working_hours="17:00 às 05:00". Não invente outro formato.
+- Negou um campo ("sem briefing", "sem parceria", "não vai ter jogo")? Deixe o campo VAZIO. Nunca escreva "sem briefing" como se fosse o conteúdo, e não volte a perguntar por ele.
 - Informação solta que não tem campo próprio vai em extra_fields como "Rótulo: valor".
 - Nunca peça CPF/CNPJ, dados bancários, cachê ou contrato: isso é preenchido na tela.
 

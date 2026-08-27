@@ -38,6 +38,25 @@ function cleanText(value) {
   return s || null;
 }
 
+/**
+ * "sem briefing", "não vai ter parceria", "nenhum jogo" → campo vazio.
+ * Evita gravar a própria negação como se fosse conteúdo da OS.
+ */
+const NEGATION_RE =
+  /^(sem\b|nao\b|não\b|nenhum|nenhuma|n\/a|na$|-|nada\b|nao ha|não há|nao tem|não tem|nao vai|não vai|nao have|indefinido|a definir|nd$)/i;
+
+function cleanOptionalText(value) {
+  const s = cleanText(value);
+  if (!s) return null;
+  const normalized = s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  if (NEGATION_RE.test(normalized) && normalized.length <= 40) return null;
+  return s;
+}
+
 function slugifyLabel(label) {
   return String(label || '')
     .trim()
@@ -203,17 +222,21 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
 
   const dynamicFields = {};
   for (const [key] of DYNAMIC_FIELDS) {
-    const value = cleanText(args[key]);
+    const value = cleanOptionalText(args[key]);
     if (value) dynamicFields[key] = value;
   }
   Object.assign(dynamicFields, parseExtraFields(args.extra_fields));
 
-  const ticketValues = cleanText(args.ticket_values);
-  const promotions = cleanText(args.promotions);
-  const osNumber = await gerarOsNumber(pool, dateIso);
+  const ticketValues = cleanOptionalText(args.ticket_values);
+  const promotions = cleanOptionalText(args.promotions);
+
+  // Data de emissão da OS pode diferir da data do evento ("OS de 29/08, evento em 31/08").
+  const osDateIso = (args.os_date ? parseFlexibleDate(args.os_date) : null) || dateIso;
+  const osNumber = await gerarOsNumber(pool, osDateIso);
 
   const preview = {
     os_number: osNumber,
+    os_date: osDateIso,
     event_date: dateIso,
     establishment_id: establishmentId,
     project_name: projectName,
@@ -226,7 +249,8 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
   if (mode === 'preview') {
     const linhas = [
       `OS ${osNumber || '(número automático)'}`,
-      `Data: ${formatBr(dateIso)}`,
+      osDateIso !== dateIso ? `Emitida em: ${formatBr(osDateIso)}` : null,
+      `Data do evento: ${formatBr(dateIso)}`,
       `Projeto: ${projectName}`,
       `Horários: ${workingHours}`,
     ];
@@ -238,11 +262,14 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
         key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
       linhas.push(`${label}: ${value}`);
     }
+
+    // Campo que o colaborador negou ("sem briefing") já foi respondido: não perguntar de novo.
+    const respondido = (arg, valor) => Boolean(valor) || Boolean(cleanText(arg));
     const faltando = [
-      !ticketValues && 'valores de entrada',
-      !promotions && 'promoções',
-      !dynamicFields.benefits && 'benefícios',
-      !dynamicFields.briefing && 'briefing',
+      !respondido(args.ticket_values, ticketValues) && 'valores de entrada',
+      !respondido(args.promotions, promotions) && 'promoções',
+      !respondido(args.benefits, dynamicFields.benefits) && 'benefícios',
+      !respondido(args.briefing, dynamicFields.briefing) && 'briefing',
     ].filter(Boolean);
 
     const pergunta = faltando.length
@@ -253,7 +280,7 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
       ok: true,
       needs_confirmation: true,
       preview,
-      message: `${linhas.join('\n')}${pergunta}`,
+      message: `${linhas.filter(Boolean).join('\n')}${pergunta}`,
     };
   }
 

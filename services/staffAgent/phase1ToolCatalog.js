@@ -331,7 +331,8 @@ const PHASE1_TOOLS = [
     description:
       'Cria a OS de Artista/Banda/DJ (mesmo modal "Nova OS"). Obrigatórios: event_date, project_name, working_hours — o número da OS é gerado automaticamente e a casa vem da sessão. Os demais campos são opcionais, mas pergunte por eles antes de confirmar. Não coleta contrato, CPF/CNPJ, dados bancários nem cachê: isso fica na tela de edição. Preview obrigatório.',
     args: [
-      { name: 'event_date', type: 'string', description: 'Data do evento (YYYY-MM-DD, DD/MM, amanhã)', required: true },
+      { name: 'event_date', type: 'string', description: 'Data em que o EVENTO acontece (YYYY-MM-DD, DD/MM, amanhã)', required: true },
+      { name: 'os_date', type: 'string', description: 'Data de emissão da OS, quando citada separadamente ("criar OS de 29/08 para o evento de 31/08"). Vazio = mesma do evento', required: false },
       { name: 'project_name', type: 'string', description: 'Nome do projeto / artista / banda / DJ', required: true },
       { name: 'working_hours', type: 'string', description: 'Horários de funcionamento', required: true },
       { name: 'ticket_values', type: 'string', description: 'Valores de entrada ou venda antecipada', required: false },
@@ -354,6 +355,7 @@ const PHASE1_TOOLS = [
     exampleUtterances: [
       'Cria uma OS de artista para o dia 30/08, projeto Samba do Ivan, das 18h às 2h',
       'Nova OS: DJ Pedro, sexta, funcionamento 20h às 4h, entrada 30 reais',
+      'Crie uma OS na data de 29/08, o evento acontece em 31/08, projeto Justa2.0, funcionamento das 17h às 05h, sem briefing e sem parceria',
     ],
   },
   {
