@@ -13,6 +13,7 @@ const {
   bloquearDiaAgenda,
   liberarDiaAgenda,
 } = require('./agendaBlocks');
+const { criarOsArtista, listarOsArtista } = require('./artistOS');
 
 function coerceBool(value, defaultValue = false) {
   if (value === true || value === 1) return true;
@@ -466,6 +467,15 @@ async function executeTool(pool, { toolName, args, establishmentId, mode, userId
           establishmentId,
           args: a,
           mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'listar_os_artista':
+        return await listarOsArtista(pool, { establishmentId, args: a });
+      case 'criar_os_artista':
+        return await criarOsArtista(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          userId,
         });
       case 'resumir_conversa_whatsapp':
         return await resumirConversaWhatsapp(pool, { establishmentId, args: a });

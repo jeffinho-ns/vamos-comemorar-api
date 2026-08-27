@@ -3,11 +3,40 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
 const {
   resolveActorScope,
   canAccessOperationalEstablishment,
   sqlEstablishmentInScope,
 } = require('../tenancy/orgIsolation');
+
+/**
+ * Campos de divulgação exibidos na página pública /reservar.
+ * Tudo que é contrato, PII do artista ou financeiro fica fora.
+ */
+const PUBLIC_DETAIL_FIELDS = [
+  'id',
+  'event_id',
+  'establishment_id',
+  'establishment_name',
+  'event_date',
+  'event_name',
+  'artistic_attraction',
+  'show_schedule',
+  'ticket_prices',
+  'promotions',
+  'visual_reference_url',
+  'is_active',
+];
+
+function publicOperationalDetail(row) {
+  if (!row) return row;
+  const out = {};
+  for (const field of PUBLIC_DETAIL_FIELDS) {
+    if (field in row) out[field] = row[field];
+  }
+  return out;
+}
 
 module.exports = (pool) => {
   /**
@@ -411,9 +440,10 @@ module.exports = (pool) => {
   /**
    * @route   GET /api/v1/operational-details/date/:date
    * @desc    Busca o detalhe operacional mais recente para uma data específica
-   * @access  Public (para uso no front-end de reservas)
+   * @access  Público, mas anônimo recebe só os campos de divulgação.
+   *          Contrato, dados bancários e cachê exigem token.
    */
-  router.get('/date/:date', async (req, res) => {
+  router.get('/date/:date', optionalAuth, async (req, res) => {
     try {
       const { date } = req.params;
       
@@ -447,7 +477,9 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: detailsResult.rows[0]
+        data: req.user
+          ? detailsResult.rows[0]
+          : publicOperationalDetail(detailsResult.rows[0])
       });
       
     } catch (error) {

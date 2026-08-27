@@ -47,6 +47,7 @@ Pasta: `services/staffAgent/`
 | `dateUtils.js` | `todayIsoSp` / `parseDateOrToday` (fuso SP) |
 | `agendaBlocks.js` | Fase 2: tools de bloquear / liberar dia |
 | `agendaBlockHelpers.js` | Datas, horários, resolução de área e conflito |
+| `artistOS.js` | Fase 3: criar / listar OS de Artista/Banda/DJ |
 | `featureFlag.js` | Flag / piloto allow-all |
 | `groqClient.js` | Cliente Groq + fallbacks |
 | `toolExecutor.js` | Execução real (SQL/ações) |
@@ -68,11 +69,11 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
 ---
 
-## Tools (13 — Fase 1 + agenda da Fase 2)
+## Tools (15 — Fase 1 + agenda Fase 2 + OS Fase 3)
 
-**Leitura:** `briefing_turno`, `buscar_reservas`, `checar_capacidade`, `listar_espera`, `listar_itens_cardapio`, `listar_bloqueios_agenda`, `resumir_conversa_whatsapp`, `sugerir_resposta_whatsapp`
+**Leitura:** `briefing_turno`, `buscar_reservas`, `checar_capacidade`, `listar_espera`, `listar_itens_cardapio`, `listar_bloqueios_agenda`, `listar_os_artista`, `resumir_conversa_whatsapp`, `sugerir_resposta_whatsapp`
 
-**Escrita (Confirmar):** `chamar_espera`, `pausar_item_cardapio`, `reativar_item_cardapio`, `bloquear_dia_agenda`, `liberar_dia_agenda`
+**Escrita (Confirmar):** `chamar_espera`, `pausar_item_cardapio`, `reativar_item_cardapio`, `bloquear_dia_agenda`, `liberar_dia_agenda`, `criar_os_artista`
 
 (Nomes canônicos em `phase1ToolCatalog.js` — se divergir deste resumo, o catálogo vence.)
 
@@ -144,6 +145,8 @@ Admin → FAB → casa (Justino ou Highline):
 6. `Libera o dia 15/09` → Confirmar
 7. `Bloqueia o Rooftop no dia 20/09 das 18h às 22h` → Confirmar
 8. `Libera o Rooftop no dia 20/09` → Confirmar
+9. `Cria uma OS de artista para 30/08, projeto Samba do Ivan, funcionamento das 18h às 2h, entrada 30 reais`
+   → preview pergunta o que falta → Confirmar → conferir em `/admin/detalhes-operacionais`
 
 Se o aviso amarelo voltar: Network → `/api/staff-agent/status` → sem `code_rev` = Render no código antigo → Manual Deploy.
 
@@ -174,6 +177,42 @@ e fecha a página `/reservar`.
   O front (`app/admin/restaurant-reservations/page.tsx`) recarrega `loadBlocks()` ao receber.
 
 Ainda **fora**: criar/editar/cancelar reserva pelo chat, recorrência semanal, bloquear várias datas de uma vez.
+
+## Fase 3 — OS de Artista/Banda/DJ (implementada)
+
+`services/staffAgent/artistOS.js` espelha o modal **"Nova OS de Artista/Banda/DJ"**
+(`app/components/ArtistOSCreateModal.tsx`), gravando em `operational_details` com
+`os_type='artist'`. O mapeamento é o mesmo do modal — se mudar lá, mude aqui:
+
+| Chat | Coluna |
+|------|--------|
+| `project_name` | `artistic_attraction` + `event_name` |
+| `working_hours` | `show_schedule` |
+| `ticket_values` | `ticket_prices` (fallback `'Não informado'`) |
+| `promotions` | `promotions` |
+| benefits, menu, briefing, partnership, tv_games, extras | `admin_notes` → `{ dynamicFields }` |
+
+- **Obrigatórios:** `event_date`, `project_name`, `working_hours`. Número da OS é gerado
+  (`DDMMYYYY-NNN`, série por data) e a casa vem da sessão.
+- O preview lista o que ficou vazio e **pergunta se falta algo antes de criar**.
+- `extra_fields` aceita JSON (`{"Estacionamento":"grátis"}`) ou texto (`Estacionamento: grátis; ...`);
+  as chaves viram slug legível, porque o `ArtistOSViewModal` deriva o rótulo trocando `_` por espaço.
+- **Não coleta** CPF/CNPJ, endereço, dados bancários nem cachê — isso continua na tela de edição.
+- Permissão: UEP `can_create_os` (default FALSE). O backend da rota REST **não** checa essa flag;
+  no Staff Agent ela é obrigatória.
+
+### Pendência conhecida: UNIQUE (event_date)
+
+`operational_details` tem `UNIQUE (event_date)` **global**, não por estabelecimento — duas casas
+não conseguem ter OS na mesma data. A tool detecta e explica, mas a correção
+(`UNIQUE (event_date, establishment_id)`) ficou para uma tarefa separada.
+
+### Rota pública fechada
+
+`GET /api/v1/operational-details/date/:date` devolvia `od.*` sem token, expondo cachê e dados
+bancários. Agora usa `optionalAuth`: anônimo recebe só `PUBLIC_DETAIL_FIELDS` (divulgação);
+com token, o objeto completo. Consumidores públicos (`/reservar`, `upcoming`) usam apenas
+campos dessa whitelist.
 
 ### Backlog
 

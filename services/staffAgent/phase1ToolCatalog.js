@@ -308,6 +308,54 @@ const PHASE1_TOOLS = [
     ],
   },
   {
+    name: 'listar_os_artista',
+    description:
+      'Lista as OS de Artista/Banda/DJ da casa (opcionalmente de uma data). Use para conferir se a data já tem OS.',
+    args: [
+      { name: 'date', type: 'string', description: 'Data (YYYY-MM-DD, DD/MM, hoje, amanhã). Vazio = últimas OS', required: false },
+    ],
+    requiresConfirmation: false,
+    isWrite: false,
+    risk: 'low',
+    minRbac: ['os:read'],
+    minUepAny: ['can_view_os', 'can_create_os', 'can_edit_os'],
+    minRoles: ['recepcao', 'gerente', 'admin', 'account_admin', 'promoter'],
+    apiHint: 'GET /api/v1/operational-details?establishment_id=',
+    exampleUtterances: [
+      'Quais OS temos cadastradas?',
+      'Tem OS para o dia 30/08?',
+    ],
+  },
+  {
+    name: 'criar_os_artista',
+    description:
+      'Cria a OS de Artista/Banda/DJ (mesmo modal "Nova OS"). Obrigatórios: event_date, project_name, working_hours — o número da OS é gerado automaticamente e a casa vem da sessão. Os demais campos são opcionais, mas pergunte por eles antes de confirmar. Não coleta contrato, CPF/CNPJ, dados bancários nem cachê: isso fica na tela de edição. Preview obrigatório.',
+    args: [
+      { name: 'event_date', type: 'string', description: 'Data do evento (YYYY-MM-DD, DD/MM, amanhã)', required: true },
+      { name: 'project_name', type: 'string', description: 'Nome do projeto / artista / banda / DJ', required: true },
+      { name: 'working_hours', type: 'string', description: 'Horários de funcionamento', required: true },
+      { name: 'ticket_values', type: 'string', description: 'Valores de entrada ou venda antecipada', required: false },
+      { name: 'promotions', type: 'string', description: 'Promoções', required: false },
+      { name: 'benefits', type: 'string', description: 'Benefícios', required: false },
+      { name: 'menu', type: 'string', description: 'Cardápio, se mudar nessa data', required: false },
+      { name: 'briefing', type: 'string', description: 'Briefing, se não for uma data normal', required: false },
+      { name: 'partnership', type: 'string', description: 'Parceria', required: false },
+      { name: 'tv_games', type: 'string', description: 'Jogos para passar na TV', required: false },
+      { name: 'extra_fields', type: 'string', description: 'Campos extras citados pelo colaborador, como "Estacionamento: grátis; Dress code: casual"', required: false },
+    ],
+    requiresConfirmation: true,
+    isWrite: true,
+    risk: 'medium',
+    minRbac: ['os:create'],
+    minUepAny: ['can_create_os'],
+    minRoles: ['recepcao', 'gerente', 'admin', 'account_admin'],
+    apiHint: 'POST /api/v1/operational-details (os_type=artist)',
+    exampleUtterances: [
+      'Cria uma OS de artista para o dia 30/08, projeto Samba do Ivan, das 18h às 2h',
+      'Nova OS: DJ Pedro, sexta, funcionamento 20h às 4h, entrada 30 reais',
+    ],
+  },
+  {
     name: 'resumir_conversa_whatsapp',
     description:
       'Gera resumo curto da conversa WhatsApp (para takeover). Não envia mensagem ao cliente.',
