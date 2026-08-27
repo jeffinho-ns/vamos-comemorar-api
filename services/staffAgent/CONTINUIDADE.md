@@ -1,13 +1,35 @@
 # Staff Agent — Continuidade (retomar depois)
 
-/**
- * Status em 26/08/2026:** Fase 1 **no ar**.  
- * **Bug corrigido (pausar cardápio):** o turno só rodava a 1ª tool (`listar`) e parava —
- * commit recente adiciona loop + auto-preview quando há 1 match. Redeploy da API necessário.
- *
- * **Próximo passo acordado:** Fase 2 — **bloquear / liberar dia** na agenda (preview → Confirmar).  
- * **Não misturar com:** agente WhatsApp do **cliente** (OpenAI `gpt-5.5` / `services/agent/*`).
- */
+**Status em 27/08/2026: Fases 1, 2 e 3 no ar e validadas em produção.**
+
+| Fase | O que faz | Situação |
+|------|-----------|----------|
+| 1 | Cardápio (listar / pausar / reativar), briefing, reservas, waitlist | No ar, testado |
+| 2 | Bloquear e liberar dia da agenda, com área e faixa de horário | No ar, testado |
+| 3 | Criar e listar OS de Artista/Banda/DJ | No ar, testado |
+
+Último commit API: `bab60bb` (`master`). Último commit Next: `d3ee6ef8` (`main`).
+Deploy é automático nos dois. **Não misturar com** o agente WhatsApp do cliente
+(OpenAI `gpt-5.5`, `services/agent/*`) — este é outro caminho.
+
+### Onde paramos (27/08, fim do dia)
+
+Fechamos a Fase 3 e a limpeza da tela `/admin/detalhes-operacionais`. Os três defeitos
+relatados durante o teste foram corrigidos:
+
+1. `400 Failed to call a function` da Groq ao criar OS → a OS passou a ser montada por
+   parser determinístico (`artistOSTextParser.js`), sem depender de tool call.
+2. Não dava para acrescentar um campo depois do preview → o campo de texto do chat
+   ficava desabilitado; agora a mensagem complementa a ação pendente.
+3. OS não aparecia em tempo real → o listener recarregava com o filtro de data antigo.
+
+### Próximos passos sugeridos (nada em andamento)
+
+1. **`UNIQUE (event_date)` global** em `operational_details` — impede duas casas de terem
+   OS no mesmo dia. Correção: `UNIQUE (event_date, establishment_id)` + migração.
+   É a única pendência técnica conhecida (detalhes mais abaixo).
+2. Fase 4 a definir com o Jeff. Candidatos conversados: check-in por comando,
+   consulta de capacidade por área, resumo de fim de noite.
 
 ### Prompt para colar no Cursor (outro PC)
 
@@ -17,11 +39,16 @@ Retome o Staff Agent Agilizaiapp.
 Contexto: vamos-comemorar-api/services/staffAgent/CONTINUIDADE.md
 (+ ponte no next: app/components/admin/STAFF_AGENT_CONTINUIDADE.md).
 
-Fase 1 em produção (Groq openai/gpt-oss-120b, flag *, float em /admin).
+Fases 1, 2 e 3 em produção (Groq openai/gpt-oss-120b, flag *, float em /admin).
 NÃO mexer no agente WhatsApp do cliente (services/agent, gpt-5.5).
 
-Próxima tarefa: Fase 2 — tool bloquear/liberar dia (bloquear_agenda / reativar_bloqueio)
-com preview→Confirmar, reusando restaurant_reservation_blocks, cuidado especial Highline.
+Antes de codar: git pull nos dois repos (api/master, next/main) e rode
+node tests/unit/staffAgentOsTextParser.test.js, staffAgentOsAmendment.test.js,
+staffAgentOsIntent.test.js, staffAgentPhase1Catalog.test.js.
+
+Próxima tarefa: corrigir UNIQUE (event_date) global em operational_details
+para UNIQUE (event_date, establishment_id), com migração — hoje duas casas
+não conseguem ter OS na mesma data.
 ```
 
 ---
@@ -48,14 +75,27 @@ Pasta: `services/staffAgent/`
 | `agendaBlocks.js` | Fase 2: tools de bloquear / liberar dia |
 | `agendaBlockHelpers.js` | Datas, horários, resolução de área e conflito |
 | `artistOS.js` | Fase 3: criar / listar OS de Artista/Banda/DJ |
+| `artistOSTextParser.js` | Extrai a OS do texto do colaborador, sem LLM |
 | `featureFlag.js` | Flag / piloto allow-all |
 | `groqClient.js` | Cliente Groq + fallbacks |
 | `toolExecutor.js` | Execução real (SQL/ações) |
 | `pendingActions.js` | Preview → confirmar writes |
 | `permissions.js` | Role + UEP |
 | `staffAgentService.js` | Orquestra turno |
-| `routes/staffAgent.js` | `GET /status`, `POST /turn`, `POST /confirm` |
+| `routes/staffAgent.js` | `GET /status`, `POST /turn` (aceita `confirm_id`), `POST /confirm` |
 | `CONTINUIDADE.md` | **Este arquivo** |
+
+Fora da pasta: `utils/agendaRealtime.js` e `utils/osRealtime.js` (Socket.IO), ambos
+registrados no `server.js`.
+
+Testes (rodar com `node <caminho>`, não precisam de banco):
+
+| Teste | Cobre |
+|-------|-------|
+| `tests/unit/staffAgentPhase1Catalog.test.js` | Catálogo, permissões, obrigatórios |
+| `tests/unit/staffAgentOsIntent.test.js` | 23 formas reais de pedir uma OS |
+| `tests/unit/staffAgentOsTextParser.test.js` | Extração da OS a partir da frase |
+| `tests/unit/staffAgentOsAmendment.test.js` | Complemento depois do preview |
 
 Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
