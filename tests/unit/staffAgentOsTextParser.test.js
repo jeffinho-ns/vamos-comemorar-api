@@ -39,4 +39,24 @@ assert.equal(parseOsFromText('Cria uma OS pra sexta'), null);
 assert.equal(parseOsFromText('abre uma OS'), null);
 assert.equal(parseOsFromText(''), null);
 
+// Caso Pracinha (28/08/2026): "sem lista" nos valores de entrada não pode cortar o trecho;
+// "Não haverá promoção" / "não possui parceria" viram negação, não conteúdo.
+const pracinha =
+  'Crie uma nova OS para a data de 29/08. O nome do projeto é Entre Nós. ' +
+  'O horário de funcionamento será das 14h às 03h30. ' +
+  'Os valores de entrada são: VIP até às 16h; após às 16h, com nome na lista ou reserva, R$ 20,00; ' +
+  'após às 21h, R$ 30,00; e sem lista ou reserva, R$ 30,00 ou R$ 120,00 de consumação. ' +
+  'Não haverá promoção. No briefing, inclua as seguintes atrações: RICCO, das 16h às 19h. ' +
+  'O evento não possui parceria. O jogo transmitido será São Paulo x Bragantino, às 20h.';
+const p = parseOsFromText(pracinha);
+assert.ok(p, 'deveria extrair a OS da Pracinha');
+assert.equal(p.event_date, '29/08');
+assert.equal(p.project_name, 'Entre Nós');
+assert.equal(p.working_hours, '14:00 às 03:30');
+assert.ok(/consumação/.test(p.ticket_values), 'ticket_values inclui faixa sem lista');
+assert.equal(p.promotions, 'sem promoção');
+assert.equal(p.partnership, 'sem parceria');
+assert.ok(/RICCO/.test(p.briefing), 'briefing com atrações');
+assert.ok(/Bragantino/.test(p.tv_games), 'jogo na TV');
+
 console.log('✅ staffAgentOsTextParser: OS extraída do texto');

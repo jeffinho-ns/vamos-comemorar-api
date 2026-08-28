@@ -134,14 +134,15 @@ async function gerarOsNumber(pool, dateIso) {
   return `${prefix}-${String(next).padStart(3, '0')}`;
 }
 
-/** UNIQUE(event_date) é global: uma data só comporta uma OS em todo o sistema. */
-async function findOsOnDate(pool, dateIso) {
+/** UNIQUE(event_date, establishment_id): mesma data ok em casas diferentes. */
+async function findOsOnDate(pool, dateIso, establishmentId) {
   const { rows } = await pool.query(
     `SELECT id, artistic_attraction, establishment_id
        FROM operational_details
       WHERE event_date = $1
+        AND establishment_id = $2
       LIMIT 1`,
-    [dateIso]
+    [dateIso, establishmentId]
   );
   return rows[0] || null;
 }
@@ -209,14 +210,11 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
     return { ok: false, message: `Quais os horários de funcionamento em ${formatBr(dateIso)}?` };
   }
 
-  const existing = await findOsOnDate(pool, dateIso);
+  const existing = await findOsOnDate(pool, dateIso, establishmentId);
   if (existing) {
-    const mesmaCasa = Number(existing.establishment_id) === Number(establishmentId);
     return {
       ok: false,
-      message: mesmaCasa
-        ? `Já existe OS em ${formatBr(dateIso)}: "${existing.artistic_attraction}" (#${existing.id}). Edite pela tela de Detalhes Operacionais.`
-        : `A data ${formatBr(dateIso)} já tem OS de outro estabelecimento (#${existing.id}). Hoje o sistema aceita só uma OS por data — fale com o admin.`,
+      message: `Já existe OS nesta casa em ${formatBr(dateIso)}: "${existing.artistic_attraction}" (#${existing.id}). Edite pela tela de Detalhes Operacionais.`,
     };
   }
 
@@ -316,22 +314,38 @@ async function criarOsArtista(pool, { establishmentId, args, mode }) {
     ));
   } catch (e) {
     // Ambiente sem as colunas de OS: grava o mínimo que a tabela base aceita.
+    if (e.code === '23505') {
+      return {
+        ok: false,
+        message: `Já existe OS nesta casa em ${formatBr(dateIso)}. Edite pela tela de Detalhes Operacionais.`,
+      };
+    }
     if (e.code !== '42703') throw e;
-    ({ rows: [inserted] } = await pool.query(
-      `INSERT INTO operational_details
-         (establishment_id, event_date, artistic_attraction, show_schedule, ticket_prices, promotions, admin_notes, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
-       RETURNING id`,
-      [
-        establishmentId,
-        dateIso,
-        projectName,
-        workingHours,
-        ticketValues || 'Não informado',
-        promotions,
-        adminNotes,
-      ]
-    ));
+    try {
+      ({ rows: [inserted] } = await pool.query(
+        `INSERT INTO operational_details
+           (establishment_id, event_date, artistic_attraction, show_schedule, ticket_prices, promotions, admin_notes, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
+         RETURNING id`,
+        [
+          establishmentId,
+          dateIso,
+          projectName,
+          workingHours,
+          ticketValues || 'Não informado',
+          promotions,
+          adminNotes,
+        ]
+      ));
+    } catch (e2) {
+      if (e2.code === '23505') {
+        return {
+          ok: false,
+          message: `Já existe OS nesta casa em ${formatBr(dateIso)}. Edite pela tela de Detalhes Operacionais.`,
+        };
+      }
+      throw e2;
+    }
   }
 
   emitOsChange({

@@ -171,20 +171,24 @@ module.exports = (pool) => {
         });
       }
 
-      // Verificar se já existe um detalhe para esta data E este tipo de OS
-      // Verificar se a coluna os_type existe antes de usar
+      // Já existe detalhe nesta casa + data?
       let existingResult;
       try {
         existingResult = await pool.query(
-          'SELECT id FROM operational_details WHERE event_date = $1 AND (os_type = $2 OR os_type IS NULL)',
-          [event_date, os_type]
+          `SELECT id FROM operational_details
+            WHERE event_date = $1
+              AND establishment_id IS NOT DISTINCT FROM $2
+              AND (os_type = $3 OR os_type IS NULL)`,
+          [event_date, establishment_id || null, os_type]
         );
       } catch (error) {
-        // Se os_type não existe, verificar apenas por data
+        // Se os_type não existe, verificar apenas por data + casa
         if (error.code === '42703') {
           existingResult = await pool.query(
-            'SELECT id FROM operational_details WHERE event_date = $1',
-            [event_date]
+            `SELECT id FROM operational_details
+              WHERE event_date = $1
+                AND establishment_id IS NOT DISTINCT FROM $2`,
+            [event_date, establishment_id || null]
           );
         } else {
           throw error;
@@ -194,7 +198,7 @@ module.exports = (pool) => {
       if (existingResult.rows.length > 0) {
         return res.status(400).json({
           success: false,
-          error: `Já existe um detalhe operacional para esta data. Use PUT para atualizar.`
+          error: `Já existe um detalhe operacional para esta data nesta casa. Use PUT para atualizar.`
         });
       }
 
@@ -692,17 +696,24 @@ module.exports = (pool) => {
         });
       }
 
-      // Se a data está sendo alterada, verificar se já existe outro registro com essa data
+      // Se a data está sendo alterada, verificar conflito na mesma casa
       if (event_date) {
+        const targetEst =
+          establishment_id != null && establishment_id !== ''
+            ? establishment_id
+            : existingEstId;
         const dateConflictResult = await pool.query(
-          'SELECT id FROM operational_details WHERE event_date = $1 AND id != $2',
-          [event_date, id]
+          `SELECT id FROM operational_details
+            WHERE event_date = $1
+              AND id != $2
+              AND establishment_id IS NOT DISTINCT FROM $3`,
+          [event_date, id, targetEst ?? null]
         );
 
         if (dateConflictResult.rows.length > 0) {
           return res.status(400).json({
             success: false,
-            error: 'Já existe outro detalhe operacional para esta data'
+            error: 'Já existe outro detalhe operacional para esta data nesta casa'
           });
         }
       }

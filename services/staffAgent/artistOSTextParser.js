@@ -32,7 +32,8 @@ const SECTION_STOPS = [
   /\bparceria\b/i,
   /\bjogos?\b/i,
   /\bcard[aá]pio\b/i,
-  /\bsem\s+\w+/i,
+  // Só negação de campo da OS — "sem lista" nos valores de entrada não corta.
+  /\b(?:sem|n[aã]o\s+haver[aá]|n[aã]o\s+possui|n[aã]o\s+vai(?:\s+exibir)?)\s+(?:briefing|parceria|promo\w*|benef\w*|jogo\w*|card[aá]pio)\b/i,
 ];
 
 /** Corta o trecho no primeiro marcador de próximo campo. */
@@ -211,7 +212,8 @@ function parseOsFromText(text) {
   );
   const promotions = extractSection(
     t,
-    /\b(?:na\s+promo[çc][ãa]o(?:\s+diga\s+que)?|promo[çc][ãa]o\s*:?|promo[çc][õo]es\s*:?)\s*/i
+    /\b(?:na\s+promo[çc][ãa]o(?:\s+diga\s+que)?|promo[çc][ãa]o\s*:?|promo[çc][õo]es\s*:?)\s*/i,
+    'sem promoção'
   );
   const benefits = extractSection(t, /\bbenef[ií]cios?\s*(?::|s[ãa]o|é|e)?\s*/i, 'sem benefícios');
   const menu = extractSection(t, /\bcard[aá]pio\s*(?::|é|e)?\s*/i, 'sem cardápio');

@@ -1,6 +1,6 @@
 # Staff Agent — Continuidade (retomar depois)
 
-**Status em 27/08/2026: Fases 1, 2 e 3 no ar e validadas em produção.**
+**Status em 28/08/2026: Fases 1, 2 e 3 no ar.** Correção do UNIQUE por casa em andamento/aplicada.
 
 | Fase | O que faz | Situação |
 |------|-----------|----------|
@@ -8,28 +8,22 @@
 | 2 | Bloquear e liberar dia da agenda, com área e faixa de horário | No ar, testado |
 | 3 | Criar e listar OS de Artista/Banda/DJ | No ar, testado |
 
-Último commit API: `bab60bb` (`master`). Último commit Next: `d3ee6ef8` (`main`).
-Deploy é automático nos dois. **Não misturar com** o agente WhatsApp do cliente
-(OpenAI `gpt-5.5`, `services/agent/*`) — este é outro caminho.
+### Onde paramos (28/08)
 
-### Onde paramos (27/08, fim do dia)
+Gerente na Pracinha tentou criar OS 29/08 "Entre Nós" e viu "Não foi possível processar agora."
+Causas:
+1. **Front engolia o motivo** — preview com `ok:false` traz a mensagem em `reply`, mas o chat
+   só lia `error`. Corrigido em `StaffAgentFloat.tsx`.
+2. **`UNIQUE (event_date)` global** — se outra casa já tinha OS em 29/08, a Pracinha era
+   bloqueada. Migração: `migrations/2026-08-28_operational_details_unique_per_establishment.sql`
+   via `node scripts/run_operational_details_unique_per_est_migration.js` (precisa DATABASE_URL).
+3. Parser cortava "sem lista" nos valores de entrada — corrigido.
 
-Fechamos a Fase 3 e a limpeza da tela `/admin/detalhes-operacionais`. Os três defeitos
-relatados durante o teste foram corrigidos:
+### Próximos passos sugeridos
 
-1. `400 Failed to call a function` da Groq ao criar OS → a OS passou a ser montada por
-   parser determinístico (`artistOSTextParser.js`), sem depender de tool call.
-2. Não dava para acrescentar um campo depois do preview → o campo de texto do chat
-   ficava desabilitado; agora a mensagem complementa a ação pendente.
-3. OS não aparecia em tempo real → o listener recarregava com o filtro de data antigo.
-
-### Próximos passos sugeridos (nada em andamento)
-
-1. **`UNIQUE (event_date)` global** em `operational_details` — impede duas casas de terem
-   OS no mesmo dia. Correção: `UNIQUE (event_date, establishment_id)` + migração.
-   É a única pendência técnica conhecida (detalhes mais abaixo).
-2. Fase 4 a definir com o Jeff. Candidatos conversados: check-in por comando,
-   consulta de capacidade por área, resumo de fim de noite.
+1. Rodar a migração UNIQUE em produção (se ainda não rodou no deploy).
+2. Fase 4 a definir com o Jeff. Candidatos: check-in por comando, capacidade por área,
+   resumo de fim de noite.
 
 ### Prompt para colar no Cursor (outro PC)
 
@@ -39,16 +33,14 @@ Retome o Staff Agent Agilizaiapp.
 Contexto: vamos-comemorar-api/services/staffAgent/CONTINUIDADE.md
 (+ ponte no next: app/components/admin/STAFF_AGENT_CONTINUIDADE.md).
 
-Fases 1, 2 e 3 em produção (Groq openai/gpt-oss-120b, flag *, float em /admin).
-NÃO mexer no agente WhatsApp do cliente (services/agent, gpt-5.5).
+Fases 1–3 em produção. NÃO mexer no agente WhatsApp (services/agent, gpt-5.5).
 
-Antes de codar: git pull nos dois repos (api/master, next/main) e rode
-node tests/unit/staffAgentOsTextParser.test.js, staffAgentOsAmendment.test.js,
-staffAgentOsIntent.test.js, staffAgentPhase1Catalog.test.js.
+Antes de codar: git pull nos dois repos e rode os testes unitários em tests/unit/staffAgent*.
 
-Próxima tarefa: corrigir UNIQUE (event_date) global em operational_details
-para UNIQUE (event_date, establishment_id), com migração — hoje duas casas
-não conseguem ter OS na mesma data.
+Se criar OS em casas diferentes na mesma data falhar: rode
+node scripts/run_operational_details_unique_per_est_migration.js no ambiente com DATABASE_URL.
+
+Próxima tarefa: Fase 4 (a definir) ou validar migração UNIQUE em produção.
 ```
 
 ---
@@ -281,11 +273,14 @@ direto. Coberto por `tests/unit/staffAgentOsAmendment.test.js`.
   ou por extenso. Senão "pausa os itens" viraria Ordem de Serviço.
 - Regressão coberta por `tests/unit/staffAgentOsIntent.test.js` (23 frases reais).
 
-### Pendência conhecida: UNIQUE (event_date)
+### UNIQUE (event_date) por casa — corrigido em 28/08/2026
 
-`operational_details` tem `UNIQUE (event_date)` **global**, não por estabelecimento — duas casas
-não conseguem ter OS na mesma data. A tool detecta e explica, mas a correção
-(`UNIQUE (event_date, establishment_id)`) ficou para uma tarefa separada.
+Migração: `migrations/2026-08-28_operational_details_unique_per_establishment.sql`
+Runner: `node scripts/run_operational_details_unique_per_est_migration.js`
+
+**Importante:** o deploy do código NÃO aplica o SQL sozinho. Depois do push, rode o
+script no ambiente com `DATABASE_URL` (shell do Render ou local apontando pra prod).
+Sem isso, o preview passa mas o INSERT ainda estoura no índice antigo.
 
 ### Rota pública fechada
 
