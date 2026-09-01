@@ -30,7 +30,6 @@ const PROFILE_DEFAULTS = {
     },
     cardapio: { barId: 5 },
     operationalAliases: [5, 9],
-    events: { extendedGuestListWindow: true },
   },
   pracinha: {
     reservations: { maxPartySize: 60, excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
@@ -351,7 +350,8 @@ function usesTableOverlapBlocking(rules) {
 }
 
 function usesExtendedGuestListWindow(rules) {
-  return isRooftop(rules) || isReserva(rules) || rules?.events?.extendedGuestListWindow === true;
+  if (isReserva(rules)) return false;
+  return isRooftop(rules) || rules?.events?.extendedGuestListWindow === true;
 }
 
 function previewMergedRules(config, establishmentName, operationalId) {

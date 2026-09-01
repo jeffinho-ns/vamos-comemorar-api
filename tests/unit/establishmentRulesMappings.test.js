@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
   resolveCardapioBarIdForEstablishmentRow,
   previewMergedRules,
+  usesExtendedGuestListWindow,
 } = require('../../services/establishmentRules');
 
 test('Sitio Ilha: profile default aponta cardapio.barId 15', () => {
@@ -27,4 +28,15 @@ test('resolveCardapioBarIdForEstablishmentRow: sem config usa legacy_bar_id', ()
     { cardapio: {} },
   );
   assert.equal(barId, 2);
+});
+
+test('Reserva Pinheiros: check-ins usam só o dia do evento (sem janela estendida)', () => {
+  const rules = previewMergedRules({ profile: 'reserva' }, 'Reserva Pinheiros', 9);
+  assert.equal(rules.profile, 'reserva');
+  assert.equal(usesExtendedGuestListWindow(rules), false);
+});
+
+test('Rooftop legado: mantém janela estendida para check-ins', () => {
+  const rules = previewMergedRules({ profile: 'rooftop' }, 'Reserva Rooftop', 9);
+  assert.equal(usesExtendedGuestListWindow(rules), true);
 });
