@@ -1,22 +1,22 @@
 {
   "establishmentId": 9,
-  "slug": "rooftop",
-  "name": "Reserva Rooftop",
+  "slug": "pinheiros",
+  "name": "Reserva Pinheiros",
   "topics": [
     {
       "topic": "horario_funcionamento",
       "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
-      "answer": "O Rooftop funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
+      "answer": "O Reserva Pinheiros funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
     },
     {
       "topic": "dias_horarios_funcionamento",
       "keywords": ["horário", "horario", "funcionamento", "abre", "fecha", "aberto"],
-      "answer": "O Rooftop funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
+      "answer": "O Reserva Pinheiros funciona com janelas de horário que variam por dia da semana. Pra reservas, me passa a data que você quer e eu consulto a disponibilidade 🙂"
     },
     {
       "topic": "estacionamento",
       "keywords": ["estacionamento", "estacionar", "valet", "manobrista", "carro"],
-      "answer": "A orientação de estacionamento pode variar conforme o dia e o evento. Posso confirmar com a equipe do Reserva Rooftop no dia da reserva."
+      "answer": "A orientação de estacionamento em Pinheiros pode variar conforme o dia e o evento. Posso confirmar com a equipe do Reserva no dia da reserva."
     },
     {
       "topic": "pets",
@@ -31,12 +31,12 @@
     {
       "topic": "cardapio",
       "keywords": ["cardápio", "cardapio", "menu"],
-      "answer": "O cardápio digital está em https://www.agilizaiapp.com.br/cardapio/reserva-rooftop — se quiser, a equipe te manda por aqui também."
+      "answer": "O cardápio digital está em https://www.agilizaiapp.com.br/cardapio/reserva-pinheiros — se quiser, a equipe te manda por aqui também."
     },
     {
       "topic": "dress_code",
       "keywords": ["dress code", "traje", "roupa", "vestimenta"],
-      "answer": "O dress code no Rooftop é elegante e alinhado ao clima — evite trajes esportivos e roupas curtas após o horário."
+      "answer": "O dress code no Reserva Pinheiros é elegante e alinhado ao clima — evite trajes esportivos e roupas curtas após o horário."
     },
     {
       "topic": "aniversarios",
@@ -50,8 +50,8 @@
     },
     {
       "topic": "areas",
-      "keywords": ["área", "area", "ambiente", "mesa", "mesas"],
-      "answer": "O Rooftop possui áreas com ambientes distintos. Posso listar as opções ativas e ajudar a escolher a melhor experiência."
+      "keywords": ["área", "area", "ambiente", "mesa", "mesas", "deck", "salão", "salao"],
+      "answer": "Temos duas áreas para reserva: Deck (mesas ao ar livre, até 24 pessoas por turno) e Salão (ambiente interno com mesas, sofás e banquetas no bar, até 118 pessoas por turno). Me conta quantas pessoas são e se prefere Deck ou Salão que eu vejo a disponibilidade."
     },
     {
       "topic": "como_reservar",

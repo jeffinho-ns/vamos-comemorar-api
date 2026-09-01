@@ -39,6 +39,16 @@ function applyHighlineSchedule(setDay) {
   setDay(6, '16:00', '04:00');
 }
 
+function applyReservaPinheirosSchedule(setDay) {
+  // Restaurante: uma janela contínua por dia (sem 1º/2º giro)
+  setDay(0, '12:00', '20:30');
+  setDay(2, '18:00', '22:30');
+  setDay(3, '18:00', '22:30');
+  setDay(4, '18:00', '22:30');
+  setDay(5, '12:00', '22:30');
+  setDay(6, '12:00', '22:30');
+}
+
 function applyRooftopSchedule(setDay) {
   setDay(0, '12:00', '16:00', '17:00', '20:30');
   setDay(2, '18:00', '22:30');
@@ -73,6 +83,11 @@ function buildDefaultWeekly(establishmentName = '') {
 
   if (lower.includes('seu justino')) {
     applySeuJustinoSchedule(setDay);
+    return days;
+  }
+
+  if (lower.includes('reserva pinheiros') || (lower.includes('reserva') && lower.includes('pinheiros'))) {
+    applyReservaPinheirosSchedule(setDay);
     return days;
   }
 
@@ -118,7 +133,7 @@ const ESTABLISHMENT_DEFAULT_NAMES = {
   4: 'Oh Fregues',
   7: 'HighLine',
   8: 'Pracinha do Seu Justino',
-  9: 'Reserva Rooftop',
+  9: 'Reserva Pinheiros',
   10: 'Sitio Ilha',
 };
 

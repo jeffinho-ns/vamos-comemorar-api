@@ -112,7 +112,7 @@ const FAQ_SEEDS = [
     establishment_id: 9,
     topic: 'estacionamento',
     answer:
-      'A orientação de estacionamento pode variar conforme o dia e o evento. Posso confirmar com a equipe do Reserva Rooftop no dia da reserva.',
+      'A orientação de estacionamento em Pinheiros pode variar conforme o dia e o evento. Posso confirmar com a equipe do Reserva Pinheiros no dia da reserva.',
   },
   {
     establishment_id: 9,
@@ -135,13 +135,13 @@ const FAQ_SEEDS = [
     establishment_id: 9,
     topic: 'horario_funcionamento',
     answer:
-      'O Rooftop funciona com janelas de horário que variam por dia da semana. Para reservas, consulte a disponibilidade da data desejada.',
+      'O Reserva Pinheiros funciona com janelas de horário que variam por dia da semana. Para reservas, consulte a disponibilidade da data desejada.',
   },
   {
     establishment_id: 9,
     topic: 'dress_code',
     answer:
-      'O dress code no Rooftop é elegante e alinhado ao clima. Evite trajes esportivos e roupas curtas após o horário.',
+      'O dress code no Reserva Pinheiros é elegante e alinhado ao clima. Evite trajes esportivos e roupas curtas após o horário.',
   },
   {
     establishment_id: 9,
@@ -153,7 +153,7 @@ const FAQ_SEEDS = [
     establishment_id: 9,
     topic: 'areas',
     answer:
-      'O Rooftop possui áreas com ambientes distintos. Posso listar as opções ativas e ajudar a escolher a melhor experiência.',
+      'Temos duas áreas para reserva: Deck (mesas ao ar livre, até 24 pessoas por turno) e Salão (ambiente interno com mesas, sofás e banquetas no bar, até 118 pessoas por turno). Me conta quantas pessoas são e se prefere Deck ou Salão que eu vejo a disponibilidade.',
   },
   // Para o HighLine, NÃO usamos seeds genéricos como nas outras casas.
   // Todo o conteúdo oficial está em HIGHLINE_OPERATIONAL_CONTEXTS (mais abaixo)

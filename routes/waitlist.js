@@ -306,7 +306,7 @@ module.exports = (pool) => {
 
       // Bloquear lista de espera para Reserva Rooftop em horários fora do funcionamento
       const estRules = await establishmentRules.getEstablishmentRules(pool, establishmentIdNum);
-      if (establishmentRules.isRooftop(estRules) && estRules?.reservations?.strictHours !== false && preferredTime) {
+      if (establishmentRules.usesStrictHours(estRules) && preferredTime) {
         const rooftopWindows = await getRooftopWindows(preferredDate);
         const isValid = isTimeWithinWindows(preferredTime, rooftopWindows);
         if (!isValid) {

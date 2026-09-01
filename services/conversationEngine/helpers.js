@@ -256,7 +256,7 @@ function getEstablishmentAliasPatterns() {
 
 /** Regex semânticos por profile — IDs resolvidos do banco no boot. */
 const PROFILE_ALIAS_REGEX = {
-  rooftop: /\breserva\s*rooftop\b/,
+  rooftop: /\breserva\s*(?:rooftop|pinheiros)\b|\breserva\s*-\s*pinheiros\b/,
   pracinha: /\bpracinha\b/,
   highline: /\bhigh[\s-]?line\b/,
   oh_fregues: /\boh\s*fregues\b|\bfregues\b/,
@@ -264,7 +264,7 @@ const PROFILE_ALIAS_REGEX = {
 };
 
 const ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK = [
-  { pattern: /\breserva\s*rooftop\b/, id: 9 },
+  { pattern: /\breserva\s*(?:rooftop|pinheiros)\b|\breserva\s*-\s*pinheiros\b/, id: 9 },
   { pattern: /\bpracinha\b/, id: 8 },
   { pattern: /\bhigh[\s-]?line\b/, id: 7 },
   { pattern: /\boh\s*fregues\b|\bfregues\b/, id: 4 },
@@ -361,7 +361,7 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
   const rooftopId = getOperationalIdForProfile('rooftop');
   const pracinhaId = getOperationalIdForProfile('pracinha');
   const justinoId = getOperationalIdForProfile('justino');
-  if (hint.includes('reserva rooftop') && rooftopId) return rooftopId;
+  if ((hint.includes('reserva rooftop') || hint.includes('reserva pinheiros') || hint.includes('reserva - pinheiros')) && rooftopId) return rooftopId;
   if (hint.includes('pracinha') && pracinhaId) return pracinhaId;
   if (hint.includes('seu justino') || hint.includes('justino')) {
     if (justinoId) return justinoId;
@@ -390,7 +390,7 @@ function getCardapioUrlByEstablishmentId(establishmentId) {
     7: 'https://www.agilizaiapp.com.br/cardapio/highline',
     4: 'https://www.agilizaiapp.com.br/cardapio/ohfregues',
     8: 'https://www.agilizaiapp.com.br/cardapio/pracinha',
-    9: 'https://www.agilizaiapp.com.br/cardapio/reserva-rooftop',
+    9: 'https://www.agilizaiapp.com.br/cardapio/reserva-pinheiros',
     1: 'https://www.agilizaiapp.com.br/cardapio/justino',
   };
   return map[id] || null;

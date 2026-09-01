@@ -153,8 +153,8 @@ module.exports = (pool) => {
       // Para evitar que estabelecimentos (ex. Pracinha) vejam áreas do Reserva Rooftop,
       // filtramos por convenção de nome quando `establishment_id` é informado.
       //
-      // - Reserva Rooftop (id 9): somente áreas "Reserva Rooftop - ..."
-      // - Demais estabelecimentos: excluir áreas "Reserva Rooftop - ..."
+      // - Reserva (id 9): somente áreas "Reserva - ..."
+      // - Demais estabelecimentos: excluir áreas "Reserva - ..."
       const whereParts = [`ra.is_active = TRUE`];
       const params = [];
       const scopeFilter = await areasScopeSql(pool, req, establishmentId);

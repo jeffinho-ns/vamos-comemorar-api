@@ -262,25 +262,32 @@ module.exports = (pool) => {
   //
   // Janela morta (sem reservas nem lista de espera):
   //   • Entre 16:01 e 16:59 em Sexta, Sábado e Domingo.
-  const getRooftopShift = async (dateStr, timeStr) => {
+  const getRooftopShift = async (establishmentId, dateStr, timeStr) => {
     if (!dateStr || !timeStr) return null;
     try {
-      const windows = await getOperatingWindowsForDate(9, dateStr);
+      const windows = await getOperatingWindowsForDate(establishmentId, dateStr);
       if (!isTimeWithinWindows(timeStr, windows)) return null;
       if (windows.length <= 1) return 'dinner';
       const first = windows[0];
       return isTimeWithinWindows(timeStr, [first]) ? 'lunch' : 'dinner';
     } catch (e) {
-      console.warn('⚠️ Erro ao calcular shift do Reserva Rooftop:', e.message);
+      console.warn('⚠️ Erro ao calcular shift (dualShift):', e.message);
       return null;
     }
   };
 
-  const isSameRooftopShift = async (dateStr, timeA, timeB) => {
-    const shiftA = await getRooftopShift(dateStr, timeA);
-    const shiftB = await getRooftopShift(dateStr, timeB);
+  const isSameRooftopShift = async (establishmentId, dateStr, timeA, timeB) => {
+    const shiftA = await getRooftopShift(establishmentId, dateStr, timeA);
+    const shiftB = await getRooftopShift(establishmentId, dateStr, timeB);
     if (!shiftA || !shiftB) return false;
     return shiftA === shiftB;
+  };
+
+  const isWithinOperatingHours = async (establishmentId, dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return false;
+    const windows = await getOperatingWindowsForDate(establishmentId, dateStr);
+    if (!windows.length) return false;
+    return isTimeWithinWindows(timeStr, windows);
   };
 
   const normalizeReservationDateValue = (value) => {
@@ -510,7 +517,8 @@ module.exports = (pool) => {
       // id 9 = Reserva Rooftop; demais = excluir áreas "Reserva Rooftop - ...")
       const establishmentIdNum = parseInt(establishment_id, 10) || 0;
       const estRules = await establishmentRules.getEstablishmentRules(pool, establishmentIdNum);
-      const isRooftopEst = establishmentRules.isRooftop(estRules);
+      const usesDualShiftEst = establishmentRules.usesDualShift(estRules);
+      const strictHoursEst = establishmentRules.usesStrictHours(estRules);
       const capacityPolicy = await getReservationPolicy(establishmentIdNum);
       const areaWhere = establishmentRules.buildAreasNameFilterSql(estRules);
 
@@ -528,8 +536,8 @@ module.exports = (pool) => {
       const timeStr = time && String(time).trim() ? String(time).trim() : null;
       let rooftopShift = null;
 
-      if (isRooftopEst && timeStr) {
-        rooftopShift = await getRooftopShift(date, timeStr);
+      if (usesDualShiftEst && timeStr) {
+        rooftopShift = await getRooftopShift(establishmentIdNum, date, timeStr);
       }
 
       let totalCapacity = totalDinner;
@@ -538,7 +546,7 @@ module.exports = (pool) => {
       }
 
       // Para o Reserva Rooftop, usar capacidade distinta por turno (almoço/jantar)
-      if (isRooftopEst && rooftopShift) {
+      if (usesDualShiftEst && rooftopShift) {
         if (rooftopShift === 'lunch' && totalLunch > 0) {
           totalCapacity = totalLunch;
         } else if (rooftopShift === 'dinner' && totalDinner > 0) {
@@ -565,7 +573,7 @@ module.exports = (pool) => {
       let currentPeople = 0;
 
       // Para o Reserva Rooftop, somar apenas as pessoas do mesmo turno (almoço/jantar)
-      if (isRooftopEst && timeStr && rooftopShift) {
+      if (usesDualShiftEst && timeStr && rooftopShift) {
         const activeReservationsResult = await pool.query(
           `
           SELECT reservation_time, number_of_people
@@ -582,7 +590,7 @@ module.exports = (pool) => {
         for (const row of rows) {
           const rowTime = row.reservation_time ? String(row.reservation_time) : '';
           if (!rowTime) continue;
-          const sameShift = await isSameRooftopShift(date, rowTime, timeStr);
+          const sameShift = await isSameRooftopShift(establishmentIdNum, date, rowTime, timeStr);
           if (sameShift) {
             currentPeople += Math.max(0, Number(row.number_of_people) || 0);
           }
@@ -614,7 +622,7 @@ module.exports = (pool) => {
 
       const maxDailyReservations = establishmentRules.getMaxDailyReservations(estRules);
 
-      if (isRooftopEst && maxDailyReservations) {
+      if (maxDailyReservations) {
         try {
           const dailyCountResult = await pool.query(
             `
@@ -663,11 +671,22 @@ module.exports = (pool) => {
 
       // Se for Reserva Rooftop e o horário não estiver em nenhum turno válido,
       // nunca permitir reserva via capacity.check (salvo política allow_outside_hours)
-      const outsideRooftopOperatingHours =
+      let outsideOperatingHours = false;
+      if (
         !capacityPolicy.allow_outside_hours &&
-        isRooftopEst &&
-        !!timeStr &&
-        !rooftopShift;
+        strictHoursEst &&
+        timeStr
+      ) {
+        if (usesDualShiftEst) {
+          outsideOperatingHours = !rooftopShift;
+        } else {
+          outsideOperatingHours = !(await isWithinOperatingHours(
+            establishmentIdNum,
+            date,
+            timeStr,
+          ));
+        }
+      }
 
       const capacityOk =
         capacityPolicy.allow_capacity_override || totalWithNew <= totalCapacity;
@@ -675,7 +694,7 @@ module.exports = (pool) => {
       const canMakeReservation =
         !hasWaitlist &&
         !dailyReservationsLimitReached &&
-        !outsideRooftopOperatingHours &&
+        !outsideOperatingHours &&
         capacityOk;
 
       const availableCapacity = Math.max(0, totalCapacity - currentPeople);
@@ -698,8 +717,9 @@ module.exports = (pool) => {
           rooftopShift,
           dailyReservationsCount,
           dailyReservationsLimitReached,
-          maxDailyReservationsRooftop: isRooftopEst ? maxDailyReservations : null,
-          outsideRooftopOperatingHours
+          maxDailyReservationsRooftop: maxDailyReservations,
+          outsideOperatingHours,
+          outsideRooftopOperatingHours: outsideOperatingHours,
         }
       });
 
@@ -927,7 +947,8 @@ module.exports = (pool) => {
         pool,
         establishmentIdNumber,
       );
-      const createIsRooftop = establishmentRules.isRooftop(createEstRules);
+      const createUsesDualShift = establishmentRules.usesDualShift(createEstRules);
+      const createStrictHours = establishmentRules.usesStrictHours(createEstRules);
       const createMaxDaily = establishmentRules.getMaxDailyReservations(createEstRules);
 
       const allowedAreas = await loadActiveRestaurantAreas(pool, establishmentIdNumber);
@@ -978,7 +999,7 @@ module.exports = (pool) => {
 
       // Limite diário de reservas para o Reserva Rooftop (establishment_id = 9)
       // Conta apenas reservas ativas (ignora canceladas, concluídas e no-show)
-      if (createIsRooftop && reservation_date && !reservationPolicy.allow_capacity_override && createMaxDaily) {
+      if (createMaxDaily && reservation_date && !reservationPolicy.allow_capacity_override) {
         try {
           const dailyCountResult = await pool.query(
             `
@@ -1009,8 +1030,8 @@ module.exports = (pool) => {
         }
       }
 
-      if (createIsRooftop && reservation_date && reservation_time && !reservationPolicy.allow_outside_hours) {
-        const rooftopShift = await getRooftopShift(reservation_date, reservation_time);
+      if (createUsesDualShift && reservation_date && reservation_time && !reservationPolicy.allow_outside_hours) {
+        const rooftopShift = await getRooftopShift(establishmentIdNumber, reservation_date, reservation_time);
         const rooftopWindows = await getOperatingWindowsForDate(establishmentIdNumber, reservation_date);
         if (!rooftopShift) {
           const windowsLabel =
@@ -1022,6 +1043,34 @@ module.exports = (pool) => {
             error:
               'Horário fora do funcionamento. ' +
               `Regras atuais: ${windowsLabel}.`
+          });
+        }
+      }
+
+      if (
+        !createUsesDualShift &&
+        createStrictHours &&
+        reservation_date &&
+        reservation_time &&
+        !reservationPolicy.allow_outside_hours
+      ) {
+        const withinHours = await isWithinOperatingHours(
+          establishmentIdNumber,
+          reservation_date,
+          reservation_time,
+        );
+        if (!withinHours) {
+          const windows = await getOperatingWindowsForDate(
+            establishmentIdNumber,
+            reservation_date,
+          );
+          const windowsLabel =
+            windows.length > 0
+              ? windows.map((w) => w.label).join(' | ')
+              : 'Reservas fechadas para este dia';
+          return res.status(400).json({
+            success: false,
+            error: `Horário fora do funcionamento. Horários do dia: ${windowsLabel}.`,
           });
         }
       }
@@ -1768,6 +1817,23 @@ module.exports = (pool) => {
       if (status !== undefined) {
         updateFields.push(`status = $${paramIndex++}`);
         params.push(status);
+        const normalizedStatus = String(status).toLowerCase().replace(/_/g, '-');
+        if (normalizedStatus === 'checked-in' || normalizedStatus === 'seated') {
+          updateFields.push(`checked_in = $${paramIndex++}`);
+          params.push(true);
+        }
+        if (
+          normalizedStatus === 'completed' ||
+          normalizedStatus === 'concluida' ||
+          normalizedStatus === 'concluída' ||
+          normalizedStatus === 'finalized' ||
+          normalizedStatus === 'finalizada'
+        ) {
+          updateFields.push(`checked_in = $${paramIndex++}`);
+          params.push(true);
+          updateFields.push(`checked_out = $${paramIndex++}`);
+          params.push(true);
+        }
       }
       if (origin !== undefined) {
         updateFields.push(`origin = $${paramIndex++}`);
@@ -2433,7 +2499,7 @@ module.exports = (pool) => {
       }
 
       await pool.query(
-        `UPDATE restaurant_reservations SET checked_in = TRUE, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE restaurant_reservations SET checked_in = TRUE, ${timeColumn} = CURRENT_TIMESTAMP, status = 'checked-in' WHERE id = $1`,
         [reservationId]
       );
 
@@ -2540,7 +2606,7 @@ module.exports = (pool) => {
       }
 
       await pool.query(
-        `UPDATE restaurant_reservations SET checked_out = TRUE, ${timeColumn} = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE restaurant_reservations SET checked_out = TRUE, checked_in = TRUE, ${timeColumn} = CURRENT_TIMESTAMP, status = 'completed' WHERE id = $1`,
         [reservationId]
       );
 

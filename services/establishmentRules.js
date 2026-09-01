@@ -7,18 +7,30 @@
 const cache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-const DEFAULT_EXCLUDE_AREA_PREFIX = 'Reserva Rooftop - ';
+const DEFAULT_EXCLUDE_AREA_PREFIX = 'Reserva - ';
 
 const PROFILE_DEFAULTS = {
   rooftop: {
     reservations: {
       maxDaily: 60,
-      areaNamePrefix: 'Reserva Rooftop - ',
+      areaNamePrefix: 'Reserva - ',
       dualShift: true,
       strictHours: true,
     },
     cardapio: { barId: 5 },
     operationalAliases: [5, 9],
+  },
+  reserva: {
+    reservations: {
+      maxDaily: 60,
+      areaNamePrefix: 'Reserva - ',
+      dualShift: false,
+      strictHours: true,
+      tableBlocking: 'overlap',
+    },
+    cardapio: { barId: 5 },
+    operationalAliases: [5, 9],
+    events: { extendedGuestListWindow: true },
   },
   pracinha: {
     reservations: { maxPartySize: 60, excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
@@ -60,6 +72,9 @@ function deepMerge(base, extra) {
 
 function inferProfileFromName(name) {
   const lower = String(name || '').toLowerCase();
+  if (lower.includes('reserva pinheiros') || (lower.includes('reserva') && lower.includes('pinheiros'))) {
+    return 'reserva';
+  }
   if (lower.includes('rooftop')) return 'rooftop';
   if (lower.includes('pracinha')) return 'pracinha';
   if (lower.includes('highline') || lower.includes('high line')) return 'highline';
@@ -139,6 +154,22 @@ function isProfile(rules, profile) {
 
 function isRooftop(rules) {
   return isProfile(rules, 'rooftop');
+}
+
+function isReserva(rules) {
+  return isProfile(rules, 'reserva');
+}
+
+/** Turnos almoço/jantar — desligado para profile `reserva` (restaurante com check-out). */
+function usesDualShift(rules) {
+  if (rules?.reservations?.dualShift === false) return false;
+  if (rules?.reservations?.dualShift === true) return true;
+  return isRooftop(rules);
+}
+
+function usesStrictHours(rules) {
+  if (rules?.reservations?.strictHours === false) return false;
+  return isRooftop(rules) || isReserva(rules);
 }
 
 function isPracinha(rules) {
@@ -316,11 +347,11 @@ async function areasFilterForEstablishment(pool, establishmentId, { idColumn = '
 function usesTableOverlapBlocking(rules) {
   if (rules?.reservations?.tableBlocking === 'overlap') return true;
   if (rules?.reservations?.tableBlocking === 'full_day') return false;
-  return ['seu_justino', 'pracinha'].includes(rules?.profile);
+  return ['seu_justino', 'pracinha', 'reserva'].includes(rules?.profile);
 }
 
 function usesExtendedGuestListWindow(rules) {
-  return isRooftop(rules) || rules?.events?.extendedGuestListWindow === true;
+  return isRooftop(rules) || isReserva(rules) || rules?.events?.extendedGuestListWindow === true;
 }
 
 function previewMergedRules(config, establishmentName, operationalId) {
@@ -351,6 +382,9 @@ module.exports = {
   clearRulesCache,
   isProfile,
   isRooftop,
+  isReserva,
+  usesDualShift,
+  usesStrictHours,
   isPracinha,
   getMaxDailyReservations,
   getMaxPartySize,
