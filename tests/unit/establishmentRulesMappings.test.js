@@ -7,6 +7,7 @@ const {
   previewMergedRules,
   usesExtendedGuestListWindow,
 } = require('../../services/establishmentRules');
+const { RESERVA_PINHEIROS_PLACE_ID } = require('../../services/reservaEstablishmentIds');
 
 test('Sitio Ilha: profile default aponta cardapio.barId 15', () => {
   const rules = previewMergedRules({}, 'Sitio Ilha', 10);
@@ -31,7 +32,7 @@ test('resolveCardapioBarIdForEstablishmentRow: sem config usa legacy_bar_id', ()
 });
 
 test('Reserva Pinheiros: check-ins usam só o dia do evento (sem janela estendida)', () => {
-  const pinheirosId = Number(process.env.RESERVA_PINHEIROS_PLACE_ID) || 11;
+  const pinheirosId = RESERVA_PINHEIROS_PLACE_ID;
   const rules = previewMergedRules({ profile: 'reserva' }, 'Reserva Pinheiros', pinheirosId);
   assert.equal(rules.profile, 'reserva');
   assert.equal(usesExtendedGuestListWindow(rules), false);

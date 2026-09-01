@@ -95,8 +95,11 @@ async function cloneCardapio(client, sourceBarId, targetBarId) {
   const itemCols = await getTableColumns(client, 'menu_items');
   const catCols = await getTableColumns(client, 'menu_categories');
 
+  const catSelectCols = ['id', 'name', '"order"'];
+  if (catCols.has('organization_id')) catSelectCols.push('organization_id');
+
   const { rows: categories } = await client.query(
-    'SELECT id, name, "order", organization_id FROM menu_categories WHERE barid = $1 ORDER BY id',
+    `SELECT ${catSelectCols.join(', ')} FROM menu_categories WHERE barid = $1 ORDER BY id`,
     [sourceBarId],
   );
 
@@ -116,9 +119,21 @@ async function cloneCardapio(client, sourceBarId, targetBarId) {
     catMap.set(cat.id, ins.rows[0].id);
   }
 
+  const itemSelectCols = [
+    'name',
+    'description',
+    'price',
+    'imageurl',
+    'categoryid',
+    'subcategory',
+    '"order"',
+  ];
+  if (itemCols.has('visible')) itemSelectCols.push('visible');
+  if (itemCols.has('seals')) itemSelectCols.push('seals');
+  if (itemCols.has('organization_id')) itemSelectCols.push('organization_id');
+
   const { rows: items } = await client.query(
-    `SELECT name, description, price, imageurl, categoryid, subcategory, "order", visible, seals, organization_id
-       FROM menu_items WHERE barid = $1 ORDER BY id`,
+    `SELECT ${itemSelectCols.join(', ')} FROM menu_items WHERE barid = $1 ORDER BY id`,
     [sourceBarId],
   );
 
@@ -189,7 +204,9 @@ async function copyUepRooftopToPinheiros(client, rooftopPlaceId, pinheirosPlaceI
     .join(', ');
 
   const insertCols = ['user_id', 'user_email', 'establishment_id', ...copyCols];
+  const conflictMeta = new Set(['is_active', 'updated_at']);
   const conflictSets = copyCols
+    .filter((c) => !conflictMeta.has(c))
     .map((c) => `${c} = EXCLUDED.${c}`)
     .concat(['is_active = TRUE', 'updated_at = CURRENT_TIMESTAMP'])
     .join(', ');
@@ -259,7 +276,7 @@ async function main() {
     console.log('\n✅ Migration concluída.\n');
     console.table(rows);
     console.log(
-      `\nConfigure no .env (API + Next):\nRESERVA_PINHEIROS_PLACE_ID=${pinheiros.place_id}\nNEXT_PUBLIC_RESERVA_PINHEIROS_PLACE_ID=${pinheiros.place_id}`,
+      `\nIDs Pinheiros (hardcoded em reservaEstablishmentIds / reservaEstablishments): place=${pinheiros.place_id}, bar=${pinheiros.bar_id}`,
     );
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

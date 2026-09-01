@@ -3,6 +3,7 @@ const {
   getOperationalIdForProfile,
   getAliasPatternsFromCatalog,
 } = require('../../tenancy/operationalProfileIds');
+const { RESERVA_PINHEIROS_PLACE_ID } = require('../reservaEstablishmentIds');
 
 function extractEstablishmentToken(text) {
   const normalizedText = String(text || '');
@@ -268,7 +269,7 @@ const ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK = [
   { pattern: /\breserva\s*rooftop\b/, id: 9 },
   {
     pattern: /\breserva\s*pinheiros\b|\breserva\s*-\s*pinheiros\b/,
-    id: Number(process.env.RESERVA_PINHEIROS_PLACE_ID) || null,
+    id: RESERVA_PINHEIROS_PLACE_ID,
   },
   { pattern: /\bpracinha\b/, id: 8 },
   { pattern: /\bhigh[\s-]?line\b/, id: 7 },
@@ -399,17 +400,14 @@ function parseDateFromHistory(messageHistory) {
 
 function getCardapioUrlByEstablishmentId(establishmentId) {
   const id = Number(establishmentId);
-  const pinheirosEnv = Number(process.env.RESERVA_PINHEIROS_PLACE_ID);
   const map = {
     7: 'https://www.agilizaiapp.com.br/cardapio/highline',
     4: 'https://www.agilizaiapp.com.br/cardapio/ohfregues',
     8: 'https://www.agilizaiapp.com.br/cardapio/pracinha',
     9: 'https://www.agilizaiapp.com.br/cardapio/reserva-rooftop',
     1: 'https://www.agilizaiapp.com.br/cardapio/justino',
+    [RESERVA_PINHEIROS_PLACE_ID]: 'https://www.agilizaiapp.com.br/cardapio/reserva-pinheiros',
   };
-  if (Number.isFinite(pinheirosEnv) && pinheirosEnv > 0 && id === pinheirosEnv) {
-    return 'https://www.agilizaiapp.com.br/cardapio/reserva-pinheiros';
-  }
   return map[id] || null;
 }
 

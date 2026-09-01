@@ -6,7 +6,7 @@
 -- Após executar:
 --   SELECT id, slug, name FROM places WHERE slug IN ('reserva-rooftop','reserva-pinheiros');
 --   SELECT id, slug FROM bars WHERE slug IN ('reserva-rooftop','reserva-pinheiros');
--- Configure RESERVA_PINHEIROS_PLACE_ID / NEXT_PUBLIC_RESERVA_PINHEIROS_PLACE_ID com o id do Pinheiros.
+-- Pinheiros: place 21, bar 18 (hardcoded em reservaEstablishmentIds / reservaEstablishments).
 -- ============================================================
 
 SET search_path TO meu_backup_db, public;
