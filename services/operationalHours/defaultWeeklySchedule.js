@@ -133,7 +133,7 @@ const ESTABLISHMENT_DEFAULT_NAMES = {
   4: 'Oh Fregues',
   7: 'HighLine',
   8: 'Pracinha do Seu Justino',
-  9: 'Reserva Pinheiros',
+  9: 'Reserva Rooftop',
   10: 'Sitio Ilha',
 };
 

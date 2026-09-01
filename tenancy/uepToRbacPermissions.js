@@ -62,6 +62,13 @@ function mergeUepRowIntoPermissionSet(perms, row) {
   if (row.can_manage_justino360 || row.can_validate_justino360) {
     perms.add('justino360:update');
   }
+
+  if (row.can_access_rh_ideia || row.can_manage_rh_ideia || row.can_validate_rh_ideia) {
+    perms.add('rh_ideia:read');
+  }
+  if (row.can_manage_rh_ideia || row.can_validate_rh_ideia) {
+    perms.add('rh_ideia:update');
+  }
 }
 
 /**
@@ -92,7 +99,10 @@ async function loadUepRbacPermissions(pool, userId) {
          can_edit_operational_detail,
          can_access_justino360,
          can_manage_justino360,
-         can_validate_justino360
+         can_validate_justino360,
+         can_access_rh_ideia,
+         can_manage_rh_ideia,
+         can_validate_rh_ideia
          FROM user_establishment_permissions
         WHERE user_id = $1 AND is_active = TRUE`,
       [userId],

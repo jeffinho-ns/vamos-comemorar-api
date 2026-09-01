@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Catálogo operacional Reserva (Pinheiros) — áreas de reserva.
- * establishment_id operacional = 9 (places.id).
+ * Catálogo operacional Reserva Pinheiros — áreas de reserva.
+ * establishment_id operacional = legacy_place_id do slug reserva-pinheiros (ver migration 2026-09-02).
  * Nomes batem com restaurant_areas após migration 2026-08-31.
  */
 

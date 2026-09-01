@@ -48,6 +48,10 @@ function getOperationalIdForProfile(profile) {
     const env = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || 7);
     if (Number.isFinite(env) && env > 0) return env;
   }
+  if (key === 'reserva') {
+    const env = Number(process.env.RESERVA_PINHEIROS_PLACE_ID);
+    if (Number.isFinite(env) && env > 0) return env;
+  }
   return null;
 }
 

@@ -24,6 +24,11 @@ const MODULE_UEP_FIELDS = {
     'can_manage_justino360',
     'can_validate_justino360',
   ],
+  rh_ideia: [
+    'can_access_rh_ideia',
+    'can_manage_rh_ideia',
+    'can_validate_rh_ideia',
+  ],
 };
 
 const ALL_UEP_FIELDS = [

@@ -13,7 +13,7 @@ const PROFILE_DEFAULTS = {
   rooftop: {
     reservations: {
       maxDaily: 60,
-      areaNamePrefix: 'Reserva - ',
+      areaNamePrefix: 'Reserva Rooftop - ',
       dualShift: true,
       strictHours: true,
     },
@@ -28,8 +28,8 @@ const PROFILE_DEFAULTS = {
       strictHours: true,
       tableBlocking: 'overlap',
     },
-    cardapio: { barId: 5 },
-    operationalAliases: [5, 9],
+    cardapio: { barId: null },
+    operationalAliases: [],
   },
   pracinha: {
     reservations: { maxPartySize: 60, excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
