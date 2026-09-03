@@ -6,6 +6,7 @@ const optionalAuth = require('../middleware/optionalAuth');
 const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
+const { canonicalizeReservaEstablishmentId } = require('../services/reservaEstablishmentIds');
 const { isSaasEnforced } = require('../tenancy/featureFlags');
 const {
   getEstablishmentRules,
@@ -143,7 +144,7 @@ module.exports = (pool) => {
       console.log('🔍 Iniciando busca de áreas...');
       const establishmentIdRaw = req.query.establishment_id;
       const establishmentId = establishmentIdRaw != null && String(establishmentIdRaw).trim() !== ''
-        ? Number(establishmentIdRaw)
+        ? canonicalizeReservaEstablishmentId(Number(establishmentIdRaw))
         : null;
       
       // Tabela restaurant_areas já deve existir no PostgreSQL

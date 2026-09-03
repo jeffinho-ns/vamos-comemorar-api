@@ -131,10 +131,13 @@ function getDefaultWindowsForEstablishmentName(establishmentName, isoDate) {
 const ESTABLISHMENT_DEFAULT_NAMES = {
   1: 'Seu Justino',
   4: 'Oh Fregues',
+  5: 'Reserva Rooftop',
   7: 'HighLine',
   8: 'Pracinha do Seu Justino',
   9: 'Reserva Rooftop',
   10: 'Sitio Ilha',
+  18: 'Reserva Pinheiros',
+  21: 'Reserva Pinheiros',
 };
 
 function getDefaultWindowsForEstablishmentId(establishmentId, isoDate) {

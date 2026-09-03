@@ -26,6 +26,30 @@ function isReservaPinheirosOperationalId(id) {
   return Number(id) === RESERVA_PINHEIROS_PLACE_ID || Number(id) === RESERVA_PINHEIROS_BAR_ID;
 }
 
+/** Bar id do cardápio → place id das reservas. Não mistura as duas casas. */
+function canonicalizeReservaEstablishmentId(id) {
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return n;
+  if (n === RESERVA_ROOFTOP_BAR_ID) return RESERVA_ROOFTOP_PLACE_ID;
+  if (n === RESERVA_PINHEIROS_BAR_ID) return RESERVA_PINHEIROS_PLACE_ID;
+  return n;
+}
+
+/**
+ * IDs para listar reservas: inclui o bar legado (reservas pequenas gravadas
+ * com bars.id) sem cruzar Rooftop ↔ Pinheiros.
+ */
+function queryEstablishmentIdsForReservations(id) {
+  const canonical = canonicalizeReservaEstablishmentId(id);
+  if (canonical === RESERVA_ROOFTOP_PLACE_ID) {
+    return [RESERVA_ROOFTOP_PLACE_ID, RESERVA_ROOFTOP_BAR_ID];
+  }
+  if (canonical === RESERVA_PINHEIROS_PLACE_ID) {
+    return [RESERVA_PINHEIROS_PLACE_ID, RESERVA_PINHEIROS_BAR_ID];
+  }
+  return Number.isFinite(canonical) && canonical > 0 ? [canonical] : [];
+}
+
 module.exports = {
   RESERVA_ROOFTOP_PLACE_ID,
   RESERVA_ROOFTOP_BAR_ID,
@@ -35,4 +59,6 @@ module.exports = {
   resolveReservaPinheirosPlaceId,
   isReservaRooftopOperationalId,
   isReservaPinheirosOperationalId,
+  canonicalizeReservaEstablishmentId,
+  queryEstablishmentIdsForReservations,
 };

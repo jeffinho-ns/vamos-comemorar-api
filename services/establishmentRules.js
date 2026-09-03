@@ -116,6 +116,7 @@ async function getEstablishmentRules(pool, operationalEstablishmentId) {
       `SELECT name, config
          FROM meu_backup_db.establishments
         WHERE legacy_place_id = $1 OR legacy_bar_id = $1
+        ORDER BY CASE WHEN legacy_place_id = $1 THEN 0 ELSE 1 END
         LIMIT 1`,
       [id],
     );
@@ -333,7 +334,10 @@ async function areasFilterForEstablishment(pool, establishmentId, { idColumn = '
   const rules = await getEstablishmentRules(pool, establishmentId);
   const canonicalSql = buildCanonicalAreasSql(rules, { idColumn });
   if (await establishmentHasOwnedAreas(pool, establishmentId)) {
-    const owned = `${establishmentColumn} = ${Number(establishmentId)}`;
+    // Mesmo com áreas próprias, aplica o prefixo/exclusão do perfil para não
+    // misturar "Reserva - Deck/Salão" (Pinheiros) com "Reserva Rooftop - *" no place 9.
+    const nameFilter = buildAreasNameFilterSql(rules, nameColumn);
+    const owned = `((${establishmentColumn} = ${Number(establishmentId)} OR ${establishmentColumn} IS NULL) AND (${nameFilter}))`;
     return canonicalSql ? `(${owned} OR ${canonicalSql})` : owned;
   }
   const scopeSql = buildAreasScopeSql(rules, establishmentId, {

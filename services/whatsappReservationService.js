@@ -111,10 +111,19 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
   // - Reserva Rooftop: 9
   // - Highline: configurar via HIGHLINE_ESTABLISHMENT_ID (evita hardcode errado)
   const highlineEnvId = Number(process.env.HIGHLINE_ESTABLISHMENT_ID || '');
+  const {
+    canonicalizeReservaEstablishmentId,
+    RESERVA_ROOFTOP_PLACE_ID,
+    RESERVA_PINHEIROS_PLACE_ID,
+  } = require('./reservaEstablishmentIds');
   const knownAliases = {
-    5: 9, // bar Reserva Rooftop -> place Reserva Rooftop
+    5: RESERVA_ROOFTOP_PLACE_ID,
+    18: RESERVA_PINHEIROS_PLACE_ID,
   };
-  if (hint.includes('reserva rooftop') || hint.includes('rooftop')) return 9;
+  if (hint.includes('reserva pinheiros') || hint.includes('reserva - pinheiros')) {
+    return RESERVA_PINHEIROS_PLACE_ID;
+  }
+  if (hint.includes('reserva rooftop')) return RESERVA_ROOFTOP_PLACE_ID;
   if (hint.includes('pracinha')) return 8;
   if (hint.includes('seu justino') || hint.includes('justino')) return 1;
   if (hint.includes('highline') || hint.includes('high line')) {
@@ -125,8 +134,9 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     return knownAliases[establishmentId];
   }
 
-  // Fallback por ID quando o hint não vier.
-  return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : establishmentIdRaw;
+  const canonicalReserva = canonicalizeReservaEstablishmentId(establishmentId);
+  if (Number.isFinite(canonicalReserva) && canonicalReserva > 0) return canonicalReserva;
+  return establishmentIdRaw;
 }
 
 /**

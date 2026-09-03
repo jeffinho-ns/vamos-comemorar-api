@@ -3,7 +3,10 @@ const {
   getOperationalIdForProfile,
   getAliasPatternsFromCatalog,
 } = require('../../tenancy/operationalProfileIds');
-const { RESERVA_PINHEIROS_PLACE_ID } = require('../reservaEstablishmentIds');
+const {
+  RESERVA_PINHEIROS_PLACE_ID,
+  canonicalizeReservaEstablishmentId,
+} = require('../reservaEstablishmentIds');
 
 function extractEstablishmentToken(text) {
   const normalizedText = String(text || '');
@@ -384,7 +387,8 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     if (highlineId) return highlineId;
     if (Number.isFinite(establishmentId) && establishmentId > 0) return establishmentId;
   }
-  return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : null;
+  const canonical = canonicalizeReservaEstablishmentId(establishmentId);
+  return Number.isFinite(canonical) && canonical > 0 ? canonical : null;
 }
 
 function parseDateFromHistory(messageHistory) {
@@ -417,29 +421,20 @@ function applyBusinessRulesToReservationParams(params) {
 
 async function loadActiveRestaurantAreas(pool, establishmentId = null) {
   const establishmentRules = require('../establishmentRules');
+  const { canonicalizeReservaEstablishmentId } = require('../reservaEstablishmentIds');
   const whereParts = ['is_active = TRUE'];
-  const id = establishmentId != null ? Number(establishmentId) : null;
+  const idRaw = establishmentId != null ? Number(establishmentId) : null;
+  const id =
+    idRaw != null && Number.isFinite(idRaw) && idRaw > 0
+      ? canonicalizeReservaEstablishmentId(idRaw)
+      : null;
   if (id != null && Number.isFinite(id) && id > 0) {
-    const rules = await establishmentRules.getEstablishmentRules(pool, id);
-    // Perfis congelados (Highline / Seu Justino) usam area_ids fixos no modal.
-    // Ex.: área 2 ficou com establishment_id=7 (Highline) e o Quintal do Justino
-    // quebrava com "area_id não pertence ao estabelecimento".
-    const canonicalSql = establishmentRules.buildCanonicalAreasSql(rules, {
+    const scopeSql = await establishmentRules.areasFilterForEstablishment(pool, id, {
       idColumn: 'id',
+      nameColumn: 'name',
+      establishmentColumn: 'establishment_id',
     });
-    const hasOwned = await establishmentRules.establishmentHasOwnedAreas(pool, id);
-    if (hasOwned) {
-      whereParts.push(
-        canonicalSql
-          ? `(establishment_id = ${id} OR ${canonicalSql})`
-          : `establishment_id = ${id}`
-      );
-    } else {
-      const scopeSql = establishmentRules.buildAreasScopeSql(rules, id, {
-        nameColumn: 'name',
-      });
-      whereParts.push(canonicalSql ? `(${scopeSql} OR ${canonicalSql})` : scopeSql);
-    }
+    whereParts.push(scopeSql);
   }
 
   const result = await pool.query(

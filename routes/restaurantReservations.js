@@ -26,6 +26,10 @@ const {
   stripEsperaAntecipadaNotes,
 } = require('../services/bistroSecondGiro');
 const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+const {
+  canonicalizeReservaEstablishmentId,
+  queryEstablishmentIdsForReservations,
+} = require('../services/reservaEstablishmentIds');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -467,7 +471,16 @@ module.exports = (pool) => {
       if (date) { query += ` AND rr.reservation_date = $${paramIndex++}`; params.push(date); }
       if (status) { query += ` AND rr.status = $${paramIndex++}`; params.push(status); }
       if (area_id) { query += ` AND rr.area_id = $${paramIndex++}`; params.push(area_id); }
-      if (establishment_id) { query += ` AND rr.establishment_id = $${paramIndex++}`; params.push(establishment_id); }
+      if (establishment_id) {
+        const ids = queryEstablishmentIdsForReservations(establishment_id);
+        if (ids.length === 1) {
+          query += ` AND rr.establishment_id = $${paramIndex++}`;
+          params.push(ids[0]);
+        } else if (ids.length > 1) {
+          query += ` AND rr.establishment_id = ANY($${paramIndex++}::int[])`;
+          params.push(ids);
+        }
+      }
       // SaaS multi-tenant: isolamento de LEITURA por escopo do usuário autenticado.
       // INERTE enquanto SAAS_MODE != on (não altera a query); admin/anônimo veem tudo.
       {
@@ -515,7 +528,9 @@ module.exports = (pool) => {
 
       // Filtrar áreas pelo estabelecimento (mesma lógica de GET /api/restaurant-areas:
       // id 9 = Reserva Rooftop; demais = excluir áreas "Reserva Rooftop - ...")
-      const establishmentIdNum = parseInt(establishment_id, 10) || 0;
+      const establishmentIdNum = canonicalizeReservaEstablishmentId(
+        parseInt(establishment_id, 10) || 0,
+      );
       const estRules = await establishmentRules.getEstablishmentRules(pool, establishmentIdNum);
       const usesDualShiftEst = establishmentRules.usesDualShift(estRules);
       const strictHoursEst = establishmentRules.usesStrictHours(estRules);
@@ -572,6 +587,8 @@ module.exports = (pool) => {
       // Contar pessoas das reservas ativas para a data (valores numéricos seguros)
       let currentPeople = 0;
 
+      const capacityEstablishmentIds = queryEstablishmentIdsForReservations(establishmentIdNum);
+
       // Para o Reserva Rooftop, somar apenas as pessoas do mesmo turno (almoço/jantar)
       if (usesDualShiftEst && timeStr && rooftopShift) {
         const activeReservationsResult = await pool.query(
@@ -579,10 +596,10 @@ module.exports = (pool) => {
           SELECT reservation_time, number_of_people
           FROM restaurant_reservations
           WHERE reservation_date = $1
-            AND establishment_id = $2
+            AND establishment_id = ANY($2::int[])
             AND status IN ('confirmed', 'checked-in', 'seated')
         `,
-          [date, establishment_id]
+          [date, capacityEstablishmentIds]
         );
 
         const rows = activeReservationsResult.rows || [];
@@ -601,10 +618,10 @@ module.exports = (pool) => {
         SELECT COALESCE(SUM(number_of_people), 0)::int as total_people
         FROM restaurant_reservations
         WHERE reservation_date = $1
-        AND establishment_id = $2
+        AND establishment_id = ANY($2::int[])
         AND status IN ('confirmed', 'checked-in', 'seated')
       `,
-          [date, establishment_id]
+          [date, capacityEstablishmentIds]
         );
 
         currentPeople = Math.max(
@@ -629,14 +646,14 @@ module.exports = (pool) => {
             SELECT COUNT(*) AS count
             FROM restaurant_reservations
             WHERE reservation_date = $1
-              AND establishment_id = $2
+              AND establishment_id = ANY($2::int[])
               AND status NOT IN (
                 'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
                 'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
                 'no_show', 'NO_SHOW', 'NO-SHOW'
               )
           `,
-            [date, establishment_id]
+            [date, capacityEstablishmentIds]
           );
           dailyReservationsCount =
             parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
@@ -919,7 +936,7 @@ module.exports = (pool) => {
         });
       }
       
-      const establishmentIdNumber = Number(establishment_id);
+      const establishmentIdNumber = canonicalizeReservaEstablishmentId(establishment_id);
       if (isNaN(establishmentIdNumber) || establishmentIdNumber <= 0) {
         return res.status(400).json({
           success: false,
@@ -1006,14 +1023,14 @@ module.exports = (pool) => {
             SELECT COUNT(*) AS count
             FROM restaurant_reservations
             WHERE reservation_date = $1
-              AND establishment_id = $2
+              AND establishment_id = ANY($2::int[])
               AND status NOT IN (
                 'cancelled', 'CANCELADA', 'CANCELED', 'CANCELLED',
                 'completed', 'COMPLETED', 'CONCLUIDA', 'CONCLUÍDA', 'FINALIZADA', 'FINALIZED',
                 'no_show', 'NO_SHOW', 'NO-SHOW'
               )
           `,
-            [reservation_date, establishmentIdNumber]
+            [reservation_date, queryEstablishmentIdsForReservations(establishmentIdNumber)]
           );
           const dailyCount = parseInt(dailyCountResult.rows[0]?.count, 10) || 0;
           if (dailyCount >= createMaxDaily) {
