@@ -92,6 +92,79 @@ test('resolveEntitlements mescla UEP com membership recepcao', async () => {
   delete process.env.SAAS_MODE;
 });
 
+test('UEP com can_view_cardapio null concede cardapio:read (legado DEFAULT TRUE)', () => {
+  const perms = new Set();
+  mergeUepRowIntoPermissionSet(perms, {
+    can_manage_reservations: false,
+    can_manage_checkins: false,
+    can_manage_whatsapp: false,
+    can_configure_ia: false,
+    can_view_cardapio: null,
+    can_create_cardapio: false,
+    can_edit_cardapio: false,
+    can_delete_cardapio: false,
+  });
+  assert.ok(perms.has('cardapio:read'));
+  assert.equal(perms.has('cardapio:update'), false);
+});
+
+test('UEP com can_view_cardapio false NÃO concede cardapio:read', () => {
+  const perms = new Set();
+  mergeUepRowIntoPermissionSet(perms, {
+    can_manage_reservations: false,
+    can_manage_checkins: false,
+    can_manage_whatsapp: false,
+    can_configure_ia: false,
+    can_view_cardapio: false,
+    can_create_cardapio: false,
+    can_edit_cardapio: false,
+    can_delete_cardapio: false,
+  });
+  assert.equal(perms.has('cardapio:read'), false);
+});
+
+test('loadUepRbacPermissions degrada quando colunas RH não existem', async () => {
+  let calls = 0;
+  const pool = {
+    async query(sql) {
+      calls += 1;
+      if (String(sql).includes('can_access_rh_ideia')) {
+        const err = new Error('column "can_access_rh_ideia" does not exist');
+        throw err;
+      }
+      return {
+        rows: [
+          {
+            can_manage_reservations: false,
+            can_create_edit_reservations: false,
+            can_manage_checkins: false,
+            can_manage_whatsapp: false,
+            can_configure_ia: false,
+            can_view_cardapio: true,
+            can_create_cardapio: true,
+            can_edit_cardapio: false,
+            can_delete_cardapio: false,
+            can_view_reports: false,
+            can_view_os: false,
+            can_create_os: false,
+            can_edit_os: false,
+            can_view_operational_detail: false,
+            can_create_operational_detail: false,
+            can_edit_operational_detail: false,
+            can_access_justino360: false,
+            can_manage_justino360: false,
+            can_validate_justino360: false,
+          },
+        ],
+      };
+    },
+  };
+  const perms = await loadUepRbacPermissions(pool, 10);
+  assert.ok(perms.includes('cardapio:read'));
+  assert.ok(perms.includes('cardapio:update'));
+  assert.equal(calls >= 2, true);
+});
+
 test('loadUepRbacPermissions retorna vazio sem linhas', async () => {
   const pool = {
     async query() {

@@ -11,7 +11,8 @@ function mergeUepRowIntoPermissionSet(perms, row) {
   const manageWhatsapp = !!row.can_manage_whatsapp || manageRes;
   const configureIa = !!row.can_configure_ia;
   const manageCheckin = !!row.can_manage_checkins;
-  const viewCardapio = !!row.can_view_cardapio;
+  // Alinhado ao front (can_view_cardapio !== false): NULL/undefined = liberado (DEFAULT TRUE legado).
+  const viewCardapio = row.can_view_cardapio !== false;
   const editCardapio =
     !!row.can_create_cardapio || !!row.can_edit_cardapio || !!row.can_delete_cardapio;
   const viewReports = !!row.can_view_reports;
@@ -78,9 +79,8 @@ function mergeUepRowIntoPermissionSet(perms, row) {
  */
 async function loadUepRbacPermissions(pool, userId) {
   if (!userId) return [];
-  try {
-    const { rows } = await pool.query(
-      `SELECT
+
+  const coreSelect = `
          can_manage_reservations,
          can_create_edit_reservations,
          can_manage_checkins,
@@ -99,10 +99,16 @@ async function loadUepRbacPermissions(pool, userId) {
          can_edit_operational_detail,
          can_access_justino360,
          can_manage_justino360,
-         can_validate_justino360,
+         can_validate_justino360`;
+
+  const rhSelect = `,
          can_access_rh_ideia,
          can_manage_rh_ideia,
-         can_validate_rh_ideia
+         can_validate_rh_ideia`;
+
+  const run = async (withRh) => {
+    const { rows } = await pool.query(
+      `SELECT ${coreSelect}${withRh ? rhSelect : ''}
          FROM user_establishment_permissions
         WHERE user_id = $1 AND is_active = TRUE`,
       [userId],
@@ -113,8 +119,22 @@ async function loadUepRbacPermissions(pool, userId) {
       mergeUepRowIntoPermissionSet(perms, row);
     }
     return [...perms];
-  } catch (_) {
-    return [];
+  };
+
+  try {
+    return await run(true);
+  } catch (err) {
+    // Produção pode ainda não ter as colunas Ideia RH — não engolir o UEP inteiro.
+    if (!/can_access_rh_ideia|can_manage_rh_ideia|can_validate_rh_ideia/i.test(String(err?.message || ''))) {
+      console.error('[uepToRbacPermissions] falha ao carregar UEP:', err.message || err);
+      return [];
+    }
+    try {
+      return await run(false);
+    } catch (err2) {
+      console.error('[uepToRbacPermissions] falha ao carregar UEP (sem RH):', err2.message || err2);
+      return [];
+    }
   }
 }
 
