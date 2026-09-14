@@ -66,7 +66,7 @@ module.exports = (pool) => {
         allow_all: isAllowAllMode(),
         allowed_ids: parseAllowedIds(),
         // Ajuda a saber se o Render já pegou este código.
-        code_rev: 'staff-agent-guide-v1',
+        code_rev: 'staff-agent-guide-v2',
         meta: getPhase1Meta(),
       });
     } catch (e) {

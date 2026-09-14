@@ -26,7 +26,7 @@ STAFF_AGENT_XAI_MODEL=grok-4.3
 STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=*
 ```
 
-Status saudável: `provider: "xai"`, `code_rev: "staff-agent-guide-v1"`.
+Status saudável: `provider: "xai"`, `code_rev: "staff-agent-guide-v2"`.
 
 ### Próximos passos sugeridos
 
@@ -153,8 +153,8 @@ STAFF_AGENT_GUIDE_TTL_MS=1800000
 
 - Qualquer valor não-vazio (`*`, `1`, `1,7`…) → **todas as casas** liberadas.
 - Whitelist real só com `STAFF_AGENT_PHASE1_STRICT=true`.
-- `/api/staff-agent/status` saudável: `allow_all: true`, `provider: "xai"`,
-  `code_rev: "staff-agent-guide-v1"`, `xai_configured: true`.
+- Status saudável: `allow_all: true`, `provider: "xai"`,
+  `code_rev: "staff-agent-guide-v2"`, `xai_configured: true`.
 
 ### Cardápio (pausar / ativar)
 

@@ -28,17 +28,23 @@ assert.equal(detectPlaybookIntent('cadastrar um prato novo')?.id, 'criar_item_ca
 assert.equal(detectPlaybookIntent('criar uma reserva para o João')?.id, 'criar_reserva');
 assert.equal(detectPlaybookIntent('enviar mensagem no whatsapp')?.id, 'enviar_whatsapp');
 assert.equal(detectPlaybookIntent('assumir a conversa do cliente')?.id, 'enviar_whatsapp');
+assert.equal(detectPlaybookIntent('bloquear agenda com recorrência')?.id, 'bloquear_agenda_avancado');
+assert.equal(detectPlaybookIntent('completar cachê da OS')?.id, 'editar_os_artista');
 
 // Não confundir com tools existentes
 assert.equal(detectPlaybookIntent('pausar a caipirinha'), null);
 assert.equal(detectPlaybookIntent('reativar o prato japão'), null);
 assert.equal(detectPlaybookIntent('como estão as reservas do final de semana'), null);
 assert.equal(detectPlaybookIntent('quem está na espera'), null);
+assert.equal(detectPlaybookIntent('cria uma OS para amanhã projeto Teste das 18h às 2h'), null);
 
 const pb = getPlaybookById('criar_item_cardapio');
 const block = formatPlaybookForPrompt(pb, { stepIndex: 0 });
 assert.ok(block.includes('/admin/cardapio'));
+assert.ok(block.includes('Adicionar Item'));
+assert.ok(block.includes('Nome do Item'));
 assert.ok(block.includes('GUIA ATIVO'));
+assert.ok(listPlaybookIds().includes('bloquear_agenda_avancado'));
 
 assert.equal(isGuideContinueText('pronto'), true);
 assert.equal(isGuideContinueText('já fiz'), true);
