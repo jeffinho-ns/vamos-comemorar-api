@@ -1,16 +1,18 @@
 'use strict';
 
 /**
- * Orquestra um turno do Staff Agent (Groq + tools Fase 1).
+ * Orquestra um turno do Staff Agent (xAI/Grok + tools Fase 1–3).
  *
  * Problema corrigido: antes só rodava a 1ª tool (ex.: listar) e parava,
  * então "Pausar Japão" nunca chegava em pausar_item_cardapio.
  *
  * Agora: loop de tools (até MAX_TOOL_STEPS). Se o pedido for pausar/reativar
  * e a busca achar exatamente 1 item, já abre o preview de confirmação.
+ *
+ * WhatsApp do cliente permanece em OpenAI gpt-5.5 — este módulo é só staff.
  */
 
-const groqClient = require('./groqClient');
+const xaiClient = require('./xaiClient');
 const { isEstablishmentEnabled } = require('./featureFlag');
 const { assertCanUseTool, isStaffRole } = require('./permissions');
 const { executeTool } = require('./toolExecutor');
@@ -29,9 +31,11 @@ const {
 
 const MAX_TOOL_STEPS = 3;
 
-const SYSTEM_PROMPT = `Você é o assistente interno de operação do Agilizaiapp (Staff Agent Fase 1).
-Responda em português do Brasil, curto e claro, sem bullets longos.
-Use tools quando o pedido exigir dados ou ações. Não invente IDs.
+const SYSTEM_PROMPT = `Você é o assistente interno de operação do Agilizaiapp (Staff Agent).
+Fale em português do Brasil como um colega de operação: direto, acolhedor e em prosa.
+Evite tom de chatbot ("Como posso ajudar?", "Claro!", listas numeradas longas, bullets).
+Uma pergunta por vez quando faltar dado. Use tools quando o pedido exigir dados ou ações.
+Não invente IDs.
 
 Cardápio (pausar/reativar):
 1) Chame listar_itens_cardapio com o nome pedido.
@@ -169,7 +173,7 @@ async function finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, re
   };
 }
 
-/** Pausar/ativar sem passar pela Groq na busca — evita schema boolean e acelera. */
+/** Pausar/ativar sem passar pelo LLM na busca — evita schema boolean e acelera. */
 async function tryMenuWriteTurn(pool, { user, estId, text, menuWriteIntent }) {
   const idMatch = String(text).match(/#(\d+)/);
   if (idMatch) {
@@ -321,9 +325,9 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
       throw err;
     }
   }
-  if (!groqClient.isEnabled()) {
-    const err = new Error('GROQ_API_KEY não configurada no servidor.');
-    err.code = 'groq_disabled';
+  if (!xaiClient.isEnabled()) {
+    const err = new Error('XAI_API_KEY não configurada no servidor.');
+    err.code = 'xai_disabled';
     throw err;
   }
 
@@ -364,7 +368,7 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
 
   const osIntent = detectOsIntent(text);
 
-  // Pedido de OS costuma vir completo numa frase só: monta direto, sem depender da Groq.
+  // Pedido de OS costuma vir completo numa frase só: monta direto, sem depender do LLM.
   if (osIntent === 'criar_os_artista') {
     const parsed = parseOsFromText(text);
     if (parsed) {
@@ -388,11 +392,11 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
 
   for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
     // Pedido de OS reconhecido: empurra o modelo para a tool, mas sem depender disso —
-    // alguns modelos da Groq devolvem 400 quando a função é forçada pelo nome.
+    // tool_choice forçado pode falhar em alguns modelos; aí refazemos em auto.
     const forceOsTool = step === 0 && osIntent;
     let completion;
     try {
-      completion = await groqClient.chatCompletion({
+      completion = await xaiClient.chatCompletion({
         messages,
         tools: getPhase1ToolDefinitions(),
         tool_choice: forceOsTool
@@ -400,12 +404,14 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
           : 'auto',
       });
     } catch (e) {
-      if (!forceOsTool || e.code === 'groq_rate_limit') throw e;
+      if (!forceOsTool || e.code === 'xai_rate_limit' || e.code === 'groq_rate_limit') {
+        throw e;
+      }
       console.warn('[staffAgent] tool_choice forçado falhou, refazendo em auto', {
         tool: osIntent,
         message: e.message,
       });
-      completion = await groqClient.chatCompletion({
+      completion = await xaiClient.chatCompletion({
         messages,
         tools: getPhase1ToolDefinitions(),
         tool_choice: 'auto',

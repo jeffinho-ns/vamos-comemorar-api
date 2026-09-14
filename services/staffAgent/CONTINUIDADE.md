@@ -1,6 +1,6 @@
 # Staff Agent — Continuidade (retomar depois)
 
-**Status em 28/08/2026: Fases 1, 2 e 3 no ar.** Correção do UNIQUE por casa em andamento/aplicada.
+**Status em 14/09/2026: Fases 1–3 no ar. Provider do Staff Agent: xAI/Grok (WhatsApp continua OpenAI gpt-5.5).**
 
 | Fase | O que faz | Situação |
 |------|-----------|----------|
@@ -19,10 +19,30 @@ Causas:
    via `node scripts/run_operational_details_unique_per_est_migration.js` (precisa DATABASE_URL).
 3. Parser cortava "sem lista" nos valores de entrada — corrigido.
 
+### Provider (14/09/2026)
+
+Staff Agent usa **xAI Grok** (`services/staffAgent/xaiClient.js`). Groq saiu.
+WhatsApp do cliente **não muda** (`services/agent/*`, gpt-5.5).
+
+No Render (serviço da API), depois do deploy:
+
+```text
+XAI_API_KEY=...          # key NOVA (nunca cole no chat)
+STAFF_AGENT_XAI_MODEL=grok-4.6
+```
+
+Opcionais: `STAFF_AGENT_XAI_FALLBACK_MODELS`, `STAFF_AGENT_TEMPERATURE` (default 0.5),
+`STAFF_AGENT_MAX_TOKENS`. Pode remover `GROQ_API_KEY` / `STAFF_AGENT_GROQ_*` do Staff Agent.
+
+`/api/staff-agent/status` saudável: `provider: "xai"`, `xai_configured: true`,
+`code_rev: "staff-agent-xai-v1"` (e `groq_configured` ainda vem como alias = true).
+
 ### Próximos passos sugeridos
 
-1. Rodar a migração UNIQUE em produção (se ainda não rodou no deploy).
-2. Fase 4 a definir com o Jeff. Candidatos: check-in por comando, capacidade por área,
+1. Deploy API + setar `XAI_API_KEY` no Render (key rotacionada).
+2. Validar no admin: briefing, pausar item, bloquear dia, criar OS.
+3. Rodar a migração UNIQUE em produção (se ainda não rodou).
+4. Fase 4 a definir. Candidatos: check-in por comando, capacidade por área,
    resumo de fim de noite.
 
 ### Prompt para colar no Cursor (outro PC)
@@ -33,14 +53,12 @@ Retome o Staff Agent Agilizaiapp.
 Contexto: vamos-comemorar-api/services/staffAgent/CONTINUIDADE.md
 (+ ponte no next: app/components/admin/STAFF_AGENT_CONTINUIDADE.md).
 
-Fases 1–3 em produção. NÃO mexer no agente WhatsApp (services/agent, gpt-5.5).
+Fases 1–3 em produção. Provider = xAI/Grok (xaiClient.js).
+NÃO mexer no agente WhatsApp (services/agent, gpt-5.5).
 
 Antes de codar: git pull nos dois repos e rode os testes unitários em tests/unit/staffAgent*.
 
-Se criar OS em casas diferentes na mesma data falhar: rode
-node scripts/run_operational_details_unique_per_est_migration.js no ambiente com DATABASE_URL.
-
-Próxima tarefa: Fase 4 (a definir) ou validar migração UNIQUE em produção.
+Próxima tarefa: Fase 4 (a definir) ou polir tom/tools.
 ```
 
 ---
@@ -49,7 +67,7 @@ Próxima tarefa: Fase 4 (a definir) ou validar migração UNIQUE em produção.
 
 | Repo | Branch | Papel |
 |------|--------|--------|
-| `vamos-comemorar-api` | `master` | Groq, tools, `/api/staff-agent` |
+| `vamos-comemorar-api` | `master` | xAI/Grok, tools, `/api/staff-agent` |
 | `vamos-comemorar-next` | `main` | Widget flutuante em `/admin` |
 
 API produção: `https://api.agilizaiapp.com.br`
@@ -69,7 +87,8 @@ Pasta: `services/staffAgent/`
 | `artistOS.js` | Fase 3: criar / listar OS de Artista/Banda/DJ |
 | `artistOSTextParser.js` | Extrai a OS do texto do colaborador, sem LLM |
 | `featureFlag.js` | Flag / piloto allow-all |
-| `groqClient.js` | Cliente Groq + fallbacks |
+| `xaiClient.js` | Cliente xAI/Grok + fallbacks |
+| `groqClient.js` | Compat: reexporta `xaiClient` |
 | `toolExecutor.js` | Execução real (SQL/ações) |
 | `pendingActions.js` | Preview → confirmar writes |
 | `permissions.js` | Role + UEP |
@@ -117,24 +136,27 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 ## Env no Render (serviço da API)
 
 ```text
-GROQ_API_KEY=...
+XAI_API_KEY=...
 STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=*
+STAFF_AGENT_XAI_MODEL=grok-4.6
 ```
 
 Opcionais:
 
 ```text
 STAFF_AGENT_ENABLED=true
-STAFF_AGENT_GROQ_MODEL=openai/gpt-oss-120b
 STAFF_AGENT_PHASE1_STRICT=true          # só se quiser whitelist de novo
-STAFF_AGENT_GROQ_FALLBACK_MODELS=...
+STAFF_AGENT_XAI_FALLBACK_MODELS=grok-4.5,grok-4.3
+STAFF_AGENT_TEMPERATURE=0.5
+STAFF_AGENT_MAX_TOKENS=1200
 ```
 
 ### Flag (piloto atual)
 
 - Qualquer valor não-vazio (`*`, `1`, `1,7`…) → **todas as casas** liberadas.
 - Whitelist real só com `STAFF_AGENT_PHASE1_STRICT=true`.
-- `/api/staff-agent/status` saudável: `allow_all: true`, `code_rev: "staff-agent-allow-all-v3"`, `establishment_enabled: true`.
+- `/api/staff-agent/status` saudável: `allow_all: true`, `provider: "xai"`,
+  `code_rev: "staff-agent-xai-v1"`, `xai_configured: true`.
 
 ### Cardápio (pausar / ativar)
 

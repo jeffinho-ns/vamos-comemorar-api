@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Smoke tests offline do catálogo Fase 1 (sem Groq/DB).
+ * Smoke tests offline do catálogo Fase 1 (sem xAI/DB).
  */
 
 const assert = require('assert');
@@ -43,7 +43,7 @@ assert.ok(defs[0].function.name);
 
 const meta = getPhase1Meta();
 assert.equal(meta.phase, 1);
-assert.equal(meta.providerHint, 'groq');
+assert.equal(meta.providerHint, 'xai');
 
 delete process.env.STAFF_AGENT_PHASE1_STRICT;
 

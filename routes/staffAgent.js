@@ -18,17 +18,23 @@ const {
   isAllowAllMode,
   parseAllowedIds,
 } = require('../services/staffAgent/featureFlag');
-const groqClient = require('../services/staffAgent/groqClient');
+const xaiClient = require('../services/staffAgent/xaiClient');
 const { getPhase1Meta } = require('../services/staffAgent/phase1ToolCatalog');
 const { canAccessEstablishment } = require('../tenancy/tenantScope');
 
 function mapErrorStatus(code) {
-  if (code === 'feature_disabled' || code === 'groq_disabled') return 503;
+  if (
+    code === 'feature_disabled' ||
+    code === 'xai_disabled' ||
+    code === 'groq_disabled'
+  ) {
+    return 503;
+  }
   if (code === 'forbidden_role' || code === 'forbidden_uep' || code === 'forbidden_establishment') {
     return 403;
   }
   if (code === 'bad_establishment' || code === 'bad_message' || code === 'bad_confirm') return 400;
-  if (code === 'groq_rate_limit') return 429;
+  if (code === 'xai_rate_limit' || code === 'groq_rate_limit') return 429;
   if (code === 'confirm_expired') return 410;
   return 500;
 }
@@ -44,11 +50,15 @@ module.exports = (pool) => {
       const establishmentId = Number(
         req.query.establishment_id || req.body?.establishment_id || 0
       );
+      const llmReady = xaiClient.isEnabled();
       return res.json({
         ok: true,
         enabled_globally: isStaffAgentGloballyEnabled(),
-        groq_configured: groqClient.isEnabled(),
-        model: groqClient.getModel(),
+        // Canônico: xAI/Grok. groq_configured permanece como alias p/ front antigo.
+        xai_configured: llmReady,
+        groq_configured: llmReady,
+        provider: 'xai',
+        model: xaiClient.getModel(),
         establishment_id: establishmentId || null,
         establishment_enabled: establishmentId
           ? isEstablishmentEnabled(establishmentId)
@@ -56,7 +66,7 @@ module.exports = (pool) => {
         allow_all: isAllowAllMode(),
         allowed_ids: parseAllowedIds(),
         // Ajuda a saber se o Render já pegou este código.
-        code_rev: 'staff-agent-allow-all-v3',
+        code_rev: 'staff-agent-xai-v1',
         meta: getPhase1Meta(),
       });
     } catch (e) {

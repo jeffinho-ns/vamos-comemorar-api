@@ -1,8 +1,8 @@
 /**
- * Catálogo oficial — Staff Agent Fase 1 (Groq + tools).
+ * Catálogo oficial — Staff Agent (tools Fase 1 + agenda + OS).
  *
- * Escopo: leitura + atalhos leves. Nenhuma tool aqui cria reserva, bloqueia
- * dia, altera horário, usuário/cargo ou config da IA do cliente.
+ * Escopo: leitura + atalhos leves. Nenhuma tool aqui cria reserva,
+ * altera horário, usuário/cargo ou config da IA do cliente.
  *
  * Contrato de execução (obrigatório em produção):
  * 1. Auth = usuário logado (JWT/sessão). Nunca service-account “solto”.
@@ -11,8 +11,7 @@
  * 4. Feature flag por casa (ex.: STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS).
  * 5. Auditoria: user_id, tool, args, preview/apply, resultado.
  *
- * Provider sugerido: Groq (openai/gpt-oss-120b; fallback qwen/qwen3.6-27b).
- * WhatsApp do cliente permanece em OpenAI gpt-5.5.
+ * Provider: xAI Grok (default grok-4.6). WhatsApp do cliente = OpenAI gpt-5.5.
  *
  * Este arquivo é a fonte da verdade da Fase 1. Implementação futura:
  * services/staffAgent/* consome getPhase1ToolDefinitions() / executePhase1Tool().
@@ -377,7 +376,7 @@ const PHASE1_TOOLS = [
     minRbac: [],
     minUepAny: ['can_manage_whatsapp'],
     minRoles: ['recepcao', 'gerente', 'admin', 'account_admin'],
-    apiHint: 'GET transcript via /api/admin/whatsapp + LLM summary (Groq)',
+    apiHint: 'GET transcript via /api/admin/whatsapp + LLM summary (Grok)',
     exampleUtterances: [
       'Resumir essa conversa',
       'O que o cliente pediu antes do handoff?',
@@ -462,8 +461,8 @@ function getPhase1Meta() {
     toolCount: PHASE1_TOOLS.length,
     writeToolCount: listPhase1WriteTools().length,
     excluded: PHASE1_EXCLUDED,
-    providerHint: 'groq',
-    modelHint: 'openai/gpt-oss-120b',
+    providerHint: 'xai',
+    modelHint: 'grok-4.6',
   };
 }
 

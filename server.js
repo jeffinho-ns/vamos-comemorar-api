@@ -322,7 +322,7 @@ app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
 app.use('/api/justino360', require('./routes/justino360')(pool));
 // Ideia RH — people ops Grupo Ideia Um
 app.use('/api/rh-ideia', require('./routes/rhIdeia')(pool));
-// Staff Agent Fase 1 (Groq + tools leves — feature flag por casa)
+// Staff Agent (xAI/Grok + tools — feature flag por casa; WhatsApp permanece OpenAI)
 app.use('/api/staff-agent', require('./routes/staffAgent')(pool));
 // Condução Fluxo Rooftop (GET/POST /api/rooftop/conduction)
 app.use('/api/rooftop', rooftopConductionRoutes(pool));
