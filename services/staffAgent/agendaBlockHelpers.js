@@ -5,18 +5,8 @@
  * Separado de agendaBlocks.js para manter os arquivos curtos.
  */
 
-const { todayIsoSp } = require('./dateUtils');
+const { parseFlexibleDate, formatBr } = require('./dateUtils');
 const { areasFilterForEstablishment } = require('../establishmentRules');
-
-const WEEKDAYS = [
-  ['domingo'],
-  ['segunda', 'segunda-feira'],
-  ['terca', 'terça', 'terca-feira', 'terça-feira'],
-  ['quarta', 'quarta-feira'],
-  ['quinta', 'quinta-feira'],
-  ['sexta', 'sexta-feira'],
-  ['sabado', 'sábado'],
-];
 
 function normalize(text) {
   return String(text || '')
@@ -24,58 +14,6 @@ function normalize(text) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-}
-
-function addDaysIso(iso, days) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
-/** Aceita YYYY-MM-DD, DD/MM, DD/MM/YYYY, hoje, amanhã, dia da semana. */
-function parseFlexibleDate(input) {
-  const raw = String(input || '').trim();
-  if (!raw) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-
-  const today = todayIsoSp();
-  const n = normalize(raw);
-
-  if (n === 'hoje') return today;
-  if (n === 'amanha') return addDaysIso(today, 1);
-  if (n === 'depois de amanha' || n === 'depois-de-amanha') return addDaysIso(today, 2);
-
-  const br = raw.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
-  if (br) {
-    const day = Number(br[1]);
-    const month = Number(br[2]);
-    let year = br[3] ? Number(br[3]) : Number(today.slice(0, 4));
-    if (year < 100) year += 2000;
-    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    // "15/09" sem ano e já passou → assume próximo ano.
-    if (!br[3] && iso < today) {
-      return `${year + 1}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    }
-    return iso;
-  }
-
-  const weekdayIndex = WEEKDAYS.findIndex((names) => names.includes(n));
-  if (weekdayIndex >= 0) {
-    const [y, m, d] = today.split('-').map(Number);
-    const current = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    const delta = (weekdayIndex - current + 7) % 7 || 7;
-    return addDaysIso(today, delta);
-  }
-
-  return null;
-}
-
-function formatBr(iso) {
-  const [y, m, d] = String(iso).split('-');
-  return `${d}/${m}/${y}`;
 }
 
 /** Aceita "18:30", "18h", "18", "18h30". Retorna "HH:MM:SS" ou null. */

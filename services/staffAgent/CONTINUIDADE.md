@@ -26,7 +26,9 @@ STAFF_AGENT_XAI_MODEL=grok-4.3
 STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=*
 ```
 
-Status saudável: `provider: "xai"`, `code_rev: "staff-agent-guide-v2"`.
+- Histórico de conversa no `/turn` + fast path de contagem de reservas por período.
+- Bug corrigido: `18/09` nas tools não vira mais “hoje” (`parseFlexibleDate` em dateUtils).
+- Status: `code_rev: "staff-agent-memory-v1"`.
 
 ### Próximos passos sugeridos
 
@@ -154,7 +156,7 @@ STAFF_AGENT_GUIDE_TTL_MS=1800000
 - Qualquer valor não-vazio (`*`, `1`, `1,7`…) → **todas as casas** liberadas.
 - Whitelist real só com `STAFF_AGENT_PHASE1_STRICT=true`.
 - Status saudável: `allow_all: true`, `provider: "xai"`,
-  `code_rev: "staff-agent-guide-v2"`, `xai_configured: true`.
+  `code_rev: "staff-agent-memory-v1"`, `xai_configured: true`.
 
 ### Cardápio (pausar / ativar)
 

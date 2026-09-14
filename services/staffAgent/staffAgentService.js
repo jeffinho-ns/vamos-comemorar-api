@@ -31,14 +31,38 @@ const {
 const { tryGuideTurn } = require('./guideMode');
 const { clearGuideSession } = require('./guideSessions');
 const { formatPlaybookIndex } = require('./playbooks');
+const { tryReservationCountTurn } = require('./reservationCountFastPath');
+const { todayIsoSp } = require('./dateUtils');
 
 const MAX_TOOL_STEPS = 3;
+const MAX_HISTORY = 8;
+
+function normalizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .slice(-MAX_HISTORY)
+    .map((m) => {
+      const role = m?.role === 'assistant' ? 'assistant' : m?.role === 'user' ? 'user' : null;
+      const content = String(m?.content || m?.text || '').trim();
+      if (!role || !content) return null;
+      return { role, content: content.slice(0, 800) };
+    })
+    .filter(Boolean);
+}
 
 const SYSTEM_PROMPT = `Você é o assistente interno de operação do Agilizaiapp (Staff Agent).
 Fale em português do Brasil como um colega de operação: direto, acolhedor e em prosa.
 Evite tom de chatbot ("Como posso ajudar?", "Claro!", listas numeradas longas, bullets).
 Uma pergunta por vez quando faltar dado. Use tools quando o pedido exigir dados ou ações.
 Não invente IDs.
+
+Eficiência (obrigatório):
+- Use o histórico da conversa. NÃO peça de novo datas, casa ou detalhes que o colaborador já informou.
+- "Final de semana" / "fds" = próximo sábado e domingo (fuso SP). Não peça datas se der para inferir.
+- Intervalo ("dia 18 até 20/09") → consulte TODOS os dias e responda de uma vez com a contagem por dia.
+- Contar/listar reservas NÃO é bloquear agenda. Só ofereça bloquear se a pessoa pedir explicitamente.
+- Se disser "ok" / "continua" depois de uma resposta incompleta, termine o que faltava — não reinicie o assunto.
+- Datas em DD/MM ou DD/MM/AAAA são válidas; nas tools prefira YYYY-MM-DD.
 
 Modo guia: se o colaborador pedir algo que você NÃO tem tool para executar (criar item no cardápio, criar/editar reserva, enviar WhatsApp, criar usuário, etc.), NÃO invente que fez. Diga que ainda não está liberado para executar e ofereça guiar na tela. Índices de guias existentes:
 ${formatPlaybookIndex()}
@@ -310,7 +334,7 @@ async function tryAmendPendingOs(pool, { user, estId, text, pendingConfirmId }) 
   });
 }
 
-async function runTurn(pool, { user, establishmentId, message, pendingConfirmId = null }) {
+async function runTurn(pool, { user, establishmentId, message, pendingConfirmId = null, history = [] }) {
   const estId = Number(establishmentId);
   if (!Number.isFinite(estId) || estId <= 0) {
     const err = new Error('establishment_id inválido');
@@ -344,12 +368,15 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
     throw err;
   }
 
+  const historyMsgs = normalizeHistory(history);
+
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'system',
-      content: `Contexto: establishment_id=${estId}. Data de referência: use YYYY-MM-DD. Não altere establishment_id.`,
+      content: `Contexto: establishment_id=${estId}. Hoje (SP): ${todayIsoSp()}. Datas podem vir em DD/MM; nas tools use YYYY-MM-DD. Não altere establishment_id.`,
     },
+    ...historyMsgs,
     { role: 'user', content: text },
   ];
 
@@ -393,8 +420,17 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
     }
   }
 
+  // Contagem de reservas por dia/período (evita pedir datas de novo e bug DD/MM→hoje).
+  const counted = await tryReservationCountTurn(pool, {
+    user,
+    estId,
+    text,
+    history: historyMsgs,
+  });
+  if (counted) return counted;
+
   // Pedidos sem tool (criar item, criar reserva, enviar WA…): guia econômico (1 playbook, sem tools).
-  const guided = await tryGuideTurn({ user, estId, text });
+  const guided = await tryGuideTurn({ user, estId, text, history: historyMsgs });
   if (guided) return guided;
 
   let lastReadReply = null;
