@@ -1,41 +1,32 @@
 # Staff Agent — Continuidade (retomar depois)
 
-**Status em 14/09/2026: Fases 1–3 no ar. Provider do Staff Agent: xAI/Grok (WhatsApp continua OpenAI gpt-5.5).**
+**Status em 14/09/2026: Fases 1–3 + modo guia (playbooks). Provider: xAI `grok-4.3` (WhatsApp = OpenAI gpt-5.5).**
 
 | Fase | O que faz | Situação |
 |------|-----------|----------|
-| 1 | Cardápio (listar / pausar / reativar), briefing, reservas, waitlist | No ar, testado |
-| 2 | Bloquear e liberar dia da agenda, com área e faixa de horário | No ar, testado |
-| 3 | Criar e listar OS de Artista/Banda/DJ | No ar, testado |
+| 1 | Cardápio (listar / pausar / reativar), briefing, reservas, waitlist | No ar |
+| 2 | Bloquear e liberar dia da agenda | No ar |
+| 3 | Criar e listar OS de Artista/Banda/DJ | No ar |
+| 4a | Modo guia + manual interno (playbooks) quando não há tool | No ar (14/09) |
 
-### Onde paramos (28/08)
+### Provider + economia (14/09/2026)
 
-Gerente na Pracinha tentou criar OS 29/08 "Entre Nós" e viu "Não foi possível processar agora."
-Causas:
-1. **Front engolia o motivo** — preview com `ok:false` traz a mensagem em `reply`, mas o chat
-   só lia `error`. Corrigido em `StaffAgentFloat.tsx`.
-2. **`UNIQUE (event_date)` global** — se outra casa já tinha OS em 29/08, a Pracinha era
-   bloqueada. Migração: `migrations/2026-08-28_operational_details_unique_per_establishment.sql`
-   via `node scripts/run_operational_details_unique_per_est_migration.js` (precisa DATABASE_URL).
-3. Parser cortava "sem lista" nos valores de entrada — corrigido.
+- Cliente: `xaiClient.js` — default **`grok-4.3`** (fallback 4.5 → 4.6).
+- Modo guia: `playbooks/index.js` + `guideMode.js` + `guideSessions.js`.
+  - Detecta pedido sem tool (criar item, criar reserva, enviar WA…).
+  - Injeta **só 1 playbook** no prompt e **não** manda o catálogo de tools → bem mais barato.
+  - Memória 30 min por usuário+casa (“pronto”, “parei em…”, “cancelar guia”).
+- Atualize `playbooks/index.js` quando mudar rota/UX no admin (é o “estudo do build”).
 
-### Provider (14/09/2026)
-
-Staff Agent usa **xAI Grok** (`services/staffAgent/xaiClient.js`). Groq saiu.
-WhatsApp do cliente **não muda** (`services/agent/*`, gpt-5.5).
-
-No Render (serviço da API), depois do deploy:
+No Render:
 
 ```text
-XAI_API_KEY=...          # key NOVA (nunca cole no chat)
-STAFF_AGENT_XAI_MODEL=grok-4.6
+XAI_API_KEY=...
+STAFF_AGENT_XAI_MODEL=grok-4.3
+STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=*
 ```
 
-Opcionais: `STAFF_AGENT_XAI_FALLBACK_MODELS`, `STAFF_AGENT_TEMPERATURE` (default 0.5),
-`STAFF_AGENT_MAX_TOKENS`. Pode remover `GROQ_API_KEY` / `STAFF_AGENT_GROQ_*` do Staff Agent.
-
-`/api/staff-agent/status` saudável: `provider: "xai"`, `xai_configured: true`,
-`code_rev: "staff-agent-xai-v1"` (e `groq_configured` ainda vem como alias = true).
+Status saudável: `provider: "xai"`, `code_rev: "staff-agent-guide-v1"`.
 
 ### Próximos passos sugeridos
 
@@ -87,8 +78,11 @@ Pasta: `services/staffAgent/`
 | `artistOS.js` | Fase 3: criar / listar OS de Artista/Banda/DJ |
 | `artistOSTextParser.js` | Extrai a OS do texto do colaborador, sem LLM |
 | `featureFlag.js` | Flag / piloto allow-all |
-| `xaiClient.js` | Cliente xAI/Grok + fallbacks |
+| `xaiClient.js` | Cliente xAI/Grok + fallbacks (default grok-4.3) |
 | `groqClient.js` | Compat: reexporta `xaiClient` |
+| `playbooks/index.js` | Manual interno compacto (modo guia) |
+| `guideMode.js` | Turno de guia sem catálogo de tools |
+| `guideSessions.js` | Memória do guia (TTL 30 min) |
 | `toolExecutor.js` | Execução real (SQL/ações) |
 | `pendingActions.js` | Preview → confirmar writes |
 | `permissions.js` | Role + UEP |
@@ -107,6 +101,7 @@ Testes (rodar com `node <caminho>`, não precisam de banco):
 | `tests/unit/staffAgentOsIntent.test.js` | 23 formas reais de pedir uma OS |
 | `tests/unit/staffAgentOsTextParser.test.js` | Extração da OS a partir da frase |
 | `tests/unit/staffAgentOsAmendment.test.js` | Complemento depois do preview |
+| `tests/unit/staffAgentPlaybooks.test.js` | Detecção de guia + sessão |
 
 Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
@@ -128,8 +123,10 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 
 (Nomes canônicos em `phase1ToolCatalog.js` — se divergir deste resumo, o catálogo vence.)
 
-**Fora de escopo (não implementar sem novo acordo):**  
-`criar_reserva`, `editar_reserva`, `cancelar_reserva`, `ajustar_horarios`, usuários/cargos, enviar WA, campanhas, config IA cliente.
+**Fora de execução automática (modo guia na tela):**  
+`criar_reserva`, `editar_reserva`, `cancelar_reserva`, criar/editar item cardápio,
+usuários/cargos, enviar WA, campanhas, check-in, editar OS sensível.
+O Agent **orienta** esses fluxos via `playbooks/index.js` em vez de executar.
 
 ---
 
@@ -138,7 +135,7 @@ Montagem: `server.js` → `app.use('/api/staff-agent', ...)`.
 ```text
 XAI_API_KEY=...
 STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS=*
-STAFF_AGENT_XAI_MODEL=grok-4.6
+STAFF_AGENT_XAI_MODEL=grok-4.3
 ```
 
 Opcionais:
@@ -146,9 +143,10 @@ Opcionais:
 ```text
 STAFF_AGENT_ENABLED=true
 STAFF_AGENT_PHASE1_STRICT=true          # só se quiser whitelist de novo
-STAFF_AGENT_XAI_FALLBACK_MODELS=grok-4.5,grok-4.3
+STAFF_AGENT_XAI_FALLBACK_MODELS=grok-4.5,grok-4.6
 STAFF_AGENT_TEMPERATURE=0.5
-STAFF_AGENT_MAX_TOKENS=1200
+STAFF_AGENT_MAX_TOKENS=800
+STAFF_AGENT_GUIDE_TTL_MS=1800000
 ```
 
 ### Flag (piloto atual)
@@ -156,7 +154,7 @@ STAFF_AGENT_MAX_TOKENS=1200
 - Qualquer valor não-vazio (`*`, `1`, `1,7`…) → **todas as casas** liberadas.
 - Whitelist real só com `STAFF_AGENT_PHASE1_STRICT=true`.
 - `/api/staff-agent/status` saudável: `allow_all: true`, `provider: "xai"`,
-  `code_rev: "staff-agent-xai-v1"`, `xai_configured: true`.
+  `code_rev: "staff-agent-guide-v1"`, `xai_configured: true`.
 
 ### Cardápio (pausar / ativar)
 

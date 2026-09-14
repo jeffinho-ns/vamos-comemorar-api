@@ -6,17 +6,17 @@
  *
  * Env:
  *   XAI_API_KEY (obrigatória)
- *   STAFF_AGENT_XAI_MODEL (default: grok-4.6)
+ *   STAFF_AGENT_XAI_MODEL (default: grok-4.3 — econômico + humano)
  *   STAFF_AGENT_XAI_FALLBACK_MODELS
  *   STAFF_AGENT_XAI_TIMEOUT_MS
- *   STAFF_AGENT_MAX_TOKENS
+ *   STAFF_AGENT_MAX_TOKENS (default: 800)
  *   STAFF_AGENT_TEMPERATURE (default: 0.5)
  */
 
 const OpenAI = require('openai');
 
-const DEFAULT_MODEL = 'grok-4.6';
-const FALLBACK_MODELS = ['grok-4.5', 'grok-4.3'];
+const DEFAULT_MODEL = 'grok-4.3';
+const FALLBACK_MODELS = ['grok-4.5', 'grok-4.6'];
 const TIMEOUT_MS = Number(process.env.STAFF_AGENT_XAI_TIMEOUT_MS || 45000);
 
 let cachedClient = null;
@@ -98,14 +98,17 @@ async function chatCompletion(opts) {
 
   for (const model of candidates) {
     try {
-      return await client.chat.completions.create({
+      const payload = {
         model,
         messages: opts.messages,
-        tools: opts.tools,
-        tool_choice: opts.tool_choice || 'auto',
         temperature: getTemperature(),
-        max_tokens: Number(process.env.STAFF_AGENT_MAX_TOKENS || 1200),
-      });
+        max_tokens: Number(process.env.STAFF_AGENT_MAX_TOKENS || 800),
+      };
+      if (opts.tools && opts.tools.length) {
+        payload.tools = opts.tools;
+        payload.tool_choice = opts.tool_choice || 'auto';
+      }
+      return await client.chat.completions.create(payload);
     } catch (e) {
       lastError = e;
       const status = e?.status || e?.response?.status;

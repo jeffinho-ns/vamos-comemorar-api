@@ -28,6 +28,9 @@ const {
   getPhase1ToolByName,
   getPhase1Meta,
 } = require('./phase1ToolCatalog');
+const { tryGuideTurn } = require('./guideMode');
+const { clearGuideSession } = require('./guideSessions');
+const { formatPlaybookIndex } = require('./playbooks');
 
 const MAX_TOOL_STEPS = 3;
 
@@ -36,6 +39,9 @@ Fale em português do Brasil como um colega de operação: direto, acolhedor e e
 Evite tom de chatbot ("Como posso ajudar?", "Claro!", listas numeradas longas, bullets).
 Uma pergunta por vez quando faltar dado. Use tools quando o pedido exigir dados ou ações.
 Não invente IDs.
+
+Modo guia: se o colaborador pedir algo que você NÃO tem tool para executar (criar item no cardápio, criar/editar reserva, enviar WhatsApp, criar usuário, etc.), NÃO invente que fez. Diga que ainda não está liberado para executar e ofereça guiar na tela. Índices de guias existentes:
+${formatPlaybookIndex()}
 
 Cardápio (pausar/reativar):
 1) Chame listar_itens_cardapio com o nome pedido.
@@ -377,6 +383,7 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
         establishmentId: estId,
         toolName: 'criar_os_artista',
       });
+      clearGuideSession(user.id || user.userId, estId);
       return buildWriteConfirm(pool, {
         user,
         estId,
@@ -385,6 +392,10 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
       });
     }
   }
+
+  // Pedidos sem tool (criar item, criar reserva, enviar WA…): guia econômico (1 playbook, sem tools).
+  const guided = await tryGuideTurn({ user, estId, text });
+  if (guided) return guided;
 
   let lastReadReply = null;
   let lastToolName = null;

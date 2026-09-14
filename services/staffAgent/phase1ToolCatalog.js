@@ -11,7 +11,7 @@
  * 4. Feature flag por casa (ex.: STAFF_AGENT_PHASE1_ESTABLISHMENT_IDS).
  * 5. Auditoria: user_id, tool, args, preview/apply, resultado.
  *
- * Provider: xAI Grok (default grok-4.6). WhatsApp do cliente = OpenAI gpt-5.5.
+ * Provider: xAI Grok (default grok-4.3). WhatsApp do cliente = OpenAI gpt-5.5.
  *
  * Este arquivo é a fonte da verdade da Fase 1. Implementação futura:
  * services/staffAgent/* consome getPhase1ToolDefinitions() / executePhase1Tool().
@@ -462,7 +462,7 @@ function getPhase1Meta() {
     writeToolCount: listPhase1WriteTools().length,
     excluded: PHASE1_EXCLUDED,
     providerHint: 'xai',
-    modelHint: 'grok-4.6',
+    modelHint: 'grok-4.3',
   };
 }
 
