@@ -22,6 +22,7 @@ const {
     applySchedulesToMenuItems,
 } = require('../services/menuPauseScheduleService');
 const { resolveOrganizationIdForBar } = require('../services/menuOrganizationRepair');
+const { findSubcategoryRef, renameSubcategory } = require('../services/menuSubcategoryService');
 
 module.exports = (pool) => {
     router.use(optionalAuth);
@@ -1539,19 +1540,28 @@ module.exports = (pool) => {
     router.put('/categories/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { barId, name, order } = req.body;
+        const cleanName = emptyToNull(name);
+        if (!cleanName) {
+            return res.status(400).json({ error: 'Nome da categoria é obrigatório.' });
+        }
         try {
-            const existing = await pool.query('SELECT barid FROM menu_categories WHERE id = $1', [id]);
+            const existing = await pool.query(
+                'SELECT barid, "order" FROM menu_categories WHERE id = $1',
+                [id]
+            );
             if (existing.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
             const currentBarId = existing.rows[0].barid;
             if (!(await assertBarInActorScope(req, res, currentBarId))) return;
             if (barId != null && !(await assertBarInActorScope(req, res, barId))) return;
+            // Sem order no payload: preserva a ordem atual em vez de gravar NULL.
+            const nextOrder = toIntOrNull(order) !== null ? toIntOrNull(order) : existing.rows[0].order;
             await pool.query(
                 'UPDATE menu_categories SET barId = $1, name = $2, "order" = $3 WHERE id = $4',
-                [barId != null ? barId : currentBarId, name, order, id]
+                [barId != null ? barId : currentBarId, cleanName, nextOrder, id]
             );
-            res.json({ message: 'Categoria atualizada com sucesso.' });
+            res.json({ id: Number(id), name: cleanName, message: 'Categoria atualizada com sucesso.' });
         } catch (error) {
             console.error('Erro ao atualizar categoria:', error);
             res.status(500).json({ error: 'Erro ao atualizar categoria.' });
@@ -1696,7 +1706,7 @@ module.exports = (pool) => {
     });
 
     // Criar nova subcategoria (atualizando itens existentes ou criando novos)
-    router.post('/subcategories', async (req, res) => {
+    router.post('/subcategories', authenticateToken, async (req, res) => {
         const { name, categoryId, barId, order } = req.body;
         
         if (!name || !categoryId || !barId) {
@@ -1704,6 +1714,8 @@ module.exports = (pool) => {
         }
 
         try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+
             // Verificar se a categoria existe
             const categoriesResult = await pool.query('SELECT id FROM menu_categories WHERE id = $1 AND barId = $2', [categoryId, barId]);
             if (categoriesResult.rows.length === 0) {
@@ -1764,61 +1776,53 @@ module.exports = (pool) => {
         }
     });
 
-    // Atualizar subcategoria (renomear)
-    router.put('/subcategories/:id', async (req, res) => {
+    // Atualizar subcategoria (renomear): mantém os itens, só troca o nome em todos eles.
+    router.put('/subcategories/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { name, order } = req.body;
-        
-        if (!name) {
+
+        const newName = String(name || '').trim();
+        if (!newName) {
             return res.status(400).json({ error: 'Nome é obrigatório.' });
         }
 
         try {
-            // Buscar o item que representa a subcategoria
-            const itemsResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
-            if (itemsResult.rows.length === 0) {
+            const ref = await findSubcategoryRef(pool, id);
+            if (!ref) {
                 return res.status(404).json({ error: 'Subcategoria não encontrada.' });
             }
 
-            const item = itemsResult.rows[0];
-            const oldSubCategoryName = item.subCategory;
+            if (!(await assertBarInActorScope(req, res, ref.barId))) return;
 
-            // Verificar se o novo nome já existe na mesma categoria
-            if (name !== oldSubCategoryName) {
-                const duplicateResult = await pool.query(
-                    'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3',
-                    [name, item.categoryId, item.barId]
-                );
-                
-                if (parseInt(duplicateResult.rows[0].count) > 0) {
-                    return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
+            const result = await renameSubcategory(pool, ref, { newName, order });
+
+            if (!result.ok) {
+                if (result.code === 'DUPLICATE_NAME') {
+                    return res.status(409).json({
+                        error: `Já existe a subcategoria "${result.conflictName}" nesta categoria. Mova ou renomeie os itens dela antes.`,
+                    });
                 }
-
-                // Atualizar todos os itens que usam esta subcategoria
-                await pool.query(
-                    'UPDATE menu_items SET subCategory = $1 WHERE subCategory = $2 AND categoryId = $3 AND barId = $4',
-                    [name, oldSubCategoryName, item.categoryId, item.barId]
-                );
+                if (result.code === 'REF_WITHOUT_SUBCATEGORY') {
+                    return res.status(409).json({
+                        error: 'O item de referência não tem subcategoria. Recarregue a página e tente novamente.',
+                    });
+                }
+                return res.status(400).json({ error: 'Nome inválido para a subcategoria.' });
             }
 
-            // Atualizar ordem se fornecida
-            if (order !== undefined && order !== item.order) {
-                await pool.query(
-                    'UPDATE menu_items SET "order" = $1 WHERE id = $2',
-                    [order, id]
-                );
-            }
+            console.log(
+                `[cardapio] subcategoria renomeada bar=${ref.barId} categoria=${ref.categoryId} ` +
+                `"${result.previousName}" -> "${result.name}" itens=${result.updatedItems}`
+            );
 
-            // Buscar item atualizado
-            const updatedResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
-            
             res.json({
-                id: updatedResult.rows[0].id,
-                name: updatedResult.rows[0].subCategory,
-                categoryId: updatedResult.rows[0].categoryId,
-                barId: updatedResult.rows[0].barId,
-                order: updatedResult.rows[0].order,
-                message: 'Subcategoria atualizada com sucesso'
+                id: ref.id,
+                name: result.name,
+                previousName: result.previousName,
+                categoryId: ref.categoryId,
+                barId: ref.barId,
+                updatedItems: result.updatedItems,
+                message: `Subcategoria renomeada para "${result.name}" em ${result.updatedItems} item(ns).`,
             });
         } catch (error) {
             console.error('Erro ao atualizar subcategoria:', error);
@@ -1827,29 +1831,36 @@ module.exports = (pool) => {
     });
 
     // Excluir subcategoria
-    router.delete('/subcategories/:id', async (req, res) => {
+    router.delete('/subcategories/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
 
         try {
-            // Buscar o item que representa a subcategoria
-            const itemsResult = await pool.query('SELECT * FROM menu_items WHERE id = $1', [id]);
-            if (itemsResult.rows.length === 0) {
+            const ref = await findSubcategoryRef(pool, id);
+            if (!ref) {
                 return res.status(404).json({ error: 'Subcategoria não encontrada.' });
             }
 
-            const item = itemsResult.rows[0];
-            const subCategoryName = item.subCategory;
+            const subCategoryName = ref.name;
+            const categoryId = ref.categoryId;
+            const barId = ref.barId;
+
+            if (!(await assertBarInActorScope(req, res, barId))) return;
 
             // Verificar se há outros itens usando esta subcategoria
             const otherItemsResult = await pool.query(
-                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3 AND id != $4',
-                [subCategoryName, item.categoryId, item.barId, id]
+                `SELECT COUNT(*) AS count FROM menu_items
+                  WHERE LOWER(TRIM(subcategory)) = LOWER($1)
+                    AND categoryid = $2
+                    AND barid = $3
+                    AND id != $4`,
+                [subCategoryName, categoryId, barId, id]
             );
 
-            if (parseInt(otherItemsResult.rows[0].count) > 0) {
-                return res.status(400).json({ 
-                    error: `Não é possível excluir esta subcategoria. Ela está sendo usada por ${otherItemsResult.rows[0].count} outro(s) item(s).`,
-                    itemsCount: parseInt(otherItemsResult.rows[0].count)
+            const otherItems = parseInt(otherItemsResult.rows[0].count, 10);
+            if (otherItems > 0) {
+                return res.status(400).json({
+                    error: `Não é possível excluir esta subcategoria. Ela está sendo usada por ${otherItems} outro(s) item(s).`,
+                    itemsCount: otherItems
                 });
             }
 
@@ -1860,8 +1871,8 @@ module.exports = (pool) => {
                 message: 'Subcategoria excluída com sucesso.',
                 deletedSubCategory: {
                     name: subCategoryName,
-                    categoryId: item.categoryId,
-                    barId: item.barId
+                    categoryId,
+                    barId
                 }
             });
         } catch (error) {
@@ -1871,7 +1882,7 @@ module.exports = (pool) => {
     });
 
     // Reordenar subcategorias de uma categoria (atualiza apenas subcategory_order; não mexe em "order" dos itens)
-    router.put('/subcategories/reorder/:categoryId', async (req, res) => {
+    router.put('/subcategories/reorder/:categoryId', authenticateToken, async (req, res) => {
         const { categoryId } = req.params;
         const { subcategoryNames } = req.body; // Array de nomes na nova ordem
 
@@ -1881,10 +1892,12 @@ module.exports = (pool) => {
 
         try {
             // Verificar se a categoria existe
-            const categoriesResult = await pool.query('SELECT id FROM menu_categories WHERE id = $1', [categoryId]);
+            const categoriesResult = await pool.query('SELECT id, barid FROM menu_categories WHERE id = $1', [categoryId]);
             if (categoriesResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Categoria não encontrada.' });
             }
+
+            if (!(await assertBarInActorScope(req, res, categoriesResult.rows[0].barid))) return;
 
             // Verificar se a coluna subcategory_order existe (compatível antes da migration)
             let useSubcategoryOrder = false;
