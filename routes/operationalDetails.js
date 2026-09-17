@@ -48,6 +48,19 @@ function publicOperationalDetail(row) {
   return out;
 }
 
+function toPositiveIntOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = parseInt(String(value), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Datas vêm do banco como Date; a página pública compara string YYYY-MM-DD. */
+function toIsoDateString(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 module.exports = (pool) => {
   /**
    * @route   POST /api/v1/operational-details
@@ -462,7 +475,10 @@ module.exports = (pool) => {
 
   /**
    * @route   GET /api/v1/operational-details/date/:date
-   * @desc    Busca o detalhe operacional mais recente para uma data específica
+   * @desc    Busca o detalhe operacional mais recente para uma data específica.
+   *          `establishment_id` é o places.id e deve ser enviado por quem exibe o
+   *          evento de um estabelecimento — sem ele a resposta é o evento de
+   *          qualquer casa naquela data (comportamento legado).
    * @access  Público, mas anônimo recebe só os campos de divulgação.
    *          Contrato, dados bancários e cachê exigem token.
    */
@@ -478,6 +494,22 @@ module.exports = (pool) => {
         });
       }
 
+      const rawEstablishmentId = req.query.establishment_id;
+      const establishmentId = toPositiveIntOrNull(rawEstablishmentId);
+      if (rawEstablishmentId !== undefined && establishmentId === null) {
+        return res.status(400).json({
+          success: false,
+          error: 'establishment_id inválido.'
+        });
+      }
+
+      const params = [date];
+      let establishmentFilter = '';
+      if (establishmentId !== null) {
+        params.push(establishmentId);
+        establishmentFilter = `AND od.establishment_id = $${params.length}`;
+      }
+
       const query = `
         SELECT 
           od.*,
@@ -485,11 +517,12 @@ module.exports = (pool) => {
         FROM operational_details od
         LEFT JOIN places p ON od.establishment_id = p.id
         WHERE od.event_date = $1 AND od.is_active = TRUE
+        ${establishmentFilter}
         ORDER BY od.updated_at DESC
         LIMIT 1
       `;
       
-      const detailsResult = await pool.query(query, [date]);
+      const detailsResult = await pool.query(query, params);
       
       if (detailsResult.rows.length === 0) {
         return res.status(404).json({
@@ -498,15 +531,90 @@ module.exports = (pool) => {
         });
       }
       
-      res.json({
-        success: true,
-        data: req.user
-          ? detailsResult.rows[0]
-          : publicOperationalDetail(detailsResult.rows[0])
-      });
+      const row = detailsResult.rows[0];
+      const detail = req.user ? row : publicOperationalDetail(row);
+      detail.event_date = toIsoDateString(row.event_date);
+
+      res.json({ success: true, data: detail });
       
     } catch (error) {
       console.error('❌ Erro ao buscar detalhe operacional por data:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Erro interno do servidor'
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/v1/operational-details/upcoming
+   * @desc    Lista os detalhes operacionais de um intervalo, agrupados por
+   *          establishment_id. Substitui o loop de uma requisição por dia feito
+   *          pelo front, que só conseguia um evento por data em todo o sistema.
+   * @access  Público (anônimo recebe só os campos de divulgação).
+   */
+  router.get('/upcoming', optionalAuth, async (req, res) => {
+    try {
+      const MAX_DAYS = 90;
+      const days = Math.min(toPositiveIntOrNull(req.query.days) || 30, MAX_DAYS);
+
+      const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.startDate || ''))
+        ? String(req.query.startDate)
+        : null;
+
+      const rawEstablishmentId = req.query.establishment_id;
+      const establishmentId = toPositiveIntOrNull(rawEstablishmentId);
+      if (rawEstablishmentId !== undefined && establishmentId === null) {
+        return res.status(400).json({
+          success: false,
+          error: 'establishment_id inválido.'
+        });
+      }
+
+      const params = [startDate, days];
+      let establishmentFilter = '';
+      if (establishmentId !== null) {
+        params.push(establishmentId);
+        establishmentFilter = `AND od.establishment_id = $${params.length}`;
+      }
+
+      const query = `
+        WITH range AS (
+          SELECT
+            COALESCE($1::date, CURRENT_DATE) AS start_date,
+            COALESCE($1::date, CURRENT_DATE) + ($2::int - 1) AS end_date
+        )
+        SELECT
+          od.*,
+          p.name as establishment_name
+        FROM operational_details od
+        LEFT JOIN places p ON od.establishment_id = p.id
+        CROSS JOIN range r
+        WHERE od.is_active = TRUE
+          AND od.event_date BETWEEN r.start_date AND r.end_date
+          ${establishmentFilter}
+        ORDER BY od.event_date, od.establishment_id
+      `;
+
+      const detailsResult = await pool.query(query, params);
+
+      const grouped = {};
+      for (const row of detailsResult.rows) {
+        const detail = req.user ? row : publicOperationalDetail(row);
+        detail.event_date = toIsoDateString(row.event_date);
+
+        const key = detail.establishment_id != null ? String(detail.establishment_id) : 'unknown';
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(detail);
+      }
+
+      res.json({
+        success: true,
+        data: grouped,
+        total: detailsResult.rows.length,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao listar próximos detalhes operacionais:', error);
       res.status(500).json({
         success: false,
         error: 'Erro interno do servidor'
