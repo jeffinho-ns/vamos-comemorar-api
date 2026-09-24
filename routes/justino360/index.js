@@ -30,6 +30,7 @@ module.exports = (pool) => {
   router.use(require('./maintenance')(pool));
   router.use(require('./upload')(pool));
   router.use(require('./ai')(pool));
+  router.use(require('./saturday')(pool));
 
   return router;
 };

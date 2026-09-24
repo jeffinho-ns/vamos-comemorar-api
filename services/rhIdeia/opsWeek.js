@@ -1,6 +1,6 @@
 'use strict';
 
-const { isLeaderRole } = require('./playbookRoles');
+const { findRole, isLeaderRole } = require('./playbookRoles');
 const { POINTS, awardOnce } = require('./playbookPoints');
 
 const TZ = 'America/Sao_Paulo';
@@ -166,6 +166,121 @@ async function loadWeekBoard(pool, { establishmentId, sectorKey, start }) {
   };
 }
 
+function resolvePeopleScope(ctx, query) {
+  if (ctx.scope.seesAll) {
+    const establishmentId = Number(query.establishment_id);
+    return {
+      establishmentId: Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : null,
+      sectorKey: null,
+      userId: null,
+    };
+  }
+  if (ctx.profile && isLeaderRole(ctx.profile.role_key)) {
+    const wholeHouse = ctx.profile.role_key === 'gerente';
+    return {
+      establishmentId: Number(ctx.profile.establishment_id),
+      sectorKey: wholeHouse ? null : ctx.profile.sector_key || null,
+      userId: null,
+    };
+  }
+  if (ctx.profile?.user_id) {
+    return {
+      establishmentId: Number(ctx.profile.establishment_id) || null,
+      sectorKey: null,
+      userId: Number(ctx.profile.user_id),
+    };
+  }
+  return { error: { status: 403, message: 'A progressão semanal pede uma ficha de função.' } };
+}
+
+async function loadWeekPeople(pool, { organizationId, establishmentId, sectorKey, userId, start }) {
+  const range = weekRange(start);
+  const params = [organizationId];
+  const filters = ['p.organization_id = $1'];
+  if (establishmentId) {
+    params.push(establishmentId);
+    filters.push(`p.establishment_id = $${params.length}`);
+  }
+  if (sectorKey) {
+    params.push(sectorKey);
+    filters.push(`s.key = $${params.length}`);
+  }
+  if (userId) {
+    params.push(userId);
+    filters.push(`p.user_id = $${params.length}`);
+  }
+
+  const people = await pool.query(
+    `SELECT p.user_id, u.name AS user_name, p.role_key, e.name AS establishment_name,
+            s.name AS sector_name
+       FROM iri_employee_profiles p
+       JOIN users u ON u.id = p.user_id
+       JOIN establishments e ON e.id = p.establishment_id
+       LEFT JOIN iri_sectors s ON s.id = p.sector_id
+      WHERE ${filters.join(' AND ')}
+      ORDER BY e.name, u.name
+      LIMIT 200`,
+    params
+  );
+
+  const ids = people.rows.map((row) => row.user_id);
+  let runs = [];
+  if (ids.length) {
+    const runParams = [ids, range.start, range.end];
+    const found = await pool.query(
+      `SELECT r.run_date, t.shift_type, sec.name AS sector_name,
+              COALESCE(r.completed_by, r.started_by) AS user_id
+         FROM j360_checklist_runs r
+         JOIN j360_checklist_templates t ON t.id = r.template_id
+         LEFT JOIN j360_sectors sec ON sec.id = COALESCE(r.sector_id, t.sector_id)
+        WHERE COALESCE(r.completed_by, r.started_by) = ANY($1::int[])
+          AND r.run_date >= $2::date
+          AND r.run_date <= $3::date
+          AND r.status = 'concluido'
+          AND t.shift_type IN ('abertura', 'fechamento')`,
+      runParams
+    );
+    runs = found.rows;
+  }
+
+  const byPerson = new Map();
+  for (const run of runs) {
+    const key = `${run.user_id}|${String(run.run_date).slice(0, 10)}|${run.shift_type}|${run.sector_name || ''}`;
+    if (byPerson.has(key)) continue;
+    byPerson.set(key, run);
+  }
+
+  const peopleOut = people.rows.map((person) => {
+    const days = range.days.map((day) => {
+      const marks = [];
+      for (const run of byPerson.values()) {
+        if (Number(run.user_id) !== Number(person.user_id)) continue;
+        if (String(run.run_date).slice(0, 10) !== day.date) continue;
+        const verb = run.shift_type === 'fechamento' ? 'Fechou' : 'Abriu';
+        marks.push(`${verb} ${run.sector_name || 'setor'}`);
+      }
+      return { date: day.date, marks };
+    });
+    const done = days.reduce((sum, day) => sum + day.marks.length, 0);
+    return {
+      user_id: person.user_id,
+      name: person.user_name,
+      role_label: findRole(person.role_key)?.label || person.role_key,
+      establishment_name: person.establishment_name,
+      sector_name: person.sector_name,
+      done,
+      days,
+    };
+  });
+
+  return {
+    start: range.start,
+    end: range.end,
+    days: range.days,
+    people: peopleOut,
+  };
+}
+
 async function awardOperationalMonth(pool, { organizationId, establishmentId, start, end, createdBy }) {
   const { rows } = await pool.query(
     `SELECT r.id, r.run_date, r.completed_by, r.started_by, t.shift_type, s.name AS sector_name
@@ -214,5 +329,7 @@ module.exports = {
   buildWeekBoard,
   resolveOpsScope,
   loadWeekBoard,
+  resolvePeopleScope,
+  loadWeekPeople,
   awardOperationalMonth,
 };

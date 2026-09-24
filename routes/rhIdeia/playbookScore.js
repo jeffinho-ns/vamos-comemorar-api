@@ -275,7 +275,28 @@ module.exports = (pool) => {
         LIMIT 24`,
       [ctx.organizationId]
     );
-    return res.json({ success: true, data: rows });
+    let grants = [];
+    try {
+      const found = await pool.query(
+        `SELECT g.establishment_id, g.year_month, g.user_id, u.name AS user_name, g.status, g.note
+           FROM iri_reward_grants g
+           JOIN users u ON u.id = g.user_id
+          WHERE g.organization_id = $1`,
+        [ctx.organizationId]
+      );
+      grants = found.rows;
+    } catch (err) {
+      if (err.code !== '42P01') throw err;
+    }
+    const data = rows.map((close) => ({
+      ...close,
+      grants: grants.filter(
+        (grant) =>
+          Number(grant.establishment_id) === Number(close.establishment_id) &&
+          String(grant.year_month).trim() === String(close.year_month).trim()
+      ),
+    }));
+    return res.json({ success: true, data });
   });
 
   return router;
