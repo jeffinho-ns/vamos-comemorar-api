@@ -30,6 +30,10 @@ const {
   canonicalizeReservaEstablishmentId,
   queryEstablishmentIdsForReservations,
 } = require('../services/reservaEstablishmentIds');
+const {
+  checkAreaCapacity,
+  isConfirmingStatus,
+} = require('../services/areaCapacityCheck');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -750,6 +754,96 @@ module.exports = (pool) => {
   });
 
   /**
+   * @route   GET /api/restaurant-reservations/area-capacity
+   * @desc    Capacidade por área (Camarotes / Áreas VIP / Rooftop) para uma data
+   * @access  Private (escopo do estabelecimento)
+   */
+  router.get('/area-capacity', async (req, res) => {
+    try {
+      const areaId = parseInt(String(req.query.area_id || ''), 10);
+      const establishmentId = canonicalizeReservaEstablishmentId(
+        parseInt(String(req.query.establishment_id || ''), 10) || 0
+      );
+      const reservationDate = req.query.date
+        ? String(req.query.date).slice(0, 10)
+        : null;
+      const people = parseInt(String(req.query.people || req.query.number_of_people || '0'), 10);
+      const excludeId = req.query.exclude_reservation_id
+        ? parseInt(String(req.query.exclude_reservation_id), 10)
+        : null;
+
+      if (!Number.isFinite(areaId) || areaId <= 0 || !establishmentId || !reservationDate) {
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetros obrigatórios: area_id, establishment_id, date',
+        });
+      }
+
+      if (!denyIfCannotReadEstablishment(req, res, establishmentId)) {
+        return;
+      }
+
+      const capacity = await checkAreaCapacity(pool, {
+        areaId,
+        establishmentId,
+        reservationDate,
+        requestedPeople: Number.isFinite(people) ? Math.max(0, people) : 0,
+        excludeReservationId: Number.isFinite(excludeId) ? excludeId : null,
+        areaDisplayName: req.query.area_display_name
+          ? String(req.query.area_display_name)
+          : null,
+        tableNumber: req.query.table_number
+          ? String(req.query.table_number)
+          : null,
+      });
+
+      return res.json({ success: true, ...capacity });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      console.error('❌ Erro ao verificar capacidade por área:', error);
+      return res.status(status).json({
+        success: false,
+        error: status === 500 ? 'Erro interno do servidor' : error.message,
+      });
+    }
+  });
+
+  /**
+   * @route   GET /api/restaurant-reservations/:id/area-capacity
+   * @desc    Capacidade da área da reserva (aviso ao confirmar Camarote/VIP/Rooftop)
+   * @access  Private
+   */
+  router.get('/:id/area-capacity', async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id || ''), 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ success: false, error: 'ID inválido' });
+      }
+
+      const existing = await pool.query(
+        `SELECT id, establishment_id FROM restaurant_reservations WHERE id = $1`,
+        [id]
+      );
+      if (!existing.rows[0]) {
+        return res.status(404).json({ success: false, error: 'Reserva não encontrada' });
+      }
+      if (!denyIfCannotReadEstablishment(req, res, existing.rows[0].establishment_id)) {
+        return;
+      }
+
+      const capacity = await checkAreaCapacity(pool, { reservationId: id });
+      return res.json({ success: true, ...capacity });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      console.error('❌ Erro ao verificar capacidade por área da reserva:', error);
+      return res.status(status).json({
+        success: false,
+        error: status === 500 ? 'Erro interno do servidor' : error.message,
+      });
+    }
+  });
+
+  /**
    * @route   GET /api/restaurant-reservations/stats/dashboard
    * @desc    Busca estatísticas para o dashboard
    * @access  Private
@@ -1363,6 +1457,36 @@ module.exports = (pool) => {
         }
       }
 
+      // Bloqueio de capacidade por área ao criar já confirmada (Camarote / VIP / Rooftop)
+      if (isConfirmingStatus(status) && areaIdNumber && reservation_date && establishmentIdNumber) {
+        try {
+          const areaCapacity = await checkAreaCapacity(pool, {
+            areaId: areaIdNumber,
+            establishmentId: establishmentIdNumber,
+            reservationDate: String(reservation_date).slice(0, 10),
+            requestedPeople: Number(number_of_people) || 0,
+            areaDisplayName: area_display_name || null,
+            tableNumber: table_number || null,
+          });
+          if (areaCapacity.applies && !areaCapacity.fits) {
+            const areaLabel = areaCapacity.area_name || 'área restrita';
+            return res.status(409).json({
+              success: false,
+              error: `Capacidade insuficiente em ${areaLabel}: ${areaCapacity.reserved_people} já reservados + ${areaCapacity.requested_people} desta reserva excedem a capacidade de ${areaCapacity.capacity}.`,
+              capacity: areaCapacity,
+            });
+          }
+        } catch (capErr) {
+          console.error('⚠️ Erro ao verificar capacidade por área (POST):', capErr);
+          if (capErr.statusCode && capErr.statusCode !== 500) {
+            return res.status(capErr.statusCode).json({
+              success: false,
+              error: capErr.message,
+            });
+          }
+        }
+      }
+
       // Inserir reserva no banco de dados
       const insertQuery = `
         INSERT INTO restaurant_reservations (
@@ -1711,6 +1835,48 @@ module.exports = (pool) => {
 
       if (!denyIfCannotReadEstablishment(req, res, existingReservation.establishment_id)) {
         return;
+      }
+
+      // Bloqueio de capacidade por área (Camarote / Área VIP / Rooftop) ao confirmar
+      if (
+        status !== undefined &&
+        isConfirmingStatus(status) &&
+        !isConfirmingStatus(existingReservation.status)
+      ) {
+        try {
+          const areaCapacity = await checkAreaCapacity(pool, {
+            reservationId: Number(id),
+            areaId: area_id !== undefined ? Number(area_id) : undefined,
+            reservationDate:
+              reservation_date !== undefined
+                ? String(reservation_date).slice(0, 10)
+                : undefined,
+            requestedPeople:
+              number_of_people !== undefined
+                ? Number(number_of_people)
+                : undefined,
+            areaDisplayName:
+              area_display_name !== undefined ? area_display_name : undefined,
+            tableNumber: table_number !== undefined ? table_number : undefined,
+            excludeReservationId: Number(id),
+          });
+          if (areaCapacity.applies && !areaCapacity.fits) {
+            const areaLabel = areaCapacity.area_name || 'área restrita';
+            return res.status(409).json({
+              success: false,
+              error: `Capacidade insuficiente em ${areaLabel}: ${areaCapacity.reserved_people} já reservados + ${areaCapacity.requested_people} desta reserva excedem a capacidade de ${areaCapacity.capacity}.`,
+              capacity: areaCapacity,
+            });
+          }
+        } catch (capErr) {
+          console.error('⚠️ Erro ao verificar capacidade por área (PUT):', capErr);
+          if (capErr.statusCode && capErr.statusCode !== 500) {
+            return res.status(capErr.statusCode).json({
+              success: false,
+              error: capErr.message,
+            });
+          }
+        }
       }
 
       const reservationBeforeAudit = auditReservationSnapshot(existingReservation);

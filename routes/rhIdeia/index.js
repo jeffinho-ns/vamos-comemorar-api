@@ -28,6 +28,8 @@ module.exports = (pool) => {
   router.use(require('./playbook')(pool));
   router.use(require('./playbookOps')(pool));
   router.use(require('./playbookScore')(pool));
+  router.use(require('./playbookAttention')(pool));
+  router.use(require('./playbookShift')(pool));
 
   return router;
 };
