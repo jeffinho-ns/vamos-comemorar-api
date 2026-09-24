@@ -5,6 +5,7 @@ const { applyCommonMiddleware, writeAudit } = require('./middleware');
 const { EVAL_CRITERIA, isLeaderRole } = require('../../services/rhIdeia/playbookRoles');
 const { canSeeTeamMember } = require('../../services/rhIdeia/playbookAccess');
 const { POINTS, awardOnce } = require('../../services/rhIdeia/playbookPoints');
+const { awardOperationalMonth } = require('../../services/rhIdeia/opsWeek');
 const repo = require('../../services/rhIdeia/playbookRepository');
 
 function fail(res, status, message) {
@@ -207,6 +208,26 @@ module.exports = (pool) => {
     const range = monthRange(yearMonth);
     const establishmentId = Number(req.body?.establishment_id);
     if (!range || !establishmentId) return fail(res, 400, 'Informe o mês e a unidade.');
+
+    let operacao = { aberturas: 0, fechamentos: 0, pontos_novos: 0 };
+    try {
+      operacao = await awardOperationalMonth(pool, {
+        organizationId: ctx.organizationId,
+        establishmentId,
+        start: range.start,
+        end: range.end,
+        createdBy: ctx.userId,
+      });
+    } catch (err) {
+      if (err.code !== '42P01') {
+        console.error(
+          `[iri] rewards close organization_id=${ctx.organizationId} establishment_id=${establishmentId}:`,
+          err.message
+        );
+        return fail(res, 500, 'Falha ao lançar os pontos de abertura e fechamento.');
+      }
+    }
+
     const ranking = await pool.query(
       `SELECT l.user_id, u.name AS user_name, p.role_key, COALESCE(SUM(l.points), 0)::int AS points
          FROM iri_point_ledger l
@@ -236,7 +257,7 @@ module.exports = (pool) => {
         yearMonth,
         ctx.userId,
         req.body?.note || null,
-        JSON.stringify(ranking.rows),
+        JSON.stringify({ ranking: ranking.rows, operacao }),
       ]
     );
     return res.json({ success: true, data: saved.rows[0] });
