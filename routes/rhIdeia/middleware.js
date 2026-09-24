@@ -22,7 +22,6 @@ const ALLOWED_ROLES = [
 ];
 
 const SUPER_ROLES = ['admin', 'administrador'];
-const GESTOR_ROLES = [...SUPER_ROLES, 'gerente', 'subgerente'];
 
 const DENIED = { access: false, manage: false, validate: false };
 
@@ -66,13 +65,13 @@ async function resolveRhIdeiaPermissions(pool, user, organizationId) {
   const row = rows[0];
   if (!row) return DENIED;
 
-  const isGestor = GESTOR_ROLES.includes(role);
-  const manage = Boolean(row.can_manage_rh_ideia) || isGestor;
+  const isFloorLeader = role === 'gerente' || role === 'subgerente';
+  const manage = Boolean(row.can_manage_rh_ideia) && !isFloorLeader;
 
   return {
-    access: manage || Boolean(row.can_access_rh_ideia),
+    access: manage || isFloorLeader || Boolean(row.can_access_rh_ideia) || Boolean(row.can_validate_rh_ideia),
     manage,
-    validate: manage || Boolean(row.can_validate_rh_ideia),
+    validate: manage || isFloorLeader || Boolean(row.can_validate_rh_ideia),
   };
 }
 

@@ -148,7 +148,10 @@ async function main() {
       role: 'gerente',
       organization_id: 1,
     });
-    check('gerente com UEP vazia mas papel gestor administra', nextCalled === true && req.iriCanManage === true);
+    check(
+      'gerente entra para avaliar a equipe, sem gestão do RH',
+      nextCalled === true && req.iriCanManage === false && req.iriCanValidate === true,
+    );
   }
   {
     const uep = { can_access_rh_ideia: false, can_manage_rh_ideia: true, can_validate_rh_ideia: false };

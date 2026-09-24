@@ -25,6 +25,9 @@ module.exports = (pool) => {
   router.use(require('./trainings')(pool));
   router.use(require('./establishments')(pool));
   router.use(require('./upload')(pool));
+  router.use(require('./playbook')(pool));
+  router.use(require('./playbookOps')(pool));
+  router.use(require('./playbookScore')(pool));
 
   return router;
 };
