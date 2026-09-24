@@ -44,6 +44,8 @@ function rankSales(sales) {
       waiter_name: row.waiter_name,
       waiter_code: row.waiter_code || null,
       amount: money(row.amount),
+      service_fee: money(row.service_fee),
+      people_count: row.people_count == null || row.people_count === '' ? null : Number(row.people_count),
     }))
     .sort((a, b) => b.amount - a.amount || a.waiter_name.localeCompare(b.waiter_name))
     .map((row, index) => ({ ...row, position: index + 1 }));

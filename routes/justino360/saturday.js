@@ -20,6 +20,42 @@ function moneyOrNull(value) {
   return Math.round(number * 100) / 100;
 }
 
+function intOrNull(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) return null;
+  return number;
+}
+
+function cleanSales(rows) {
+  if (!Array.isArray(rows)) return { error: 'Informe as vendas.' };
+  const clean = [];
+  for (const row of rows) {
+    const name = String(row?.waiter_name || '').trim();
+    if (!name) continue;
+    const amount = moneyOrNull(row.amount);
+    if (amount == null) return { error: `Informe a venda de ${name}.` };
+    const fee = row.service_fee == null || row.service_fee === '' ? 0 : moneyOrNull(row.service_fee);
+    if (fee == null) return { error: `Taxa inválida de ${name}.` };
+    const people = intOrNull(row.people_count);
+    if (row.people_count != null && row.people_count !== '' && people == null) {
+      return { error: `Pessoas inválidas de ${name}.` };
+    }
+    clean.push({
+      name: name.slice(0, 160),
+      code: String(row.waiter_code || '').trim().slice(0, 40) || null,
+      amount,
+      fee,
+      people,
+    });
+  }
+  return { clean };
+}
+
+function missingTable(err) {
+  return err.code === '42P01' || err.code === '42703';
+}
+
 async function loadDay(pool, establishmentId, serviceDate) {
   const day = await pool.query(
     `SELECT * FROM j360_saturday_days
@@ -28,7 +64,7 @@ async function loadDay(pool, establishmentId, serviceDate) {
   );
   if (!day.rows[0]) return null;
   const sales = await pool.query(
-    `SELECT id, waiter_name, waiter_code, amount
+    `SELECT id, waiter_name, waiter_code, amount, service_fee, people_count
        FROM j360_saturday_sales
       WHERE day_id = $1
       ORDER BY amount DESC, waiter_name`,
@@ -74,7 +110,7 @@ module.exports = (pool) => {
   router.get('/saturday/ranking', async (req, res) => {
     try {
       const rows = await pool.query(
-        `SELECT d.service_date, s.waiter_name, s.waiter_code, s.amount
+        `SELECT d.service_date, s.waiter_name, s.waiter_code, s.amount, s.service_fee, s.people_count
            FROM j360_saturday_sales s
            JOIN j360_saturday_days d ON d.id = s.day_id
           WHERE d.establishment_id = $1
@@ -107,7 +143,7 @@ module.exports = (pool) => {
       if (!day) return fail(res, 404, 'Sábado ainda não lançado.');
       return res.json({ success: true, data: day, message: null });
     } catch (err) {
-      if (err.code === '42P01') return fail(res, 503, 'Rode a migration da meta de sábado.');
+      if (missingTable(err)) return fail(res, 503, 'Rode a migration da meta de sábado.');
       console.error('[justino360] saturday day:', err.message);
       return fail(res, 500, 'Falha ao abrir o sábado.');
     }
@@ -116,15 +152,21 @@ module.exports = (pool) => {
   router.put('/saturday/:date', requireManage, async (req, res) => {
     const serviceDate = dateOnly(req.params.date);
     if (!serviceDate) return fail(res, 400, 'Data inválida.');
-    const peopleExpected = req.body?.people_expected == null ? null : Number(req.body.people_expected);
-    const peopleReal = req.body?.people_real == null ? null : Number(req.body.people_real);
-    const waiters = req.body?.waiters_scheduled == null ? null : Number(req.body.waiters_scheduled);
+    const reservations = intOrNull(req.body?.reservations_confirmed);
+    const walkin = intOrNull(req.body?.walkin_expected);
+    const peopleFromPlan = reservations != null || walkin != null ? (reservations || 0) + (walkin || 0) : null;
+    const peopleExpected = intOrNull(req.body?.people_expected) ?? peopleFromPlan;
+    const peopleReal = intOrNull(req.body?.people_real);
+    const waiters = intOrNull(req.body?.waiters_scheduled);
+    const ticket = moneyOrNull(req.body?.ticket_expected);
+    const goal = moneyOrNull(req.body?.revenue_goal)
+      ?? (peopleExpected != null && ticket != null ? Math.round(peopleExpected * ticket * 100) / 100 : null);
     try {
       const saved = await pool.query(
         `INSERT INTO j360_saturday_days (
            establishment_id, service_date, people_expected, ticket_expected, revenue_goal,
-           people_real, revenue_real, waiters_scheduled, created_by
-         ) VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
+           people_real, revenue_real, waiters_scheduled, reservations_confirmed, walkin_expected, created_by
+         ) VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (establishment_id, service_date)
          DO UPDATE SET
            people_expected = EXCLUDED.people_expected,
@@ -133,24 +175,28 @@ module.exports = (pool) => {
            people_real = EXCLUDED.people_real,
            revenue_real = EXCLUDED.revenue_real,
            waiters_scheduled = EXCLUDED.waiters_scheduled,
+           reservations_confirmed = EXCLUDED.reservations_confirmed,
+           walkin_expected = EXCLUDED.walkin_expected,
            updated_at = NOW()
          RETURNING id`,
         [
           req.j360EstablishmentId,
           serviceDate,
-          Number.isFinite(peopleExpected) ? peopleExpected : null,
-          moneyOrNull(req.body?.ticket_expected),
-          moneyOrNull(req.body?.revenue_goal),
-          Number.isFinite(peopleReal) ? peopleReal : null,
+          peopleExpected,
+          ticket,
+          goal,
+          peopleReal,
           moneyOrNull(req.body?.revenue_real),
-          Number.isFinite(waiters) ? waiters : null,
+          waiters,
+          reservations,
+          walkin,
           req.user?.id || null,
         ]
       );
       const day = await loadDay(pool, req.j360EstablishmentId, serviceDate);
       return res.json({ success: true, data: day || saved.rows[0], message: null });
     } catch (err) {
-      if (err.code === '42P01') return fail(res, 503, 'Rode a migration da meta de sábado.');
+      if (missingTable(err)) return fail(res, 503, 'Rode a migration da meta de sábado.');
       console.error('[justino360] saturday save:', err.message);
       return fail(res, 500, 'Falha ao salvar o sábado.');
     }
@@ -174,10 +220,19 @@ module.exports = (pool) => {
         `SELECT id FROM j360_saturday_days WHERE establishment_id = $1 AND service_date = $2::date`,
         [req.j360EstablishmentId, serviceDate]
       );
+      const fee = req.body?.service_fee == null || req.body?.service_fee === '' ? 0 : moneyOrNull(req.body.service_fee);
+      const people = intOrNull(req.body?.people_count);
       await pool.query(
-        `INSERT INTO j360_saturday_sales (day_id, waiter_name, waiter_code, amount)
-         VALUES ($1, $2, $3, $4)`,
-        [day.rows[0].id, name.slice(0, 160), String(req.body?.waiter_code || '').trim().slice(0, 40) || null, amount]
+        `INSERT INTO j360_saturday_sales (day_id, waiter_name, waiter_code, amount, service_fee, people_count)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          day.rows[0].id,
+          name.slice(0, 160),
+          String(req.body?.waiter_code || '').trim().slice(0, 40) || null,
+          amount,
+          fee == null ? 0 : fee,
+          people,
+        ]
       );
       return res.json({
         success: true,
@@ -185,9 +240,51 @@ module.exports = (pool) => {
         message: null,
       });
     } catch (err) {
-      if (err.code === '42P01') return fail(res, 503, 'Rode a migration da meta de sábado.');
+      if (missingTable(err)) return fail(res, 503, 'Rode a migration da meta de sábado.');
       console.error('[justino360] saturday sale:', err.message);
       return fail(res, 500, 'Falha ao lançar a venda.');
+    }
+  });
+
+  router.put('/saturday/:date/sales', requireManage, async (req, res) => {
+    const serviceDate = dateOnly(req.params.date);
+    if (!serviceDate) return fail(res, 400, 'Data inválida.');
+    const parsed = cleanSales(req.body?.sales);
+    if (parsed.error) return fail(res, 400, parsed.error);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO j360_saturday_days (establishment_id, service_date, created_by)
+         VALUES ($1, $2::date, $3)
+         ON CONFLICT (establishment_id, service_date) DO NOTHING`,
+        [req.j360EstablishmentId, serviceDate, req.user?.id || null]
+      );
+      const day = await client.query(
+        `SELECT id FROM j360_saturday_days WHERE establishment_id = $1 AND service_date = $2::date`,
+        [req.j360EstablishmentId, serviceDate]
+      );
+      await client.query('DELETE FROM j360_saturday_sales WHERE day_id = $1', [day.rows[0].id]);
+      for (const sale of parsed.clean) {
+        await client.query(
+          `INSERT INTO j360_saturday_sales (day_id, waiter_name, waiter_code, amount, service_fee, people_count)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [day.rows[0].id, sale.name, sale.code, sale.amount, sale.fee, sale.people]
+        );
+      }
+      await client.query('COMMIT');
+      return res.json({
+        success: true,
+        data: await loadDay(pool, req.j360EstablishmentId, serviceDate),
+        message: null,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      if (missingTable(err)) return fail(res, 503, 'Rode a migration da meta de sábado.');
+      console.error('[justino360] saturday sales sheet:', err.message);
+      return fail(res, 500, 'Falha ao salvar as vendas.');
+    } finally {
+      client.release();
     }
   });
 
