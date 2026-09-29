@@ -22,7 +22,11 @@ const {
     applySchedulesToMenuItems,
 } = require('../services/menuPauseScheduleService');
 const { resolveOrganizationIdForBar } = require('../services/menuOrganizationRepair');
-const { findSubcategoryRef, renameSubcategory } = require('../services/menuSubcategoryService');
+const {
+    findSubcategoryRef,
+    renameSubcategory,
+    buildSubcategoryPlaceholderInsert,
+} = require('../services/menuSubcategoryService');
 
 module.exports = (pool) => {
     router.use(optionalAuth);
@@ -1708,8 +1712,9 @@ module.exports = (pool) => {
     // Criar nova subcategoria (atualizando itens existentes ou criando novos)
     router.post('/subcategories', authenticateToken, async (req, res) => {
         const { name, categoryId, barId, order } = req.body;
+        const trimmedName = String(name || '').trim();
         
-        if (!name || !categoryId || !barId) {
+        if (!trimmedName || !categoryId || !barId) {
             return res.status(400).json({ error: 'Nome, categoryId e barId são obrigatórios.' });
         }
 
@@ -1728,41 +1733,95 @@ module.exports = (pool) => {
                 return res.status(404).json({ error: 'Bar não encontrado.' });
             }
 
-            // Verificar se já existe uma subcategoria com o mesmo nome na mesma categoria
-            const existingResult = await pool.query(
-                'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3',
-                [name, categoryId, barId]
+            const organizationId = await resolveOrganizationIdForBar(
+                pool,
+                barId,
+                req.tenant?.primaryOrganizationId,
             );
-            
-            if (parseInt(existingResult.rows[0].count) > 0) {
-                return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
-            }
 
-            // Verificar se o campo seals existe
             let hasSealsField = false;
+            let hasVisibleField = false;
             try {
                 const columnsResult = await pool.query(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'seals'"
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible')"
                 );
-                hasSealsField = columnsResult.rows.length > 0;
+                const columns = columnsResult.rows.map((row) => row.column_name);
+                hasSealsField = columns.includes('seals');
+                hasVisibleField = columns.includes('visible');
             } catch (e) {
-                console.log('Campo seals não encontrado, ignorando selos');
+                console.log('Campo seals/visible não encontrado, seguindo sem eles');
             }
 
-            // Criar um item vazio com a nova subcategoria para "reservar" o nome
-            const query = hasSealsField ? 
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order", seals) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id' :
-                'INSERT INTO menu_items (name, description, price, imageUrl, categoryId, barId, subCategory, "order") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id';
-            
-            const values = hasSealsField ? 
-                [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0, null] :
-                [`[Nova Subcategoria] ${name}`, 'Item temporário para reservar subcategoria', 0.00, null, categoryId, barId, name, order || 0];
+            // Transação própria: pool.query aplicaria o org do usuário e o INSERT
+            // sem organization_id viola o RLS (new row violates row-level security policy).
+            const client = await pool.connect();
+            let result;
+            try {
+                await client.query('BEGIN');
+                if (organizationId != null) {
+                    await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+                        String(organizationId),
+                    ]);
+                } else if (req.tenant?.isAdmin) {
+                    await client.query(`SELECT set_config('app.bypass_rls', 'on', true)`);
+                }
 
-            const result = await pool.query(query, values);
+                const existingResult = await client.query(
+                    'SELECT COUNT(*) as count FROM menu_items WHERE subCategory = $1 AND categoryId = $2 AND barId = $3',
+                    [trimmedName, categoryId, barId]
+                );
+
+                if (parseInt(existingResult.rows[0].count, 10) > 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({ error: 'Já existe uma subcategoria com este nome nesta categoria.' });
+                }
+
+                const insert = buildSubcategoryPlaceholderInsert({
+                    name: trimmedName,
+                    categoryId,
+                    barId,
+                    order,
+                    organizationId,
+                    hasSeals: hasSealsField,
+                    hidden: hasVisibleField,
+                });
+
+                await client.query('SAVEPOINT subcat_insert');
+                try {
+                    result = await client.query(insert.sql, insert.params);
+                } catch (insertErr) {
+                    await client.query('ROLLBACK TO SAVEPOINT subcat_insert');
+                    const missingOrgColumn = insertErr && insertErr.code === '42703'
+                        && /organization_id/i.test(String(insertErr.message || ''));
+                    if (!missingOrgColumn) throw insertErr;
+                    const fallback = buildSubcategoryPlaceholderInsert({
+                        name: trimmedName,
+                        categoryId,
+                        barId,
+                        order,
+                        organizationId: null,
+                        hasSeals: hasSealsField,
+                        hidden: hasVisibleField,
+                    });
+                    result = await client.query(fallback.sql, fallback.params);
+                }
+                await client.query('RELEASE SAVEPOINT subcat_insert');
+
+                if (!result || !result.rows[0] || result.rows[0].id == null) {
+                    throw new Error('Insert de subcategoria não devolveu id');
+                }
+
+                await client.query('COMMIT');
+            } catch (insertError) {
+                await client.query('ROLLBACK').catch(() => {});
+                throw insertError;
+            } finally {
+                client.release();
+            }
 
             const newSubCategory = {
                 id: result.rows[0].id,
-                name,
+                name: trimmedName,
                 categoryId,
                 barId,
                 order: order || 0,

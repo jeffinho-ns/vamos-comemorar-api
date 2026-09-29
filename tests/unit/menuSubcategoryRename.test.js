@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const {
     findSubcategoryRef,
     renameSubcategory,
+    buildSubcategoryPlaceholderInsert,
 } = require('../../services/menuSubcategoryService');
 
 /**
@@ -132,6 +133,63 @@ test('order fornecida atualiza subcategory_order de todos os itens', async () =>
     );
     assert.ok(orderUpdate, 'deve atualizar subcategory_order');
     assert.deepStrictEqual(orderUpdate.params, [2, 'Chá', '9', '1']);
+});
+
+test('criar subcategoria grava organization_id para passar no RLS', () => {
+    const { sql, params } = buildSubcategoryPlaceholderInsert({
+        name: '  Água de coco  ',
+        categoryId: 12,
+        barId: 4,
+        order: 2,
+        organizationId: 7,
+        hasSeals: true,
+    });
+
+    assert.match(sql, /INSERT INTO menu_items/);
+    assert.match(sql, /organization_id/);
+    assert.strictEqual(params[6], 'Água de coco');
+    assert.strictEqual(params[params.length - 1], 7);
+    assert.ok(!params.includes(undefined));
+    assert.strictEqual((sql.match(/\$/g) || []).length, params.length);
+});
+
+test('criar subcategoria oculta o item provisório quando a coluna visible existe', () => {
+    const { sql, params } = buildSubcategoryPlaceholderInsert({
+        name: 'Drinks',
+        categoryId: 3,
+        barId: 8,
+        order: 1,
+        organizationId: 2,
+        hasSeals: true,
+        hidden: true,
+    });
+
+    assert.match(sql, /visible/);
+    assert.strictEqual(params[params.length - 2], false);
+    assert.strictEqual(params[params.length - 1], 2);
+});
+
+test('criar subcategoria sem organização não envia organization_id', () => {
+    const { sql, params } = buildSubcategoryPlaceholderInsert({
+        name: 'Suco',
+        categoryId: 12,
+        barId: 4,
+        order: 0,
+        organizationId: null,
+        hasSeals: false,
+    });
+
+    assert.doesNotMatch(sql, /organization_id/);
+    assert.deepStrictEqual(params, [
+        '[Nova Subcategoria] Suco',
+        'Item temporário para reservar subcategoria',
+        0,
+        null,
+        12,
+        4,
+        'Suco',
+        0,
+    ]);
 });
 
 test('base sem coluna subcategory_order não quebra o rename', async () => {

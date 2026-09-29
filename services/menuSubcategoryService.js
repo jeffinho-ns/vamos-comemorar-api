@@ -92,4 +92,70 @@ async function renameSubcategory(db, ref, { newName, order } = {}) {
     };
 }
 
-module.exports = { findSubcategoryRef, renameSubcategory };
+/**
+ * INSERT do item que reserva o nome da subcategoria.
+ * menu_items está sob RLS: sem organization_id o WITH CHECK recusa a linha
+ * quando app.current_org está definido (o erro visto no admin ao criar subcategoria).
+ * O caller precisa setar app.current_org com o mesmo id, na mesma transação.
+ */
+function buildSubcategoryPlaceholderInsert({
+    name,
+    categoryId,
+    barId,
+    order,
+    organizationId = null,
+    hasSeals = false,
+    hidden = false,
+}) {
+    const trimmed = String(name || '').trim();
+    const orderValue = Number.isFinite(Number(order)) ? parseInt(String(order), 10) : 0;
+    const orgId = Number(organizationId);
+    const includeOrg = Number.isFinite(orgId) && orgId > 0;
+
+    const columns = [
+        'name',
+        'description',
+        'price',
+        'imageUrl',
+        'categoryId',
+        'barId',
+        'subCategory',
+        '"order"',
+    ];
+    const params = [
+        `[Nova Subcategoria] ${trimmed}`,
+        'Item temporário para reservar subcategoria',
+        0,
+        null,
+        categoryId,
+        barId,
+        trimmed,
+        orderValue,
+    ];
+
+    if (hasSeals) {
+        columns.push('seals');
+        params.push(null);
+    }
+    // Item só reserva o nome. Oculto para não aparecer como prato no cardápio público.
+    if (hidden) {
+        columns.push('visible');
+        params.push(false);
+    }
+    if (includeOrg) {
+        columns.push('organization_id');
+        params.push(orgId);
+    }
+
+    const placeholders = params.map((_, index) => `$${index + 1}`).join(', ');
+    return {
+        sql: `INSERT INTO menu_items (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+        params,
+    };
+}
+
+module.exports = {
+    findSubcategoryRef,
+    renameSubcategory,
+    buildSubcategoryPlaceholderInsert,
+};
