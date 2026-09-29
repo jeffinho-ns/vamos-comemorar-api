@@ -5,6 +5,7 @@ const {
     findSubcategoryRef,
     renameSubcategory,
     buildSubcategoryPlaceholderInsert,
+    isSubcategoryPlaceholderName,
 } = require('../../services/menuSubcategoryService');
 
 /**
@@ -167,6 +168,15 @@ test('criar subcategoria oculta o item provisório quando a coluna visible exist
     assert.match(sql, /visible/);
     assert.strictEqual(params[params.length - 2], false);
     assert.strictEqual(params[params.length - 1], 2);
+});
+
+test('item provisório de subcategoria não é produto do cardápio', () => {
+    assert.strictEqual(
+        isSubcategoryPlaceholderName('[Nova Subcategoria] REFRIGERANTES'),
+        true,
+    );
+    assert.strictEqual(isSubcategoryPlaceholderName('  [nova subcategoria] suco'), true);
+    assert.strictEqual(isSubcategoryPlaceholderName('Coca-cola KS 290ml'), false);
 });
 
 test('criar subcategoria sem organização não envia organization_id', () => {

@@ -26,6 +26,7 @@ const {
     findSubcategoryRef,
     renameSubcategory,
     buildSubcategoryPlaceholderInsert,
+    isSubcategoryPlaceholderName,
 } = require('../services/menuSubcategoryService');
 
 module.exports = (pool) => {
@@ -2342,8 +2343,9 @@ module.exports = (pool) => {
             } catch (scheduleError) {
                 console.warn('⚠️ Pausas agendadas indisponíveis:', scheduleError.message);
             }
-            const itemsWithSchedule = applySchedulesToMenuItems(itemsWithToppings, schedules);
-            
+            const itemsWithSchedule = applySchedulesToMenuItems(itemsWithToppings, schedules)
+                .filter((item) => !isSubcategoryPlaceholderName(item.name));
+
             res.json(itemsWithSchedule);
         } catch (error) {
             console.error('Erro ao listar itens:', error);

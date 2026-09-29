@@ -154,8 +154,16 @@ function buildSubcategoryPlaceholderInsert({
     };
 }
 
+const PLACEHOLDER_NAME_PREFIX = '[nova subcategoria]';
+
+/** Item criado só para reservar o nome da subcategoria. Não é produto do cardápio. */
+function isSubcategoryPlaceholderName(name) {
+    return String(name || '').trim().toLowerCase().startsWith(PLACEHOLDER_NAME_PREFIX);
+}
+
 module.exports = {
     findSubcategoryRef,
     renameSubcategory,
     buildSubcategoryPlaceholderInsert,
+    isSubcategoryPlaceholderName,
 };
