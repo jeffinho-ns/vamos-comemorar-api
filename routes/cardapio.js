@@ -1078,7 +1078,11 @@ module.exports = (pool) => {
                 ]
             );
             
-            const newBar = { id: result.rows[0].id, ...req.body };
+            const newBarId = result.rows[0].id;
+            if (Object.prototype.hasOwnProperty.call(req.body, 'ad_images')) {
+                await persistBarAdImages(newBarId, req.body.ad_images);
+            }
+            const newBar = { id: newBarId, ...req.body };
             res.status(201).json(newBar);
         } catch (error) {
             console.error('Erro ao criar estabelecimento:', error);
@@ -1168,7 +1172,84 @@ module.exports = (pool) => {
             normalized.coverImages = resolved.filter(Boolean);
         }
 
+        if (Array.isArray(normalized.ad_images) && normalized.ad_images.length > 0) {
+            const resolvedAds = await Promise.all(
+                normalized.ad_images.map((url) => resolveImageFieldForClient(apiBaseUrl, url))
+            );
+            normalized.ad_images = resolvedAds.filter(Boolean);
+        }
+
         return normalized;
+    }
+
+    const MAX_AD_IMAGES = 10;
+
+    function serializeAdImages(raw) {
+        let list = [];
+        if (Array.isArray(raw)) {
+            list = raw;
+        } else if (typeof raw === 'string' && raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                list = Array.isArray(parsed) ? parsed : [];
+            } catch (_error) {
+                list = [];
+            }
+        }
+        return JSON.stringify(
+            list
+                .map((item) => (typeof item === 'string' ? item.trim() : ''))
+                .filter(Boolean)
+                .slice(0, MAX_AD_IMAGES),
+        );
+    }
+
+    async function persistBarAdImages(barId, raw) {
+        const json = serializeAdImages(raw);
+        const writeBars = () => pool.query(
+            'UPDATE bars SET ad_images = $1::jsonb WHERE id = $2',
+            [json, barId],
+        );
+        try {
+            await writeBars();
+        } catch (err) {
+            if (!err || err.code !== '42703') {
+                console.warn('[cardapio] ad_images não persistido:', err && err.message);
+                return;
+            }
+            try {
+                await pool.query(
+                    `ALTER TABLE bars ADD COLUMN IF NOT EXISTS ad_images JSONB NOT NULL DEFAULT '[]'::jsonb`,
+                );
+                await writeBars();
+            } catch (alterErr) {
+                console.warn('[cardapio] coluna bars.ad_images ausente:', alterErr && alterErr.message);
+                return;
+            }
+        }
+        try {
+            await pool.query(
+                'UPDATE establishments SET ad_images = $1::jsonb WHERE legacy_bar_id = $2',
+                [json, barId],
+            );
+        } catch (err) {
+            if (!err || err.code === '42P01') return;
+            if (err.code === '42703') {
+                try {
+                    await pool.query(
+                        `ALTER TABLE establishments ADD COLUMN IF NOT EXISTS ad_images JSONB NOT NULL DEFAULT '[]'::jsonb`,
+                    );
+                    await pool.query(
+                        'UPDATE establishments SET ad_images = $1::jsonb WHERE legacy_bar_id = $2',
+                        [json, barId],
+                    );
+                } catch (alterErr) {
+                    console.warn('[cardapio] establishments.ad_images não atualizado:', alterErr && alterErr.message);
+                }
+                return;
+            }
+            console.warn('[cardapio] establishments.ad_images não atualizado:', err.message);
+        }
     }
 
     // Função helper para normalizar campos do bar para camelCase
@@ -1232,6 +1313,21 @@ module.exports = (pool) => {
             }
         } else {
             normalized.partner_logos = [];
+        }
+
+        const adImagesRaw = bar.ad_images !== undefined ? bar.ad_images : bar.adImages;
+        if (adImagesRaw !== undefined && adImagesRaw !== null && adImagesRaw !== '') {
+            try {
+                normalized.ad_images =
+                    typeof adImagesRaw === 'string' ? JSON.parse(adImagesRaw) : adImagesRaw;
+                if (!Array.isArray(normalized.ad_images)) {
+                    normalized.ad_images = [];
+                }
+            } catch (_error) {
+                normalized.ad_images = [];
+            }
+        } else {
+            normalized.ad_images = [];
         }
         
         // Remover campos duplicados em minúsculas
@@ -1402,6 +1498,10 @@ module.exports = (pool) => {
                 } else {
                     throw updateErr;
                 }
+            }
+
+            if (Object.prototype.hasOwnProperty.call(req.body, 'ad_images')) {
+                await persistBarAdImages(id, req.body.ad_images);
             }
             
             res.json({ message: 'Estabelecimento atualizado com sucesso.' });
