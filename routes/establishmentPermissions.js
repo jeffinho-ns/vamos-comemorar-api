@@ -27,10 +27,38 @@ function isHighlineOrSeuJustinoGroupName(name) {
 
 const REGIANE_RESTRICTED_EMAIL = 'regianebrunno@gmail.com';
 
+const {
+  isCoordinatorEmail,
+  loadCoordinatorPlaces,
+} = require('../tenancy/coordinatorEstablishments');
+
 function filterEstablishmentPermissionsByEmail(email, rows) {
   const e = String(email || '').trim().toLowerCase();
   if (e !== REGIANE_RESTRICTED_EMAIL) return rows;
   return rows.filter((r) => isHighlineOrSeuJustinoGroupName(r.establishment_name));
+}
+
+async function ensureCoordinatorPermissions(pool, userId, email, rows) {
+  if (!isCoordinatorEmail(email)) return rows;
+  const places = await loadCoordinatorPlaces(pool);
+  const present = new Set(rows.map((row) => Number(row.establishment_id)));
+  const missing = places
+    .filter((place) => !present.has(place.id))
+    .map((place) => ({
+      user_id: userId,
+      user_email: email,
+      establishment_id: place.id,
+      establishment_name: place.name,
+      is_active: true,
+      can_manage_reservations: true,
+      can_create_edit_reservations: true,
+      can_manage_checkins: true,
+      can_view_reports: true,
+      can_view_os: true,
+      can_download_os: true,
+      can_view_operational_detail: true,
+    }));
+  return [...rows, ...missing];
 }
 
 module.exports = (pool) => {
@@ -135,7 +163,12 @@ module.exports = (pool) => {
       `;
 
       const result = await pool.query(query, [userId]);
-      const rows = filterEstablishmentPermissionsByEmail(userEmail, result.rows);
+      const rows = await ensureCoordinatorPermissions(
+        pool,
+        userId,
+        userEmail,
+        filterEstablishmentPermissionsByEmail(userEmail, result.rows),
+      );
 
       res.json({
         success: true,

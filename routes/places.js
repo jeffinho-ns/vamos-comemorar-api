@@ -120,6 +120,71 @@ router.post('/',upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', 
 );
 
 
+    // Atualização JSON do cadastro (endereço da empresa → places, establishments e bars).
+router.patch('/:id', authenticateToken, async (req, res) => {
+    const placeId = Number(req.params.id);
+    if (!Number.isFinite(placeId) || placeId <= 0) {
+        return res.status(400).json({ error: 'Estabelecimento inválido.' });
+    }
+
+    const actor = await resolveActorScope(pool, req.user);
+    if (!canAccessOperationalEstablishment(actor, placeId)) {
+        return res.status(404).json({ error: 'Lugar não encontrado' });
+    }
+
+    const { formatVenueAddress } = require('../services/venueAddress');
+    const fields = formatVenueAddress(req.body);
+    if (!fields.street && !fields.name && !fields.email) {
+        return res.status(400).json({ error: 'Informe o endereço ou o nome do estabelecimento.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(
+            `UPDATE places
+                SET street = COALESCE(NULLIF($2, ''), street),
+                    number = COALESCE($3, number),
+                    email = COALESCE(NULLIF($4, ''), email),
+                    name = COALESCE(NULLIF($5, ''), name)
+              WHERE id = $1`,
+            [placeId, fields.street, fields.numberInt, fields.email, fields.name],
+        );
+        await client.query(
+            `UPDATE meu_backup_db.establishments
+                SET street = COALESCE(NULLIF($2, ''), street),
+                    number = COALESCE($3, number),
+                    address = COALESCE(NULLIF($4, ''), address),
+                    email = COALESCE(NULLIF($5, ''), email),
+                    name = COALESCE(NULLIF($6, ''), name)
+              WHERE legacy_place_id = $1`,
+            [placeId, fields.street, fields.numberInt, fields.formatted, fields.email, fields.name],
+        );
+        await client.query(
+            `UPDATE bars b
+                SET address = COALESCE(NULLIF($2, ''), b.address),
+                    name = COALESCE(NULLIF($3, ''), b.name)
+               FROM meu_backup_db.establishments e
+              WHERE e.legacy_place_id = $1
+                AND e.legacy_bar_id = b.id`,
+            [placeId, fields.formatted, fields.name],
+        );
+        await client.query('COMMIT');
+        return res.json({
+            success: true,
+            street: fields.street,
+            number: fields.number,
+            address: fields.formatted,
+        });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Erro ao atualizar endereço do place:', error);
+        return res.status(500).json({ error: 'Erro ao atualizar o estabelecimento.' });
+    } finally {
+        client.release();
+    }
+});
+
     //Rota para atualizar os dados do Places
   // Rota para atualizar os dados do Places
 router.put('/:id', authenticateToken, upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), 

@@ -10,6 +10,18 @@
  * NÃO é plugado em nenhuma rota ainda. É a base do `tenantMiddleware`.
  */
 
+const {
+  RESERVA_ROOFTOP_BAR_ID,
+  RESERVA_ROOFTOP_PLACE_ID,
+  RESERVA_PINHEIROS_BAR_ID,
+  RESERVA_PINHEIROS_PLACE_ID,
+} = require('../services/reservaEstablishmentIds');
+
+const {
+  isCoordinatorEmail,
+  loadCoordinatorPlaces,
+} = require('./coordinatorEstablishments');
+
 const isAdminRole = (user) => {
   const role = String(user && user.role ? user.role : '')
     .normalize('NFD')
@@ -17,6 +29,50 @@ const isAdminRole = (user) => {
     .toLowerCase();
   return role === 'admin' || role === 'administrador' || user?.is_super_admin === true;
 };
+
+function uniquePositiveIds(ids) {
+  return [
+    ...new Set(
+      (ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+}
+
+/** Place e bar da mesma casa Reserva (Rooftop 9/5, Pinheiros 21/18). */
+function sameVenueIds(id) {
+  const n = Number(id);
+  if (n === RESERVA_ROOFTOP_PLACE_ID || n === RESERVA_ROOFTOP_BAR_ID) {
+    return [RESERVA_ROOFTOP_PLACE_ID, RESERVA_ROOFTOP_BAR_ID];
+  }
+  if (n === RESERVA_PINHEIROS_PLACE_ID || n === RESERVA_PINHEIROS_BAR_ID) {
+    return [RESERVA_PINHEIROS_PLACE_ID, RESERVA_PINHEIROS_BAR_ID];
+  }
+  return [n];
+}
+
+/** Bar legado sem place ainda autoriza o place que o Sistema de Reservas envia. */
+function withSameVenuePlaces(ids) {
+  const out = new Set(uniquePositiveIds(ids));
+  if (out.has(RESERVA_ROOFTOP_BAR_ID)) out.add(RESERVA_ROOFTOP_PLACE_ID);
+  if (out.has(RESERVA_PINHEIROS_BAR_ID)) out.add(RESERVA_PINHEIROS_PLACE_ID);
+  return [...out];
+}
+
+async function finishScope(pool, scopedUser, organizationIds, establishmentIds) {
+  let ids = withSameVenuePlaces(establishmentIds);
+  const email = String(scopedUser && scopedUser.email ? scopedUser.email : '')
+    .trim()
+    .toLowerCase();
+  if (isCoordinatorEmail(email)) {
+    const places = await loadCoordinatorPlaces(pool);
+    ids = uniquePositiveIds([...ids, ...places.map((place) => place.id)]);
+  }
+  return {
+    isAdmin: false,
+    organizationIds: uniquePositiveIds(organizationIds),
+    establishmentIds: ids,
+  };
+}
 
 /**
  * memberships.establishment_id é CANÔNICO (establishments.id).
@@ -48,10 +104,24 @@ async function operationalIdsForOrganizations(pool, organizationIds) {
   ];
 }
 
+async function loadActiveUepIds(pool, userId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT establishment_id
+         FROM user_establishment_permissions
+        WHERE user_id = $1 AND is_active = TRUE`,
+      [userId],
+    );
+    return uniquePositiveIds(rows.map((r) => r.establishment_id));
+  } catch (_) {
+    return [];
+  }
+}
+
 /**
- * Carrega o escopo do usuário usando as tabelas NOVAS (memberships) quando
- * existirem, com fallback para a tabela legada user_establishment_permissions.
- * Tolerante a schema incompleto (staging): qualquer erro => escopo vazio.
+ * Carrega o escopo do usuário. Memberships e user_establishment_permissions
+ * ativos são unidos: um vínculo SaaS incompleto não apaga a permissão legada
+ * que o painel ainda mostra. Tolerante a schema incompleto (staging).
  *
  * establishmentIds retornados são sempre OPERACIONAIS (place/bar), compatíveis com
  * restaurant_reservations.establishment_id e user_establishment_permissions.
@@ -65,6 +135,20 @@ async function loadUserScope(pool, user) {
   if (user.is_super_admin === true) {
     return { isAdmin: true, organizationIds: [], establishmentIds: [] };
   }
+
+  let email = String(user.email || '').trim().toLowerCase();
+  if (!email) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT email FROM users WHERE id = $1 LIMIT 1`,
+        [user.id],
+      );
+      email = String(rows[0]?.email || '').trim().toLowerCase();
+    } catch (_) {
+      email = '';
+    }
+  }
+  const scopedUser = email ? { ...user, email } : user;
 
   // 1) Tenta o modelo novo (memberships) — inclusive account_admin com users.role = admin
   try {
@@ -93,11 +177,11 @@ async function loadUserScope(pool, user) {
         establishmentIds.push(...orgIds);
       }
 
-      return {
-        isAdmin: false,
-        organizationIds,
-        establishmentIds: [...new Set(establishmentIds)],
-      };
+      const legacyIds = await loadActiveUepIds(pool, user.id);
+      return finishScope(pool, scopedUser, organizationIds, [
+        ...establishmentIds,
+        ...legacyIds,
+      ]);
     }
   } catch (_) {
     // tabela memberships ainda não existe — segue para o legado
@@ -136,7 +220,7 @@ async function loadUserScope(pool, user) {
   }
 
   if (organizationIds.length > 0 || establishmentIds.length > 0) {
-    return { isAdmin: false, organizationIds, establishmentIds };
+    return finishScope(pool, scopedUser, organizationIds, establishmentIds);
   }
 
   // 3) organization_id em users (account admins provisionados sem UEP)
@@ -148,11 +232,7 @@ async function loadUserScope(pool, user) {
     const orgId = Number(rows[0]?.organization_id);
     if (Number.isFinite(orgId) && orgId > 0) {
       const opIds = await operationalIdsForOrganizations(pool, [orgId]);
-      return {
-        isAdmin: false,
-        organizationIds: [orgId],
-        establishmentIds: opIds,
-      };
+      return finishScope(pool, scopedUser, [orgId], opIds);
     }
   } catch (_) {
     /* ignore */
@@ -160,8 +240,9 @@ async function loadUserScope(pool, user) {
 
   // 4) role=admin SEM membership/UEP/org NÃO é mais bypass global.
   // Só is_super_admin (tratado no início) vê todas as organizações.
-  // Fail-closed: sem vínculo de tenant → escopo vazio (não vê casas de ninguém).
-  return { isAdmin: false, organizationIds: [], establishmentIds: [] };
+  // Fail-closed: sem vínculo de tenant → escopo vazio (não vê casas de ninguém),
+  // salvo o acesso explícito da coordenadora de reservas ao Reserva Rooftop.
+  return finishScope(pool, scopedUser, [], []);
 }
 
 function canAccessEstablishment(scope, establishmentId) {
@@ -169,7 +250,8 @@ function canAccessEstablishment(scope, establishmentId) {
   if (scope.isAdmin) return true;
   const id = Number(establishmentId);
   if (!Number.isFinite(id) || id <= 0) return false;
-  return scope.establishmentIds.includes(id);
+  const ids = Array.isArray(scope.establishmentIds) ? scope.establishmentIds : [];
+  return sameVenueIds(id).some((alias) => ids.includes(alias));
 }
 
 module.exports = {
