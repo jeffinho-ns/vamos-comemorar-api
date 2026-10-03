@@ -54,6 +54,26 @@ module.exports = (pool) => {
         return false;
     }
 
+    function isFeaturedFlag(value) {
+        return value === true || value === 1 || value === '1' || value === 'true';
+    }
+
+    async function menuItemsHaveFeaturedColumn(db) {
+        const result = await db.query(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'featured' LIMIT 1",
+        );
+        return result.rows.length > 0;
+    }
+
+    async function saveMenuItemFeatured(client, itemId, featured) {
+        if (featured === undefined) return;
+        if (!(await menuItemsHaveFeaturedColumn(client))) return;
+        await client.query('UPDATE menu_items SET featured = $1 WHERE id = $2', [
+            isFeaturedFlag(featured),
+            itemId,
+        ]);
+    }
+
     function toJsonbParam(value, fallback = null) {
         if (value === undefined || value === null || value === '') return fallback;
         if (typeof value === 'string') {
@@ -2238,6 +2258,8 @@ module.exports = (pool) => {
                 }
             }
 
+            await saveMenuItemFeatured(client, itemId, req.body.featured);
+
             await client.query('COMMIT');
 
             if (req.user) {
@@ -2293,16 +2315,17 @@ module.exports = (pool) => {
             // Verificar quais campos existem na tabela
             let hasSealsField = false;
             let hasVisibleField = false;
-            
             let hasSubcategoryOrderField = false;
+            let hasFeaturedField = false;
             try {
                 const columnsResult = await pool.query(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible', 'subcategory_order')"
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible', 'subcategory_order', 'featured')"
                 );
                 const columns = columnsResult.rows.map(row => row.column_name);
                 hasSealsField = columns.includes('seals');
                 hasVisibleField = columns.includes('visible');
                 hasSubcategoryOrderField = columns.includes('subcategory_order');
+                hasFeaturedField = columns.includes('featured');
             } catch (e) {
                 console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
@@ -2320,6 +2343,9 @@ module.exports = (pool) => {
             }
             if (hasVisibleField) {
                 groupByFields.push('mi.visible');
+            }
+            if (hasFeaturedField) {
+                groupByFields.push('mi.featured');
             }
             
             const sealsSelect = hasSealsField ? 'mi.seals,' : '';
@@ -2372,6 +2398,7 @@ module.exports = (pool) => {
                     mi.subcategory as "subCategoryName",
                     ${sealsSelect}
                     ${visibleSelect}
+                    ${hasFeaturedField ? 'COALESCE(mi.featured, false) AS featured,' : 'false AS featured,'}
                     string_agg(
                         t.id::text || ':' || t.name || ':' || t.price::text, 
                         '|'
@@ -2433,7 +2460,8 @@ module.exports = (pool) => {
                     imageUrl, 
                     toppings, 
                     seals,
-                    isPriceOnRequest: isPriceOnRequest
+                    isPriceOnRequest: isPriceOnRequest,
+                    featured: isFeaturedFlag(item.featured),
                 };
             });
 
@@ -2611,6 +2639,8 @@ module.exports = (pool) => {
                 
                 await client.query(query, values);
             }
+
+            await saveMenuItemFeatured(client, id, req.body.featured);
             
             await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
             
