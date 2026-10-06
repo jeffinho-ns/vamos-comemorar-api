@@ -14,6 +14,47 @@ const OPTIONAL_BAR_COLUMNS = [
   'custom_seals',
 ];
 
+const SITIO_ILHA_BAR_ID = 15;
+const SITIO_ILHA_CONFIG_EMAIL = 'jeffinho_ns@hotmail.com';
+
+function normalizeHouseKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function isSitioIlhaBar(bar) {
+  if (Number(bar?.id) === SITIO_ILHA_BAR_ID) return true;
+  const slug = normalizeHouseKey(bar?.slug).replace(/[^a-z0-9]/g, '');
+  if (slug.includes('sitioilha')) return true;
+  const name = normalizeHouseKey(bar?.name);
+  return name.includes('sitio') && name.includes('ilha');
+}
+
+function canViewSitioIlhaConfig(email) {
+  return String(email || '').trim().toLowerCase() === SITIO_ILHA_CONFIG_EMAIL;
+}
+
+async function actorEmail(pool, req) {
+  const userId = Number(req.user?.id);
+  if (Number.isFinite(userId) && userId > 0) {
+    const result = await pool.query('SELECT email FROM users WHERE id = $1', [userId]);
+    const email = String(result.rows[0]?.email || '').trim().toLowerCase();
+    if (email) return email;
+  }
+  return String(req.user?.email || '').trim().toLowerCase();
+}
+
+async function assertSitioIlhaConfigAccess(pool, req, barId) {
+  const email = await actorEmail(pool, req);
+  if (canViewSitioIlhaConfig(email)) return;
+  const result = await pool.query('SELECT id, name, slug FROM bars WHERE id = $1', [barId]);
+  if (result.rows[0] && isSitioIlhaBar(result.rows[0])) {
+    throw fail(404, 'Não encontrado');
+  }
+}
+
 const COLOR_FIELDS = [
   'menu_category_bg_color',
   'menu_category_text_color',
@@ -91,6 +132,7 @@ async function listMenuHouses(pool, req) {
       presentColumns.has(column) ? `b.${column}` : `NULL AS ${column}`
     )),
   ];
+  const email = await actorEmail(pool, req);
   const bars = await pool.query(
     `SELECT ${barFields.join(', ')}
        FROM bars b
@@ -102,7 +144,10 @@ async function listMenuHouses(pool, req) {
       ORDER BY b.name`,
     params,
   );
-  const ids = bars.rows.map((bar) => Number(bar.id));
+  const visibleRows = canViewSitioIlhaConfig(email)
+    ? bars.rows
+    : bars.rows.filter((bar) => !isSitioIlhaBar(bar));
+  const ids = visibleRows.map((bar) => Number(bar.id));
   if (!ids.length) return [];
 
   const [orgs, categories, items, backups] = await Promise.all([
@@ -160,7 +205,7 @@ async function listMenuHouses(pool, req) {
   const backupByBar = new Map(backups.rows.map((row) => [Number(row.bar_id), row.created_at]));
 
   const groups = new Map();
-  for (const bar of bars.rows) {
+  for (const bar of visibleRows) {
     const org = orgByBar.get(Number(bar.id));
     const orgId = org?.organization_id == null ? 0 : Number(org.organization_id);
     const orgName = org?.organization_name || 'Outras casas';
@@ -242,4 +287,7 @@ async function updateMenuHouseSettings(pool, barId, body) {
 module.exports = {
   listMenuHouses,
   updateMenuHouseSettings,
+  assertSitioIlhaConfigAccess,
+  isSitioIlhaBar,
+  canViewSitioIlhaConfig,
 };

@@ -28,7 +28,11 @@ const {
     buildSubcategoryPlaceholderInsert,
     isSubcategoryPlaceholderName,
 } = require('../services/menuSubcategoryService');
-const { listMenuHouses, updateMenuHouseSettings } = require('../services/cardapioMenuConfigService');
+const {
+    listMenuHouses,
+    updateMenuHouseSettings,
+    assertSitioIlhaConfigAccess,
+} = require('../services/cardapioMenuConfigService');
 const {
     createMenuBackup,
     listMenuBackups,
@@ -3108,6 +3112,17 @@ module.exports = (pool) => {
         return { userId, userName: row.name || row.email || null };
     }
 
+    async function assertConfigHouse(req, res, barId) {
+        if (!(await assertBarInActorScope(req, res, barId))) return false;
+        try {
+            await assertSitioIlhaConfigAccess(pool, req, barId);
+            return true;
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Não encontrado.');
+            return false;
+        }
+    }
+
     router.get('/config/houses', authenticateToken, async (req, res) => {
         try {
             const organizations = await listMenuHouses(pool, req);
@@ -3123,7 +3138,7 @@ module.exports = (pool) => {
             return res.status(400).json({ error: 'Casa inválida.' });
         }
         try {
-            if (!(await assertBarInActorScope(req, res, barId))) return;
+            if (!(await assertConfigHouse(req, res, barId))) return;
             const settings = await updateMenuHouseSettings(pool, barId, req.body || {});
             res.json({ settings });
         } catch (error) {
@@ -3161,7 +3176,7 @@ module.exports = (pool) => {
     router.get('/config/houses/:barId/backups', authenticateToken, async (req, res) => {
         const barId = Number(req.params.barId);
         try {
-            if (!(await assertBarInActorScope(req, res, barId))) return;
+            if (!(await assertConfigHouse(req, res, barId))) return;
             const backups = await listMenuBackups(pool, barId);
             res.json({ backups });
         } catch (error) {
@@ -3172,7 +3187,7 @@ module.exports = (pool) => {
     router.post('/config/houses/:barId/backups', authenticateToken, async (req, res) => {
         const barId = Number(req.params.barId);
         try {
-            if (!(await assertBarInActorScope(req, res, barId))) return;
+            if (!(await assertConfigHouse(req, res, barId))) return;
             const actor = await backupActor(req);
             const backup = await createMenuBackup(pool, {
                 barId,
@@ -3190,7 +3205,7 @@ module.exports = (pool) => {
         const barId = Number(req.params.barId);
         const backupId = Number(req.params.backupId);
         try {
-            if (!(await assertBarInActorScope(req, res, barId))) return;
+            if (!(await assertConfigHouse(req, res, barId))) return;
             const result = await diffMenuBackup(pool, barId, backupId);
             res.json(result);
         } catch (error) {
@@ -3205,7 +3220,7 @@ module.exports = (pool) => {
             return res.status(400).json({ error: 'Confirme a restauração para continuar.' });
         }
         try {
-            if (!(await assertBarInActorScope(req, res, barId))) return;
+            if (!(await assertConfigHouse(req, res, barId))) return;
             const actor = await backupActor(req);
             const result = await restoreMenuBackup(pool, {
                 barId,
