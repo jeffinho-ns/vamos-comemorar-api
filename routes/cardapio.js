@@ -28,6 +28,13 @@ const {
     buildSubcategoryPlaceholderInsert,
     isSubcategoryPlaceholderName,
 } = require('../services/menuSubcategoryService');
+const { listMenuHouses, updateMenuHouseSettings } = require('../services/cardapioMenuConfigService');
+const {
+    createMenuBackup,
+    listMenuBackups,
+    diffMenuBackup,
+    restoreMenuBackup,
+} = require('../services/cardapioBackupService');
 
 module.exports = (pool) => {
     router.use(optionalAuth);
@@ -3083,6 +3090,132 @@ module.exports = (pool) => {
         } catch (error) {
             console.error('Erro ao limpar pausa agendada:', error);
             res.status(500).json({ error: 'Erro ao limpar pausa agendada.' });
+        }
+    });
+
+    function sendMenuConfigError(res, error, fallback) {
+        const status = Number(error.status) || 500;
+        if (status >= 500) console.error(fallback, error);
+        const message = status >= 500 ? fallback : error.message;
+        res.status(status).json({ error: message });
+    }
+
+    async function backupActor(req) {
+        const userId = req.user?.id || null;
+        if (!userId) return { userId: null, userName: null };
+        const result = await pool.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+        const row = result.rows[0] || {};
+        return { userId, userName: row.name || row.email || null };
+    }
+
+    router.get('/config/houses', authenticateToken, async (req, res) => {
+        try {
+            const organizations = await listMenuHouses(pool, req);
+            res.json({ organizations });
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao carregar as configurações do cardápio.');
+        }
+    });
+
+    router.put('/config/houses/:barId', authenticateToken, async (req, res) => {
+        const barId = Number(req.params.barId);
+        if (!Number.isFinite(barId) || barId <= 0) {
+            return res.status(400).json({ error: 'Casa inválida.' });
+        }
+        try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+            const settings = await updateMenuHouseSettings(pool, barId, req.body || {});
+            res.json({ settings });
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao salvar a configuração da casa.');
+        }
+    });
+
+    router.post('/config/backups', authenticateToken, async (req, res) => {
+        try {
+            const organizations = await listMenuHouses(pool, req);
+            const actor = await backupActor(req);
+            const created = [];
+            const failed = [];
+            for (const organization of organizations) {
+                for (const house of organization.houses) {
+                    try {
+                        const backup = await createMenuBackup(pool, {
+                            barId: house.barId,
+                            userId: actor.userId,
+                            userName: actor.userName,
+                            label: `Backup de segurança — ${house.name}`,
+                        });
+                        created.push({ name: house.name, ...backup });
+                    } catch (error) {
+                        failed.push({ name: house.name, error: error.message || 'falhou' });
+                    }
+                }
+            }
+            res.status(created.length ? 201 : 500).json({ created, failed });
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao criar os backups.');
+        }
+    });
+
+    router.get('/config/houses/:barId/backups', authenticateToken, async (req, res) => {
+        const barId = Number(req.params.barId);
+        try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+            const backups = await listMenuBackups(pool, barId);
+            res.json({ backups });
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao listar os backups.');
+        }
+    });
+
+    router.post('/config/houses/:barId/backups', authenticateToken, async (req, res) => {
+        const barId = Number(req.params.barId);
+        try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+            const actor = await backupActor(req);
+            const backup = await createMenuBackup(pool, {
+                barId,
+                userId: actor.userId,
+                userName: actor.userName,
+                label: req.body?.label,
+            });
+            res.status(201).json({ backup });
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao criar o backup.');
+        }
+    });
+
+    router.get('/config/houses/:barId/backups/:backupId/diff', authenticateToken, async (req, res) => {
+        const barId = Number(req.params.barId);
+        const backupId = Number(req.params.backupId);
+        try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+            const result = await diffMenuBackup(pool, barId, backupId);
+            res.json(result);
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao comparar o backup com o cardápio atual.');
+        }
+    });
+
+    router.post('/config/houses/:barId/backups/:backupId/restore', authenticateToken, async (req, res) => {
+        const barId = Number(req.params.barId);
+        const backupId = Number(req.params.backupId);
+        if (req.body?.confirm !== true) {
+            return res.status(400).json({ error: 'Confirme a restauração para continuar.' });
+        }
+        try {
+            if (!(await assertBarInActorScope(req, res, barId))) return;
+            const actor = await backupActor(req);
+            const result = await restoreMenuBackup(pool, {
+                barId,
+                backupId,
+                userId: actor.userId,
+                userName: actor.userName,
+            });
+            res.json(result);
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao restaurar o cardápio.');
         }
     });
 
