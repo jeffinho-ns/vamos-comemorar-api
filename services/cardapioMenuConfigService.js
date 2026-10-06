@@ -1,7 +1,18 @@
 'use strict';
 
 const { resolveAccessibleBarIds, resolveActorScope } = require('../tenancy/orgIsolation');
-const { fail } = require('./cardapioBackupService');
+const { fail, ensureCardapioBackupsTable } = require('./cardapioBackupService');
+
+const OPTIONAL_BAR_COLUMNS = [
+  'menu_category_bg_color',
+  'menu_category_text_color',
+  'menu_subcategory_bg_color',
+  'menu_subcategory_text_color',
+  'mobile_sidebar_bg_color',
+  'mobile_sidebar_text_color',
+  'menu_display_style',
+  'custom_seals',
+];
 
 const COLOR_FIELDS = [
   'menu_category_bg_color',
@@ -63,15 +74,28 @@ async function listMenuHouses(pool, req) {
     barFilter = `AND b.id = ANY($${params.length}::int[])`;
   }
 
+  const columnResult = await pool.query(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'meu_backup_db'
+        AND table_name = 'bars'
+        AND column_name = ANY($1::text[])`,
+    [OPTIONAL_BAR_COLUMNS],
+  );
+  const presentColumns = new Set(columnResult.rows.map((row) => row.column_name));
+  const barFields = [
+    'b.id',
+    'b.name',
+    'b.slug',
+    ...OPTIONAL_BAR_COLUMNS.map((column) => (
+      presentColumns.has(column) ? `b.${column}` : `NULL AS ${column}`
+    )),
+  ];
   const bars = await pool.query(
-    `SELECT b.id, b.name, b.slug,
-            b.menu_category_bg_color, b.menu_category_text_color,
-            b.menu_subcategory_bg_color, b.menu_subcategory_text_color,
-            b.mobile_sidebar_bg_color, b.mobile_sidebar_text_color,
-            b.menu_display_style, b.custom_seals
+    `SELECT ${barFields.join(', ')}
        FROM bars b
       WHERE NOT EXISTS (
-        SELECT 1 FROM establishments e
+        SELECT 1 FROM meu_backup_db.establishments e
          WHERE e.legacy_bar_id = b.id AND e.status = 'archived'
       )
       ${barFilter}
@@ -85,8 +109,8 @@ async function listMenuHouses(pool, req) {
     pool.query(
       `SELECT DISTINCT ON (e.legacy_bar_id)
               e.legacy_bar_id AS bar_id, o.id AS organization_id, o.name AS organization_name
-         FROM establishments e
-         LEFT JOIN organizations o ON o.id = e.organization_id
+         FROM meu_backup_db.establishments e
+         LEFT JOIN meu_backup_db.organizations o ON o.id = e.organization_id
         WHERE e.legacy_bar_id = ANY($1::int[])
           AND e.status IS DISTINCT FROM 'archived'
         ORDER BY e.legacy_bar_id, e.id`,
@@ -118,13 +142,16 @@ async function listMenuHouses(pool, req) {
         GROUP BY barid`,
       [ids],
     )),
-    pool.query(
+    ensureCardapioBackupsTable(pool).then(() => pool.query(
       `SELECT DISTINCT ON (bar_id) bar_id, created_at
          FROM cardapio_backups
         WHERE bar_id = ANY($1::int[])
         ORDER BY bar_id, created_at DESC`,
       [ids],
-    ),
+    )).catch((error) => {
+      console.error('Backup do cardápio indisponível:', error.message);
+      return { rows: [] };
+    }),
   ]);
 
   const orgByBar = new Map(orgs.rows.map((row) => [Number(row.bar_id), row]));

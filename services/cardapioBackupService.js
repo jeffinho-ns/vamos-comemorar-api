@@ -6,6 +6,29 @@ const { buildMenuDiff } = require('./cardapioBackupDiff');
 const MAX_BACKUPS = 20;
 const SNAPSHOT_VERSION = 1;
 
+async function ensureCardapioBackupsTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cardapio_backups (
+      id BIGSERIAL PRIMARY KEY,
+      bar_id INTEGER NOT NULL,
+      organization_id INTEGER,
+      created_by INTEGER,
+      created_by_name TEXT,
+      label TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'manual',
+      snapshot JSONB NOT NULL,
+      category_count INTEGER NOT NULL DEFAULT 0,
+      item_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT cardapio_backups_reason_check CHECK (reason IN ('manual', 'pre_restore'))
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_cardapio_backups_bar_created
+      ON cardapio_backups (bar_id, created_at DESC)
+  `);
+}
+
 function fail(status, message) {
   const error = new Error(message);
   error.status = status;
@@ -394,6 +417,7 @@ function cleanLabel(label, fallback) {
 }
 
 async function createMenuBackup(pool, input) {
+  await ensureCardapioBackupsTable(pool);
   return withRlsBypass(pool, async (db) => {
     const organizationId = await resolveOrganizationIdForBar(db, input.barId);
     const snapshot = await captureMenu(db, input.barId);
@@ -412,6 +436,7 @@ async function createMenuBackup(pool, input) {
 }
 
 async function listMenuBackups(pool, barId) {
+  await ensureCardapioBackupsTable(pool);
   return withRlsBypass(pool, async (db) => {
     const result = await db.query(
       `SELECT id, bar_id, label, reason, category_count, item_count, created_at, created_by_name
@@ -426,6 +451,7 @@ async function listMenuBackups(pool, barId) {
 }
 
 async function diffMenuBackup(pool, barId, backupId) {
+  await ensureCardapioBackupsTable(pool);
   return withRlsBypass(pool, async (db) => {
     const backup = await loadBackup(db, barId, backupId);
     const current = await captureMenu(db, barId);
@@ -434,6 +460,7 @@ async function diffMenuBackup(pool, barId, backupId) {
 }
 
 async function restoreMenuBackup(pool, input) {
+  await ensureCardapioBackupsTable(pool);
   return withRlsBypass(pool, async (db) => {
     const backup = await loadBackup(db, input.barId, input.backupId);
     const current = await captureMenu(db, input.barId);
@@ -463,5 +490,6 @@ module.exports = {
   listMenuBackups,
   diffMenuBackup,
   restoreMenuBackup,
+  ensureCardapioBackupsTable,
   fail,
 };
