@@ -23,8 +23,9 @@ const {
 
 assert.ok(listPlaybookIds().includes('criar_item_cardapio'));
 
-assert.equal(detectPlaybookIntent('quero criar um item novo no cardápio')?.id, 'criar_item_cardapio');
-assert.equal(detectPlaybookIntent('cadastrar um prato novo')?.id, 'criar_item_cardapio');
+assert.equal(detectPlaybookIntent('quero criar um item novo no cardápio'), null);
+assert.equal(detectPlaybookIntent('cadastrar um prato novo'), null);
+assert.equal(detectPlaybookIntent('como criar um item no cardápio')?.id, 'criar_item_cardapio');
 assert.equal(detectPlaybookIntent('criar uma reserva para o João')?.id, 'criar_reserva');
 assert.equal(detectPlaybookIntent('enviar mensagem no whatsapp')?.id, 'enviar_whatsapp');
 assert.equal(detectPlaybookIntent('assumir a conversa do cliente')?.id, 'enviar_whatsapp');

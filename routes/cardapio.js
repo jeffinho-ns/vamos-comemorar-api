@@ -2326,6 +2326,8 @@ module.exports = (pool) => {
 
     router.get('/items', async (req, res) => {
         try {
+            const { releaseExpiredMenuPauses } = require('../services/staffAgent/menuActions');
+            await releaseExpiredMenuPauses(pool);
             const { barId } = req.query;
             
             // Verificar quais campos existem na tabela

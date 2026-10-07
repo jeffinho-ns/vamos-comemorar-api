@@ -18,11 +18,15 @@ const {
   parseAllowedIds,
 } = require('../../services/staffAgent/featureFlag');
 
-// Fase 1 (10) + agenda Fase 2 (3) + OS Fase 3 (2).
-const EXPECTED_TOOLS = 15;
+// Fase 1 + agenda + OS + cardápio ampliado.
+const EXPECTED_TOOLS = 26;
 
 assert.equal(PHASE1_TOOLS.length, EXPECTED_TOOLS, `catálogo deve ter ${EXPECTED_TOOLS} tools`);
 assert.ok(PHASE1_EXCLUDED.includes('criar_reserva'));
+assert.ok(!PHASE1_EXCLUDED.includes('pausar_categoria_inteira'));
+assert.ok(getPhase1ToolByName('listar_pausados_cardapio'));
+assert.ok(getPhase1ToolByName('criar_item_cardapio'));
+assert.equal(getPhase1ToolByName('apagar_item_cardapio').minRoles.includes('recepcao'), false);
 assert.ok(getPhase1ToolByName('briefing_turno'));
 assert.ok(!getPhase1ToolByName('criar_reserva'));
 

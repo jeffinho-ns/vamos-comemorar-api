@@ -33,6 +33,7 @@ const { clearGuideSession } = require('./guideSessions');
 const { formatPlaybookIndex } = require('./playbooks');
 const { tryReservationCountTurn } = require('./reservationCountFastPath');
 const { todayIsoSp } = require('./dateUtils');
+const { parseUntilFromText } = require('./menuActionParsers');
 
 const MAX_TOOL_STEPS = 3;
 const MAX_HISTORY = 8;
@@ -67,12 +68,15 @@ Eficiência (obrigatório):
 Modo guia: se o colaborador pedir algo que você NÃO tem tool para executar (criar item no cardápio, criar/editar reserva, enviar WhatsApp, criar usuário, etc.), NÃO invente que fez. Diga que ainda não está liberado para executar e ofereça guiar na tela. Índices de guias existentes:
 ${formatPlaybookIndex()}
 
-Cardápio (pausar/reativar):
-1) Chame listar_itens_cardapio com o nome pedido.
-   - Se o usuário pediu ATIVAR/REATIVAR, use include_paused=true (itens pausados não aparecem sem isso).
-2) Se vier exatamente 1 item, chame em seguida pausar_item_cardapio ou reativar_item_cardapio com esse item_id.
-3) Se vierem vários, cite os #id e nomes e peça qual; nunca pause/ative mais de um por vez.
-4) Não responda só "encontrei N itens" quando o usuário pediu pausar/ativar e há 1 match — chame a tool de escrita.
+Cardápio da casa da sessão:
+- Buscar um item: listar_itens_cardapio. Reativar exige include_paused=true.
+- Pausar/reativar UM item: se a busca achar 1, chame pausar_item_cardapio ou reativar_item_cardapio. Vários resultados: peça o #id. "até as 23h" → until_time=23:00.
+- Todos os pausados, sem nome: listar_pausados_cardapio.
+- Destaques: listar_destaques_cardapio para ver; definir_destaque_cardapio para colocar ou tirar (featured=false tira).
+- Categoria ou subcategoria inteira: pausar_escopo_cardapio / reativar_escopo_cardapio. Não use a pausa de um item para isso.
+- Ordem: reordenar_categorias_cardapio ou reordenar_subcategorias_cardapio com os nomes na ordem nova.
+- Preço, foto ou selo: editar_item_cardapio. Criar: criar_item_cardapio (nome, preço, categoria). Apagar: apagar_item_cardapio. Copiar: duplicar_item_cardapio.
+- Antes de editar, apagar, duplicar ou destacar, busque o item e use o item_id.
 
 Agenda (bloquear/liberar dia):
 - "bloqueia/fecha o dia X" → bloquear_dia_agenda com date=X (repasse a data como o usuário falou: 15/09, amanhã etc.).
@@ -114,6 +118,7 @@ function detectMenuWriteIntent(text) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
   // "ativar" / "ativa" / "reativar" / "voltar no cardapio"
+  if (/\b(categoria|subcategoria|destaque)\b/.test(t)) return null;
   if (
     /\b(reativ\w*|ativ\w*)\b/.test(t) ||
     (/\b(voltar|liberar)\b/.test(t) && /\b(cardapio|item|prato|drink)\b/.test(t))
@@ -173,10 +178,29 @@ function extractMenuItemQuery(text) {
     /^(paus\w*|pause|ativ\w*|reativ\w*|tirar|esconder|ocultar|voltar|liberar)\s+(o\s+|a\s+|os\s+|as\s+)?(item(s)?\s+)?(do\s+card[aá]pio\s+)?/i,
     ''
   );
+  q = q.replace(/\s+at[eé]\s+(?:as\s+|às\s+)?\d{1,2}(?::\d{2})?\s*h?\b.*$/i, '');
   return q.trim();
 }
 
-async function finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, result }) {
+function detectMenuReadIntent(text) {
+  const t = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/\bdestaques?\b/.test(t) && /\b(lista|listar|quais|qual|mostra|ver|tem)\b/.test(t)) {
+    return 'listar_destaques_cardapio';
+  }
+  if (
+    /\bpausad/.test(t) &&
+    /\b(lista|listar|quais|qual|mostra|ver|tudo|todos|todas)\b/.test(t) &&
+    !/\b(drink|prato|burger|caipirinha|vodka|gin|whisky)\b/.test(t)
+  ) {
+    return 'listar_pausados_cardapio';
+  }
+  return null;
+}
+
+async function finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, result, untilTime = null }) {
   if (!menuWriteIntent || !result?.ok || !Array.isArray(result.items)) {
     return null;
   }
@@ -190,7 +214,10 @@ async function finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, re
       user,
       estId,
       toolName: menuWriteIntent,
-      args: { item_id: result.items[0].id },
+      args: {
+        item_id: result.items[0].id,
+        ...(menuWriteIntent === 'pausar_item_cardapio' && untilTime ? { until_time: untilTime, mode: 'scheduled' } : {}),
+      },
     });
   }
   return {
@@ -214,11 +241,15 @@ async function tryMenuWriteTurn(pool, { user, estId, text, menuWriteIntent }) {
         establishmentId: estId,
         toolName: menuWriteIntent,
       });
+      const untilTime = parseUntilFromText(text);
       return buildWriteConfirm(pool, {
         user,
         estId,
         toolName: menuWriteIntent,
-        args: { item_id: itemId },
+        args: {
+          item_id: itemId,
+          ...(untilTime ? { until_time: untilTime, mode: 'scheduled' } : {}),
+        },
       });
     }
   }
@@ -244,7 +275,13 @@ async function tryMenuWriteTurn(pool, { user, estId, text, menuWriteIntent }) {
     mode: 'read',
   });
 
-  return finishMenuWriteAfterList(pool, { user, estId, menuWriteIntent, result });
+  return finishMenuWriteAfterList(pool, {
+    user,
+    estId,
+    menuWriteIntent,
+    result,
+    untilTime: parseUntilFromText(text),
+  });
 }
 
 function toolResultPayload(result) {
@@ -399,6 +436,29 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
     if (fast) return fast;
   }
 
+  const menuReadIntent = detectMenuReadIntent(text);
+  if (menuReadIntent) {
+    await assertCanUseTool(pool, {
+      user,
+      establishmentId: estId,
+      toolName: menuReadIntent,
+    });
+    const listed = await executeTool(pool, {
+      toolName: menuReadIntent,
+      args: {},
+      establishmentId: estId,
+      mode: 'read',
+    });
+    return {
+      ok: listed.ok !== false,
+      type: 'result',
+      reply: listed.message || 'Pronto.',
+      tool: menuReadIntent,
+      data: listed,
+      meta: getPhase1Meta(),
+    };
+  }
+
   const osIntent = detectOsIntent(text);
 
   // Pedido de OS costuma vir completo numa frase só: monta direto, sem depender do LLM.
@@ -522,6 +582,7 @@ async function runTurn(pool, { user, establishmentId, message, pendingConfirmId 
         estId,
         menuWriteIntent,
         result,
+        untilTime: parseUntilFromText(text),
       });
       if (finished) return finished;
     }

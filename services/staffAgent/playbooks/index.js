@@ -339,7 +339,17 @@ function detectPlaybookIntent(text) {
 
   if (
     /\b(paus\w*|reativ\w*|ativ\w*)\b/.test(t) &&
-    /\b(item|prato|drink|cardapio|produto)\b/.test(t)
+    /\b(item|prato|drink|cardapio|produto|categoria|subcategoria)\b/.test(t)
+  ) {
+    return null;
+  }
+
+  const askingHow = /\b(como|onde|me ensina|passo a passo)\b/.test(t);
+  if (!askingHow && /\b(preco|destaque)\b/.test(t)) return null;
+  if (
+    !askingHow &&
+    /\b(criar|cadastrar|adicionar|editar|alterar|mudar|apagar|excluir|duplicar|copiar|ordem|selo|foto)\b/.test(t) &&
+    /\b(item|prato|drink|cardapio|produto|categoria|subcategoria|selo|foto)\b/.test(t)
   ) {
     return null;
   }

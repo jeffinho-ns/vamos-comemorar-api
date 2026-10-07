@@ -14,6 +14,20 @@ const {
   liberarDiaAgenda,
 } = require('./agendaBlocks');
 const { criarOsArtista, listarOsArtista } = require('./artistOS');
+const {
+  ensurePauseUntilColumn,
+  resolvePauseUntil,
+  listPausedItems,
+  listFeaturedItems,
+  setFeatured,
+  setScopeVisibility,
+  reorderCategories,
+  reorderSubcategories,
+  editItem,
+  createItem,
+  deleteItem,
+  duplicateItem,
+} = require('./menuActions');
 
 function coerceBool(value, defaultValue = false) {
   if (value === true || value === 1) return true;
@@ -262,7 +276,14 @@ async function chamarEspera(pool, { establishmentId, args, mode }) {
 
 async function listarItensCardapio(pool, { establishmentId, args }) {
   const barId = await resolveBarId(pool, establishmentId);
-  const q = `%${String(args.query || '').trim()}%`;
+  const queryText = String(args.query || '').trim();
+  if (!queryText) {
+    return {
+      ok: false,
+      message: 'Diga o nome do item. Para ver todos os pausados, peça a lista de pausados.',
+    };
+  }
+  const q = `%${queryText}%`;
   const includePaused =
     coerceBool(args.include_paused) || coerceBool(args.only_paused);
   const onlyPaused = coerceBool(args.only_paused);
@@ -317,12 +338,15 @@ async function setItemVisibility(pool, { establishmentId, args, mode, visible })
   if (!item || Number(item.barid) !== Number(barId)) {
     return { ok: false, message: 'Item não encontrado no cardápio desta casa.' };
   }
+  const until = visible ? null : resolvePauseUntil(args);
+  const untilLabel = until ? ` até ${new Date(until.iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : '';
   const preview = {
     item_id: item.id,
     name: item.name,
     current_visible: item.visible,
     next_visible: visible,
-    mode: args.mode || 'permanent',
+    mode: until ? 'scheduled' : args.mode || 'permanent',
+    pause_until: until?.iso || null,
   };
   if (mode === 'preview') {
     return {
@@ -331,14 +355,16 @@ async function setItemVisibility(pool, { establishmentId, args, mode, visible })
       preview,
       message: visible
         ? `Vou reativar "${item.name}" no cardápio. Confirmar?`
-        : `Vou pausar "${item.name}" no cardápio. Confirmar?`,
+        : `Vou pausar "${item.name}" no cardápio${untilLabel}. Confirmar?`,
     };
   }
-  await pool.query(`UPDATE menu_items SET visible = $1 WHERE id = $2 AND barid = $3`, [
-    visible,
-    itemId,
-    barId,
-  ]);
+  await ensurePauseUntilColumn(pool);
+  await pool.query(
+    `UPDATE menu_items
+        SET visible = $1, pause_until = $2
+      WHERE id = $3 AND barid = $4`,
+    [visible, visible ? null : until?.iso || null, itemId, barId],
+  );
 
   try {
     const { emitMenuItemVisibilityChanged } = require('../../utils/menuRealtime');
@@ -452,6 +478,66 @@ async function executeTool(pool, { toolName, args, establishmentId, mode, userId
           args: a,
           mode: mode === 'apply' ? 'apply' : 'preview',
           visible: true,
+        });
+      case 'listar_pausados_cardapio':
+        return await listPausedItems(pool, { establishmentId });
+      case 'listar_destaques_cardapio':
+        return await listFeaturedItems(pool, { establishmentId });
+      case 'definir_destaque_cardapio':
+        return await setFeatured(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'pausar_escopo_cardapio':
+        return await setScopeVisibility(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          visible: false,
+        });
+      case 'reativar_escopo_cardapio':
+        return await setScopeVisibility(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+          visible: true,
+        });
+      case 'reordenar_categorias_cardapio':
+        return await reorderCategories(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'reordenar_subcategorias_cardapio':
+        return await reorderSubcategories(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'editar_item_cardapio':
+        return await editItem(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'criar_item_cardapio':
+        return await createItem(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'apagar_item_cardapio':
+        return await deleteItem(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
+        });
+      case 'duplicar_item_cardapio':
+        return await duplicateItem(pool, {
+          establishmentId,
+          args: a,
+          mode: mode === 'apply' ? 'apply' : 'preview',
         });
       case 'listar_bloqueios_agenda':
         return await listarBloqueiosAgenda(pool, { establishmentId, args: a });
