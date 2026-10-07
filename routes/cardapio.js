@@ -2363,6 +2363,9 @@ module.exports = (pool) => {
             if (hasFeaturedField) {
                 groupByFields.push('mi.featured');
             }
+            if (hasSubcategoryOrderField) {
+                groupByFields.push('mi.subcategory_order');
+            }
             
             const sealsSelect = hasSealsField ? 'mi.seals,' : '';
             const visibleSelect = hasVisibleField 
@@ -2415,6 +2418,7 @@ module.exports = (pool) => {
                     ${sealsSelect}
                     ${visibleSelect}
                     ${hasFeaturedField ? 'COALESCE(mi.featured, false) AS featured,' : 'false AS featured,'}
+                    ${hasSubcategoryOrderField ? 'mi.subcategory_order AS "subcategoryOrder",' : 'NULL::int AS "subcategoryOrder",'}
                     string_agg(
                         t.id::text || ':' || t.name || ':' || t.price::text, 
                         '|'
