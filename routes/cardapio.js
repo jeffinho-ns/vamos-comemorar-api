@@ -39,6 +39,11 @@ const {
     diffMenuBackup,
     restoreMenuBackup,
 } = require('../services/cardapioBackupService');
+const {
+    listMenuItemLikes,
+    setMenuItemLike,
+    syncMenuItemLikes,
+} = require('../services/menuItemLikesService');
 
 module.exports = (pool) => {
     router.use(optionalAuth);
@@ -3231,6 +3236,44 @@ module.exports = (pool) => {
             res.json(result);
         } catch (error) {
             sendMenuConfigError(res, error, 'Erro ao restaurar o cardápio.');
+        }
+    });
+
+    router.get('/bars/:barId/item-likes', limiter60PerMin, async (req, res) => {
+        try {
+            const result = await listMenuItemLikes(pool, {
+                barId: req.params.barId,
+                visitorKey: req.query.visitorKey,
+            });
+            res.json(result);
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao carregar as curtidas do cardápio.');
+        }
+    });
+
+    router.post('/bars/:barId/item-likes/sync', limiter60PerMin, async (req, res) => {
+        try {
+            const result = await syncMenuItemLikes(pool, {
+                barId: req.params.barId,
+                visitorKey: req.body?.visitorKey,
+                itemIds: req.body?.itemIds,
+            });
+            res.json(result);
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao sincronizar as curtidas do cardápio.');
+        }
+    });
+
+    router.post('/items/:id/like', limiter60PerMin, async (req, res) => {
+        try {
+            const result = await setMenuItemLike(pool, {
+                itemId: req.params.id,
+                visitorKey: req.body?.visitorKey,
+                liked: req.body?.liked,
+            });
+            res.json(result);
+        } catch (error) {
+            sendMenuConfigError(res, error, 'Erro ao registrar a curtida.');
         }
     });
 
