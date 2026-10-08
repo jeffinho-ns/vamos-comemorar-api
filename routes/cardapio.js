@@ -1210,7 +1210,13 @@ module.exports = (pool) => {
 
         if (Array.isArray(normalized.ad_images) && normalized.ad_images.length > 0) {
             const resolvedAds = await Promise.all(
-                normalized.ad_images.map((url) => resolveImageFieldForClient(apiBaseUrl, url))
+                normalized.ad_images.map(async (item) => {
+                    const url = typeof item === 'string' ? item : item && item.url;
+                    const link = normalizeAdLink(typeof item === 'object' && item ? item.link : '');
+                    const resolved = await resolveImageFieldForClient(apiBaseUrl, url);
+                    if (!resolved) return null;
+                    return { url: resolved, link };
+                })
             );
             normalized.ad_images = resolvedAds.filter(Boolean);
         }
@@ -1219,6 +1225,16 @@ module.exports = (pool) => {
     }
 
     const MAX_AD_IMAGES = 10;
+
+    function normalizeAdLink(raw) {
+        const t = String(raw || '').trim();
+        if (!t) return '';
+        if (/^(javascript|data):/i.test(t)) return '';
+        if (/^https?:\/\//i.test(t)) return t.slice(0, 500);
+        if (/^\/\//.test(t)) return `https:${t}`.slice(0, 500);
+        if (/^[\w.-]+\.[a-z]{2,}([/?#].*)?$/i.test(t)) return `https://${t}`.slice(0, 500);
+        return '';
+    }
 
     function serializeAdImages(raw) {
         let list = [];
@@ -1234,7 +1250,18 @@ module.exports = (pool) => {
         }
         return JSON.stringify(
             list
-                .map((item) => (typeof item === 'string' ? item.trim() : ''))
+                .map((item) => {
+                    if (typeof item === 'string') {
+                        const url = item.trim();
+                        return url ? { url, link: '' } : null;
+                    }
+                    if (item && typeof item === 'object') {
+                        const url = String(item.url || item.image || '').trim();
+                        if (!url) return null;
+                        return { url, link: normalizeAdLink(item.link) };
+                    }
+                    return null;
+                })
                 .filter(Boolean)
                 .slice(0, MAX_AD_IMAGES),
         );

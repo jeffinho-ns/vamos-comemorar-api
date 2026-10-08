@@ -2,7 +2,7 @@
 ALTER TABLE bars
   ADD COLUMN IF NOT EXISTS ad_images JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-COMMENT ON COLUMN bars.ad_images IS 'Array JSON com URLs/filenames das artes de propaganda do cardápio público';
+COMMENT ON COLUMN bars.ad_images IS 'Array JSON das artes de propaganda: string (legado) ou {url, link}';
 
 DO $$
 BEGIN
