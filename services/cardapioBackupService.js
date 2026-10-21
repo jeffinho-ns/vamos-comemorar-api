@@ -83,6 +83,8 @@ function itemSelectList(columns) {
   if (columns.has('order')) parts.push('"order"');
   if (columns.has('visible')) parts.push('visible');
   if (columns.has('featured')) parts.push('featured');
+  if (columns.has('price_from')) parts.push('price_from AS "priceFrom"');
+  if (columns.has('price_to')) parts.push('price_to AS "priceTo"');
   if (columns.has('seals')) parts.push('seals');
   if (columns.has('subcategory_order')) parts.push('subcategory_order AS "subcategoryOrder"');
   if (columns.has('deleted_at')) parts.push('deleted_at AS "deletedAt"');
@@ -147,6 +149,8 @@ async function captureMenu(db, barId) {
       subcategoryOrder: item.subcategoryOrder == null ? null : Number(item.subcategoryOrder),
       visible: item.visible,
       featured: Boolean(item.featured),
+      priceFrom: item.priceFrom == null || item.priceFrom === '' ? null : Number(item.priceFrom),
+      priceTo: item.priceTo == null || item.priceTo === '' ? null : Number(item.priceTo),
       seals: parseJsonArray(item.seals),
       deletedAt: item.deletedAt ? new Date(item.deletedAt).toISOString() : null,
       toppings: toppingsByItem.get(Number(item.id)) || [],
@@ -292,6 +296,8 @@ async function upsertItem(db, barId, item, columns, organizationId) {
   push('order', item.order ?? 0);
   push('visible', item.visible == null ? true : item.visible);
   push('featured', Boolean(item.featured));
+  push('price_from', item.priceFrom == null || item.priceFrom === '' || !Number.isFinite(Number(item.priceFrom)) ? null : Number(item.priceFrom));
+  push('price_to', item.priceTo == null || item.priceTo === '' || !Number.isFinite(Number(item.priceTo)) ? null : Number(item.priceTo));
   push('seals', JSON.stringify(item.seals || []), sealsCast);
   push('subcategory_order', item.subcategoryOrder);
   push('deleted_at', item.deletedAt || null);

@@ -3,6 +3,8 @@
 const FIELD_LABELS = {
   name: 'Nome',
   price: 'Preço',
+  priceFrom: 'Preço De',
+  priceTo: 'Preço Por',
   description: 'Descrição',
   categoryId: 'Categoria',
   subCategory: 'Subcategoria',
@@ -53,6 +55,22 @@ function itemChanges(before, after, categories) {
   }
   if (asNumber(before.price) !== asNumber(after.price)) {
     changes.push({ field: 'price', label: FIELD_LABELS.price, from: before.price, to: after.price });
+  }
+  if (asNumber(before.priceFrom) !== asNumber(after.priceFrom)) {
+    changes.push({
+      field: 'priceFrom',
+      label: FIELD_LABELS.priceFrom,
+      from: before.priceFrom ?? null,
+      to: after.priceFrom ?? null,
+    });
+  }
+  if (asNumber(before.priceTo) !== asNumber(after.priceTo)) {
+    changes.push({
+      field: 'priceTo',
+      label: FIELD_LABELS.priceTo,
+      from: before.priceTo ?? null,
+      to: after.priceTo ?? null,
+    });
   }
   if (asText(before.description) !== asText(after.description)) {
     changes.push({ field: 'description', label: FIELD_LABELS.description, from: 'alterada', to: 'alterada' });

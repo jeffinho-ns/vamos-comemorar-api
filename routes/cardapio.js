@@ -74,6 +74,59 @@ module.exports = (pool) => {
         return value === true || value === 1 || value === '1' || value === 'true';
     }
 
+    let priceRangeColumnsReady = false;
+
+    function normalizeOptionalPrice(value) {
+        if (value === undefined || value === null || value === '') return null;
+        const amount = typeof value === 'number' ? value : parseFloat(String(value));
+        return Number.isFinite(amount) ? amount : null;
+    }
+
+    function parseStoredMenuPrice(value) {
+        const amount = normalizeOptionalPrice(value);
+        if (amount === null || amount <= 0) return null;
+        return amount;
+    }
+
+    async function ensureMenuItemPriceRangeColumns(db) {
+        if (priceRangeColumnsReady) return true;
+        await db.query(`
+            ALTER TABLE menu_items
+                ADD COLUMN IF NOT EXISTS price_from NUMERIC(10, 2),
+                ADD COLUMN IF NOT EXISTS price_to NUMERIC(10, 2)
+        `);
+        priceRangeColumnsReady = true;
+        return true;
+    }
+
+    async function saveMenuItemPriceRange(client, itemId, body) {
+        const hasFrom = Object.prototype.hasOwnProperty.call(body, 'priceFrom');
+        const hasTo = Object.prototype.hasOwnProperty.call(body, 'priceTo');
+        if (!hasFrom && !hasTo) return;
+        if (!priceRangeColumnsReady) {
+            try {
+                await ensureMenuItemPriceRangeColumns(client);
+            } catch (error) {
+                console.warn('⚠️ Faixa de preço do item indisponível:', error.message);
+                return;
+            }
+        }
+        const priceFrom = hasFrom ? parseStoredMenuPrice(body.priceFrom) : undefined;
+        const priceTo = hasTo ? parseStoredMenuPrice(body.priceTo) : undefined;
+        if (hasFrom && hasTo) {
+            await client.query(
+                'UPDATE menu_items SET price_from = $1, price_to = $2 WHERE id = $3',
+                [priceFrom, priceTo, itemId],
+            );
+            return;
+        }
+        if (hasFrom) {
+            await client.query('UPDATE menu_items SET price_from = $1 WHERE id = $2', [priceFrom, itemId]);
+            return;
+        }
+        await client.query('UPDATE menu_items SET price_to = $1 WHERE id = $2', [priceTo, itemId]);
+    }
+
     async function menuItemsHaveFeaturedColumn(db) {
         const result = await db.query(
             "SELECT 1 FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name = 'featured' LIMIT 1",
@@ -2198,6 +2251,11 @@ module.exports = (pool) => {
             barId,
             req.tenant?.primaryOrganizationId,
         );
+        try {
+            await ensureMenuItemPriceRangeColumns(pool);
+        } catch (error) {
+            console.warn('⚠️ Faixa de preço do cardápio:', error.message);
+        }
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -2302,6 +2360,7 @@ module.exports = (pool) => {
             }
 
             await saveMenuItemFeatured(client, itemId, req.body.featured);
+            await saveMenuItemPriceRange(client, itemId, req.body);
 
             await client.query('COMMIT');
 
@@ -2362,15 +2421,22 @@ module.exports = (pool) => {
             let hasVisibleField = false;
             let hasSubcategoryOrderField = false;
             let hasFeaturedField = false;
+            let hasPriceRangeField = false;
+            try {
+                await ensureMenuItemPriceRangeColumns(pool);
+            } catch (error) {
+                console.warn('⚠️ Faixa de preço do cardápio:', error.message);
+            }
             try {
                 const columnsResult = await pool.query(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible', 'subcategory_order', 'featured')"
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'menu_items' AND column_name IN ('seals', 'visible', 'subcategory_order', 'featured', 'price_from', 'price_to')"
                 );
                 const columns = columnsResult.rows.map(row => row.column_name);
                 hasSealsField = columns.includes('seals');
                 hasVisibleField = columns.includes('visible');
                 hasSubcategoryOrderField = columns.includes('subcategory_order');
                 hasFeaturedField = columns.includes('featured');
+                hasPriceRangeField = columns.includes('price_from') && columns.includes('price_to');
             } catch (e) {
                 console.log('⚠️ Erro ao verificar colunas, usando versão compatível');
             }
@@ -2391,6 +2457,9 @@ module.exports = (pool) => {
             }
             if (hasFeaturedField) {
                 groupByFields.push('mi.featured');
+            }
+            if (hasPriceRangeField) {
+                groupByFields.push('mi.price_from', 'mi.price_to');
             }
             if (hasSubcategoryOrderField) {
                 groupByFields.push('mi.subcategory_order');
@@ -2447,6 +2516,7 @@ module.exports = (pool) => {
                     ${sealsSelect}
                     ${visibleSelect}
                     ${hasFeaturedField ? 'COALESCE(mi.featured, false) AS featured,' : 'false AS featured,'}
+                    ${hasPriceRangeField ? 'mi.price_from AS "priceFrom", mi.price_to AS "priceTo",' : 'NULL::numeric AS "priceFrom", NULL::numeric AS "priceTo",'}
                     ${hasSubcategoryOrderField ? 'mi.subcategory_order AS "subcategoryOrder",' : 'NULL::int AS "subcategoryOrder",'}
                     string_agg(
                         t.id::text || ':' || t.name || ':' || t.price::text, 
@@ -2511,6 +2581,8 @@ module.exports = (pool) => {
                     seals,
                     isPriceOnRequest: isPriceOnRequest,
                     featured: isFeaturedFlag(item.featured),
+                    priceFrom: normalizeOptionalPrice(item.priceFrom),
+                    priceTo: normalizeOptionalPrice(item.priceTo),
                 };
             });
 
@@ -2617,8 +2689,22 @@ module.exports = (pool) => {
                 imageUrl,
                 toppings: toppingsResult.rows,
                 seals,
-                isPriceOnRequest: isPriceOnRequest
+                isPriceOnRequest: isPriceOnRequest,
+                priceFrom: null,
+                priceTo: null,
             };
+
+            try {
+                await ensureMenuItemPriceRangeColumns(pool);
+                const rangeResult = await pool.query(
+                    'SELECT price_from AS "priceFrom", price_to AS "priceTo" FROM menu_items WHERE id = $1',
+                    [id],
+                );
+                normalizedItem.priceFrom = normalizeOptionalPrice(rangeResult.rows[0]?.priceFrom);
+                normalizedItem.priceTo = normalizeOptionalPrice(rangeResult.rows[0]?.priceTo);
+            } catch (rangeError) {
+                console.warn('⚠️ Faixa de preço do item:', rangeError.message);
+            }
             
             res.json(normalizedItem);
         } catch (error) {
@@ -2645,6 +2731,11 @@ module.exports = (pool) => {
         if (!(await assertBarInActorScope(req, res, currentBarId))) return;
         if (barId != null && !(await assertBarInActorScope(req, res, barId))) return;
 
+        try {
+            await ensureMenuItemPriceRangeColumns(pool);
+        } catch (error) {
+            console.warn('⚠️ Faixa de preço do cardápio:', error.message);
+        }
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -2690,6 +2781,7 @@ module.exports = (pool) => {
             }
 
             await saveMenuItemFeatured(client, id, req.body.featured);
+            await saveMenuItemPriceRange(client, id, req.body);
             
             await client.query('DELETE FROM item_toppings WHERE item_id = $1', [id]);
             

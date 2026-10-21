@@ -100,5 +100,13 @@ test('mudança de preço e item na lixeira contam como alteração e exclusão',
   assert.equal(diff.changedItems[0].name, 'Gin');
   assert.equal(diff.changedItems[0].changes[0].label, 'Preço');
   assert.equal(diff.changedItems[0].changes[0].to, 40);
+  const rangeBefore = snapshot();
+  const rangeCurrent = snapshot();
+  rangeCurrent.items = [{ ...rangeCurrent.items[0], priceFrom: 900, priceTo: 1200 }];
+  const rangeDiff = buildMenuDiff(rangeBefore, rangeCurrent);
+  assert.deepEqual(
+    rangeDiff.changedItems[0].changes.map((change) => change.label),
+    ['Preço De', 'Preço Por'],
+  );
   assert.deepEqual(diff.missingItems.map((item) => item.name), ['Whisky']);
 });
