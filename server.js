@@ -320,6 +320,8 @@ app.use('/api/executive-events', executiveEventsRoutes(pool));
 app.use('/api/establishment-permissions', establishmentPermissionsRoutes(pool));
 // Justino360 — operação Seu Justino (concepção Isa)
 app.use('/api/justino360', require('./routes/justino360')(pool));
+// BI Seu Justino — cópia das leituras externas. Não altera o painel do Renato.
+app.use('/api/bi', require('./routes/biJustinoSync')(pool));
 // Ideia RH — people ops Grupo Ideia Um
 app.use('/api/rh-ideia', require('./routes/rhIdeia')(pool));
 // Staff Agent (xAI/Grok + tools — feature flag por casa; WhatsApp permanece OpenAI)

@@ -1,0 +1,83 @@
+const express = require('express');
+const { superAdminRouter } = require('../middleware/requireSuperAdmin');
+const { listSources, findSource } = require('../services/biJustino/sourceCatalog');
+const { readAction } = require('../services/biJustino/appsScriptClient');
+const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
+
+module.exports = (pool) => {
+  const router = superAdminRouter(express.Router());
+
+  router.get('/justino/fontes', async (req, res) => {
+    try {
+      const fontes = await Promise.all(listSources(process.env).map(async (source) => {
+        const last = await latestSnapshot(pool, source.id).catch(() => null);
+        return {
+          ...source,
+          ultimaCopia: last ? {
+            id: last.id,
+            capturedAt: last.captured_at,
+            bytes: Number(last.bytes) || 0,
+          } : null,
+        };
+      }));
+      return res.json({ ok: true, establishment: 'Seu Justino', fontes });
+    } catch (err) {
+      console.error('[bi-justino] falha ao listar fontes', {
+        message: err && err.message ? err.message : String(err),
+      });
+      return res.status(500).json({ ok: false, error: 'falha_ao_listar_fontes' });
+    }
+  });
+
+  router.post('/justino/coletar', async (req, res) => {
+    const sourceId = req.body && req.body.source ? String(req.body.source) : 'faturamento_zig';
+    const source = findSource(sourceId);
+    if (!source) {
+      return res.status(400).json({ ok: false, error: 'fonte_desconhecida' });
+    }
+    if (!source.coletavel || !source.action) {
+      return res.status(409).json({
+        ok: false,
+        error: 'fonte_ainda_nao_coletavel',
+        source: source.id,
+      });
+    }
+
+    try {
+      const payload = await readAction(source.action, process.env);
+      const saved = await saveSnapshot(pool, {
+        source: source.id,
+        action: source.action,
+        payload,
+      });
+      console.log('[bi-justino] copia gravada', {
+        establishment: 'Seu Justino',
+        source: source.id,
+        action: source.action,
+        snapshot_id: saved.id,
+      });
+      return res.json({
+        ok: true,
+        source: source.id,
+        action: source.action,
+        snapshotId: saved.id,
+        capturedAt: saved.captured_at,
+      });
+    } catch (err) {
+      const code = err && err.code ? err.code : 'falha_na_coleta';
+      const status = code === 'credenciais_ausentes' ? 503 : 502;
+      console.error('[bi-justino] falha na coleta', {
+        establishment: 'Seu Justino',
+        source: source.id,
+        code,
+      });
+      return res.status(status).json({
+        ok: false,
+        error: code,
+        missing: err && err.missing ? err.missing : undefined,
+      });
+    }
+  });
+
+  return router;
+};
