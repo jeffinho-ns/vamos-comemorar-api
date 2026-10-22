@@ -14,7 +14,8 @@ module.exports = {
         "https://agilizaiapp.com.br",
         "https://www.agilizaiapp.com.br",
         'https://grupoideiaum.com.br',
-        'https://www.grupoideiaum.com.br'
+        'https://www.grupoideiaum.com.br',
+        'https://bi.agilizaiapp.com.br'
       ],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
