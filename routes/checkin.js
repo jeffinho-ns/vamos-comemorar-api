@@ -6,6 +6,7 @@ const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const requirePermission = require('../tenancy/requirePermission');
 const { getRooftopFlowRoomFromGuestList, emitRooftopQueueRefresh } = require('../utils/rooftopFlowSocket');
+const { emitBiLiveChanged } = require('../utils/biLiveRealtime');
 
 // Função auxiliar para verificar e notificar sobre brindes
 async function verificarBrindes(reservaId, db, io) {
@@ -109,6 +110,7 @@ module.exports = (db) => {
                         const room = await getRooftopFlowRoomFromGuestList(db, g.guest_list_id);
                         if (room) emitRooftopQueueRefresh(io, room.establishment_id, room.flow_date);
                     }
+                    emitBiLiveChanged('checkin_convidado');
                     return res.status(200).json({
                         message: 'Check-in realizado com sucesso!',
                         convidado: g.name
@@ -161,6 +163,7 @@ module.exports = (db) => {
 
             // 4. ✨ A MÁGICA DO SOCKET.IO ✨
             // Notifica o app do promoter/aniversariante E o dashboard em tempo real
+            emitBiLiveChanged('checkin_convidado');
             io.to(`reserva_${convidado.reserva_id}`).emit('convidado_checkin', {
                 convidadoId: convidado.id,
                 nome: convidado.nome,

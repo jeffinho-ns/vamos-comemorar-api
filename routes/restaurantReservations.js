@@ -34,6 +34,7 @@ const {
   checkAreaCapacity,
   isConfirmingStatus,
 } = require('../services/areaCapacityCheck');
+const { emitBiLiveChanged } = require('../utils/biLiveRealtime');
 
 module.exports = (pool) => {
   // SaaS multi-tenant: identifica o usuário se houver token e OBSERVA acesso por tenant.
@@ -1766,6 +1767,7 @@ module.exports = (pool) => {
         responseBody.has_guest_list = true;
       }
 
+      emitBiLiveChanged('reserva_criada');
       res.status(201).json(responseBody);
 
     } catch (error) {
@@ -2185,6 +2187,7 @@ module.exports = (pool) => {
         }
       }
 
+      emitBiLiveChanged('reserva_alterada');
       res.json({
         success: true,
         message: 'Reserva atualizada com sucesso',
@@ -2687,6 +2690,7 @@ module.exports = (pool) => {
       );
 
       console.log(`✅ Check-in da reserva confirmado: ${reservation.client_name} (ID: ${reservationId})`);
+      emitBiLiveChanged('checkin_reserva');
 
       const io = req.app.get('socketio');
       if (io && reservation.establishment_id != null && reservation.reservation_date) {
@@ -2830,6 +2834,7 @@ module.exports = (pool) => {
       }
 
       console.log(`✅ Check-out da reserva confirmado: ${reservation.client_name} (ID: ${reservationId})`);
+      emitBiLiveChanged('checkout_reserva');
 
       res.json({
         success: true,

@@ -3,6 +3,8 @@ const { superAdminRouter } = require('../middleware/requireSuperAdmin');
 const { listSources, findSource } = require('../services/biJustino/sourceCatalog');
 const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
+const { listDataMap } = require('../services/biJustino/dataMap');
+const { loadLiveFacts } = require('../services/biJustino/liveFacts');
 
 module.exports = (pool) => {
   const router = superAdminRouter(express.Router());
@@ -76,6 +78,32 @@ module.exports = (pool) => {
         error: code,
         missing: err && err.missing ? err.missing : undefined,
       });
+    }
+  });
+
+  router.get('/justino/ao-vivo', async (req, res) => {
+    try {
+      const live = await loadLiveFacts(pool);
+      delete live.placeIds;
+      const mapa = listDataMap();
+      console.log('[bi-justino] leitura ao vivo', {
+        establishment: 'Seu Justino',
+        reservas: live.hoje.reservas,
+        pessoas: live.hoje.pessoas,
+        checkins: live.hoje.checkins,
+      });
+      return res.json({
+        ok: true,
+        updatedAt: new Date().toISOString(),
+        ...live,
+        mapa,
+      });
+    } catch (err) {
+      console.error('[bi-justino] falha na leitura ao vivo', {
+        establishment: 'Seu Justino',
+        message: err && err.message ? err.message : String(err),
+      });
+      return res.status(500).json({ ok: false, error: 'falha_na_leitura' });
     }
   });
 

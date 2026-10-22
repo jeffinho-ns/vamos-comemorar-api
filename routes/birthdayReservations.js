@@ -9,6 +9,7 @@ const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const { establishmentScopeClause } = require('../tenancy/queryScope');
 const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
+const { emitBiLiveChanged } = require('../utils/biLiveRealtime');
 
 module.exports = (pool) => {
   router.use(optionalAuth);
@@ -678,6 +679,7 @@ module.exports = (pool) => {
         console.error('❌ Erro ao enviar emails (não crítico):', emailError);
       }
 
+      emitBiLiveChanged('reserva_aniversario');
       res.status(201).json({
         message: 'Reserva de aniversário criada com sucesso!',
         id: birthdayReservationId,

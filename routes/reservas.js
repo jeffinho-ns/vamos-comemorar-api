@@ -8,6 +8,7 @@ const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const { resolveOrganizationIdForUser, resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+const { emitBiLiveChanged } = require('../utils/biLiveRealtime');
 // A função qrcode não é usada diretamente neste arquivo, pode ser removida se não for usada para geração de QR aqui
 // const qrcode = require('qrcode');
 
@@ -751,6 +752,7 @@ router.post('/camarote', auth, async (req, res) => {
             [reservaCamaroteId]
         );
         
+        if (syncOk) emitBiLiveChanged('reserva_camarote');
         res.status(201).json({ 
             success: true,
             message: syncOk ? 'Reserva de camarote criada com sucesso! Aparece no calendário e na lista de convidados.' : 'Reserva de camarote criada! O camarote está travado. (Calendário/lista de convidados não foram sincronizados.)',
@@ -965,6 +967,7 @@ router.put('/camarote/:id_reserva_camarote', auth, async (req, res) => {
         );
 
         console.log('✅ Atualização realizada com sucesso!');
+        emitBiLiveChanged('reserva_camarote_alterada');
         res.status(200).json({ 
             success: true,
             message: 'Reserva de camarote atualizada com sucesso!',
@@ -1048,6 +1051,7 @@ router.delete('/camarote/:id_reserva_camarote', auth, async (req, res) => {
 
         await client.query('COMMIT');
         console.log('✅ Reserva de camarote excluída com sucesso.');
+        emitBiLiveChanged('reserva_camarote_excluida');
         res.status(200).json({
             success: true,
             message: 'Reserva de camarote cancelada e excluída com sucesso. O camarote foi liberado.'

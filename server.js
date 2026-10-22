@@ -40,6 +40,11 @@ try {
 } catch (e) {
   console.warn('[osRealtime] attach falhou:', e.message);
 }
+try {
+  require('./utils/biLiveRealtime').attachBiLiveRealtime(io);
+} catch (e) {
+  console.warn('[biLive] attach falhou:', e.message);
+}
 
 /** Render exige porta aberta rápido; rotas pesadas carregam depois do listen. */
 const BIND_HOST = process.env.HOST || config.server.host || '0.0.0.0';
@@ -508,6 +513,10 @@ io.on('connection', (socket) => {
     if (Number.isFinite(establishmentId) && establishmentId > 0) {
       socket.join(`os_est_${establishmentId}`);
     }
+  });
+
+  socket.on('join_bi_justino', () => {
+    socket.join('bi_justino');
   });
 });
 

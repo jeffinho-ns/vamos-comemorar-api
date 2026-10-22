@@ -7,6 +7,7 @@ const tenantMiddleware = require('../tenancy/tenantMiddleware');
 const requireModule = require('../tenancy/requireModule');
 const reservasPermissionMiddleware = require('../tenancy/reservasPermissionMiddleware');
 const establishmentRules = require('../services/establishmentRules');
+const { emitBiLiveChanged } = require('../utils/biLiveRealtime');
 
 module.exports = (pool) => {
   // Segurança consistente com restaurant-areas. Anônimo (formulário público /reservar)
@@ -319,6 +320,7 @@ module.exports = (pool) => {
       }
 
       console.log(`✅ [LIBERAÇÃO MANUAL] ${reservationIds.length} reserva(s) cancelada(s) para mesa ${tableNumber} na data ${date}`);
+      emitBiLiveChanged('mesa_liberada');
 
       res.json({ 
         success: true, 
