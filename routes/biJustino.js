@@ -1,5 +1,7 @@
 // BI Seu Justino — agregados de reserva. Não grava planilha nesta versão.
 const express = require('express');
+const authenticateToken = require('../middleware/auth');
+const { canOpenBiJustino, profileFor, signBridgeProof } = require('../services/biJustinoAccess');
 
 const CREATE_SNAPSHOTS_TABLE = `
   CREATE TABLE IF NOT EXISTS bi_sheet_snapshots (
@@ -114,6 +116,26 @@ module.exports = (pool) => {
 
   router.get('/health', (req, res) => {
     res.json({ ok: true, service: 'bi-justino' });
+  });
+
+  router.get('/justino/acesso', authenticateToken, (req, res) => {
+    const email = req.user && req.user.email;
+    const isSuperAdmin = req.user && req.user.is_super_admin === true;
+    if (!canOpenBiJustino(email, isSuperAdmin)) {
+      return res.status(403).json({ ok: false, error: 'sem_acesso' });
+    }
+    const profile = profileFor(email, isSuperAdmin);
+    if (!profile) {
+      return res.status(403).json({ ok: false, error: 'sem_acesso' });
+    }
+    const proof = signBridgeProof(profile);
+    return res.json({
+      ok: true,
+      email: profile.email,
+      role: profile.role,
+      areas: profile.areas,
+      proof,
+    });
   });
 
   router.get('/justino/resumo', async (req, res) => {
