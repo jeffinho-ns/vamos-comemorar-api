@@ -1,5 +1,7 @@
 const express = require('express');
-const { superAdminRouter } = require('../middleware/requireSuperAdmin');
+const authenticateToken = require('../middleware/auth');
+const { requireSuperAdmin } = require('../middleware/requireSuperAdmin');
+const { canReadBiJustino } = require('../services/biJustino/access');
 const { listSources, findSource } = require('../services/biJustino/sourceCatalog');
 const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
@@ -7,9 +9,10 @@ const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
 
 module.exports = (pool) => {
-  const router = superAdminRouter(express.Router());
+  const router = express.Router();
+  router.use(authenticateToken);
 
-  router.get('/justino/fontes', async (req, res) => {
+  router.get('/justino/fontes', requireSuperAdmin, async (req, res) => {
     try {
       const fontes = await Promise.all(listSources(process.env).map(async (source) => {
         const last = await latestSnapshot(pool, source.id).catch(() => null);
@@ -31,7 +34,7 @@ module.exports = (pool) => {
     }
   });
 
-  router.post('/justino/coletar', async (req, res) => {
+  router.post('/justino/coletar', requireSuperAdmin, async (req, res) => {
     const sourceId = req.body && req.body.source ? String(req.body.source) : 'faturamento_zig';
     const source = findSource(sourceId);
     if (!source) {
@@ -83,6 +86,10 @@ module.exports = (pool) => {
 
   router.get('/justino/ao-vivo', async (req, res) => {
     try {
+      const allowed = await canReadBiJustino(pool, req.user);
+      if (!allowed) {
+        return res.status(403).json({ ok: false, error: 'acesso_negado' });
+      }
       const live = await loadLiveFacts(pool);
       delete live.placeIds;
       const mapa = listDataMap();
