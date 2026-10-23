@@ -48,8 +48,22 @@ async function latestSnapshot(pool, source) {
   return result.rows[0] || null;
 }
 
+async function latestPayload(pool, source) {
+  await ensureTable(pool);
+  const result = await pool.query(
+    `SELECT id, captured_at, payload
+       FROM bi_source_snapshots
+      WHERE source = $1
+      ORDER BY captured_at DESC
+      LIMIT 1`,
+    [source],
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   ensureTable,
   saveSnapshot,
   latestSnapshot,
+  latestPayload,
 };

@@ -7,6 +7,7 @@ const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
+const { loadZigOverview } = require('../services/biJustino/zigOverview');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -90,7 +91,10 @@ module.exports = (pool) => {
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
-      const live = await loadLiveFacts(pool);
+      const [live, zig] = await Promise.all([
+        loadLiveFacts(pool),
+        loadZigOverview(pool, process.env),
+      ]);
       delete live.placeIds;
       const mapa = listDataMap();
       console.log('[bi-justino] leitura ao vivo', {
@@ -98,11 +102,13 @@ module.exports = (pool) => {
         reservas: live.hoje.reservas,
         pessoas: live.hoje.pessoas,
         checkins: live.hoje.checkins,
+        zig: zig && zig.disponivel ? 'ok' : (zig && zig.motivo) || 'ausente',
       });
       return res.json({
         ok: true,
         updatedAt: new Date().toISOString(),
         ...live,
+        zig,
         mapa,
       });
     } catch (err) {
