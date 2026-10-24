@@ -1,5 +1,6 @@
 const { readActions } = require('./appsScriptClient');
 const { summarizeZig } = require('./zigSummary');
+const { montarGrafico } = require('./graficoDiretoria');
 
 const CACHE_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
@@ -92,12 +93,19 @@ function compactBilheteria(payload) {
 }
 
 async function buscarZigPainel(env, fetchImpl) {
-  const [revenue, hourly, bilheteria, ranking, cmv] = await readActions([
+  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas] = await readActions([
     { action: 'getZigRevenue', payload: { limit: 2000 } },
     { action: 'getZigHourly', payload: { days: 14 } },
     { action: 'getZigBilheteria', payload: { limit: 13 } },
     { action: 'getZigItemSalesRanking', payload: { days: 30 } },
     { action: 'getCmvTeoricoParcial', payload: { limit: 8 } },
+    { action: 'getEventos' },
+    { action: 'getEntries', payload: { area: 'marketing', limit: 1 } },
+    { action: 'getEntries', payload: { area: 'financeiro', limit: 1 } },
+    { action: 'getEntries', payload: { area: 'rh', limit: 1 } },
+    { action: 'getEntries', payload: { area: 'operacao', limit: 1 } },
+    { action: 'getEntries', payload: { area: 'cmv', limit: 1 } },
+    { action: 'getFreelancerRequests' },
   ], env, fetchImpl);
 
   if (!revenue || !Array.isArray(revenue.docs)) {
@@ -106,8 +114,17 @@ async function buscarZigPainel(env, fetchImpl) {
     throw error;
   }
 
+  const grafico = montarGrafico({
+    docs: revenue.docs,
+    eventos: eventos && Array.isArray(eventos.items) ? eventos.items : [],
+    entradas: { marketing, financeiro, rh, operacao, cmv: cmvArea },
+    freelancers: freelas && Array.isArray(freelas.items) ? freelas.items : [],
+    now: new Date(),
+  });
+
   return {
     ...summarizeZig(revenue.docs, new Date()),
+    ...grafico,
     atualizadoEm: new Date().toISOString(),
     horario: compactHorario(hourly),
     bilheteria: compactBilheteria(bilheteria),

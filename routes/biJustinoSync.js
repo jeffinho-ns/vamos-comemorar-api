@@ -104,6 +104,7 @@ module.exports = (pool) => {
         ...overview,
         serieMes: serie.serieMes || [],
         serieAno: serie.serieAno || [],
+        custos: serie.custos || [],
         horario: serie.horario || null,
         bilheteria: serie.bilheteria || [],
         ranking: serie.ranking || null,
