@@ -35,7 +35,7 @@ async function postAction(url, body, fetchImpl) {
   }
 }
 
-async function readAction(action, env, fetchImpl) {
+async function openScript(env, fetchImpl) {
   const missing = missingCredentialNames(env);
   if (missing.length) {
     const error = new Error('credenciais_ausentes');
@@ -57,9 +57,15 @@ async function readAction(action, env, fetchImpl) {
     throw error;
   }
 
-  const data = await postAction(config.url, {
+  return { url: config.url, token: login.token };
+}
+
+async function readAction(action, env, fetchImpl, payload) {
+  const session = await openScript(env, fetchImpl);
+  const data = await postAction(session.url, {
     action,
-    token: login.token,
+    token: session.token,
+    ...(payload || {}),
   }, fetchImpl);
 
   if (!data || data.ok === false) {
@@ -71,8 +77,27 @@ async function readAction(action, env, fetchImpl) {
   return data;
 }
 
+async function readActions(calls, env, fetchImpl) {
+  const session = await openScript(env, fetchImpl);
+  const saida = [];
+  for (const call of calls) {
+    try {
+      const data = await postAction(session.url, {
+        action: call.action,
+        token: session.token,
+        ...(call.payload || {}),
+      }, fetchImpl);
+      saida.push(data && data.ok !== false ? data : null);
+    } catch (error) {
+      saida.push(null);
+    }
+  }
+  return saida;
+}
+
 module.exports = {
   scriptConfig,
   missingCredentialNames,
   readAction,
+  readActions,
 };
