@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { shapeZig, loadZigOverview } = require('../../services/biJustino/zigOverview');
+const { shapeZig, loadZigOverview, collectZigSnapshot, scheduleZigSync, resetZigSync } = require('../../services/biJustino/zigOverview');
 
 test('a visão da Zig só devolve os números, sem o restante do payload', () => {
   const shaped = shapeZig({
@@ -41,14 +41,54 @@ test('sem login do painel, não chama a planilha e não inventa número', async 
   assert.equal(zig.motivo, 'credenciais_ausentes');
 });
 
-test('com login e cópia velha, busca de novo e grava só o resumo na resposta', async () => {
-  let gravou = null;
+test('a página lê a cópia do banco e não chama a planilha', async () => {
+  let chamou = false;
   const zig = await loadZigOverview(null, {
     BI_APPS_SCRIPT_EMAIL: 'robo@seujustino.local',
     BI_APPS_SCRIPT_PASSWORD: 'segredo',
   }, {
-    now: () => Date.parse('2026-10-23T15:00:00.000Z'),
-    freshMs: 1000,
+    readAction: async () => {
+      chamou = true;
+      return { monthRevenue: 999 };
+    },
+    store: {
+      latestPayload: async () => ({
+        captured_at: '2026-10-23T14:00:00.000Z',
+        payload: { monthKey: '2026-10', monthRevenue: 1, monthRevenueZig: 1, serieMes: [{ dia: '2026-10-01', zig: 1, eventos: 0 }] },
+      }),
+    },
+  });
+  assert.equal(chamou, false);
+  assert.equal(zig.disponivel, true);
+  assert.equal(zig.faturamentoMes, 1);
+  assert.equal(zig.serieMes.length, 1);
+  assert.equal(JSON.stringify(zig).includes('segredo'), false);
+});
+
+test('a coleta grava no banco antes de a página poder ler o número novo', async () => {
+  resetZigSync();
+  let gravou = null;
+  const env = {
+    BI_APPS_SCRIPT_EMAIL: 'robo@seujustino.local',
+    BI_APPS_SCRIPT_PASSWORD: 'segredo',
+  };
+  const store = {
+    latestPayload: async () => ({
+      captured_at: '2026-10-23T14:00:00.000Z',
+      payload: { monthRevenue: 1 },
+    }),
+    saveSnapshot: async (_pool, body) => {
+      gravou = body;
+      return { captured_at: '2026-10-23T15:00:00.000Z' };
+    },
+  };
+  const lidoAntes = await loadZigOverview(null, env, { store });
+  assert.equal(lidoAntes.faturamentoMes, 1);
+  assert.equal(lidoAntes.serieMes.length, 0);
+
+  const gravado = await collectZigSnapshot(null, env, {
+    emit: false,
+    store,
     readAction: async () => ({
       monthKey: '2026-10',
       monthRevenueZig: 80,
@@ -56,21 +96,19 @@ test('com login e cópia velha, busca de novo e grava só o resumo na resposta',
       monthRevenueEventos: 10,
       token: 'nao-devolver',
     }),
-    store: {
-      latestPayload: async () => ({
-        captured_at: '2026-10-23T14:00:00.000Z',
-        payload: { monthRevenue: 1 },
-      }),
-      saveSnapshot: async (_pool, body) => {
-        gravou = body;
-        return { captured_at: '2026-10-23T15:00:00.000Z' };
-      },
-    },
+    buscarZigPainel: async () => ({
+      serieMes: [{ dia: '2026-10-21', zig: 80, eventos: 10 }],
+      serieAno: [],
+      custos: [{ label: 'Marketing', valor: 4500 }],
+    }),
   });
+
   assert.equal(gravou.source, 'faturamento_zig');
-  assert.equal(gravou.action, 'getRevenueOverview');
-  assert.equal(zig.zigMes, 80);
-  assert.equal(zig.faturamentoMes, 90);
-  assert.equal(JSON.stringify(zig).includes('segredo'), false);
-  assert.equal(JSON.stringify(zig).includes('nao-devolver'), false);
+  assert.equal(gravou.payload.monthRevenue, 90);
+  assert.equal(gravou.payload.serieMes[0].zig, 80);
+  assert.equal(gravado.faturamentoMes, 90);
+  assert.equal(gravado.serieMes[0].eventos, 10);
+  assert.equal(JSON.stringify(gravado).includes('segredo'), false);
+  assert.equal(JSON.stringify(gravado).includes('nao-devolver'), false);
+  assert.equal(typeof scheduleZigSync, 'function');
 });

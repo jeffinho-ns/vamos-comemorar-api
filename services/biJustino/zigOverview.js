@@ -1,6 +1,8 @@
 'use strict';
 
 const { missingCredentialNames, readAction } = require('./appsScriptClient');
+const { buscarZigPainel } = require('./zigPainel');
+const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
 
 const SOURCE = 'faturamento_zig';
@@ -76,49 +78,139 @@ function estourar(promise, ms) {
   });
 }
 
-async function coletar(pool, env, ler, store) {
-  const payload = await estourar(ler(ACTION, env), TIMEOUT_MS);
+function displayFrom(row) {
+  const payload = row && row.payload ? row.payload : {};
+  return {
+    ...shapeZig(payload, row && row.captured_at),
+    serieMes: Array.isArray(payload.serieMes) ? payload.serieMes : [],
+    serieAno: Array.isArray(payload.serieAno) ? payload.serieAno : [],
+    custos: Array.isArray(payload.custos) ? payload.custos : [],
+    horario: payload.horario || null,
+    bilheteria: Array.isArray(payload.bilheteria) ? payload.bilheteria : [],
+    ranking: payload.ranking || null,
+    cmvZig: Array.isArray(payload.cmvZig) ? payload.cmvZig : [],
+    zigCarregando: false,
+  };
+}
+
+function resumoDaColeta(painel) {
+  if (!painel || !painel.mes) return null;
+  const eventosMes = (painel.serieMes || []).reduce((total, ponto) => total + (Number(ponto.eventos) || 0), 0);
+  return {
+    monthKey: painel.mes.chave,
+    monthRevenueZig: painel.mes.faturamento,
+    monthRevenueEventos: eventosMes,
+    monthRevenue: (Number(painel.mes.faturamento) || 0) + eventosMes,
+    yearAvgMonthly: painel.mes.mediaMensal,
+    lastYearSameMonth: painel.mes.mesmoMesAnoAnterior,
+    weekActual: painel.semana && painel.semana.faturamento,
+    weekActualLastYear: painel.semana && painel.semana.faturamentoAnoAnterior,
+    weekStart: painel.semana && painel.semana.inicio,
+    weekEnd: painel.semana && painel.semana.fim,
+    weekIsPrevious: Boolean(painel.semana && painel.semana.anterior),
+    ticketSemana: painel.tickets && painel.tickets.semana,
+    ticketMes: painel.tickets && painel.tickets.mes,
+    ticketAno: painel.tickets && painel.tickets.ano,
+  };
+}
+
+function copiaCompleta(row) {
+  const payload = row && row.payload;
+  return Boolean(payload && Array.isArray(payload.serieMes) && payload.serieMes.length);
+}
+
+async function loadZigOverview(pool, env, deps) {
+  const options = deps || {};
+  const store = options.store || snapshotStore;
+  const sourceEnv = env || process.env;
+  const last = await store.latestPayload(pool, SOURCE).catch(() => null);
+  if (last) return displayFrom(last);
+  if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
+  return ausente('aguardando_coleta');
+}
+
+async function collectZigSnapshot(pool, env, deps) {
+  const options = deps || {};
+  const ler = options.readAction || readAction;
+  const buscar = options.buscarZigPainel || buscarZigPainel;
+  const store = options.store || snapshotStore;
+  const sourceEnv = env || process.env;
+  if (missingCredentialNames(sourceEnv).length) {
+    const error = new Error('credenciais_ausentes');
+    error.code = 'credenciais_ausentes';
+    throw error;
+  }
+
+  let overview = null;
+  let painel = null;
+  try {
+    overview = await estourar(ler(ACTION, sourceEnv), TIMEOUT_MS);
+  } catch (error) {
+    overview = null;
+  }
+  try {
+    painel = await buscar(sourceEnv);
+  } catch (error) {
+    painel = null;
+  }
+  const base = overview && typeof overview === 'object' ? overview : resumoDaColeta(painel);
+  if (!base && !painel) {
+    const error = new Error('falha_na_coleta');
+    error.code = 'falha_na_coleta';
+    throw error;
+  }
+
+  const payload = {
+    ...(base || {}),
+    serieMes: painel && Array.isArray(painel.serieMes) ? painel.serieMes : [],
+    serieAno: painel && Array.isArray(painel.serieAno) ? painel.serieAno : [],
+    custos: painel && Array.isArray(painel.custos) ? painel.custos : [],
+    horario: painel ? painel.horario : null,
+    bilheteria: painel && Array.isArray(painel.bilheteria) ? painel.bilheteria : [],
+    ranking: painel ? painel.ranking : null,
+    cmvZig: painel && Array.isArray(painel.cmv) ? painel.cmv : [],
+  };
   const saved = await store.saveSnapshot(pool, {
     source: SOURCE,
     action: ACTION,
     payload,
   });
-  return shapeZig(payload, saved && saved.captured_at);
+  if (options.emit !== false) emitBiLiveChanged('zig');
+  return displayFrom({ payload, captured_at: saved && saved.captured_at });
 }
 
-async function loadZigOverview(pool, env, deps) {
+function scheduleZigSync(pool, env, deps) {
+  const sourceEnv = env || process.env;
+  if (missingCredentialNames(sourceEnv).length) return;
+  if (emAndamento) return;
   const options = deps || {};
-  const ler = options.readAction || readAction;
   const store = options.store || snapshotStore;
   const agora = options.now ? options.now() : Date.now();
   const freshMs = options.freshMs || FRESH_MS;
-  const sourceEnv = env || process.env;
+  emAndamento = (async () => {
+    try {
+      const last = await store.latestPayload(pool, SOURCE).catch(() => null);
+      if (copiaCompleta(last) && fresco(last, agora, freshMs)) return null;
+      return await collectZigSnapshot(pool, sourceEnv, options);
+    } catch (error) {
+      console.error('[bi-justino] falha ao gravar a Zig no banco', {
+        code: error && error.code ? error.code : 'falha_na_coleta',
+      });
+      return null;
+    }
+  })().finally(() => {
+    emAndamento = null;
+  });
+}
 
-  const last = await store.latestPayload(pool, SOURCE).catch(() => null);
-  if (fresco(last, agora, freshMs)) {
-    return shapeZig(last.payload, last.captured_at);
-  }
-
-  if (missingCredentialNames(sourceEnv).length) {
-    if (last) return shapeZig(last.payload, last.captured_at);
-    return ausente('credenciais_ausentes');
-  }
-
-  if (!emAndamento) {
-    emAndamento = coletar(pool, sourceEnv, ler, store).finally(() => {
-      emAndamento = null;
-    });
-  }
-
-  try {
-    return await emAndamento;
-  } catch (err) {
-    if (last) return shapeZig(last.payload, last.captured_at);
-    return ausente(err && err.code ? err.code : 'falha_na_coleta');
-  }
+function resetZigSync() {
+  emAndamento = null;
 }
 
 module.exports = {
   shapeZig,
   loadZigOverview,
+  collectZigSnapshot,
+  scheduleZigSync,
+  resetZigSync,
 };

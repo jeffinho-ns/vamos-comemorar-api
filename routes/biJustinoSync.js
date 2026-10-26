@@ -7,8 +7,7 @@ const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
-const { loadZigOverview } = require('../services/biJustino/zigOverview');
-const { peekZigPainel, warmZigPainel } = require('../services/biJustino/zigPainel');
+const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigOverview');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -92,25 +91,12 @@ module.exports = (pool) => {
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
-      const [live, overview] = await Promise.all([
+      const [live, zig] = await Promise.all([
         loadLiveFacts(pool),
         loadZigOverview(pool, process.env),
       ]);
       delete live.placeIds;
-      warmZigPainel(process.env);
-      const extra = peekZigPainel();
-      const serie = extra.value || {};
-      const zig = {
-        ...overview,
-        serieMes: serie.serieMes || [],
-        serieAno: serie.serieAno || [],
-        custos: serie.custos || [],
-        horario: serie.horario || null,
-        bilheteria: serie.bilheteria || [],
-        ranking: serie.ranking || null,
-        cmvZig: serie.cmv || [],
-        zigCarregando: extra.carregando,
-      };
+      scheduleZigSync(pool, process.env);
       const mapa = listDataMap();
       console.log('[bi-justino] leitura ao vivo', {
         establishment: 'Seu Justino',
