@@ -119,24 +119,18 @@ module.exports = (pool) => {
         }
         const priceFrom = hasFrom ? parseStoredMenuPrice(body.priceFrom) : undefined;
         const priceTo = hasTo ? parseStoredMenuPrice(body.priceTo) : undefined;
-        const writePriceRange = async (sql, params) => {
-            const result = await client.query(sql, params);
-            if (result.rowCount === 0) {
-                throw new Error('Não foi possível gravar Preço De e Preço Por deste item.');
-            }
-        };
         if (hasFrom && hasTo) {
-            await writePriceRange(
+            await client.query(
                 'UPDATE menu_items SET price_from = $1, price_to = $2 WHERE id = $3',
                 [priceFrom, priceTo, itemId],
             );
             return;
         }
         if (hasFrom) {
-            await writePriceRange('UPDATE menu_items SET price_from = $1 WHERE id = $2', [priceFrom, itemId]);
+            await client.query('UPDATE menu_items SET price_from = $1 WHERE id = $2', [priceFrom, itemId]);
             return;
         }
-        await writePriceRange('UPDATE menu_items SET price_to = $1 WHERE id = $2', [priceTo, itemId]);
+        await client.query('UPDATE menu_items SET price_to = $1 WHERE id = $2', [priceTo, itemId]);
     }
 
     async function menuItemsHaveFeaturedColumn(db) {
@@ -2753,6 +2747,13 @@ module.exports = (pool) => {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
+            if (req.tenant?.isAdmin) {
+                await client.query(`SELECT set_config('app.bypass_rls', 'on', true)`);
+            } else if (req.tenant?.primaryOrganizationId != null) {
+                await client.query(`SELECT set_config('app.current_org', $1, true)`, [
+                    String(req.tenant.primaryOrganizationId),
+                ]);
+            }
 
             const effectiveBarId = barId != null ? barId : currentBarId;
             const organizationId = await resolveOrganizationIdForBar(
@@ -2760,7 +2761,10 @@ module.exports = (pool) => {
                 effectiveBarId,
                 req.tenant?.primaryOrganizationId,
             );
-            if (organizationId != null) {
+            const sameOrg =
+                organizationId != null &&
+                String(organizationId) === String(req.tenant?.primaryOrganizationId);
+            if (organizationId != null && (req.tenant?.isAdmin || sameOrg || req.tenant?.primaryOrganizationId == null)) {
                 await client.query(`SELECT set_config('app.current_org', $1, true)`, [
                     String(organizationId),
                 ]);
@@ -2776,6 +2780,7 @@ module.exports = (pool) => {
             // Tentar sempre usar o campo seals, se falhar, usar versão sem seals
             let hasSealsField = false;
 
+            await client.query('SAVEPOINT item_seals');
             try {
                 // Tentar com seals primeiro
                 const sealsJson = seals && Array.isArray(seals) ? JSON.stringify(seals) : null;
@@ -2783,11 +2788,13 @@ module.exports = (pool) => {
                 const values = [name, description, price, imageUrl, categoryId, effectiveBarId, subCategory || null, order, sealsJson, id];
                 
                 await client.query(query, values);
+                await client.query('RELEASE SAVEPOINT item_seals');
                 hasSealsField = true;
                 console.log('✅ Item atualizado com selos');
             } catch (e) {
+                await client.query('ROLLBACK TO SAVEPOINT item_seals');
                 // Se falhar, usar versão sem seals
-                console.log('⚠️ Campo seals não disponível, atualizando item sem selos');
+                console.log('⚠️ Campo seals não disponível, atualizando item sem selos:', e.message);
                 const query = 'UPDATE menu_items SET name = $1, description = $2, price = $3, imageUrl = $4, categoryId = $5, barId = $6, subCategory = $7, "order" = $8 WHERE id = $9';
                 const values = [name, description, price, imageUrl, categoryId, effectiveBarId, subCategory || null, order, id];
                 
