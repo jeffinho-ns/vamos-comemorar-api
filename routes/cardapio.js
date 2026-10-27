@@ -83,8 +83,19 @@ module.exports = (pool) => {
     }
 
     function parseStoredMenuPrice(value) {
-        const amount = normalizeOptionalPrice(value);
-        if (amount === null || amount <= 0) return null;
+        if (value === undefined || value === null || value === '') return null;
+        if (typeof value === 'number') {
+            return Number.isFinite(value) && value > 0 ? value : null;
+        }
+        let text = String(value).trim().replace(/\s/g, '').replace(/^R\$\s?/i, '');
+        if (!text) return null;
+        if (text.includes(',') && text.includes('.')) {
+            text = text.replace(/\./g, '').replace(',', '.');
+        } else if (text.includes(',')) {
+            text = text.replace(',', '.');
+        }
+        const amount = parseFloat(text);
+        if (!Number.isFinite(amount) || amount <= 0) return null;
         return amount;
     }
 
@@ -104,27 +115,28 @@ module.exports = (pool) => {
         const hasTo = Object.prototype.hasOwnProperty.call(body, 'priceTo');
         if (!hasFrom && !hasTo) return;
         if (!priceRangeColumnsReady) {
-            try {
-                await ensureMenuItemPriceRangeColumns(client);
-            } catch (error) {
-                console.warn('⚠️ Faixa de preço do item indisponível:', error.message);
-                return;
-            }
+            await ensureMenuItemPriceRangeColumns(client);
         }
         const priceFrom = hasFrom ? parseStoredMenuPrice(body.priceFrom) : undefined;
         const priceTo = hasTo ? parseStoredMenuPrice(body.priceTo) : undefined;
+        const writePriceRange = async (sql, params) => {
+            const result = await client.query(sql, params);
+            if (result.rowCount === 0) {
+                throw new Error('Não foi possível gravar Preço De e Preço Por deste item.');
+            }
+        };
         if (hasFrom && hasTo) {
-            await client.query(
+            await writePriceRange(
                 'UPDATE menu_items SET price_from = $1, price_to = $2 WHERE id = $3',
                 [priceFrom, priceTo, itemId],
             );
             return;
         }
         if (hasFrom) {
-            await client.query('UPDATE menu_items SET price_from = $1 WHERE id = $2', [priceFrom, itemId]);
+            await writePriceRange('UPDATE menu_items SET price_from = $1 WHERE id = $2', [priceFrom, itemId]);
             return;
         }
-        await client.query('UPDATE menu_items SET price_to = $1 WHERE id = $2', [priceTo, itemId]);
+        await writePriceRange('UPDATE menu_items SET price_to = $1 WHERE id = $2', [priceTo, itemId]);
     }
 
     async function menuItemsHaveFeaturedColumn(db) {
@@ -2595,6 +2607,7 @@ module.exports = (pool) => {
             const itemsWithSchedule = applySchedulesToMenuItems(itemsWithToppings, schedules)
                 .filter((item) => !isSubcategoryPlaceholderName(item.name));
 
+            res.set('Cache-Control', 'private, no-store');
             res.json(itemsWithSchedule);
         } catch (error) {
             console.error('Erro ao listar itens:', error);
@@ -2706,6 +2719,7 @@ module.exports = (pool) => {
                 console.warn('⚠️ Faixa de preço do item:', rangeError.message);
             }
             
+            res.set('Cache-Control', 'private, no-store');
             res.json(normalizedItem);
         } catch (error) {
             console.error('Erro ao buscar item:', error);
@@ -2844,7 +2858,15 @@ module.exports = (pool) => {
                 }
             }
 
-            res.json({ message: 'Item atualizado com sucesso.' });
+            res.json({
+                message: 'Item atualizado com sucesso.',
+                priceFrom: Object.prototype.hasOwnProperty.call(req.body, 'priceFrom')
+                    ? parseStoredMenuPrice(req.body.priceFrom)
+                    : undefined,
+                priceTo: Object.prototype.hasOwnProperty.call(req.body, 'priceTo')
+                    ? parseStoredMenuPrice(req.body.priceTo)
+                    : undefined,
+            });
         } catch (error) {
             await client.query('ROLLBACK');
             console.error('Erro ao atualizar item:', error);
