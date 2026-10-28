@@ -8,6 +8,8 @@ const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshot
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
 const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigOverview');
+const { loadDre } = require('../services/biJustino/dreSharepoint');
+const { loadNovidades } = require('../services/biJustino/painelNovidades');
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -91,9 +93,11 @@ module.exports = (pool) => {
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
-      const [live, zig] = await Promise.all([
+      const [live, zig, dre, novidades] = await Promise.all([
         loadLiveFacts(pool),
         loadZigOverview(pool, process.env),
+        loadDre(pool, process.env),
+        loadNovidades(pool, process.env),
       ]);
       delete live.placeIds;
       scheduleZigSync(pool, process.env);
@@ -104,12 +108,16 @@ module.exports = (pool) => {
         pessoas: live.hoje.pessoas,
         checkins: live.hoje.checkins,
         zig: zig && zig.disponivel ? 'ok' : (zig && zig.motivo) || 'ausente',
+        dre: dre && dre.disponivel ? 'ok' : (dre && dre.motivo) || 'ausente',
+        novidades: novidades && novidades.disponivel ? 'ok' : (novidades && novidades.motivo) || 'ausente',
       });
       return res.json({
         ok: true,
         updatedAt: new Date().toISOString(),
         ...live,
         zig,
+        dre,
+        novidades,
         mapa,
       });
     } catch (err) {

@@ -87,6 +87,7 @@ function displayFrom(row) {
     custos: Array.isArray(payload.custos) ? payload.custos : [],
     horario: payload.horario || null,
     bilheteria: Array.isArray(payload.bilheteria) ? payload.bilheteria : [],
+    servicoMes: numero(payload.servicoMes),
     ranking: payload.ranking || null,
     cmvZig: Array.isArray(payload.cmvZig) ? payload.cmvZig : [],
     zigCarregando: false,
@@ -167,6 +168,7 @@ async function collectZigSnapshot(pool, env, deps) {
     custos: painel && Array.isArray(painel.custos) ? painel.custos : [],
     horario: painel ? painel.horario : null,
     bilheteria: painel && Array.isArray(painel.bilheteria) ? painel.bilheteria : [],
+    servicoMes: painel && painel.mes ? painel.mes.servico : null,
     ranking: painel ? painel.ranking : null,
     cmvZig: painel && Array.isArray(painel.cmv) ? painel.cmv : [],
   };
