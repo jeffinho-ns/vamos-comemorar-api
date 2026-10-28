@@ -191,7 +191,13 @@ function painelDeMapa(mapa) {
     ...montarGrafico({
       docs: revenue.docs,
       eventos: eventos && Array.isArray(eventos.items) ? eventos.items : [],
-      entradas: {},
+      entradas: {
+        marketing: fonte['getEntries:marketing'],
+        financeiro: fonte['getEntries:financeiro'],
+        rh: fonte['getEntries:rh'],
+        operacao: fonte['getEntries:operacao'],
+        cmv: fonte['getEntries:cmv'],
+      },
       freelancers: freelas && Array.isArray(freelas.items) ? freelas.items : [],
       now: new Date(),
     }),

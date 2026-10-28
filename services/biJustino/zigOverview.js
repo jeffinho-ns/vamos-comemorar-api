@@ -89,6 +89,9 @@ function projecaoPublica(valor) {
     cmvReal: numero(valor.cmvReal),
     controlaveis: numero(valor.controlaveis),
     estruturais: numero(valor.estruturais),
+    margem: numero(valor.margem),
+    economia: numero(valor.economia),
+    bonusDestravado: numero(valor.bonusDestravado),
     envios: {
       financeiro: texto(envios.financeiro),
       marketing: texto(envios.marketing),

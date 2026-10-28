@@ -85,11 +85,26 @@ function projecaoConsolidada(entrada) {
     + custoFreelancer(fonte.freelancers, mesAtual(fonte.agora));
   const opCost = numeroOu(opV, 'opLoss', 0) + numeroOu(opV, 'opMaintenance', 0);
   const otherOps = Math.max(BASE.otherOps, r * 0.027);
+  const total = pctCosts + cmvCost + mkSpend + financeAbs + rhCost + opCost + otherOps;
+  const margem = r ? ((r - total) / r) * 100 : 0;
+  const saudavel = {
+    mk: Math.max(4500, r * 0.00855) + 4500 + r * 0.08,
+    fn: numeroOu(finV, 'fnRent', BASE.rent) + Math.max(18000, r * 0.03) + r * 0.03 + 28000,
+    rh: r * 0.19,
+    op: r * 0.006 + Math.max(0, numeroOu(opV, 'opMaintenance', 0)),
+    cmv: r * 0.22,
+  };
+  const real = { mk: mkSpend, fn: financeAbs, rh: rhCost, op: opCost, cmv: cmvCost };
+  const economia = Object.keys(real).reduce((soma, chave) => soma + (saudavel[chave] - real[chave]), 0);
+  const bonusDestravado = margem < 8 ? 0 : margem < 10 ? 25 : margem < 12 ? 60 : margem < 15 ? 100 : 125;
   return {
     faturamentoBruto: r,
     cmvReal,
     controlaveis: mkSpend + financeAbs + rhCost + opCost + cmvCost,
     estruturais: pctCosts + otherOps,
+    margem,
+    economia,
+    bonusDestravado,
     envios: {
       financeiro: dataEnvio(fin),
       marketing: dataEnvio(mk),

@@ -9,6 +9,8 @@ test('sem envio das áreas, a projeção usa o faturamento do mês e a referênc
   assert.equal(Math.round(projecao.controlaveis), 329575);
   assert.equal(Math.round(projecao.estruturais), 34247);
   assert.equal(projecao.envios.cmv, null);
+  assert.equal(projecao.bonusDestravado, 0);
+  assert.ok(projecao.margem < 8);
   assert.equal(JSON.stringify(projecao).includes('submittedByName'), false);
 });
 
