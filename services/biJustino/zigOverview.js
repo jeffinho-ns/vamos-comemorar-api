@@ -195,10 +195,9 @@ function scheduleZigSync(pool, env, deps) {
       if (copiaCompleta(last) && fresco(last, agora, freshMs)) return null;
       return await collectZigSnapshot(pool, sourceEnv, options);
     } catch (error) {
-      console.error('[bi-justino] falha ao gravar a Zig no banco', {
-        code: error && error.code ? error.code : 'falha_na_coleta',
-      });
-      return null;
+      const codigo = error && error.code ? error.code : 'falha_na_coleta';
+      console.error('[bi-justino] falha ao gravar a Zig no banco', { code: codigo });
+      return ausente(codigo);
     }
   })().finally(() => {
     emAndamento = null;

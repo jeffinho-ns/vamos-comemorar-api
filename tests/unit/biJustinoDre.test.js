@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mesAlvo, extrairDre, mesesPresentes } = require('../../services/biJustino/dreLeitura');
-const { faltando, loadDre, collectDre } = require('../../services/biJustino/dreSharepoint');
+const { faltando, loadDre, collectDre, formatoDreBase } = require('../../services/biJustino/dreSharepoint');
 
 test('o mês da DRE é o anterior, no fuso de São Paulo', () => {
   const alvo = mesAlvo(new Date('2026-10-28T20:00:00.000Z'));
@@ -137,5 +137,41 @@ test('o coletor grava a DRE nova e a leitura seguinte não busca de novo', async
   });
   assert.equal(buscas, 1);
   assert.equal(deNovo.valores.rent, 20);
+  assert.equal(JSON.stringify(gravado).includes('segredo'), false);
+});
+
+test('sem a Microsoft no Render, a DRE entra pela planilha que o painel já gravou', async () => {
+  let graph = false;
+  const env = {
+    BI_APPS_SCRIPT_EMAIL: 'robo@seujustino.local',
+    BI_APPS_SCRIPT_PASSWORD: 'segredo',
+  };
+  const gravado = await collectDre(null, env, {
+    now: () => Date.parse('2026-10-28T20:00:00.000Z'),
+    freshMs: 1000,
+    emit: false,
+    coletar: async () => {
+      graph = true;
+      return {};
+    },
+    lerPainel: async () => formatoDreBase({
+      values: { rent: '1.250,50', energy: 80 },
+      mesPorCampo: { rent: 'Setembro/26', energy: 'Agosto/26' },
+    }),
+    store: {
+      latestPayload: async () => null,
+      saveSnapshot: async (_pool, body) => {
+        assert.equal(body.source, 'dre_sharepoint');
+        assert.equal(body.payload.valores.rent, 1250.5);
+        assert.equal(body.payload.valores.energy, 80);
+        assert.equal(body.payload.fallbacks.energy, 'Agosto/26');
+        assert.equal(body.payload.fallbacks.rent, undefined);
+        return { captured_at: '2026-10-28T20:00:00.000Z' };
+      },
+    },
+  });
+  assert.equal(graph, false);
+  assert.equal(gravado.disponivel, true);
+  assert.equal(gravado.mes, 'Setembro/26');
   assert.equal(JSON.stringify(gravado).includes('segredo'), false);
 });

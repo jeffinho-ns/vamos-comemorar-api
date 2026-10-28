@@ -7,7 +7,6 @@ const snapshotStore = require('./snapshotStore');
 
 const SOURCE = 'painel_novidades';
 const FRESH_MS = 20 * 60 * 1000;
-const TIMEOUT_MS = 40000;
 let emAndamento = null;
 
 function texto(valor, limite) {
@@ -103,27 +102,32 @@ function resumirCrm(reservas, funil, config) {
   };
 }
 
+function resumirInstagram(payload) {
+  if (!payload || payload.ok === false) return null;
+  const atual = payload.atual || {};
+  const posts = Array.isArray(payload.posts) ? payload.posts : [];
+  const seguidores = numero(atual.followers);
+  const alcance30 = numero(atual.reach30);
+  if (seguidores == null && alcance30 == null && !posts.length) return null;
+  return {
+    seguidores,
+    alcance30,
+    data: texto(atual.date, 20),
+    posts: posts.length,
+  };
+}
+
 function montar(partes) {
-  const [food, delivery, avaliacoes, reservas, funil, config] = partes;
+  const [food, delivery, avaliacoes, reservas, funil, config, instagram] = partes;
   return {
     disponivel: true,
     motivo: null,
     food: resumirFood(food),
     delivery: resumirDelivery(delivery),
     avaliacoes: resumirAvaliacoes(avaliacoes),
+    instagram: resumirInstagram(instagram),
     crm: resumirCrm(reservas, funil, config),
   };
-}
-
-function estourar(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const error = new Error('timeout');
-      error.code = 'timeout';
-      reject(error);
-    }, ms);
-    promise.then((valor) => { clearTimeout(timer); resolve(valor); }, (err) => { clearTimeout(timer); reject(err); });
-  });
 }
 
 function exibir(last) {
@@ -168,15 +172,22 @@ async function collectNovidades(pool, env, deps) {
   }
 
   emAndamento = (async () => {
-    const partes = await estourar(ler([
+    const partes = await ler([
       { action: 'get99Food' },
       { action: 'getZigDelivery', payload: { days: 30 } },
       { action: 'getGoogleAvaliacoes' },
       { action: 'getCrmReservas' },
       { action: 'getCrmFunil' },
       { action: 'getCrmConfig' },
-    ], sourceEnv, options.fetchImpl), TIMEOUT_MS);
+      { action: 'getInstagram' },
+    ], sourceEnv, options.fetchImpl, 18000);
     const lido = montar(partes);
+    const temAlgo = lido.food || (lido.delivery && lido.delivery.length) || lido.avaliacoes || lido.instagram || (lido.crm && (lido.crm.funil || lido.crm.saude || (lido.crm.reservas && lido.crm.reservas.length)));
+    if (!temAlgo) {
+      const error = new Error('falha_na_coleta');
+      error.code = 'falha_na_coleta';
+      throw error;
+    }
     const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'novidades', payload: lido });
     if (options.emit !== false) emitBiLiveChanged('novidades');
     return { ...lido, capturedAt: saved && saved.captured_at };
@@ -185,10 +196,9 @@ async function collectNovidades(pool, env, deps) {
   try {
     return await emAndamento;
   } catch (err) {
-    console.error('[bi-justino] falha ao gravar as fontes do painel no banco', {
-      code: err && err.code ? err.code : 'falha_na_coleta',
-    });
-    return exibir(last);
+    const codigo = err && err.code ? err.code : 'falha_na_coleta';
+    console.error('[bi-justino] falha ao gravar as fontes do painel no banco', { code: codigo });
+    return exibir(last) || ausente(codigo);
   }
 }
 

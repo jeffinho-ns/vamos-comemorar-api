@@ -1,7 +1,8 @@
 'use strict';
 
+const { missingCredentialNames } = require('../services/biJustino/appsScriptClient');
 const { scheduleZigSync } = require('../services/biJustino/zigOverview');
-const { collectDre } = require('../services/biJustino/dreSharepoint');
+const { collectDre, faltando } = require('../services/biJustino/dreSharepoint');
 const { collectNovidades } = require('../services/biJustino/painelNovidades');
 
 const INTERVALO_MS = Number(process.env.BI_JUSTINO_COLETOR_MS || 5 * 60 * 1000);
@@ -13,6 +14,12 @@ let rodando = false;
 async function coletarFontes(pool) {
   if (rodando) return;
   rodando = true;
+  const loginPainel = missingCredentialNames(process.env);
+  console.log('[bi-justino] coleta das planilhas', {
+    establishment: 'Seu Justino',
+    painel: loginPainel.length ? loginPainel.join(',') : 'ok',
+    microsoft: faltando(process.env).length ? 'incompleto' : 'ok',
+  });
   try {
     await Promise.all([
       Promise.resolve(scheduleZigSync(pool, process.env)),

@@ -2,6 +2,7 @@
 
 const snapshotStore = require('./snapshotStore');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
+const { missingCredentialNames, readAction } = require('./appsScriptClient');
 const { numeroCelula, mesAlvo, mesesPresentes, colunaExcel, extrairDre } = require('./dreLeitura');
 
 const SOURCE = 'dre_sharepoint';
@@ -147,6 +148,48 @@ async function coletar(env, fetchImpl) {
   return publico(extraido, null, alvo.key);
 }
 
+function numeroPlanilha(valor) {
+  if (typeof valor === 'number' && Number.isFinite(valor)) return valor;
+  if (typeof valor !== 'string' || !valor.trim()) return null;
+  const limpo = valor.trim();
+  const normal = limpo.includes(',') ? limpo.replace(/\./g, '').replace(',', '.') : limpo;
+  const n = Number(normal);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatoDreBase(data) {
+  const valoresBrutos = data && data.values && typeof data.values === 'object' ? data.values : null;
+  if (!valoresBrutos) return null;
+  const meses = data.mesPorCampo && typeof data.mesPorCampo === 'object' ? data.mesPorCampo : {};
+  const valores = {};
+  Object.keys(valoresBrutos).forEach((campo) => {
+    const n = numeroPlanilha(valoresBrutos[campo]);
+    if (n != null) valores[campo] = n;
+  });
+  if (!Object.keys(valores).length) return null;
+  const referencia = meses.revenue || meses.rent || null;
+  const fallbacks = {};
+  Object.keys(meses).forEach((campo) => {
+    if (meses[campo] && meses[campo] !== referencia) fallbacks[campo] = meses[campo];
+  });
+  return {
+    disponivel: true,
+    motivo: null,
+    mes: referencia,
+    mesKey: null,
+    valores,
+    fallbacks,
+    naoAchados: [],
+  };
+}
+
+async function peloPainel(sourceEnv, options) {
+  if (missingCredentialNames(sourceEnv).length) return null;
+  const ler = options.readAction || readAction;
+  const data = await estourar(ler('getDreBase', sourceEnv, options.fetchImpl), 20000);
+  return formatoDreBase(data);
+}
+
 function exibir(last) {
   if (!last || !last.payload) return null;
   return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
@@ -165,7 +208,9 @@ async function loadDre(pool, env, deps) {
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
   const pronto = exibir(last);
   if (pronto) return pronto;
-  if (faltando(sourceEnv).length) return ausente('credenciais_ausentes');
+  const temPainel = missingCredentialNames(sourceEnv).length === 0;
+  const temMicrosoft = faltando(sourceEnv).length === 0;
+  if (!temPainel && !temMicrosoft) return ausente('credenciais_ausentes');
   return ausente('aguardando_coleta');
 }
 
@@ -175,7 +220,9 @@ async function collectDre(pool, env, deps) {
   const sourceEnv = env || process.env;
   const agora = options.now ? options.now() : Date.now();
   const freshMs = options.freshMs || FRESH_MS;
-  if (faltando(sourceEnv).length) return null;
+  const temPainel = missingCredentialNames(sourceEnv).length === 0;
+  const temMicrosoft = faltando(sourceEnv).length === 0;
+  if (!temPainel && !temMicrosoft) return null;
 
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
   if (fresco(last, agora, freshMs)) return exibir(last);
@@ -184,10 +231,25 @@ async function collectDre(pool, env, deps) {
     return exibir(await store.latestPayload(pool, SOURCE).catch(() => last));
   }
 
-  const ler = options.coletar || (() => coletar(sourceEnv, options.fetchImpl || fetch));
+  const lerGraph = options.coletar || (() => coletar(sourceEnv, options.fetchImpl || fetch));
   emAndamento = (async () => {
-    const lido = await estourar(ler(), TIMEOUT_MS);
-    const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'getDreParaMes', payload: lido });
+    let lido = null;
+    let codigo = 'falha_na_coleta';
+    try {
+      lido = await (options.lerPainel ? options.lerPainel() : peloPainel(sourceEnv, options));
+    } catch (err) {
+      codigo = err && err.code ? err.code : 'falha_na_coleta';
+      console.error('[bi-justino] DRE da planilha do painel', { code: codigo });
+    }
+    if (!lido && !faltando(sourceEnv).length) {
+      lido = await estourar(lerGraph(), TIMEOUT_MS);
+    }
+    if (!lido) {
+      const error = new Error(codigo);
+      error.code = codigo;
+      throw error;
+    }
+    const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'getDreBase', payload: lido });
     if (options.emit !== false) emitBiLiveChanged('dre');
     return { ...lido, capturedAt: saved && saved.captured_at };
   })().finally(() => {
@@ -197,15 +259,15 @@ async function collectDre(pool, env, deps) {
   try {
     return await emAndamento;
   } catch (err) {
-    console.error('[bi-justino] falha ao gravar a DRE no banco', {
-      code: err && err.code ? err.code : 'falha_na_coleta',
-    });
-    return exibir(last);
+    const codigo = err && err.code ? err.code : 'falha_na_coleta';
+    console.error('[bi-justino] falha ao gravar a DRE no banco', { code: codigo });
+    return exibir(last) || ausente(codigo);
   }
 }
 
 module.exports = {
   loadDre,
   collectDre,
+  formatoDreBase,
   faltando,
 };

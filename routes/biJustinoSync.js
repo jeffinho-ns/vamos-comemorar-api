@@ -7,9 +7,27 @@ const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
-const { loadZigOverview } = require('../services/biJustino/zigOverview');
-const { loadDre } = require('../services/biJustino/dreSharepoint');
-const { loadNovidades } = require('../services/biJustino/painelNovidades');
+const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigOverview');
+const { loadDre, collectDre } = require('../services/biJustino/dreSharepoint');
+const { loadNovidades, collectNovidades } = require('../services/biJustino/painelNovidades');
+
+const ESPERA_VAZIO_MS = 35000;
+
+async function garantirCopia(ler, coletar) {
+  const atual = await ler();
+  if (atual && atual.disponivel) return atual;
+  if (!atual || atual.motivo === 'credenciais_ausentes') return atual;
+  const pendente = Promise.resolve(coletar()).catch(() => null);
+  const noPrazo = await Promise.race([
+    pendente,
+    new Promise((resolve) => setTimeout(() => resolve('prazo'), ESPERA_VAZIO_MS)),
+  ]);
+  if (noPrazo && noPrazo !== 'prazo' && noPrazo.disponivel) return noPrazo;
+  const deNovo = await ler();
+  if (deNovo && deNovo.disponivel) return deNovo;
+  if (noPrazo && noPrazo !== 'prazo' && noPrazo.motivo) return noPrazo;
+  return deNovo || atual;
+}
 
 module.exports = (pool) => {
   const router = express.Router();
@@ -95,9 +113,18 @@ module.exports = (pool) => {
       }
       const [live, zig, dre, novidades] = await Promise.all([
         loadLiveFacts(pool),
-        loadZigOverview(pool, process.env),
-        loadDre(pool, process.env),
-        loadNovidades(pool, process.env),
+        garantirCopia(
+          () => loadZigOverview(pool, process.env),
+          () => scheduleZigSync(pool, process.env),
+        ),
+        garantirCopia(
+          () => loadDre(pool, process.env),
+          () => collectDre(pool, process.env),
+        ),
+        garantirCopia(
+          () => loadNovidades(pool, process.env),
+          () => collectNovidades(pool, process.env),
+        ),
       ]);
       delete live.placeIds;
       const mapa = listDataMap();

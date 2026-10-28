@@ -77,16 +77,34 @@ async function readAction(action, env, fetchImpl, payload) {
   return data;
 }
 
-async function readActions(calls, env, fetchImpl) {
+function estourar(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error('timeout');
+      error.code = 'timeout';
+      reject(error);
+    }, ms);
+    promise.then((valor) => {
+      clearTimeout(timer);
+      resolve(valor);
+    }, (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+async function readActions(calls, env, fetchImpl, timeoutMs) {
   const session = await openScript(env, fetchImpl);
+  const limite = timeoutMs || 20000;
   const saida = [];
   for (const call of calls) {
     try {
-      const data = await postAction(session.url, {
+      const data = await estourar(postAction(session.url, {
         action: call.action,
         token: session.token,
         ...(call.payload || {}),
-      }, fetchImpl);
+      }, fetchImpl), limite);
       saida.push(data && data.ok !== false ? data : null);
     } catch (error) {
       saida.push(null);
