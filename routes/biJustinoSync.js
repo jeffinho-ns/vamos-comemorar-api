@@ -8,11 +8,21 @@ const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshot
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
 const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigOverview');
-const { loadDre, collectDre } = require('../services/biJustino/dreSharepoint');
-const { loadNovidades, collectNovidades } = require('../services/biJustino/painelNovidades');
+const { loadDre } = require('../services/biJustino/dreSharepoint');
+const { loadNovidades } = require('../services/biJustino/painelNovidades');
+const { coletarAbertura } = require('../services/biJustino/bootstrapColeta');
 
-function dispararColeta(fonte) {
-  Promise.resolve(fonte).catch(() => null);
+function precisaGravar(bloco) {
+  return Boolean(bloco && !bloco.disponivel && bloco.motivo === 'aguardando_coleta');
+}
+
+async function gravarSeVazio(blocos) {
+  const tarefas = blocos.filter(Boolean);
+  if (!tarefas.length) return;
+  await Promise.race([
+    Promise.all(tarefas.map((tarefa) => Promise.resolve(tarefa).catch(() => null))),
+    new Promise((resolve) => setTimeout(resolve, 8000)),
+  ]);
 }
 
 module.exports = (pool) => {
@@ -97,20 +107,23 @@ module.exports = (pool) => {
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
-      const [live, zig, dre, novidades] = await Promise.all([
-        loadLiveFacts(pool),
+      const live = await loadLiveFacts(pool);
+      let [zig, dre, novidades] = await Promise.all([
         loadZigOverview(pool, process.env),
         loadDre(pool, process.env),
         loadNovidades(pool, process.env),
       ]);
-      if (!zig.disponivel && zig.motivo !== 'credenciais_ausentes') {
-        dispararColeta(scheduleZigSync(pool, process.env));
-      }
-      if (!dre.disponivel && dre.motivo !== 'credenciais_ausentes') {
-        dispararColeta(collectDre(pool, process.env));
-      }
-      if (!novidades.disponivel && novidades.motivo !== 'credenciais_ausentes') {
-        dispararColeta(collectNovidades(pool, process.env));
+      const abrirPlanilha = precisaGravar(dre) || precisaGravar(novidades);
+      await gravarSeVazio([
+        precisaGravar(zig) ? scheduleZigSync(pool, process.env, abrirPlanilha ? { pularPainel: true } : undefined) : null,
+        abrirPlanilha ? coletarAbertura(pool, process.env) : null,
+      ]);
+      if (precisaGravar(zig) || precisaGravar(dre) || precisaGravar(novidades)) {
+        [zig, dre, novidades] = await Promise.all([
+          loadZigOverview(pool, process.env),
+          loadDre(pool, process.env),
+          loadNovidades(pool, process.env),
+        ]);
       }
       delete live.placeIds;
       const mapa = listDataMap();

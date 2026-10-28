@@ -1,11 +1,19 @@
 const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbzsXAoBmnHvfocbC3JWiVtiHaSwkzrCX3hKdtRsz_YRoatP3qrksSOj3J8776S3bJXVuA/exec';
 
+function textoEnv(source, nomes) {
+  for (const nome of nomes) {
+    const valor = source && source[nome];
+    if (valor != null && String(valor).trim()) return String(valor).trim();
+  }
+  return '';
+}
+
 function scriptConfig(env) {
   const source = env || process.env;
   return {
-    url: String(source.BI_APPS_SCRIPT_URL || DEFAULT_URL).trim(),
-    email: String(source.BI_APPS_SCRIPT_EMAIL || '').trim(),
-    password: String(source.BI_APPS_SCRIPT_PASSWORD || ''),
+    url: textoEnv(source, ['BI_APPS_SCRIPT_URL', 'APPS_SCRIPT_URL']) || DEFAULT_URL,
+    email: textoEnv(source, ['BI_APPS_SCRIPT_EMAIL', 'ROBOT_EMAIL']),
+    password: textoEnv(source, ['BI_APPS_SCRIPT_PASSWORD', 'ROBOT_PASSWORD']),
   };
 }
 
@@ -113,9 +121,25 @@ async function readActions(calls, env, fetchImpl, timeoutMs) {
   return saida;
 }
 
+async function readBootstrap(calls, env, fetchImpl, timeoutMs) {
+  const session = await openScript(env, fetchImpl);
+  const data = await estourar(postAction(session.url, {
+    action: 'bootstrap',
+    token: session.token,
+    calls: Array.isArray(calls) ? calls : [],
+  }, fetchImpl), timeoutMs || 100000);
+  if (!data || data.ok === false || !Array.isArray(data.results)) {
+    const error = new Error('leitura_recusada');
+    error.code = data && data.code ? data.code : 'leitura_recusada';
+    throw error;
+  }
+  return data.results;
+}
+
 module.exports = {
   scriptConfig,
   missingCredentialNames,
   readAction,
   readActions,
+  readBootstrap,
 };

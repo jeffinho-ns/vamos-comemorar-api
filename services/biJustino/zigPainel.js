@@ -168,11 +168,43 @@ function resetZigPainel() {
   state = { value: null, erro: null, carregando: false, at: 0 };
 }
 
+function painelDeMapa(mapa) {
+  const fonte = mapa || {};
+  const revenue = fonte.getZigRevenue;
+  const hourly = fonte.getZigHourly;
+  const bilheteria = fonte.getZigBilheteria;
+  const ranking = fonte.getZigItemSalesRanking;
+  const cmv = fonte.getCmvTeoricoParcial;
+  const eventos = fonte.getEventos;
+  const freelas = fonte.getFreelancerRequests;
+  const temRevenue = Boolean(revenue && Array.isArray(revenue.docs));
+  const extras = {
+    horario: compactHorario(hourly),
+    bilheteria: compactBilheteria(bilheteria),
+    ranking: compactRanking(ranking),
+    cmv: compactCmv(cmv),
+  };
+  const temExtra = Boolean(extras.horario || extras.bilheteria.length || extras.ranking || extras.cmv.length);
+  if (!temRevenue && !temExtra) return null;
+  const base = temRevenue ? {
+    ...summarizeZig(revenue.docs, new Date()),
+    ...montarGrafico({
+      docs: revenue.docs,
+      eventos: eventos && Array.isArray(eventos.items) ? eventos.items : [],
+      entradas: {},
+      freelancers: freelas && Array.isArray(freelas.items) ? freelas.items : [],
+      now: new Date(),
+    }),
+  } : {};
+  return { ...base, ...extras };
+}
+
 module.exports = {
   peekZigPainel,
   warmZigPainel,
   resetZigPainel,
   buscarZigPainel,
+  painelDeMapa,
   compactHorario,
   compactRanking,
 };

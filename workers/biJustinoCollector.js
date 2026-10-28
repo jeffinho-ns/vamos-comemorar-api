@@ -2,8 +2,8 @@
 
 const { missingCredentialNames } = require('../services/biJustino/appsScriptClient');
 const { scheduleZigSync } = require('../services/biJustino/zigOverview');
-const { collectDre, faltando } = require('../services/biJustino/dreSharepoint');
-const { collectNovidades } = require('../services/biJustino/painelNovidades');
+const { faltando } = require('../services/biJustino/dreSharepoint');
+const { coletarAbertura } = require('../services/biJustino/bootstrapColeta');
 
 const INTERVALO_MS = Number(process.env.BI_JUSTINO_COLETOR_MS || 5 * 60 * 1000);
 const ATRASO_MS = Number(process.env.BI_JUSTINO_COLETOR_ATRASO_MS || 15000);
@@ -21,11 +21,8 @@ async function coletarFontes(pool) {
     microsoft: faltando(process.env).length ? 'incompleto' : 'ok',
   });
   try {
-    await Promise.all([
-      Promise.resolve(scheduleZigSync(pool, process.env)),
-      collectDre(pool, process.env),
-      collectNovidades(pool, process.env),
-    ]);
+    await Promise.resolve(scheduleZigSync(pool, process.env, { pularPainel: true }));
+    await coletarAbertura(pool, process.env);
   } catch (err) {
     console.error('[bi-justino] falha no coletor', {
       message: err && err.message ? err.message : String(err),

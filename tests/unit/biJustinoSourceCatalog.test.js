@@ -28,4 +28,5 @@ test('a DRE e o robô da Zig ainda não são coletados nesta etapa', () => {
   assert.equal(findSource('dre_sharepoint').coletavel, false);
   assert.equal(findSource('zig_robo').coletavel, false);
   assert.deepEqual(missingCredentialNames({}), ['BI_APPS_SCRIPT_EMAIL', 'BI_APPS_SCRIPT_PASSWORD']);
+  assert.deepEqual(missingCredentialNames({ ROBOT_EMAIL: 'robo@seujustino.local', ROBOT_PASSWORD: 'segredo' }), []);
 });

@@ -4,6 +4,9 @@ const { missingCredentialNames, readAction } = require('./appsScriptClient');
 const { buscarZigPainel } = require('./zigPainel');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
+const { erroRecente } = require('./erroRecente');
+
+const erroZig = erroRecente();
 
 const SOURCE = 'faturamento_zig';
 const ACTION = 'getRevenueOverview';
@@ -127,6 +130,8 @@ async function loadZigOverview(pool, env, deps) {
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
   if (last) return displayFrom(last);
   if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
+  const recente = erroZig.ler();
+  if (recente) return ausente(recente);
   return ausente('aguardando_coleta');
 }
 
@@ -152,6 +157,19 @@ async function collectZigSnapshot(pool, env, deps) {
     overview = null;
   }
   const baseInicial = overview && typeof overview === 'object' ? overview : null;
+  if (options.pularPainel) {
+    if (!baseInicial) {
+      const error = new Error(codigo);
+      error.code = codigo;
+      throw error;
+    }
+    const last = await store.latestPayload(pool, SOURCE).catch(() => null);
+    const payload = { ...(last && last.payload ? last.payload : {}), ...baseInicial };
+    const saved = await store.saveSnapshot(pool, { source: SOURCE, action: ACTION, payload });
+    if (options.emit !== false) emitBiLiveChanged('zig');
+    erroZig.limpar();
+    return displayFrom({ payload, captured_at: saved && saved.captured_at });
+  }
   if (baseInicial) {
     const previa = montarPayloadZig(baseInicial, null);
     await store.saveSnapshot(pool, { source: SOURCE, action: ACTION, payload: previa });
@@ -177,6 +195,7 @@ async function collectZigSnapshot(pool, env, deps) {
     payload,
   });
   if (options.emit !== false) emitBiLiveChanged('zig');
+  erroZig.limpar();
   return displayFrom({ payload, captured_at: saved && saved.captured_at });
 }
 
@@ -210,6 +229,8 @@ function scheduleZigSync(pool, env, deps) {
     } catch (error) {
       const codigo = error && error.code ? error.code : 'falha_na_coleta';
       console.error('[bi-justino] falha ao gravar a Zig no banco', { code: codigo });
+      erroZig.guardar(codigo);
+      if (options.emit !== false) emitBiLiveChanged('zig');
       return ausente(codigo);
     }
   })().finally(() => {

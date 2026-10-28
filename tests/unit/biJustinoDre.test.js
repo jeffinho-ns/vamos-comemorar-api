@@ -54,6 +54,13 @@ test('sem as variáveis da Microsoft, não chama o SharePoint', async () => {
   assert.equal(dre.disponivel, false);
   assert.equal(dre.motivo, 'credenciais_ausentes');
   assert.equal(faltando({}).includes('MS_CLIENT_SECRET'), true);
+  assert.deepEqual(faltando({
+    BI_MS_TENANT_ID: 't',
+    BI_MS_CLIENT_ID: 'c',
+    BI_MS_CLIENT_SECRET: 's',
+    BI_MS_DRE_SHARE_URL: 'https://exemplo',
+    BI_MS_DRE_CELL_MAP: '{}',
+  }), []);
   assert.equal(JSON.stringify(dre).includes('segredo'), false);
 });
 

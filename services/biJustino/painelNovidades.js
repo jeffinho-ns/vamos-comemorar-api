@@ -4,6 +4,9 @@ const { missingCredentialNames, readActions } = require('./appsScriptClient');
 const { avaliarConfig } = require('./notaAtendimento');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
+const { erroRecente } = require('./erroRecente');
+
+const erroNovidades = erroRecente();
 
 const SOURCE = 'painel_novidades';
 const FRESH_MS = 20 * 60 * 1000;
@@ -153,6 +156,8 @@ async function loadNovidades(pool, env, deps) {
   const pronto = exibir(last);
   if (pronto) return pronto;
   if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
+  const recente = erroNovidades.ler();
+  if (recente) return ausente(recente);
   return ausente('aguardando_coleta');
 }
 
@@ -190,6 +195,7 @@ async function collectNovidades(pool, env, deps) {
     }
     const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'novidades', payload: lido });
     if (options.emit !== false) emitBiLiveChanged('novidades');
+    erroNovidades.limpar();
     return { ...lido, capturedAt: saved && saved.captured_at };
   })().finally(() => { emAndamento = null; });
 
@@ -198,6 +204,8 @@ async function collectNovidades(pool, env, deps) {
   } catch (err) {
     const codigo = err && err.code ? err.code : 'falha_na_coleta';
     console.error('[bi-justino] falha ao gravar as fontes do painel no banco', { code: codigo });
+    if (!exibir(last)) erroNovidades.guardar(codigo);
+    if (options.emit !== false) emitBiLiveChanged('novidades');
     return exibir(last) || ausente(codigo);
   }
 }

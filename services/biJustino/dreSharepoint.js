@@ -3,6 +3,9 @@
 const snapshotStore = require('./snapshotStore');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const { missingCredentialNames, readAction } = require('./appsScriptClient');
+const { erroRecente } = require('./erroRecente');
+
+const erroDre = erroRecente();
 const { numeroCelula, mesAlvo, mesesPresentes, colunaExcel, extrairDre } = require('./dreLeitura');
 
 const SOURCE = 'dre_sharepoint';
@@ -17,7 +20,20 @@ function ausente(motivo) {
 }
 
 function preenchida(env, nome) {
-  return Boolean(env && String(env[nome] || '').trim());
+  if (!env) return false;
+  if (String(env[nome] || '').trim()) return true;
+  return Boolean(String(env[`BI_${nome}`] || '').trim());
+}
+
+function envMicrosoft(env) {
+  const base = env || {};
+  const saida = { ...base };
+  for (const nome of ENV_NOMES) {
+    if (!String(saida[nome] || '').trim() && String(base[`BI_${nome}`] || '').trim()) {
+      saida[nome] = String(base[`BI_${nome}`]).trim();
+    }
+  }
+  return saida;
 }
 
 function faltando(env) {
@@ -107,6 +123,7 @@ async function lerIntervalo(arquivo, planilha, endereco, token, fetchImpl) {
 }
 
 async function coletar(env, fetchImpl) {
+  env = envMicrosoft(env);
   let mapa;
   try {
     mapa = JSON.parse(String(env.MS_DRE_CELL_MAP));
@@ -211,6 +228,8 @@ async function loadDre(pool, env, deps) {
   const temPainel = missingCredentialNames(sourceEnv).length === 0;
   const temMicrosoft = faltando(sourceEnv).length === 0;
   if (!temPainel && !temMicrosoft) return ausente('credenciais_ausentes');
+  const recente = erroDre.ler();
+  if (recente) return ausente(recente);
   return ausente('aguardando_coleta');
 }
 
@@ -251,6 +270,7 @@ async function collectDre(pool, env, deps) {
     }
     const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'getDreBase', payload: lido });
     if (options.emit !== false) emitBiLiveChanged('dre');
+    erroDre.limpar();
     return { ...lido, capturedAt: saved && saved.captured_at };
   })().finally(() => {
     emAndamento = null;
@@ -261,6 +281,8 @@ async function collectDre(pool, env, deps) {
   } catch (err) {
     const codigo = err && err.code ? err.code : 'falha_na_coleta';
     console.error('[bi-justino] falha ao gravar a DRE no banco', { code: codigo });
+    if (!exibir(last)) erroDre.guardar(codigo);
+    if (options.emit !== false) emitBiLiveChanged('dre');
     return exibir(last) || ausente(codigo);
   }
 }
