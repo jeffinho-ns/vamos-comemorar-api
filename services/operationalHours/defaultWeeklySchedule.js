@@ -135,7 +135,6 @@ const ESTABLISHMENT_DEFAULT_NAMES = {
   7: 'HighLine',
   8: 'Pracinha do Seu Justino',
   9: 'Reserva Rooftop',
-  10: 'Sitio Ilha',
   18: 'Reserva Pinheiros',
   21: 'Reserva Pinheiros',
 };
