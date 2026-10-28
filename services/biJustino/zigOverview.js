@@ -144,24 +144,44 @@ async function collectZigSnapshot(pool, env, deps) {
 
   let overview = null;
   let painel = null;
+  let codigo = 'falha_na_coleta';
   try {
     overview = await estourar(ler(ACTION, sourceEnv), TIMEOUT_MS);
   } catch (error) {
+    codigo = error && error.code ? error.code : codigo;
     overview = null;
+  }
+  const baseInicial = overview && typeof overview === 'object' ? overview : null;
+  if (baseInicial) {
+    const previa = montarPayloadZig(baseInicial, null);
+    await store.saveSnapshot(pool, { source: SOURCE, action: ACTION, payload: previa });
+    if (options.emit !== false) emitBiLiveChanged('zig');
   }
   try {
     painel = await buscar(sourceEnv);
   } catch (error) {
+    if (!baseInicial) codigo = error && error.code ? error.code : codigo;
     painel = null;
   }
-  const base = overview && typeof overview === 'object' ? overview : resumoDaColeta(painel);
+  const base = baseInicial || resumoDaColeta(painel);
   if (!base && !painel) {
-    const error = new Error('falha_na_coleta');
-    error.code = 'falha_na_coleta';
+    const error = new Error(codigo);
+    error.code = codigo;
     throw error;
   }
 
-  const payload = {
+  const payload = montarPayloadZig(base, painel);
+  const saved = await store.saveSnapshot(pool, {
+    source: SOURCE,
+    action: ACTION,
+    payload,
+  });
+  if (options.emit !== false) emitBiLiveChanged('zig');
+  return displayFrom({ payload, captured_at: saved && saved.captured_at });
+}
+
+function montarPayloadZig(base, painel) {
+  return {
     ...(base || {}),
     serieMes: painel && Array.isArray(painel.serieMes) ? painel.serieMes : [],
     serieAno: painel && Array.isArray(painel.serieAno) ? painel.serieAno : [],
@@ -172,13 +192,6 @@ async function collectZigSnapshot(pool, env, deps) {
     ranking: painel ? painel.ranking : null,
     cmvZig: painel && Array.isArray(painel.cmv) ? painel.cmv : [],
   };
-  const saved = await store.saveSnapshot(pool, {
-    source: SOURCE,
-    action: ACTION,
-    payload,
-  });
-  if (options.emit !== false) emitBiLiveChanged('zig');
-  return displayFrom({ payload, captured_at: saved && saved.captured_at });
 }
 
 function scheduleZigSync(pool, env, deps) {

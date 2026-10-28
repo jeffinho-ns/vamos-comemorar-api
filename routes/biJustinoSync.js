@@ -11,22 +11,8 @@ const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigO
 const { loadDre, collectDre } = require('../services/biJustino/dreSharepoint');
 const { loadNovidades, collectNovidades } = require('../services/biJustino/painelNovidades');
 
-const ESPERA_VAZIO_MS = 35000;
-
-async function garantirCopia(ler, coletar) {
-  const atual = await ler();
-  if (atual && atual.disponivel) return atual;
-  if (!atual || atual.motivo === 'credenciais_ausentes') return atual;
-  const pendente = Promise.resolve(coletar()).catch(() => null);
-  const noPrazo = await Promise.race([
-    pendente,
-    new Promise((resolve) => setTimeout(() => resolve('prazo'), ESPERA_VAZIO_MS)),
-  ]);
-  if (noPrazo && noPrazo !== 'prazo' && noPrazo.disponivel) return noPrazo;
-  const deNovo = await ler();
-  if (deNovo && deNovo.disponivel) return deNovo;
-  if (noPrazo && noPrazo !== 'prazo' && noPrazo.motivo) return noPrazo;
-  return deNovo || atual;
+function dispararColeta(fonte) {
+  Promise.resolve(fonte).catch(() => null);
 }
 
 module.exports = (pool) => {
@@ -113,19 +99,19 @@ module.exports = (pool) => {
       }
       const [live, zig, dre, novidades] = await Promise.all([
         loadLiveFacts(pool),
-        garantirCopia(
-          () => loadZigOverview(pool, process.env),
-          () => scheduleZigSync(pool, process.env),
-        ),
-        garantirCopia(
-          () => loadDre(pool, process.env),
-          () => collectDre(pool, process.env),
-        ),
-        garantirCopia(
-          () => loadNovidades(pool, process.env),
-          () => collectNovidades(pool, process.env),
-        ),
+        loadZigOverview(pool, process.env),
+        loadDre(pool, process.env),
+        loadNovidades(pool, process.env),
       ]);
+      if (!zig.disponivel && zig.motivo !== 'credenciais_ausentes') {
+        dispararColeta(scheduleZigSync(pool, process.env));
+      }
+      if (!dre.disponivel && dre.motivo !== 'credenciais_ausentes') {
+        dispararColeta(collectDre(pool, process.env));
+      }
+      if (!novidades.disponivel && novidades.motivo !== 'credenciais_ausentes') {
+        dispararColeta(collectNovidades(pool, process.env));
+      }
       delete live.placeIds;
       const mapa = listDataMap();
       console.log('[bi-justino] leitura ao vivo', {
