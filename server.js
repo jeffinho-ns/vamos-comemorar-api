@@ -527,8 +527,10 @@ console.log('✅ Application boot complete');
 const { startConversationCommercialScheduler } = require('./workers/conversationCommercialScheduler');
 const { startQueueWorkers } = require('./workers/queueWorkers');
 const { startWhatsappMaintenanceScheduler } = require('./workers/whatsappMaintenanceScheduler');
+const { startBiJustinoCollector } = require('./workers/biJustinoCollector');
 setImmediate(() => {
   startConversationCommercialScheduler(pool, app);
   startQueueWorkers(pool, app);
   startWhatsappMaintenanceScheduler(pool, app);
+  startBiJustinoCollector(pool);
 });

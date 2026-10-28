@@ -7,7 +7,7 @@ const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
 const { listDataMap } = require('../services/biJustino/dataMap');
 const { loadLiveFacts } = require('../services/biJustino/liveFacts');
-const { loadZigOverview, scheduleZigSync } = require('../services/biJustino/zigOverview');
+const { loadZigOverview } = require('../services/biJustino/zigOverview');
 const { loadDre } = require('../services/biJustino/dreSharepoint');
 const { loadNovidades } = require('../services/biJustino/painelNovidades');
 
@@ -100,7 +100,6 @@ module.exports = (pool) => {
         loadNovidades(pool, process.env),
       ]);
       delete live.placeIds;
-      scheduleZigSync(pool, process.env);
       const mapa = listDataMap();
       console.log('[bi-justino] leitura ao vivo', {
         establishment: 'Seu Justino',

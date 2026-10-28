@@ -183,8 +183,8 @@ async function collectZigSnapshot(pool, env, deps) {
 
 function scheduleZigSync(pool, env, deps) {
   const sourceEnv = env || process.env;
-  if (missingCredentialNames(sourceEnv).length) return;
-  if (emAndamento) return;
+  if (missingCredentialNames(sourceEnv).length) return null;
+  if (emAndamento) return emAndamento;
   const options = deps || {};
   const store = options.store || snapshotStore;
   const agora = options.now ? options.now() : Date.now();
@@ -203,6 +203,7 @@ function scheduleZigSync(pool, env, deps) {
   })().finally(() => {
     emAndamento = null;
   });
+  return emAndamento;
 }
 
 function resetZigSync() {

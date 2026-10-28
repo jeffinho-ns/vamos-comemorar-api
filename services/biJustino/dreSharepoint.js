@@ -1,6 +1,7 @@
 'use strict';
 
 const snapshotStore = require('./snapshotStore');
+const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const { numeroCelula, mesAlvo, mesesPresentes, colunaExcel, extrairDre } = require('./dreLeitura');
 
 const SOURCE = 'dre_sharepoint';
@@ -146,39 +147,65 @@ async function coletar(env, fetchImpl) {
   return publico(extraido, null, alvo.key);
 }
 
+function exibir(last) {
+  if (!last || !last.payload) return null;
+  return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
+}
+
+function fresco(last, agora, freshMs) {
+  if (!last || !last.captured_at || !last.payload) return false;
+  const idade = agora - new Date(last.captured_at).getTime();
+  return idade >= 0 && idade < freshMs;
+}
+
 async function loadDre(pool, env, deps) {
   const options = deps || {};
-  const fetchImpl = options.fetchImpl || fetch;
   const store = options.store || snapshotStore;
+  const sourceEnv = env || process.env;
+  const last = await store.latestPayload(pool, SOURCE).catch(() => null);
+  const pronto = exibir(last);
+  if (pronto) return pronto;
+  if (faltando(sourceEnv).length) return ausente('credenciais_ausentes');
+  return ausente('aguardando_coleta');
+}
+
+async function collectDre(pool, env, deps) {
+  const options = deps || {};
+  const store = options.store || snapshotStore;
+  const sourceEnv = env || process.env;
   const agora = options.now ? options.now() : Date.now();
   const freshMs = options.freshMs || FRESH_MS;
-  const sourceEnv = env || process.env;
+  if (faltando(sourceEnv).length) return null;
 
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
-  const idade = last && last.captured_at ? agora - new Date(last.captured_at).getTime() : Infinity;
-  if (last && last.payload && idade >= 0 && idade < freshMs) {
-    return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
+  if (fresco(last, agora, freshMs)) return exibir(last);
+  if (emAndamento) {
+    try { await emAndamento; } catch (err) { /* a outra coleta já registrou a falha */ }
+    return exibir(await store.latestPayload(pool, SOURCE).catch(() => last));
   }
-  if (faltando(sourceEnv).length) {
-    if (last && last.payload) return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
-    return ausente('credenciais_ausentes');
-  }
-  if (!emAndamento) {
-    emAndamento = estourar(coletar(sourceEnv, fetchImpl), TIMEOUT_MS).finally(() => {
-      emAndamento = null;
-    });
-  }
-  try {
-    const lido = await emAndamento;
+
+  const ler = options.coletar || (() => coletar(sourceEnv, options.fetchImpl || fetch));
+  emAndamento = (async () => {
+    const lido = await estourar(ler(), TIMEOUT_MS);
     const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'getDreParaMes', payload: lido });
+    if (options.emit !== false) emitBiLiveChanged('dre');
     return { ...lido, capturedAt: saved && saved.captured_at };
+  })().finally(() => {
+    emAndamento = null;
+  });
+
+  try {
+    return await emAndamento;
   } catch (err) {
-    if (last && last.payload) return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
-    return ausente(err && err.code ? err.code : 'falha_na_coleta');
+    console.error('[bi-justino] falha ao gravar a DRE no banco', {
+      code: err && err.code ? err.code : 'falha_na_coleta',
+    });
+    return exibir(last);
   }
 }
 
 module.exports = {
   loadDre,
+  collectDre,
   faltando,
 };

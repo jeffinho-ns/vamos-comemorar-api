@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { avaliarConfig } = require('../../services/biJustino/notaAtendimento');
-const { montar } = require('../../services/biJustino/painelNovidades');
+const { montar, loadNovidades, collectNovidades } = require('../../services/biJustino/painelNovidades');
 
 test('a nota de atendimento pesa a IA do WhatsApp e ignora item não lido', () => {
   const saude = avaliarConfig({
@@ -37,4 +37,51 @@ test('o resumo das fontes novas não devolve e-mail nem o json cru', () => {
   assert.equal(extra.crm.funil.reservas, 3);
   assert.equal(dumped.includes('pessoa@email.com'), false);
   assert.equal(dumped.includes('decididoPor'), false);
+});
+
+test('a página lê a cópia do painel e o coletor é quem busca de novo', async () => {
+  let buscas = 0;
+  const env = {
+    BI_APPS_SCRIPT_EMAIL: 'robo@seujustino.local',
+    BI_APPS_SCRIPT_PASSWORD: 'segredo',
+  };
+  const copia = {
+    captured_at: '2026-10-01T12:00:00.000Z',
+    payload: { food: { pedidos: 4 }, delivery: [], crm: { reservas: [] } },
+  };
+  const store = {
+    latestPayload: async () => copia,
+    saveSnapshot: async (_pool, body) => {
+      copia.captured_at = '2026-10-28T20:00:00.000Z';
+      copia.payload = body.payload;
+      return { captured_at: copia.captured_at };
+    },
+  };
+  const lido = await loadNovidades(null, env, {
+    store,
+    readActions: async () => { buscas += 1; return []; },
+  });
+  assert.equal(buscas, 0);
+  assert.equal(lido.food.pedidos, 4);
+  const agora = Date.parse('2026-10-28T20:00:00.000Z');
+  const gravado = await collectNovidades(null, env, {
+    now: () => agora,
+    freshMs: 1000,
+    emit: false,
+    store,
+    readActions: async () => {
+      buscas += 1;
+      return [
+        { rows: [{ snap: { pedidosConcluidos: 9 } }] },
+        { rows: [] },
+        null,
+        { cols: [], rows: [] },
+        { rows: [] },
+        { rows: [] },
+      ];
+    },
+  });
+  assert.equal(buscas, 1);
+  assert.equal(gravado.food.pedidos, 9);
+  assert.equal(JSON.stringify(gravado).includes('segredo'), false);
 });

@@ -2,6 +2,7 @@
 
 const { missingCredentialNames, readActions } = require('./appsScriptClient');
 const { avaliarConfig } = require('./notaAtendimento');
+const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
 
 const SOURCE = 'painel_novidades';
@@ -125,38 +126,69 @@ function estourar(promise, ms) {
   });
 }
 
+function exibir(last) {
+  if (!last || !last.payload) return null;
+  return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
+}
+
+function ausente(motivo) {
+  return { disponivel: false, motivo: motivo || 'falha_na_coleta', capturedAt: null };
+}
+
+function fresco(last, agora, freshMs) {
+  if (!last || !last.captured_at || !last.payload) return false;
+  const idade = agora - new Date(last.captured_at).getTime();
+  return idade >= 0 && idade < freshMs;
+}
+
 async function loadNovidades(pool, env, deps) {
+  const options = deps || {};
+  const store = options.store || snapshotStore;
+  const sourceEnv = env || process.env;
+  const last = await store.latestPayload(pool, SOURCE).catch(() => null);
+  const pronto = exibir(last);
+  if (pronto) return pronto;
+  if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
+  return ausente('aguardando_coleta');
+}
+
+async function collectNovidades(pool, env, deps) {
   const options = deps || {};
   const ler = options.readActions || readActions;
   const store = options.store || snapshotStore;
-  const agora = options.now ? options.now() : Date.now();
   const sourceEnv = env || process.env;
+  const agora = options.now ? options.now() : Date.now();
+  if (missingCredentialNames(sourceEnv).length) return null;
+
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
-  const idade = last && last.captured_at ? agora - new Date(last.captured_at).getTime() : Infinity;
-  if (last && last.payload && idade >= 0 && idade < (options.freshMs || FRESH_MS)) {
-    return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
+  if (fresco(last, agora, options.freshMs || FRESH_MS)) return exibir(last);
+  if (emAndamento) {
+    try { await emAndamento; } catch (err) { /* a outra coleta já registrou a falha */ }
+    return exibir(await store.latestPayload(pool, SOURCE).catch(() => last));
   }
-  if (missingCredentialNames(sourceEnv).length) {
-    if (last && last.payload) return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
-    return { disponivel: false, motivo: 'credenciais_ausentes', capturedAt: null };
-  }
-  if (!emAndamento) {
-    emAndamento = estourar(ler([
+
+  emAndamento = (async () => {
+    const partes = await estourar(ler([
       { action: 'get99Food' },
       { action: 'getZigDelivery', payload: { days: 30 } },
       { action: 'getGoogleAvaliacoes' },
       { action: 'getCrmReservas' },
       { action: 'getCrmFunil' },
       { action: 'getCrmConfig' },
-    ], sourceEnv, options.fetchImpl), TIMEOUT_MS).finally(() => { emAndamento = null; });
-  }
-  try {
-    const lido = montar(await emAndamento);
+    ], sourceEnv, options.fetchImpl), TIMEOUT_MS);
+    const lido = montar(partes);
     const saved = await store.saveSnapshot(pool, { source: SOURCE, action: 'novidades', payload: lido });
+    if (options.emit !== false) emitBiLiveChanged('novidades');
     return { ...lido, capturedAt: saved && saved.captured_at };
+  })().finally(() => { emAndamento = null; });
+
+  try {
+    return await emAndamento;
   } catch (err) {
-    if (last && last.payload) return { ...last.payload, disponivel: true, motivo: null, capturedAt: last.captured_at };
-    return { disponivel: false, motivo: err && err.code ? err.code : 'falha_na_coleta', capturedAt: null };
+    console.error('[bi-justino] falha ao gravar as fontes do painel no banco', {
+      code: err && err.code ? err.code : 'falha_na_coleta',
+    });
+    return exibir(last);
   }
 }
 
@@ -164,4 +196,5 @@ module.exports = {
   montar,
   resumirFood,
   loadNovidades,
+  collectNovidades,
 };
