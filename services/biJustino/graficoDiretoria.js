@@ -174,4 +174,4 @@ function montarGrafico({ docs, eventos, entradas, freelancers, now }) {
   };
 }
 
-module.exports = { montarGrafico, valorEvento };
+module.exports = { montarGrafico, valorEvento, custoFreelancer };

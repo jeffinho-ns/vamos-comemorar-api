@@ -113,12 +113,13 @@ module.exports = (pool) => {
         loadDre(pool, process.env),
         loadNovidades(pool, process.env),
       ]);
-      const abrirPlanilha = precisaGravar(dre) || precisaGravar(novidades);
+      const faltaProjecao = Boolean(zig && zig.disponivel && !zig.projecao);
+      const abrirPlanilha = precisaGravar(dre) || precisaGravar(novidades) || faltaProjecao;
       await gravarSeVazio([
         precisaGravar(zig) ? scheduleZigSync(pool, process.env, abrirPlanilha ? { pularPainel: true } : undefined) : null,
         abrirPlanilha ? coletarAbertura(pool, process.env) : null,
       ]);
-      if (precisaGravar(zig) || precisaGravar(dre) || precisaGravar(novidades)) {
+      if (precisaGravar(zig) || precisaGravar(dre) || precisaGravar(novidades) || faltaProjecao) {
         [zig, dre, novidades] = await Promise.all([
           loadZigOverview(pool, process.env),
           loadDre(pool, process.env),

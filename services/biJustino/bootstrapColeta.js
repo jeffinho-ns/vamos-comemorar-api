@@ -4,6 +4,7 @@ const { missingCredentialNames, readBootstrap } = require('./appsScriptClient');
 const { formatoDreBase } = require('./dreSharepoint');
 const { montar } = require('./painelNovidades');
 const { painelDeMapa } = require('./zigPainel');
+const { projecaoConsolidada } = require('./projecaoConsolidada');
 const snapshotStore = require('./snapshotStore');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 
@@ -22,6 +23,11 @@ const CHAMADAS = [
   { action: 'getZigHourly', payload: { days: 14 } },
   { action: 'getEventos' },
   { action: 'getFreelancerRequests' },
+  { action: 'getEntries', payload: { area: 'financeiro', limit: 1 } },
+  { action: 'getEntries', payload: { area: 'cmv', limit: 1 } },
+  { action: 'getEntries', payload: { area: 'marketing', limit: 1 } },
+  { action: 'getEntries', payload: { area: 'rh', limit: 1 } },
+  { action: 'getEntries', payload: { area: 'operacao', limit: 1 } },
   { action: 'getZigRevenue', payload: { limit: 2000 } },
 ];
 
@@ -30,7 +36,9 @@ let emAndamento = null;
 function porAcao(results) {
   const mapa = {};
   (results || []).forEach((item) => {
-    if (item && item.r && item.r.ok !== false) mapa[item.action] = item.r;
+    if (!item || !item.r || item.r.ok === false) return;
+    const area = item.payload && item.payload.area;
+    mapa[area ? `${item.action}:${area}` : item.action] = item.r;
   });
   return mapa;
 }
@@ -88,10 +96,21 @@ async function coletarAbertura(pool, env, deps) {
       await store.saveSnapshot(pool, { source: 'painel_novidades', action: 'novidades', payload: novidades });
       if (options.emit !== false) emitBiLiveChanged('novidades');
     }
+    const last = await store.latestPayload(pool, 'faturamento_zig').catch(() => null);
+    const anterior = last && last.payload ? last.payload : {};
     const painel = painelDeMapa(mapa);
-    if (painel) {
-      const last = await store.latestPayload(pool, 'faturamento_zig').catch(() => null);
-      const payload = mesclarZig(last && last.payload, painel);
+    const projecao = projecaoConsolidada({
+      faturamento: anterior.monthRevenue,
+      financeiro: mapa['getEntries:financeiro'],
+      marketing: mapa['getEntries:marketing'],
+      rh: mapa['getEntries:rh'],
+      operacao: mapa['getEntries:operacao'],
+      cmv: mapa['getEntries:cmv'],
+      freelancers: mapa.getFreelancerRequests && mapa.getFreelancerRequests.items,
+    });
+    if (painel || projecao) {
+      const payload = painel ? mesclarZig(anterior, painel) : { ...anterior };
+      payload.projecao = projecao;
       await store.saveSnapshot(pool, { source: 'faturamento_zig', action: 'getRevenueOverview', payload });
       if (options.emit !== false) emitBiLiveChanged('zig');
     }
@@ -100,6 +119,7 @@ async function coletarAbertura(pool, env, deps) {
       dre: dre ? 'ok' : 'ausente',
       novidades: temNovidade(novidades) ? 'ok' : 'ausente',
       painel: painel ? 'ok' : 'ausente',
+      projecao: projecao ? 'ok' : 'ausente',
     });
     return true;
   })().finally(() => { emAndamento = null; });

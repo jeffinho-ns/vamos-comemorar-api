@@ -81,6 +81,24 @@ function estourar(promise, ms) {
   });
 }
 
+function projecaoPublica(valor) {
+  if (!valor || typeof valor !== 'object') return null;
+  const envios = valor.envios && typeof valor.envios === 'object' ? valor.envios : {};
+  return {
+    faturamentoBruto: numero(valor.faturamentoBruto),
+    cmvReal: numero(valor.cmvReal),
+    controlaveis: numero(valor.controlaveis),
+    estruturais: numero(valor.estruturais),
+    envios: {
+      financeiro: texto(envios.financeiro),
+      marketing: texto(envios.marketing),
+      rh: texto(envios.rh),
+      operacao: texto(envios.operacao),
+      cmv: texto(envios.cmv),
+    },
+  };
+}
+
 function displayFrom(row) {
   const payload = row && row.payload ? row.payload : {};
   return {
@@ -93,6 +111,7 @@ function displayFrom(row) {
     servicoMes: numero(payload.servicoMes),
     ranking: payload.ranking || null,
     cmvZig: Array.isArray(payload.cmvZig) ? payload.cmvZig : [],
+    projecao: projecaoPublica(payload.projecao),
     zigCarregando: false,
   };
 }
