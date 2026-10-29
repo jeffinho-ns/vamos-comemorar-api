@@ -29,6 +29,11 @@ const {
   applyOutputLimit,
   getAgentToolRoundLimits,
 } = require('./openAiConfig');
+const {
+  modelRequiresResponsesForTools,
+  requestResponsesAssistantMessage,
+  normalizeReasoningEffort,
+} = require('./responsesToolClient');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
 const {
   loadActiveSettings: loadActiveAssistantSettings,
@@ -462,25 +467,20 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 }
 
 // ============================================================================
-// TRAVA DE PRODUÇÃO: O modelo homologado pela Agilizaiapp para o AGENTE
-// (tools, reservas, funil) é o gpt-5.5 (flagship em maio/2026). Segue
-// instruções e tom de voz MUITO melhor que gpt-4o, com queda drástica em
-// alucinação de datas/áreas/nomes — exatamente os bugs que vimos em produção
-// (data 2027, "Caro Jefferson", "Terraço", "Bar Central"). Confirmado pelo
-// commit 28f7406.
+// TRAVA DE PRODUÇÃO: o agente (tools, reservas, funil) está em teste com
+// gpt-6.1-sol. Function calling desse modelo só existe na Responses API.
+// Se a chamada falhar por compatibilidade ou instabilidade, o turno cai na
+// gpt-5.5 (Chat Completions), que segue homologada desde maio/2026.
 //
-// FAQ e resumos de histórico usam modelo econômico (OPENAI_ECONOMY_MODEL,
-// default gpt-4o-mini) — ver getModelForTask em openAiConfig.js.
+// FAQ e resumos de histórico continuam no modelo econômico
+// (OPENAI_ECONOMY_MODEL, default gpt-4o-mini).
 //
-// NÃO faça downgrade para gpt-5.4 ou gpt-4o sem aprovação explícita —
-// regressão já foi medida em produção (Highline).
+// NÃO faça downgrade do fallback para gpt-5.4 ou gpt-4o sem aprovação —
+// regressão de data, área e tom já foi medida em produção (commit 28f7406).
 //
-// Único downgrade aceito (e só em emergência, via env, SEM deploy):
-//   OPENAI_AGENT_MODEL=gpt-5.4-mini  (variante econômica, qualidade inferior)
-//   OPENAI_AGENT_MODEL=gpt-4o        (fallback emergencial se 5.5 cair)
-//
-// Em todos os casos, o caminho usa Chat Completions API + function calling —
-// migrar para Responses API exigiria refactor do round-trip de tool calls.
+// Emergência, só via env, sem deploy:
+//   OPENAI_AGENT_MODEL=gpt-5.5
+//   OPENAI_AGENT_REASONING_EFFORT=low
 // ============================================================================
 const AGENT_MODEL = MODEL_AGENT;
 const AGENT_FALLBACK_MODEL = MODEL_FALLBACK;
@@ -592,6 +592,57 @@ async function withTimeout(promise, timeoutMs) {
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', outputMode = 'conversational') {
   async function requestWithModel(modelName) {
+    if (modelRequiresResponsesForTools(modelName)) {
+      const maxRetries = Number.isFinite(OPENAI_MAX_RETRIES) && OPENAI_MAX_RETRIES >= 0
+        ? OPENAI_MAX_RETRIES
+        : 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        try {
+          const result = await withTimeout(
+            requestResponsesAssistantMessage({
+              client: getOpenAI(),
+              model: modelName,
+              messages,
+              tools,
+              toolChoice,
+              outputMode,
+              reasoningEffort: normalizeReasoningEffort(process.env.OPENAI_AGENT_REASONING_EFFORT),
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS
+          );
+          await recordOpenAiUsageSafe(null, {
+            path: 'agent',
+            model: modelName,
+            usage: result.usage,
+            requestId: result.requestId,
+            meta: { outputMode, toolChoice: toolChoice ?? null, api: 'responses' },
+          });
+          return result.message;
+        } catch (error) {
+          const retryable = isRetryableOpenAiError(error);
+          const { status, code, detail } = normalizeOpenAiError(error);
+          const isLastAttempt = attempt >= maxRetries;
+          if (!retryable || isLastAttempt) {
+            if (isBillingOrQuotaError(error)) tripOpenAiCircuit('quota');
+            const enriched = new Error(
+              `Falha na OpenAI: ${detail} (status=${status || 'n/a'} code=${code || 'n/a'} attempt=${attempt + 1}/${maxRetries + 1} model=${modelName})`
+            );
+            enriched.status = status;
+            enriched.code = code || error?.code;
+            enriched.modelName = modelName;
+            enriched.originalError = error;
+            throw enriched;
+          }
+          const waitMs = computeBackoffMs(attempt + 1);
+          console.warn(
+            `[agentService] OpenAI instável; retry ${attempt + 1}/${maxRetries} em ${waitMs}ms (status=${status || 'n/a'} code=${code || 'n/a'} model=${modelName})`
+          );
+          await sleep(waitMs);
+        }
+      }
+      return null;
+    }
+
     const payload = applyOutputLimit(
       {
         model: modelName,
@@ -677,7 +728,8 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
     const shouldFallbackModel =
       AGENT_FALLBACK_MODEL &&
       String(AGENT_FALLBACK_MODEL) !== String(AGENT_MODEL) &&
-      isOpenAiCompatError(error);
+      (isOpenAiCompatError(error) ||
+        (modelRequiresResponsesForTools(AGENT_MODEL) && isRetryableOpenAiError(error)));
     if (!shouldFallbackModel) throw error;
     console.warn(
       `[agentService] fallback de modelo ativado: ${AGENT_MODEL} -> ${AGENT_FALLBACK_MODEL} (${error.message})`

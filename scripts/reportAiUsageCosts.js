@@ -23,9 +23,13 @@ const ESTABLISHMENT_ID = Number(args.establishment) || null;
 
 /** Preços aproximados USD / 1M tokens (ajuste via env se necessário). */
 const PRICE = {
+  'gpt-6.1-sol': {
+    in: Number(process.env.PRICE_GPT61_SOL_IN || 2),
+    out: Number(process.env.PRICE_GPT61_SOL_OUT || 10),
+  },
   'gpt-5.5': {
-    in: Number(process.env.PRICE_GPT55_IN || 1.25),
-    out: Number(process.env.PRICE_GPT55_OUT || 10),
+    in: Number(process.env.PRICE_GPT55_IN || 5),
+    out: Number(process.env.PRICE_GPT55_OUT || 30),
   },
   'gpt-4o-mini': {
     in: Number(process.env.PRICE_MINI_IN || 0.15),
@@ -44,6 +48,7 @@ function estimateUsd(model, promptTokens, completionTokens) {
     .replace(/[^a-z0-9.\-]/g, '');
   let rates = PRICE.none;
   if (key.includes('4o-mini') || key.includes('mini')) rates = PRICE['gpt-4o-mini'];
+  else if (key.includes('6.1-sol')) rates = PRICE['gpt-6.1-sol'];
   else if (key.includes('gpt-5')) rates = PRICE['gpt-5.5'];
   else if (key.includes('4o')) rates = PRICE['gpt-4o'];
   const prompt = Number(promptTokens) || 0;

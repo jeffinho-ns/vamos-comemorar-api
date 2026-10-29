@@ -1,6 +1,6 @@
 /**
  * Configuração centralizada de modelos e janela de contexto.
- * Agente (tools/reservas): gpt-5.5. FAQ/resumos: modelo econômico (ver agentService.js).
+ * Agente (tools/reservas): gpt-6.1-sol. FAQ/resumos: modelo econômico (ver agentService.js).
  */
 
 function sanitizeOpenAiModelName(value, fallbackDefault) {
@@ -24,8 +24,8 @@ function sanitizeOpenAiModelName(value, fallbackDefault) {
   return normalized;
 }
 
-const MODEL_AGENT = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_MODEL, 'gpt-5.5');
-const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-4o');
+const MODEL_AGENT = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_MODEL, 'gpt-6.1-sol');
+const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-5.5');
 const MODEL_ECONOMY = sanitizeOpenAiModelName(
   process.env.OPENAI_ECONOMY_MODEL,
   'gpt-4o-mini'
@@ -54,7 +54,7 @@ function getMaxContextMessages() {
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 32) : 8;
 }
 
-/** Agente com tools usa gpt-5.5; FAQ e resumos usam modelo econômico. */
+/** Agente com tools usa gpt-6.1-sol; FAQ e resumos usam modelo econômico. */
 function getModelForTask(task) {
   const t = String(task || '').toLowerCase();
   if (t === 'faq' || t === 'summary' || t === 'history_summary') {
@@ -67,28 +67,23 @@ function getModelForTask(task) {
  * Aplica teto de tokens de conclusão conforme modo de saída.
  * OPENAI_MAX_COMPLETION_TOKENS (env) substitui os defaults por modo.
  */
+function resolveOutputTokenLimit(outputMode = 'conversational', hasTools = false) {
+  const globalOverride = Number(process.env.OPENAI_MAX_COMPLETION_TOKENS);
+  if (Number.isFinite(globalOverride) && globalOverride > 0) {
+    return Math.floor(globalOverride);
+  }
+  const mode = String(outputMode || 'conversational').toLowerCase();
+  if (mode === 'json' || mode === 'summary') return 220;
+  if (mode === 'funnel') return 320;
+  if (mode === 'agent' || hasTools) return 500;
+  return 400;
+}
+
 function applyOutputLimit(payload, outputMode = 'conversational') {
   if (!payload || typeof payload !== 'object') return payload;
 
-  const globalOverride = Number(process.env.OPENAI_MAX_COMPLETION_TOKENS);
-  let limit;
-
-  if (Number.isFinite(globalOverride) && globalOverride > 0) {
-    limit = Math.floor(globalOverride);
-  } else {
-    const mode = String(outputMode || 'conversational').toLowerCase();
-    const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
-
-    if (mode === 'json' || mode === 'summary') {
-      limit = 220;
-    } else if (mode === 'funnel') {
-      limit = 320;
-    } else if (mode === 'agent' || hasTools) {
-      limit = 500;
-    } else {
-      limit = 400;
-    }
-  }
+  const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
+  const limit = resolveOutputTokenLimit(outputMode, hasTools);
 
   const model = String(payload.model || '').toLowerCase();
   const isGpt5 = /^gpt-5/i.test(model);
@@ -130,6 +125,7 @@ module.exports = {
   AGENT_MAX_TOOL_ROUNDS_FUNNEL,
   getMaxContextMessages,
   getModelForTask,
+  resolveOutputTokenLimit,
   applyOutputLimit,
   getAgentToolRoundLimits,
 };
