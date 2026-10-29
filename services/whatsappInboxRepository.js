@@ -1244,6 +1244,73 @@ async function insertCampaignSendLog(pool, {
   return r.rows[0];
 }
 
+async function deleteOptional(client, sql, params) {
+  await client.query('SAVEPOINT delete_optional');
+  try {
+    await client.query(sql, params);
+    await client.query('RELEASE SAVEPOINT delete_optional');
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT delete_optional');
+    if (error?.code !== '42P01') throw error;
+  }
+}
+
+async function deleteConversationByWaId(pool, waId) {
+  const conv = await getConversationByWaId(pool, waId);
+  if (!conv) return null;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await deleteOptional(
+      client,
+      'DELETE FROM agent_conversation_context WHERE conversation_id = $1',
+      [conv.id]
+    );
+    await deleteOptional(
+      client,
+      'DELETE FROM conversation_state WHERE conversation_id = $1',
+      [conv.id]
+    );
+    await client.query('DELETE FROM whatsapp_conversations WHERE id = $1', [conv.id]);
+    await client.query('COMMIT');
+    return conv;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteContactByWaId(pool, waId) {
+  const removedConversation = await deleteConversationByWaId(pool, waId);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await deleteOptional(
+      client,
+      'DELETE FROM customer_operational_profile WHERE wa_id = $1',
+      [waId]
+    );
+    const contact = await client.query(
+      `DELETE FROM whatsapp_contacts
+        WHERE wa_id = $1
+        RETURNING id, wa_id, contact_name`,
+      [waId]
+    );
+    await client.query('COMMIT');
+    return {
+      conversation: removedConversation,
+      contact: contact.rows[0] || null,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function listCampaignSendLogs(pool, { batchId, limit = 100, offset = 0 }) {
   const r = await pool.query(
     `SELECT id, batch_id, contact_id, wa_id, status, error_message, meta, created_at
@@ -1293,6 +1360,8 @@ module.exports = {
   updateCampaignBatchFields,
   insertCampaignSendLog,
   listCampaignSendLogs,
+  deleteConversationByWaId,
+  deleteContactByWaId,
   normalizeWaId,
   importContacts,
   backfillMarketingOptInFromConversations,

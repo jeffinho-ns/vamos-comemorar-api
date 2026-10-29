@@ -645,6 +645,56 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.delete('/conversations/:waId', async (req, res) => {
+    const { waId } = req.params;
+    try {
+      const scope = await loadUserScope(req.user);
+      const existing = await inbox.getConversationByWaId(pool, waId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Conversa não encontrada' });
+      }
+      if (!canAccessEstablishment(scope, existing.establishment_id)) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+      const removed = await inbox.deleteConversationByWaId(pool, waId);
+      emitInbox({ type: 'conversation_deleted', wa_id: waId });
+      return res.json({ ok: true, deleted: 'conversation', wa_id: removed?.wa_id || waId });
+    } catch (e) {
+      console.error('[whatsappAdmin] delete conversation:', e);
+      return res.status(500).json({ message: 'Erro ao excluir conversa' });
+    }
+  });
+
+  router.delete('/conversations/:waId/contact', async (req, res) => {
+    const { waId } = req.params;
+    try {
+      const scope = await loadUserScope(req.user);
+      const existing = await inbox.getConversationByWaId(pool, waId);
+      const contact = existing ? null : await inbox.getContactByWaId(pool, waId);
+      const establishmentId = existing?.establishment_id ?? contact?.last_establishment_id ?? null;
+      if (!existing && !contact) {
+        return res.status(404).json({ message: 'Contato não encontrado' });
+      }
+      if (!canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Acesso negado para este estabelecimento' });
+      }
+      const removed = await inbox.deleteContactByWaId(pool, waId);
+      if (!removed?.conversation && !removed?.contact) {
+        return res.status(404).json({ message: 'Contato não encontrado' });
+      }
+      emitInbox({ type: 'contact_deleted', wa_id: waId });
+      return res.json({
+        ok: true,
+        deleted: 'contact',
+        wa_id: waId,
+        contact_name: removed.contact?.contact_name || existing?.contact_name || null,
+      });
+    } catch (e) {
+      console.error('[whatsappAdmin] delete contact:', e);
+      return res.status(500).json({ message: 'Erro ao excluir contato' });
+    }
+  });
+
   router.post('/conversations/:waId/resume', async (req, res) => {
     const { waId } = req.params;
     try {
