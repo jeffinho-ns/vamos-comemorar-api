@@ -27,6 +27,10 @@ const PRICE = {
     in: Number(process.env.PRICE_GPT61_SOL_IN || 2),
     out: Number(process.env.PRICE_GPT61_SOL_OUT || 10),
   },
+  'gpt-6.1-terra': {
+    in: Number(process.env.PRICE_GPT61_TERRA_IN || 1),
+    out: Number(process.env.PRICE_GPT61_TERRA_OUT || 5),
+  },
   'gpt-5.5': {
     in: Number(process.env.PRICE_GPT55_IN || 5),
     out: Number(process.env.PRICE_GPT55_OUT || 30),
@@ -48,6 +52,7 @@ function estimateUsd(model, promptTokens, completionTokens) {
     .replace(/[^a-z0-9.\-]/g, '');
   let rates = PRICE.none;
   if (key.includes('4o-mini') || key.includes('mini')) rates = PRICE['gpt-4o-mini'];
+  else if (key.includes('6.1-terra')) rates = PRICE['gpt-6.1-terra'];
   else if (key.includes('6.1-sol')) rates = PRICE['gpt-6.1-sol'];
   else if (key.includes('gpt-5')) rates = PRICE['gpt-5.5'];
   else if (key.includes('4o')) rates = PRICE['gpt-4o'];

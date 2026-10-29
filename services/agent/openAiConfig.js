@@ -25,7 +25,7 @@ function sanitizeOpenAiModelName(value, fallbackDefault) {
 }
 
 const MODEL_AGENT = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_MODEL, 'gpt-6.1-sol');
-const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-5.5');
+const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-6.1-terra');
 const MODEL_ECONOMY = sanitizeOpenAiModelName(
   process.env.OPENAI_ECONOMY_MODEL,
   'gpt-4o-mini'

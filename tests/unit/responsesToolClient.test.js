@@ -13,6 +13,7 @@ const {
 
 test('gpt-6.1-sol usa Responses para tools; gpt-5.5 continua no Chat Completions', () => {
   assert.equal(modelRequiresResponsesForTools('gpt-6.1-sol'), true);
+  assert.equal(modelRequiresResponsesForTools('gpt-6.1-terra'), true);
   assert.equal(modelRequiresResponsesForTools('gpt-5.5'), false);
   assert.equal(modelRequiresResponsesForTools('gpt-6-luna'), false);
 });

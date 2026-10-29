@@ -470,7 +470,7 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 // TRAVA DE PRODUÇÃO: o agente (tools, reservas, funil) está em teste com
 // gpt-6.1-sol. Function calling desse modelo só existe na Responses API.
 // Se a chamada falhar por compatibilidade ou instabilidade, o turno cai na
-// gpt-5.5 (Chat Completions), que segue homologada desde maio/2026.
+// gpt-6.1-terra, também pela Responses API.
 //
 // FAQ e resumos de histórico continuam no modelo econômico
 // (OPENAI_ECONOMY_MODEL, default gpt-4o-mini).
@@ -617,6 +617,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
             requestId: result.requestId,
             meta: { outputMode, toolChoice: toolChoice ?? null, api: 'responses' },
           });
+          console.log(`[agentService] modelo do turno: ${modelName}`);
           return result.message;
         } catch (error) {
           const retryable = isRetryableOpenAiError(error);
@@ -688,6 +689,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
         const hasContent = Boolean(String(message?.content || '').trim());
         const hasToolCalls = Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
         if (message && (hasContent || hasToolCalls)) {
+          console.log(`[agentService] modelo do turno: ${modelName}`);
           return message;
         }
         const emptyError = new Error(

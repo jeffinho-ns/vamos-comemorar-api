@@ -14,7 +14,11 @@ const REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh']);
 function modelRequiresResponsesForTools(modelName) {
   const normalized = String(modelName || '').trim().toLowerCase();
   if (RESPONSES_TOOL_MODELS.has(normalized)) return true;
-  return normalized.startsWith('gpt-6.1-sol') || normalized.startsWith('gpt-6-astra');
+  return (
+    normalized.startsWith('gpt-6.1-sol') ||
+    normalized.startsWith('gpt-6.1-terra') ||
+    normalized.startsWith('gpt-6-astra')
+  );
 }
 
 function normalizeReasoningEffort(value) {
