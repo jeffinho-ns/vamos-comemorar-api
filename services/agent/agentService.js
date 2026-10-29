@@ -24,9 +24,8 @@ const {
 } = require('./faqPrefetchService');
 const { isHighlineEstablishment } = require('./highlineReservationAreas');
 const {
-  MODEL_AGENT,
-  MODEL_FALLBACK,
   applyOutputLimit,
+  resolveAgentModels,
   getAgentToolRoundLimits,
 } = require('./openAiConfig');
 const {
@@ -469,8 +468,9 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 // ============================================================================
 // TRAVA DE PRODUÇÃO: o agente (tools, reservas, funil) está em teste com
 // gpt-6.1-sol. Function calling desse modelo só existe na Responses API.
-// Se a chamada falhar por compatibilidade ou instabilidade, o turno cai na
-// gpt-6.1-terra, também pela Responses API.
+// Segunda a sexta, 8h–17h (São Paulo): gpt-6.1-terra.
+// Noite, madrugada e fim de semana: gpt-6.1-sol.
+// Se o modelo do turno falhar, cai no outro.
 //
 // FAQ e resumos de histórico continuam no modelo econômico
 // (OPENAI_ECONOMY_MODEL, default gpt-4o-mini).
@@ -482,8 +482,6 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 //   OPENAI_AGENT_MODEL=gpt-5.5
 //   OPENAI_AGENT_REASONING_EFFORT=low
 // ============================================================================
-const AGENT_MODEL = MODEL_AGENT;
-const AGENT_FALLBACK_MODEL = MODEL_FALLBACK;
 const OPENAI_MAX_RETRIES = Number(process.env.OPENAI_RETRY_MAX || 2);
 const OPENAI_RETRY_BASE_MS = Number(process.env.OPENAI_RETRY_BASE_MS || 700);
 const OPENAI_REQUEST_TIMEOUT_MS = Number(process.env.OPENAI_REQUEST_TIMEOUT_MS || 25000);
@@ -591,6 +589,10 @@ async function withTimeout(promise, timeoutMs) {
 }
 
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', outputMode = 'conversational') {
+  const scheduled = resolveAgentModels();
+  const primaryModel = scheduled.primary;
+  const fallbackModel = scheduled.fallback;
+
   async function requestWithModel(modelName) {
     if (modelRequiresResponsesForTools(modelName)) {
       const maxRetries = Number.isFinite(OPENAI_MAX_RETRIES) && OPENAI_MAX_RETRIES >= 0
@@ -617,7 +619,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
             requestId: result.requestId,
             meta: { outputMode, toolChoice: toolChoice ?? null, api: 'responses' },
           });
-          console.log(`[agentService] modelo do turno: ${modelName}`);
+          console.log(`[agentService] modelo do turno: ${modelName} (${scheduled.shift})`);
           return result.message;
         } catch (error) {
           const retryable = isRetryableOpenAiError(error);
@@ -689,7 +691,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
         const hasContent = Boolean(String(message?.content || '').trim());
         const hasToolCalls = Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
         if (message && (hasContent || hasToolCalls)) {
-          console.log(`[agentService] modelo do turno: ${modelName}`);
+          console.log(`[agentService] modelo do turno: ${modelName} (${scheduled.shift})`);
           return message;
         }
         const emptyError = new Error(
@@ -725,18 +727,18 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
     return null;
   }
   try {
-    return await requestWithModel(AGENT_MODEL);
+    return await requestWithModel(primaryModel);
   } catch (error) {
     const shouldFallbackModel =
-      AGENT_FALLBACK_MODEL &&
-      String(AGENT_FALLBACK_MODEL) !== String(AGENT_MODEL) &&
+      fallbackModel &&
+      String(fallbackModel) !== String(primaryModel) &&
       (isOpenAiCompatError(error) ||
-        (modelRequiresResponsesForTools(AGENT_MODEL) && isRetryableOpenAiError(error)));
+        (modelRequiresResponsesForTools(primaryModel) && isRetryableOpenAiError(error)));
     if (!shouldFallbackModel) throw error;
     console.warn(
-      `[agentService] fallback de modelo ativado: ${AGENT_MODEL} -> ${AGENT_FALLBACK_MODEL} (${error.message})`
+      `[agentService] fallback de modelo ativado: ${primaryModel} -> ${fallbackModel} (${error.message})`
     );
-    return requestWithModel(AGENT_FALLBACK_MODEL);
+    return requestWithModel(fallbackModel);
   }
 }
 

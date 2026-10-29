@@ -26,6 +26,45 @@ function sanitizeOpenAiModelName(value, fallbackDefault) {
 
 const MODEL_AGENT = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_MODEL, 'gpt-6.1-sol');
 const MODEL_FALLBACK = sanitizeOpenAiModelName(process.env.OPENAI_AGENT_FALLBACK_MODEL, 'gpt-6.1-terra');
+const MODEL_SHIFT_STRONG = 'gpt-6.1-sol';
+const MODEL_SHIFT_LIGHT = 'gpt-6.1-terra';
+
+function saoPauloClock(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'short',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const clock = { weekday: '', hour: 0 };
+  for (const part of parts) {
+    if (part.type === 'weekday') clock.weekday = part.value;
+    if (part.type === 'hour') clock.hour = Number(part.value);
+  }
+  return clock;
+}
+
+/** Segunda a sexta, 8h inclusive até 17h exclusive, horário de São Paulo. */
+function isStaffShift(date = new Date()) {
+  const { weekday, hour } = saoPauloClock(date);
+  if (!['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday)) return false;
+  return hour >= 8 && hour < 17;
+}
+
+/**
+ * No expediente dos colaboradores usa o modelo leve. Fora dele, o mais forte.
+ * OPENAI_AGENT_SCHEDULE=off volta ao par fixo das variáveis de ambiente.
+ */
+function resolveAgentModels(date = new Date()) {
+  const scheduleOff = String(process.env.OPENAI_AGENT_SCHEDULE || '').trim().toLowerCase() === 'off';
+  if (scheduleOff) {
+    return { primary: MODEL_AGENT, fallback: MODEL_FALLBACK, shift: 'fixo' };
+  }
+  if (isStaffShift(date)) {
+    return { primary: MODEL_SHIFT_LIGHT, fallback: MODEL_SHIFT_STRONG, shift: 'expediente' };
+  }
+  return { primary: MODEL_SHIFT_STRONG, fallback: MODEL_SHIFT_LIGHT, shift: 'fora' };
+}
 const MODEL_ECONOMY = sanitizeOpenAiModelName(
   process.env.OPENAI_ECONOMY_MODEL,
   'gpt-4o-mini'
@@ -125,6 +164,8 @@ module.exports = {
   AGENT_MAX_TOOL_ROUNDS_FUNNEL,
   getMaxContextMessages,
   getModelForTask,
+  isStaffShift,
+  resolveAgentModels,
   resolveOutputTokenLimit,
   applyOutputLimit,
   getAgentToolRoundLimits,

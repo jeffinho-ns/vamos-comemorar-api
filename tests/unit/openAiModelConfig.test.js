@@ -7,6 +7,8 @@ const {
   MODEL_ECONOMY,
   getModelForTask,
   applyOutputLimit,
+  isStaffShift,
+  resolveAgentModels,
 } = require('../../services/agent/openAiConfig');
 const {
   classifyAgentRuntimeError,
@@ -32,6 +34,24 @@ test('getModelForTask usa MODEL_AGENT para agente e tarefas desconhecidas', () =
   assert.equal(getModelForTask('confirmation'), MODEL_AGENT);
   assert.equal(getModelForTask(''), MODEL_AGENT);
   assert.equal(getModelForTask(undefined), MODEL_AGENT);
+});
+
+test('expediente usa Terra e fora do expediente usa Sol', () => {
+  assert.equal(isStaffShift(new Date('2026-10-29T16:30:00-03:00')), true);
+  assert.equal(isStaffShift(new Date('2026-10-29T17:00:00-03:00')), false);
+  assert.equal(isStaffShift(new Date('2026-10-29T07:59:00-03:00')), false);
+  assert.equal(isStaffShift(new Date('2026-10-31T12:00:00-03:00')), false);
+
+  const previous = process.env.OPENAI_AGENT_SCHEDULE;
+  delete process.env.OPENAI_AGENT_SCHEDULE;
+  try {
+    assert.equal(resolveAgentModels(new Date('2026-10-29T10:00:00-03:00')).primary, 'gpt-6.1-terra');
+    assert.equal(resolveAgentModels(new Date('2026-10-29T21:00:00-03:00')).primary, 'gpt-6.1-sol');
+    assert.equal(resolveAgentModels(new Date('2026-10-31T15:00:00-03:00')).primary, 'gpt-6.1-sol');
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_AGENT_SCHEDULE;
+    else process.env.OPENAI_AGENT_SCHEDULE = previous;
+  }
 });
 
 test('applyOutputLimit define limite finito de conclusão por modo', () => {
