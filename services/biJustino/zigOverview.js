@@ -5,6 +5,7 @@ const { buscarZigPainel } = require('./zigPainel');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
 const { erroRecente } = require('./erroRecente');
+const { projecaoConsolidada } = require('./projecaoConsolidada');
 
 const erroZig = erroRecente();
 
@@ -84,6 +85,26 @@ function estourar(promise, ms) {
 function projecaoPublica(valor) {
   if (!valor || typeof valor !== 'object') return null;
   const envios = valor.envios && typeof valor.envios === 'object' ? valor.envios : {};
+  const areas = Array.isArray(valor.areas) ? valor.areas.map((area) => ({
+    chave: texto(area && area.chave),
+    label: texto(area && area.label),
+    meta: numero(area && area.meta),
+    real: numero(area && area.real),
+    economia: numero(area && area.economia),
+    status: texto(area && area.status),
+    nivel: texto(area && area.nivel),
+    envio: texto(area && area.envio),
+    usandoReferencia: Boolean(area && area.usandoReferencia),
+    envioHoje: Boolean(area && area.envioHoje),
+  })) : [];
+  const alertas = Array.isArray(valor.alertas) ? valor.alertas.map((alerta) => ({
+    nivel: texto(alerta && alerta.nivel),
+    titulo: texto(alerta && alerta.titulo),
+    valor: alerta && typeof alerta.valor === 'number' ? alerta.valor : texto(alerta && alerta.valor),
+    detalhe: texto(alerta && alerta.detalhe),
+    selo: texto(alerta && alerta.selo),
+    tipo: texto(alerta && alerta.tipo),
+  })) : [];
   return {
     faturamentoBruto: numero(valor.faturamentoBruto),
     cmvReal: numero(valor.cmvReal),
@@ -99,7 +120,32 @@ function projecaoPublica(valor) {
       operacao: texto(envios.operacao),
       cmv: texto(envios.cmv),
     },
+    areas,
+    alertas,
   };
+}
+
+function docsDeLancamento(linhas) {
+  return {
+    docs: (Array.isArray(linhas) ? linhas : []).map((linha) => ({
+      date: linha && linha.date,
+      values: linha || {},
+    })),
+  };
+}
+
+function projecaoDoPayload(payload) {
+  const atual = projecaoPublica(payload && payload.projecao);
+  if (atual && Array.isArray(atual.areas) && atual.areas.length) return atual;
+  const lanc = payload && payload.lancamentos ? payload.lancamentos : {};
+  return projecaoPublica(projecaoConsolidada({
+    faturamento: payload && payload.monthRevenue != null ? payload.monthRevenue : (atual && atual.faturamentoBruto),
+    financeiro: docsDeLancamento(lanc.financeiro),
+    marketing: docsDeLancamento(lanc.marketing),
+    rh: docsDeLancamento(lanc.rh),
+    operacao: docsDeLancamento(lanc.operacao),
+    cmv: docsDeLancamento(lanc.cmv),
+  }));
 }
 
 function displayFrom(row) {
@@ -114,7 +160,7 @@ function displayFrom(row) {
     servicoMes: numero(payload.servicoMes),
     ranking: payload.ranking || null,
     cmvZig: Array.isArray(payload.cmvZig) ? payload.cmvZig : [],
-    projecao: projecaoPublica(payload.projecao),
+    projecao: projecaoDoPayload(payload),
     publicoMes: numero(payload.publicoMes) ?? (painelPublico(payload)),
     porDiaSemana: Array.isArray(payload.porDiaSemana) ? payload.porDiaSemana : [],
     semanas: Array.isArray(payload.semanas) ? payload.semanas : [],
