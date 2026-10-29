@@ -6,6 +6,7 @@ const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 const snapshotStore = require('./snapshotStore');
 const { erroRecente } = require('./erroRecente');
 const { projecaoConsolidada } = require('./projecaoConsolidada');
+const { quadrosArea } = require('./quadrosArea');
 
 const erroZig = erroRecente();
 
@@ -148,6 +149,53 @@ function projecaoDoPayload(payload) {
   }));
 }
 
+function alertaPublico(alerta) {
+  if (!alerta || typeof alerta !== 'object') return null;
+  return {
+    nivel: texto(alerta.nivel),
+    titulo: texto(alerta.titulo),
+    valor: typeof alerta.valor === 'number' ? alerta.valor : texto(alerta.valor),
+    detalhe: texto(alerta.detalhe),
+    selo: texto(alerta.selo),
+    tipo: texto(alerta.tipo),
+  };
+}
+
+function quadroPublico(quadro) {
+  if (!quadro || typeof quadro !== 'object') return null;
+  const kpis = {};
+  Object.keys(quadro.kpis || {}).forEach((chave) => {
+    const valor = quadro.kpis[chave];
+    kpis[chave] = typeof valor === 'number' || valor == null ? valor : texto(valor);
+  });
+  return {
+    kpis,
+    alertas: Array.isArray(quadro.alertas) ? quadro.alertas.map(alertaPublico).filter(Boolean) : [],
+    alertasComida: Array.isArray(quadro.alertasComida) ? quadro.alertasComida.map(alertaPublico).filter(Boolean) : [],
+    alertasBebida: Array.isArray(quadro.alertasBebida) ? quadro.alertasBebida.map(alertaPublico).filter(Boolean) : [],
+  };
+}
+
+function quadrosDoPayload(payload) {
+  const bruto = (payload && payload.quadros && payload.quadros.marketing)
+    ? payload.quadros
+    : quadrosArea({
+      faturamento: payload && payload.monthRevenue,
+      servico: payload && payload.servicoMes,
+      marketing: docsDeLancamento(payload && payload.lancamentos && payload.lancamentos.marketing),
+      rh: docsDeLancamento(payload && payload.lancamentos && payload.lancamentos.rh),
+      operacao: docsDeLancamento(payload && payload.lancamentos && payload.lancamentos.operacao),
+      cmvZig: payload && payload.cmvZig,
+    });
+  return {
+    marketing: quadroPublico(bruto.marketing),
+    financeiro: quadroPublico(bruto.financeiro),
+    rh: quadroPublico(bruto.rh),
+    operacao: quadroPublico(bruto.operacao),
+    cmv: quadroPublico(bruto.cmv),
+  };
+}
+
 function displayFrom(row) {
   const payload = row && row.payload ? row.payload : {};
   return {
@@ -166,6 +214,7 @@ function displayFrom(row) {
     semanas: Array.isArray(payload.semanas) ? payload.semanas : [],
     eventosResumo: payload.eventosResumo || null,
     lancamentos: payload.lancamentos || null,
+    quadros: quadrosDoPayload(payload),
     zigCarregando: false,
   };
 }

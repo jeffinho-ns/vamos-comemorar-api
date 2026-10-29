@@ -189,6 +189,8 @@ function compactCmv(payload) {
     cmvComida: doc.cmvFoodPctSobreCobertura == null ? null : Number(doc.cmvFoodPctSobreCobertura),
     cmvBebida: doc.cmvBevPctSobreCobertura == null ? null : Number(doc.cmvBevPctSobreCobertura),
     cobertura: doc.coberturaTotalPct == null ? null : Number(doc.coberturaTotalPct),
+    coberturaFood: doc.coberturaFoodPct == null ? null : Number(doc.coberturaFoodPct),
+    coberturaBev: doc.coberturaBevPct == null ? null : Number(doc.coberturaBevPct),
     vendaComida: Number(doc.valorTotalFood) || 0,
     vendaBebida: Number(doc.valorTotalBev) || 0,
   }));

@@ -5,6 +5,7 @@ const { formatoDreBase } = require('./dreSharepoint');
 const { montar } = require('./painelNovidades');
 const { painelDeMapa } = require('./zigPainel');
 const { projecaoConsolidada } = require('./projecaoConsolidada');
+const { quadrosArea } = require('./quadrosArea');
 const snapshotStore = require('./snapshotStore');
 const { emitBiLiveChanged } = require('../../utils/biLiveRealtime');
 
@@ -113,9 +114,20 @@ async function coletarAbertura(pool, env, deps) {
       cmv: mapa['getEntries:cmv'],
       freelancers: mapa.getFreelancerRequests && mapa.getFreelancerRequests.items,
     });
+    const quadros = quadrosArea({
+      faturamento: anterior.monthRevenue,
+      servico: painel && painel.mes ? painel.mes.servico : anterior.servicoMes,
+      dre,
+      marketing: mapa['getEntries:marketing'],
+      rh: mapa['getEntries:rh'],
+      operacao: mapa['getEntries:operacao'],
+      freelancers: mapa.getFreelancerRequests && mapa.getFreelancerRequests.items,
+      cmvZig: painel && painel.cmv,
+    });
     if (painel || projecao) {
       const payload = painel ? mesclarZig(anterior, painel) : { ...anterior };
       payload.projecao = projecao;
+      payload.quadros = quadros;
       await store.saveSnapshot(pool, { source: 'faturamento_zig', action: 'getRevenueOverview', payload });
       if (options.emit !== false) emitBiLiveChanged('zig');
     }
