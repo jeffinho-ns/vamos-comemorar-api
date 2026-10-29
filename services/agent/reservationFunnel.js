@@ -11,6 +11,7 @@ const {
   getStepPrompt,
 } = require('../stateManager/conversationSteps');
 const { resolveHighlineSubarea } = require('./highlineReservationAreas');
+const { resolveJustinoGuestZone, guestZoneLabel } = require('./seuJustinoReservationAreas');
 
 /**
  * Detecta a mensagem padronizada gerada por anúncio/tráfego pago.
@@ -375,7 +376,19 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   // Sempre atualiza quando a fala resolve uma subárea — permite trocar de área no meio do funil.
-  const subarea = resolveHighlineSubarea(text);
+  const justinoHouse = Number(workingState.establishment_id) === 1;
+  const justinoZone = justinoHouse ? resolveJustinoGuestZone(text) : null;
+  if (justinoZone && justinoZone !== 'qualquer') {
+    const label = guestZoneLabel(justinoZone);
+    patch.area_preferida = label;
+    patch.area_label = label;
+    patch.area_id = justinoZone === 'coberta' ? 1 : 2;
+  } else if (justinoZone === 'qualquer') {
+    patch.area_preferida = 'qualquer';
+    patch.area_label = 'qualquer';
+  }
+
+  const subarea = justinoHouse ? null : resolveHighlineSubarea(text);
   if (subarea?.label) {
     const current = resolveHighlineSubarea(
       workingState.area_label || workingState.area_preferida || ''

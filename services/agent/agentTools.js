@@ -25,6 +25,12 @@ const {
   HIGHLINE_SUBAREAS,
 } = require('./highlineReservationAreas');
 const {
+  isSeuJustinoEstablishment,
+  resolveJustinoGuestZone,
+  guestZoneLabel,
+  pickJustinoReservationSlot,
+} = require('./seuJustinoReservationAreas');
+const {
   buildNotesFromReservationArgs,
   buildNotesFromWaitlistArgs,
 } = require('./operationalNotes');
@@ -556,7 +562,12 @@ async function verificarDisponibilidade(pool, args = {}) {
   );
   const areas = isHighlineEstablishment(establishmentId)
     ? buildHighlineAreasSummary({ partySize })
-    : await loadActiveAreas(pool, establishmentId);
+    : isSeuJustinoEstablishment(establishmentId)
+      ? [
+          { id: 1, name: 'Área coberta' },
+          { id: 2, name: 'Área descoberta' },
+        ]
+      : await loadActiveAreas(pool, establishmentId);
   const partyValidation = Number.isFinite(partySize)
     ? businessRulesEngine.validateReservationPartySize({
         establishment_id: establishmentId,
@@ -589,6 +600,9 @@ async function verificarDisponibilidade(pool, args = {}) {
     areas: areas.map((area) => ({ id: area.id, name: area.name })),
     areas_canonicas_highline: isHighlineEstablishment(establishmentId)
       ? 'No HighLine só ofereça Deck - Mesas, Deck - Mesas Redondas e Bar Central - Bistrôs de Espera. Rooftop/Balada/VIP apenas se o cliente pedir. Rotativo só para lista/fila de espera (máx. 4 pessoas). NÃO cite "Terraço", "Balcão", "Área Coberta", "Área Descoberta", "Área VIP" genérica, "Mezanino" ou "Pista Interna".'
+      : null,
+    areas_seu_justino: isSeuJustinoEstablishment(establishmentId)
+      ? 'Ofereça ao cliente somente área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema escolhe a subárea livre do painel: lounge na coberta, quintal na descoberta. Não cite Lounge, Quintal, Praça nem Apê.'
       : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
@@ -891,6 +905,50 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     }
   }
 
+  let justinoZone = null;
+  let justinoPanelLabel = null;
+  if (isSeuJustinoEstablishment(establishmentId)) {
+    justinoZone = resolveJustinoGuestZone(args.area || areaLabel);
+    if (!justinoZone) {
+      return {
+        ok: false,
+        error:
+          'Pergunte se o cliente prefere área coberta ou área descoberta. Depois crie a reserva com area="coberta" ou area="descoberta". Não ofereça Lounge, Quintal, Praça nem Apê.',
+      };
+    }
+    const slot = await pickJustinoReservationSlot(pool, {
+      reservationDate,
+      reservationTime,
+      partySize,
+      zone: justinoZone,
+      excludeTableNumbers: excludedTables,
+    });
+    if (!slot) {
+      const other =
+        justinoZone === 'coberta' ? 'descoberta' : justinoZone === 'descoberta' ? 'coberta' : null;
+      const otherSlot = other
+        ? await pickJustinoReservationSlot(pool, {
+            reservationDate,
+            reservationTime,
+            partySize,
+            zone: other,
+          })
+        : null;
+      const asked = guestZoneLabel(justinoZone) || 'área coberta e área descoberta';
+      return {
+        ok: false,
+        error: otherSlot
+          ? `A ${asked} está sem mesa livre para ${partySize} pessoas nesse horário. A ${otherSlot.guestLabel} tem vaga. Confirme com o cliente antes de trocar.`
+          : 'Área coberta e área descoberta estão sem mesa livre para esse grupo nesse horário.',
+      };
+    }
+    areaId = slot.area_id;
+    tableNumber = slot.table_number;
+    areaLabel = slot.guestLabel;
+    combinedTablesInfo = slot.combined;
+    justinoPanelLabel = slot.internalLabel;
+  }
+
   if (!areaId) {
     areaId = await resolveAreaId(pool, establishmentId, args.area);
   }
@@ -921,11 +979,27 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     return { ok: false, error: 'Reservas exigem +18 anos.' };
   }
 
-  const maxCreateAttempts = isHighlineEstablishment(establishmentId) ? 4 : 1;
+  const maxCreateAttempts =
+    isHighlineEstablishment(establishmentId) || justinoZone ? 4 : 1;
   let created = null;
   let lastCreateError = null;
 
   for (let attempt = 0; attempt < maxCreateAttempts; attempt++) {
+    if (attempt > 0 && justinoZone) {
+      const slot = await pickJustinoReservationSlot(pool, {
+        reservationDate,
+        reservationTime,
+        partySize,
+        zone: justinoZone,
+        excludeTableNumbers: excludedTables,
+      });
+      if (!slot) break;
+      areaId = slot.area_id;
+      tableNumber = slot.table_number;
+      areaLabel = slot.guestLabel;
+      combinedTablesInfo = slot.combined;
+      justinoPanelLabel = slot.internalLabel;
+    }
     if (attempt > 0 && isHighlineEstablishment(establishmentId)) {
       const resolved = await resolveHighlineCreateSlot(pool, {
         establishmentId,
@@ -961,6 +1035,10 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     });
 
     let finalNotes = notes;
+    if (justinoPanelLabel) {
+      const painel = `Painel: ${justinoPanelLabel} (mesa ${tableNumber}). Cliente escolheu ${areaLabel}.`;
+      finalNotes = finalNotes ? `${painel} | ${finalNotes}` : painel;
+    }
 
     if (combinedTablesInfo) {
       const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
@@ -1004,7 +1082,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       parseConflictingTableFromError(lastCreateError) ||
       (String(lastCreateError).includes('já está reservada') ? String(tableNumber || '').split(',')[0] : null);
 
-    if (!conflictTable || !isHighlineEstablishment(establishmentId)) {
+    if (!conflictTable || (!isHighlineEstablishment(establishmentId) && !justinoZone)) {
       return { ok: false, error: lastCreateError };
     }
 

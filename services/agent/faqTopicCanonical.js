@@ -150,7 +150,9 @@ function normalizeTopicKey(topic) {
 function canonicalizeAdminFaqTopic(topic) {
   const normalized = normalizeTopicKey(topic);
   if (!normalized) return '';
-  return ADMIN_TOPIC_CANONICAL[normalized] || normalized;
+  if (ADMIN_TOPIC_CANONICAL[normalized]) return ADMIN_TOPIC_CANONICAL[normalized];
+  const { canonicalAliasFor } = require('./seuJustinoFaqCatalog');
+  return canonicalAliasFor(normalized) || normalized;
 }
 
 function normalizeInboundText(text) {
@@ -308,7 +310,13 @@ function detectFaqTopicsFromUserText(text) {
     topics.push('dress_code');
   }
 
-  return [...new Set(topics)];
+  const { detectSeuJustinoFaqTopics } = require('./seuJustinoFaqCatalog');
+  const specific = detectSeuJustinoFaqTopics(normalized);
+  const merged = [];
+  for (const topic of [...specific, ...topics]) {
+    if (topic && !merged.includes(topic)) merged.push(topic);
+  }
+  return merged;
 }
 
 function isInformationalFaqTurn(text) {

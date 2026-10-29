@@ -5,6 +5,11 @@
 
 const { executeAgentToolCall, consultHighlineReservationAreas } = require('./agentTools');
 const { resolveHighlineSubarea } = require('./highlineReservationAreas');
+const {
+  isSeuJustinoEstablishment,
+  resolveJustinoGuestZone,
+  guestZoneLabel,
+} = require('./seuJustinoReservationAreas');
 const { getReservationMissingFields } = require('./reservationFunnel');
 const { mergeWorkingState, extractWorkingStatePatchFromToolResult } = require('./agentMemoryService');
 const { recordZeroTokenPath } = require('./aiUsageRepository');
@@ -75,6 +80,15 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     fromUserText ||
     String(workingState.area_label || workingState.area_preferida || '').trim();
 
+  if (isSeuJustinoEstablishment(establishmentId)) {
+    const zone = resolveJustinoGuestZone(userText) || resolveJustinoGuestZone(preferred);
+    if (!zone) {
+      return { needsChoice: true, label: '', snapshot: null };
+    }
+    const label = zone === 'qualquer' ? 'qualquer' : guestZoneLabel(zone);
+    return { label, snapshot: null };
+  }
+
   if (!isHighlineEstablishment(establishmentId) || !pool) {
     // Casas não-Highline: criar_pre_reserva resolve área padrão no backend.
     return { label: preferred || 'padrão', snapshot: null };
@@ -141,6 +155,16 @@ async function tryDeterministicReservationClose({
   let nextTrace = [...(toolTrace || [])];
 
   const areaResolution = await resolveAreaLabelForCreate(pool, nextState, context, userText);
+  if (areaResolution?.needsChoice) {
+    return {
+      workingState: nextState,
+      toolTrace: nextTrace,
+      replyText: 'Show. Pra eu encaixar a mesa, você prefere a área coberta ou a área descoberta?',
+      preReservationResult: null,
+      guestListLink: null,
+      deterministic: true,
+    };
+  }
   if (areaResolution?.todasCheias) {
     nextTrace.push({
       name: 'consultar_areas_mesa_reserva',

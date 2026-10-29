@@ -674,10 +674,15 @@ function looksLikeFakeReservationConfirmation(text) {
   return FAKE_CONFIRMATION_PATTERNS.some((re) => re.test(t));
 }
 
-function containsForbiddenAreaName(text) {
+function forbiddenAreaPatterns(establishmentId) {
+  if (Number(establishmentId) !== 1) return FORBIDDEN_AREA_NAMES;
+  return FORBIDDEN_AREA_NAMES.filter((pattern) => !/coberta|descoberta/.test(pattern.source));
+}
+
+function containsForbiddenAreaName(text, establishmentId = null) {
   const t = String(text || '');
   if (!t) return false;
-  return FORBIDDEN_AREA_NAMES.some((re) => re.test(t));
+  return forbiddenAreaPatterns(establishmentId).some((re) => re.test(t));
 }
 
 function lastSuccessfulPreReserva(toolTrace = []) {
@@ -732,7 +737,13 @@ function looksLikeFormalToneViolation(text) {
  *  - Bloqueia nomes de área proibidos (Terraço, Balcão, Área Coberta, etc.).
  *  - Bloqueia sugestão de múltiplas reservas pro mesmo grupo.
  */
-function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} } = {}) {
+function sanitizeAssistantReply(
+  replyText,
+  { toolTrace = [], workingState = {}, establishmentId = null } = {}
+) {
+  const houseId = Number(
+    establishmentId || workingState.establishment_id || workingState.estabelecimento_id
+  );
   const text = String(replyText || '').trim();
   if (!text) return { text, blocked: false };
 
@@ -747,7 +758,7 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
     const synthetic = synthesizeReplyFromToolTrace(toolTrace);
     if (synthetic) {
       const llmAddedRisk =
-        looksLikeFormalToneViolation(text) || containsForbiddenAreaName(text);
+        looksLikeFormalToneViolation(text) || containsForbiddenAreaName(text, houseId);
       if (llmAddedRisk) {
         console.warn(
           '[agentService] guard: descartando texto do LLM (risco detectado) e usando síntese determinística da reserva.'
@@ -787,7 +798,7 @@ function sanitizeAssistantReply(replyText, { toolTrace = [], workingState = {} }
     return { text: safe, blocked: true, reason: 'formal_tone' };
   }
 
-  if (containsForbiddenAreaName(text)) {
+  if (containsForbiddenAreaName(text, houseId)) {
     console.warn(
       '[agentService] guard: detectado nome de área proibido — substituindo por resposta segura.'
     );

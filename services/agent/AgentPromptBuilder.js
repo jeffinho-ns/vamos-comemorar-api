@@ -153,6 +153,9 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
     if (id === 7) {
       return 'ESCOPO: HighLine (id=7). Use regras e base cadastradas para esta casa.';
     }
+    if (id === 1) {
+      return 'ESCOPO: Seu Justino (id=1). Na conversa o cliente escolhe só área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema coloca a reserva numa subárea livre do painel (lounge na coberta, quintal na descoberta). Não cite Lounge, Quintal, Praça nem Apê.';
+    }
     return `ESCOPO: "${name || 'estabelecimento'}" (id=${id}). Ignore menções a Highline se não forem desta casa.`;
   }
 
