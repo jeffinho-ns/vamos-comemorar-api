@@ -38,6 +38,7 @@ class AgentPromptBuilder {
   /** Sufixo dinâmico — FAQ, funil, regras operacionais, memória. */
   buildDynamic(context = {}) {
     const blocks = [
+      this.buildEventProgramBlock(context),
       this.buildFaqKnowledgeBlock(context),
       this.buildExternalLinksBlock(context),
       this.buildReservationDateBlock(context),
@@ -61,7 +62,7 @@ class AgentPromptBuilder {
 
     // Esta regra é INEGOCIÁVEL e vale com ou sem config customizada por casa.
     const factPriority =
-      'PRIORIDADE: o bloco "TREINAMENTO DA IA — REGRAS DA CASA" é a única fonte factual. Se contradizer seu conhecimento geral, a BASE vence. Sem cobertura na base: "Boa, deixa eu confirmar com a equipe e te respondo já." Não invente horários, preços ou regras.';
+      'PRIORIDADE: o bloco "TREINAMENTO DA IA — REGRAS DA CASA" e, quando existir, o bloco "PROGRAMAÇÃO REAL DO DIA" são as fontes factuais. A programação real do dia vence o texto genérico do dia da semana. Se contradizer seu conhecimento geral, essas fontes vencem. Sem cobertura: "Boa, deixa eu confirmar com a equipe e te respondo já." Não invente horários, preços, artista ou observação.';
 
     if (!settings) {
       return `Você é a anfitriã digital de uma casa noturna no WhatsApp — host real, simpática, português do Brasil.
@@ -234,6 +235,10 @@ ${lines.join('\n')}`;
     }
 
     return lines;
+  }
+
+  buildEventProgramBlock(context) {
+    return String(context.eventProgramBlock || '').trim();
   }
 
   buildFaqKnowledgeBlock(context) {

@@ -59,6 +59,13 @@ const {
   extractFirstName,
 } = require('./reservationFunnel');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
+const {
+  looksLikeDayProgramQuestion,
+  weekdayFaqTopicForIso,
+  formatEventProgramReply,
+  formatEventProgramPromptBlock,
+  resolveDayProgram,
+} = require('./establishmentEventProgram');
 const { recordOpenAiUsageSafe, recordZeroTokenPath, runWithOpenAiUsageContext } = require('./aiUsageRepository');
 const { tripOpenAiCircuit } = require('./openaiCircuitBreaker');
 const {
@@ -972,21 +979,66 @@ async function tryFaqFirstReply({
     return null;
   }
   const informationalTurn = shouldPrioritizeFaqForCurrentTurn(userText);
+  const programQuestion = looksLikeDayProgramQuestion(userText);
   if (looksLikeAreaAvailabilityQuestion(userText)) {
     return null;
   }
-  if (!informationalTurn && (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText))) {
+  if (
+    !informationalTurn &&
+    !programQuestion &&
+    (looksLikeFreshReservationStart(userText) || looksLikeReservationPushOnly(userText))
+  ) {
     return null;
   }
-  if (!informationalTurn) {
+  if (!informationalTurn && !programQuestion) {
     return null;
   }
 
-  const topicHints = detectRelevantFaqTopics(userText, messageHistory, {
+  const dayProgram = await resolveDayProgram({
+    pool,
+    establishmentId,
+    establishmentName: context.lockedEstablishmentName,
+    userText,
+    messageHistory,
+  }).catch((error) => {
+    console.warn(
+      `[agentService] programação do dia falhou establishment_id=${establishmentId}:`,
+      error.message
+    );
+    return null;
+  });
+  const programReply = formatEventProgramReply(dayProgram);
+  if (programReply) {
+    return {
+      replyText: programReply,
+      workingState: scrubReservationStateForInformationalTurn(
+        mergeWorkingState(memory.workingState || {}, { establishment_id: establishmentId })
+      ),
+      toolTrace: [
+        {
+          name: 'consultar_programacao_dia',
+          result: { ok: true, date: dayProgram.iso, events: dayProgram.events.length },
+        },
+      ],
+      preReservationResult: null,
+      guestListLink: null,
+      faqFirst: true,
+    };
+  }
+
+  const detectedTopics = detectRelevantFaqTopics(userText, messageHistory, {
     funnelActive: false,
     establishmentId: context.lockedEstablishmentId,
     establishmentName: context.lockedEstablishmentName,
   });
+  const weekdayTopic =
+    programQuestion && dayProgram?.iso && !detectedTopics.some((topic) => topic.startsWith('programacao_'))
+      ? weekdayFaqTopicForIso(dayProgram.iso)
+      : '';
+  const topicHints =
+    weekdayTopic && !detectedTopics.includes(weekdayTopic)
+      ? [...detectedTopics, weekdayTopic]
+      : detectedTopics;
 
   let faqEntries = [];
   try {
@@ -1036,7 +1088,7 @@ async function tryFaqFirstReply({
       looksLikeMusicStyleQuestion(userText));
 
   if (!faqEntries.length) {
-    if (looksLikeEventProgramQuestion(userText)) {
+    if (looksLikeEventProgramQuestion(userText) || programQuestion) {
       console.warn(
         `[agentService] FAQ-first evento sem registros establishment_id=${establishmentId}`
       );
@@ -1480,6 +1532,24 @@ async function runAgentTurn({
     externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
   }
 
+  let eventProgramBlock = '';
+  if (pool && establishmentId > 0 && looksLikeDayProgramQuestion(userText)) {
+    const dayProgram = await resolveDayProgram({
+      pool,
+      establishmentId,
+      establishmentName: context.lockedEstablishmentName,
+      userText,
+      messageHistory,
+    }).catch((error) => {
+      console.warn(
+        `[agentService] programação do dia falhou establishment_id=${establishmentId}:`,
+        error.message
+      );
+      return null;
+    });
+    eventProgramBlock = formatEventProgramPromptBlock(dayProgram);
+  }
+
   const staticPromptContext = promptBuilder.pickStaticPromptContext({
     assistantSettings,
     lockedEstablishmentId: context.lockedEstablishmentId,
@@ -1490,6 +1560,7 @@ async function runAgentTurn({
     assistantSettings,
     externalLinksBlock,
     faqKnowledgeBlock,
+    eventProgramBlock,
     reservationDateBlock: dateHint.promptBlock,
     reservationFunnelBlock,
     referenceDate: referenceDateIso,
