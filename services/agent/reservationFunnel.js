@@ -107,8 +107,9 @@ function extractFirstName(text) {
   if (!raw) return '';
   const first = raw.split(/\s+/)[0] || '';
   if (!first) return '';
-  if (first.length < 2 || first.length > 20) return '';
-  if (!/^[a-zA-ZÀ-ÿ'.-]+$/.test(first)) return '';
+  if (first.length < 3 || first.length > 20) return '';
+  if (/[-_0-9]/.test(first)) return '';
+  if (!/^[a-zA-ZÀ-ÿ']+$/.test(first)) return '';
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
@@ -297,6 +298,19 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   return lines.join('\n');
 }
 
+function assistantAskedForClientName(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const normalized = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bnome completo\b|\bseu nome\b|\bqual o seu nome\b|\bme confirma seu nome\b/.test(
+    normalized
+  );
+}
+
 function assistantAskedForReservationTime(messageHistory = []) {
   const lastAssistant = [...(messageHistory || [])]
     .reverse()
@@ -397,10 +411,15 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const informationalDateQuestion =
     (isInformationalFaqTurn(text) || looksLikeEventProgramQuestion(text)) &&
     !looksLikeReservationIntent(text);
+  const parsedYear = Number(dateParsed?.year);
+  const birthCalendarDate =
+    Number.isFinite(parsedYear) && parsedYear < new Date().getFullYear();
   if (
     dateParsed?.iso &&
     !hasFieldValue(workingState, 'reservation_date') &&
-    !informationalDateQuestion
+    !informationalDateQuestion &&
+    !emailMatch &&
+    !birthCalendarDate
   ) {
     patch.reservation_date = dateParsed.iso;
     patch.reservation_date_confirmed = true;
@@ -422,6 +441,7 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     !emailMatch &&
     !time &&
     !partyMatch &&
+    assistantAskedForClientName(messageHistory) &&
     text.length >= 3 &&
     text.length <= 60 &&
     /^[a-zA-ZÀ-ÿ\s'.-]+$/.test(text) &&
@@ -473,8 +493,12 @@ function mergeContactHintsIntoWorkingState(workingState = {}, contact = {}) {
   if (!hasFieldValue(next, 'client_email') && contact?.client_email) {
     next.client_email = String(contact.client_email).trim().toLowerCase();
   }
-  if (!hasFieldValue(next, 'client_name') && contact?.contact_name) {
-    next.client_name = String(contact.contact_name).trim();
+  const contactName = String(contact?.contact_name || '').trim();
+  const contactLooksLikePerson =
+    contactName.split(/\s+/).length >= 2 &&
+    contactName.split(/\s+/).every((word) => /^[A-Za-zÀ-ÿ']{2,}$/.test(word));
+  if (!hasFieldValue(next, 'client_name') && contactLooksLikePerson) {
+    next.client_name = contactName;
   }
   if (!hasFieldValue(next, 'data_nascimento') && contact?.birth_date) {
     const bd = String(contact.birth_date).slice(0, 10);

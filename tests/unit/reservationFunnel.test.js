@@ -11,8 +11,11 @@ const {
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
   prefixReplyWithContactName,
+  mergeContactHintsIntoWorkingState,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
+const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
+const { mergeWorkingState } = require('../../services/agent/agentMemoryService');
 
 test('isReservationFunnelInProgress quando há estabelecimento e data', () => {
   assert.equal(
@@ -254,4 +257,59 @@ test('a primeira resposta usa o nome do WhatsApp', () => {
 
 test('vai ter o que amanhã é pergunta de programação do dia', () => {
   assert.equal(looksLikeEventProgramQuestion('Oi, vai ter o que amanhã no Seu Justino?'), true);
+});
+
+test('nascimento não substitui a data da reserva e o nome entra no estado', () => {
+  const userText = 'Suellem Lima, nunesuellen@gmail.com, 27/04/1986';
+  const current = {
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+    reservation_date_confirmed: true,
+    reservation_time: '19:00',
+    quantidade_convidados: 10,
+    area_label: 'área descoberta',
+  };
+  const hint = buildReservationDateHint({
+    userText,
+    referenceDateIso: '2026-10-29',
+    workingState: current,
+  });
+  const fields = parseReservationFieldsFromUserText(userText, current);
+  const merged = mergeWorkingState(current, hint.patch || {}, fields);
+  assert.equal(merged.reservation_date, '2026-10-30');
+  assert.equal(merged.client_name, 'Suellem Lima');
+  assert.equal(merged.client_email, 'nunesuellen@gmail.com');
+  assert.equal(merged.data_nascimento, '1986-04-27');
+  assert.equal(merged.area_label, 'área descoberta');
+});
+
+test('área descoberta fica salva junto com a data já confirmada', () => {
+  const current = { establishment_id: 1, reservation_date: '2026-10-30' };
+  const fields = parseReservationFieldsFromUserText('Área descoberta', current);
+  const merged = mergeWorkingState(current, {}, fields);
+  assert.equal(merged.area_label, 'área descoberta');
+  assert.equal(merged.area_id, 2);
+  assert.equal(merged.reservation_date, '2026-10-30');
+});
+
+test('frase sobre a casa não vira nome do cliente', () => {
+  const patch = parseReservationFieldsFromUserText('Eu não conheço a casa', {
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+  });
+  assert.equal(patch.client_name, undefined);
+});
+
+test('apelido do WhatsApp não entra no cumprimento nem no nome da reserva', () => {
+  const reply = prefixReplyWithContactName('Amanhã é sexta.', {
+    messageHistory: [{ role: 'user', content: 'oi' }],
+    contactName: 'Dp-scoop',
+  });
+  assert.equal(reply, 'Amanhã é sexta.');
+  const hinted = mergeContactHintsIntoWorkingState(
+    { establishment_id: 1 },
+    { contact_name: 'Dp-scoop', client_email: 'nunesuellen@gmail.com' }
+  );
+  assert.equal(hinted.client_name, undefined);
+  assert.equal(hinted.client_email, 'nunesuellen@gmail.com');
 });

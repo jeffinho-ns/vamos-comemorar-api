@@ -31,11 +31,14 @@ function buildSummaryFromWorkingState(workingState = {}) {
   return `Contexto atual: ${parts.join('; ')}.`;
 }
 
-function mergeWorkingState(current = {}, patch = {}) {
-  const next = { ...(current || {}) };
-  for (const [key, value] of Object.entries(patch || {})) {
-    if (value === undefined || value === null || value === '') continue;
-    next[key] = value;
+function mergeWorkingState(current = {}, ...patches) {
+  const next = { ...(current && typeof current === 'object' ? current : {}) };
+  for (const patch of patches) {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) continue;
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || value === null || value === '') continue;
+      next[key] = value;
+    }
   }
   return next;
 }

@@ -59,6 +59,7 @@ const {
   looksLikeIdentityPayload,
   prefixReplyWithContactName,
 } = require('./reservationFunnel');
+const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
   looksLikeDayProgramQuestion,
@@ -91,6 +92,87 @@ function looksLikeBookingDataTurn(text) {
     /\bdia\s+\d{1,2}\b/i.test(raw) ||
     /\b(hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b/i.test(raw);
   return hasParty && (hasTime || hasDate);
+}
+
+async function maybeReplyFromFunnelData({
+  pool,
+  workingState,
+  context,
+  runtimeContext,
+  userText,
+  messageHistory,
+  textFieldPatch,
+  informationalOnly,
+}) {
+  if (informationalOnly) return null;
+  const advanced = Boolean(
+    textFieldPatch?.reservation_time ||
+    textFieldPatch?.quantidade_convidados ||
+    textFieldPatch?.area_label ||
+    textFieldPatch?.area_preferida ||
+    textFieldPatch?.client_name ||
+    textFieldPatch?.client_email ||
+    textFieldPatch?.data_nascimento
+  );
+  if (!advanced) return null;
+  if (!isReservationFunnelInProgress(workingState, messageHistory)) return null;
+  if (reservationFunnelIsComplete(workingState)) return null;
+
+  let state = workingState;
+  let toolTrace = [];
+  const beforeCheck = String(state.availability_checked_for || '');
+  if (pool) {
+    const ensured = await ensureAvailabilityChecked({
+      pool,
+      workingState: state,
+      context,
+      runtimeContext,
+      toolTrace,
+      assistantMessage: { content: '' },
+      userText,
+      messageHistory,
+    }).catch(() => null);
+    if (ensured) {
+      state = ensured.workingState;
+      toolTrace = ensured.toolTrace;
+    }
+  }
+  if (reservationFunnelIsComplete(state)) {
+    return { workingState: state, toolTrace, replyText: null };
+  }
+
+  const checkedNow =
+    toolTrace.length > 0 && String(state.availability_checked_for || '') !== beforeCheck;
+  const lastResult = toolTrace[toolTrace.length - 1]?.result;
+  if (checkedNow && lastResult?.capacidade?.pode_reservar === false) {
+    return {
+      replyText:
+        synthesizeAvailabilityFromToolResult(lastResult) ||
+        'Esse horário está cheio. Quer tentar outro?',
+      workingState: state,
+      toolTrace,
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
+
+  const time = String(state.reservation_time || '').slice(0, 5);
+  const party = Number(state.quantidade_convidados);
+  const lead =
+    checkedNow && time
+      ? `Perfeito, temos disponibilidade às ${time}${
+          Number.isFinite(party) && party > 0 ? ` para ${party} pessoas` : ''
+        }.`
+      : '';
+  const question = buildSalesPullQuestion(state) || buildNextFieldQuestion(state);
+  if (!lead && !question) return { workingState: state, toolTrace, replyText: null };
+  return {
+    replyText: [lead, question].filter(Boolean).join(' '),
+    workingState: state,
+    toolTrace,
+    preReservationResult: null,
+    guestListLink: null,
+  };
 }
 
 function looksLikeInternalOperatingLeak(text) {
@@ -231,7 +313,10 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
   }
 
   if (horarioConsultado && result.capacidade?.pode_reservar === true) {
-    return `Perfeito, ${dateLabel} às ${horarioConsultado} tem vaga sim. Pra eu deixar tudo no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).`;
+    const pessoas = Number(result.quantidade_pessoas);
+    const pessoasBit =
+      Number.isFinite(pessoas) && pessoas > 0 ? ` para ${pessoas} pessoas` : '';
+    return `Perfeito, ${dateLabel} às ${horarioConsultado} tem vaga sim${pessoasBit}.`;
   }
 
   if (result.is_open !== false && result.capacidade?.pode_reservar !== false) {
@@ -632,12 +717,17 @@ async function forceCreatePreReservaIfReady({
     return { workingState, toolTrace, replyText: null };
   }
 
-  const replyText =
+  let replyText =
     closed.replyText ||
     synthesizeReplyFromToolTrace(closed.toolTrace) ||
     (closed.toolResult?.ok
       ? 'Pronto, fechei sua reserva! Qualquer coisa, é só chamar.'
       : null);
+  const guestLink = closed.toolResult?.guest_list_link || closed.guestListLink || null;
+  const partySize = Number(closed.workingState?.quantidade_convidados);
+  if (guestLink && partySize > 4 && replyText && !String(replyText).includes(guestLink)) {
+    replyText = `${replyText} ${buildGuestListSecondMessage(guestLink)}`.trim();
+  }
 
   return {
     workingState: closed.workingState,
@@ -963,7 +1053,7 @@ async function ensureAvailabilityChecked({
   if (forcedReply && isReservationFunnelInProgress(nextState)) {
     const missing = getReservationMissingFields(nextState);
     if (missing.length > 0 && missing[0] !== 'reservation_date_confirm') {
-      const nextQ = buildNextFieldQuestion(nextState);
+      const nextQ = buildSalesPullQuestion(nextState) || buildNextFieldQuestion(nextState);
       if (nextQ && !forcedReply.includes(nextQ.slice(0, 24))) {
         forcedReply = `${forcedReply}\n\n${nextQ}`;
       }
@@ -1362,10 +1452,15 @@ async function runAgentTurn({
     workingState: memory.workingState || {},
     messageHistory,
   });
+  const textFieldPatch = parseReservationFieldsFromUserText(
+    userText,
+    memory.workingState || {},
+    messageHistory
+  );
   let workingState = mergeWorkingState(
     memory.workingState || {},
     dateHint.patch || {},
-    parseReservationFieldsFromUserText(userText, memory.workingState || {}, messageHistory),
+    textFieldPatch,
     Number.isFinite(Number(context.lockedEstablishmentId)) && Number(context.lockedEstablishmentId) > 0
       ? { establishment_id: Number(context.lockedEstablishmentId) }
       : {}
@@ -1375,7 +1470,24 @@ async function runAgentTurn({
   const currentTurnIsFaq = shouldPrioritizeFaqForCurrentTurn(userText);
   const areaAvailabilityQuestion = looksLikeAreaAvailabilityQuestion(userText);
   const informationalOnly =
-    currentTurnIsFaq && !looksLikeReservationIntent(userText) && !areaAvailabilityQuestion;
+    currentTurnIsFaq &&
+    !looksLikeReservationIntent(userText) &&
+    !areaAvailabilityQuestion &&
+    !textFieldPatch.area_label &&
+    !looksLikeIdentityPayload(userText);
+
+  const funnelDataReply = await maybeReplyFromFunnelData({
+    pool,
+    workingState,
+    context,
+    runtimeContext,
+    userText,
+    messageHistory,
+    textFieldPatch,
+    informationalOnly,
+  });
+  if (funnelDataReply?.workingState) workingState = funnelDataReply.workingState;
+  if (funnelDataReply?.replyText) return funnelDataReply;
 
   if (areaAvailabilityQuestion) {
     const areaAnswer = await answerHighlineAreaAvailability({
@@ -1398,6 +1510,8 @@ async function runAgentTurn({
   // senão o bloco interno de agenda vaza pro WhatsApp (caso Carol / Jade).
   const skipFaq =
     areaAvailabilityQuestion ||
+    looksLikeIdentityPayload(userText) ||
+    Boolean(textFieldPatch.area_label) ||
     shouldSkipFaqFirst(workingState, messageHistory, userText) ||
     looksLikeBookingDataTurn(userText);
 
@@ -1439,7 +1553,7 @@ async function runAgentTurn({
     !reservationFunnelIsComplete(workingState)
   ) {
     return {
-      replyText: buildNextFieldQuestion(workingState),
+      replyText: buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState),
       workingState,
       toolTrace: [],
       preReservationResult: null,

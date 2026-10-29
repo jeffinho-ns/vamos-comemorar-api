@@ -1,7 +1,7 @@
 const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
-const { runAgentTurn, getReferenceDateIso, shouldPrioritizeFaqForCurrentTurn } = require('../agent/agentService');
-const { buildReservationDateHint, looksLikeReservationIntent } = require('../agent/reservationDateHint');
+const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
+const { buildReservationDateHint } = require('../agent/reservationDateHint');
 const {
   parseReservationFieldsFromUserText,
   mergeContactHintsIntoWorkingState,
@@ -524,11 +524,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     if (
       agentResult.guestListLink &&
-      !agentResult.faqFirst &&
-      !(
-        shouldPrioritizeFaqForCurrentTurn(incomingText) &&
-        !looksLikeReservationIntent(incomingText)
-      )
+      agentResult.preReservationResult &&
+      !String(agentResult.replyText || '').includes(agentResult.guestListLink)
     ) {
       const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink);
       await outboundGateway.sendText(waId, linkMsg);

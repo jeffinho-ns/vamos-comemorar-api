@@ -105,7 +105,18 @@ function buildReservationDateHint({
     Boolean(state.reservation_date) ||
     looksLikeRelativeDateQuestion(text);
 
-  const parsed = resolveDateFromConversation(text, messageHistory);
+  let parsed = resolveDateFromConversation(text, messageHistory);
+  const parsedYear = Number(String(parsed.iso || '').slice(0, 4));
+  const referenceYear = Number(String(referenceDateIso || '').slice(0, 4));
+  const identityTurn = /@/.test(text) || /\bnasc/i.test(text);
+  const pastYear =
+    parsed.ok &&
+    Number.isFinite(parsedYear) &&
+    Number.isFinite(referenceYear) &&
+    parsedYear < referenceYear;
+  if (pastYear || (identityTurn && parsed.source === 'numeric_date')) {
+    parsed = { ok: false, confidence: 'none', reason: pastYear ? 'past_year' : 'identity_date' };
+  }
   const activeIso =
     (parsed.ok && parsed.iso) ||
     state.pending_reservation_date_iso ||
