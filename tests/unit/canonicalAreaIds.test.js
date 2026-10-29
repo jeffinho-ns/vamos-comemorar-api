@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const {
   getCanonicalAreaIdsForRules,
   buildCanonicalAreasSql,
+  buildAreasNameFilterSql,
+  areaAllowedForRules,
   areaAllowedForEstablishment,
   previewMergedRules,
 } = require('../../services/establishmentRules');
@@ -24,6 +26,34 @@ test('buildCanonicalAreasSql gera ANY seguro', () => {
   const justino = previewMergedRules({ profile: 'seu_justino' }, 'Seu Justino', 1);
   const sql = buildCanonicalAreasSql(justino, { idColumn: 'ra.id' });
   assert.match(sql, /ra\.id = ANY\(ARRAY\[1,2\]::int\[\]\)/);
+});
+
+test('Pracinha só aceita Balcão e Praça', () => {
+  const pracinha = previewMergedRules({ profile: 'pracinha' }, 'Pracinha do Seu Justino', 8);
+  const sql = buildAreasNameFilterSql(pracinha, 'ra.name');
+  assert.match(sql, /Balcão/);
+  assert.match(sql, /Praça/);
+  assert.equal(sql.includes('NOT ILIKE'), false);
+  assert.equal(areaAllowedForRules(pracinha, 'Balcão'), true);
+  assert.equal(areaAllowedForRules(pracinha, 'Praça'), true);
+  assert.equal(areaAllowedForRules(pracinha, 'Terraço'), false);
+  assert.equal(areaAllowedForRules(pracinha, 'Área Coberta'), false);
+  assert.equal(
+    areaAllowedForEstablishment(
+      pracinha,
+      { id: 39, name: 'Terraço', establishment_id: 8 },
+      8,
+    ),
+    false,
+  );
+  assert.equal(
+    areaAllowedForEstablishment(
+      pracinha,
+      { id: 42, name: 'Praça', establishment_id: 8 },
+      8,
+    ),
+    true,
+  );
 });
 
 test('areaAllowedForEstablishment aceita área canônica mesmo com outro dono', () => {

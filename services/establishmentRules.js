@@ -32,7 +32,10 @@ const PROFILE_DEFAULTS = {
     operationalAliases: [],
   },
   pracinha: {
-    reservations: { maxPartySize: 60, excludeAreaPrefix: DEFAULT_EXCLUDE_AREA_PREFIX },
+    reservations: {
+      maxPartySize: 60,
+      areaNameAllowlist: ['Balcão', 'Balcao', 'Praça', 'Praca'],
+    },
     cardapio: { barId: 4 },
   },
   highline: {
@@ -206,7 +209,29 @@ function resolveCardapioBarIdForEstablishmentRow(row, rules) {
   return null;
 }
 
+function foldAreaName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function areaNameAllowlist(rules) {
+  const list = rules?.reservations?.areaNameAllowlist;
+  if (!Array.isArray(list)) return [];
+  return list.map((name) => String(name).trim()).filter(Boolean);
+}
+
 function buildAreasNameFilterSql(rules, column = 'ra.name') {
+  const allow = areaNameAllowlist(rules);
+  if (allow.length) {
+    const clauses = allow.map((name) => {
+      const safe = String(name).replace(/'/g, "''");
+      return `${column} ILIKE '${safe}'`;
+    });
+    return `(${clauses.join(' OR ')})`;
+  }
   const prefix = rules?.reservations?.areaNamePrefix;
   if (prefix) {
     const safe = String(prefix).replace(/'/g, "''");
@@ -219,6 +244,11 @@ function buildAreasNameFilterSql(rules, column = 'ra.name') {
 }
 
 function areaAllowedForRules(rules, areaName) {
+  const allow = areaNameAllowlist(rules);
+  if (allow.length) {
+    const folded = foldAreaName(areaName);
+    return allow.some((name) => foldAreaName(name) === folded);
+  }
   const prefix = rules?.reservations?.areaNamePrefix;
   const name = String(areaName || '');
   if (prefix) return name.startsWith(prefix);
@@ -313,6 +343,9 @@ function areaAllowedForEstablishment(rules, area, establishmentId) {
   if (Number.isFinite(areaId) && canonical.has(areaId)) {
     return true;
   }
+  if (areaNameAllowlist(rules).length && !areaAllowedForRules(rules, area.name)) {
+    return false;
+  }
   const areaEstId =
     area.establishment_id != null ? Number(area.establishment_id) : null;
   if (areaEstId != null && Number.isFinite(id) && id > 0) {
@@ -337,7 +370,10 @@ async function areasFilterForEstablishment(pool, establishmentId, { idColumn = '
     // Mesmo com áreas próprias, aplica o prefixo/exclusão do perfil para não
     // misturar "Reserva - Deck/Salão" (Pinheiros) com "Reserva Rooftop - *" no place 9.
     const nameFilter = buildAreasNameFilterSql(rules, nameColumn);
-    const owned = `((${establishmentColumn} = ${Number(establishmentId)} OR ${establishmentColumn} IS NULL) AND (${nameFilter}))`;
+    // Com lista fechada (Pracinha: Balcão e Praça), não mistura o catálogo global.
+    const owned = areaNameAllowlist(rules).length
+      ? `(${establishmentColumn} = ${Number(establishmentId)} AND (${nameFilter}))`
+      : `((${establishmentColumn} = ${Number(establishmentId)} OR ${establishmentColumn} IS NULL) AND (${nameFilter}))`;
     return canonicalSql ? `(${owned} OR ${canonicalSql})` : owned;
   }
   const scopeSql = buildAreasScopeSql(rules, establishmentId, {

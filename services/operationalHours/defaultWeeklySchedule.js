@@ -24,12 +24,12 @@ function applySeuJustinoSchedule(setDay) {
 }
 
 function applyPracinhaSchedule(setDay) {
-  setDay(0, '12:00', '21:00');
-  setDay(2, '18:00', '01:00');
-  setDay(3, '18:00', '01:00');
-  setDay(4, '18:00', '01:00');
-  setDay(5, '18:00', '03:30');
-  setDay(6, '18:00', '03:30');
+  // Terça fechada. Domingo 14h–00h, quarta/quinta 17h–01h, sexta 17h–03h30, sábado 14h–03h30.
+  setDay(0, '14:00', '00:00');
+  setDay(3, '17:00', '01:00');
+  setDay(4, '17:00', '01:00');
+  setDay(5, '17:00', '03:30');
+  setDay(6, '14:00', '03:30');
 }
 
 function applyHighlineSchedule(setDay) {

@@ -9,28 +9,58 @@ let profileToOperationalId = Object.create(null);
 let aliasPatterns = [];
 let warmed = false;
 
+function normalizeVenueName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+/** Apê e áreas internas compartilham o profile da casa, mas não são o id operacional. */
+function isAncillaryVenueName(name) {
+  return /\bape\b/.test(normalizeVenueName(name));
+}
+
+/**
+ * Um profile aponta para a casa principal (menor id), nunca para uma área interna.
+ * Sem isso, "Apê do Pracinha" (place 17) sobrescrevia o Pracinha (place 8) e a
+ * reserva caía numa casa sem horário nem programação.
+ */
+function pickProfileOperationalIds(rows) {
+  const ordered = [...(rows || [])].sort(
+    (a, b) => Number(a.id || 0) - Number(b.id || 0)
+  );
+  const map = Object.create(null);
+  for (const row of ordered) {
+    const opId = Number(row.legacy_place_id || row.legacy_bar_id);
+    const profile = String(row.profile || '').trim().toLowerCase();
+    if (!Number.isFinite(opId) || opId <= 0 || !profile) continue;
+    if (isAncillaryVenueName(row.name)) continue;
+    if (!map[profile]) map[profile] = opId;
+  }
+  return map;
+}
+
 async function warmOperationalProfileIds(pool) {
   if (!pool) return profileToOperationalId;
   try {
     const { rows } = await pool.query(
-      `SELECT legacy_place_id, legacy_bar_id, name,
+      `SELECT id, legacy_place_id, legacy_bar_id, name,
               COALESCE(config->'rules'->>'profile', config->>'profile') AS profile
          FROM meu_backup_db.establishments
-        WHERE legacy_place_id IS NOT NULL OR legacy_bar_id IS NOT NULL`,
+        WHERE legacy_place_id IS NOT NULL OR legacy_bar_id IS NOT NULL
+        ORDER BY id`,
     );
-    const map = Object.create(null);
     const aliases = [];
     for (const row of rows) {
       const opId = Number(row.legacy_place_id || row.legacy_bar_id);
       const profile = String(row.profile || '').trim().toLowerCase();
-      if (Number.isFinite(opId) && opId > 0 && profile) {
-        map[profile] = opId;
-      }
       if (Number.isFinite(opId) && opId > 0 && row.name) {
         aliases.push({ name: row.name, id: opId, profile });
       }
     }
-    profileToOperationalId = map;
+    profileToOperationalId = pickProfileOperationalIds(rows);
     aliasPatterns = aliases;
     warmed = true;
   } catch (err) {
@@ -85,4 +115,6 @@ module.exports = {
   isOperationalProfile,
   getAliasPatternsFromCatalog,
   isWarmed,
+  pickProfileOperationalIds,
+  isAncillaryVenueName,
 };
