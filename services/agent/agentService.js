@@ -403,7 +403,10 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
         return String(result.error).trim();
       }
       if (result.ok === false && result.error) {
-        return `${String(result.error).trim()}\n\nMe confirma o que falta que eu finalizo agora.`;
+        if (/\+18|maiores de 18/i.test(String(result.error))) {
+          return 'Pra eu fechar, me passa sua data de nascimento? A reserva é para maiores de 18.';
+        }
+        return `${String(result.error).trim()}\n\nMe diz só o que ainda falta que eu finalizo agora.`;
       }
       continue;
     }
@@ -1957,6 +1960,15 @@ async function runAgentTurn({
       if (toolCall?.function?.name === 'criar_pre_reserva' && toolResult?.ok) {
         preReservationResult = toolResult;
         guestListLink = toolResult.guest_list_link || null;
+      }
+      if (
+        toolCall?.function?.name === 'criar_pre_reserva' &&
+        toolResult?.ok === false &&
+        /\+18|maiores de 18/i.test(String(toolResult.error || ''))
+      ) {
+        const cleared = { ...workingState };
+        delete cleared.data_nascimento;
+        workingState = cleared;
       }
       messages.push({
         role: 'tool',

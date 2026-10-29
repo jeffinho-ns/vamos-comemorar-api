@@ -56,6 +56,18 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
     appendSalesPull('Pode sim, pet é bem-vindo.', { establishment_id: 1 }),
     'Pode sim, pet é bem-vindo. Pra quando seria a reserva?'
   );
+  assert.equal(
+    appendSalesPull(
+      'Você prefere a área coberta (parte interna) ou a área descoberta (quintal)?',
+      {
+        establishment_id: 1,
+        reservation_date: '2026-10-30',
+        reservation_time: '21:00',
+        quantidade_convidados: 6,
+      }
+    ),
+    'Você prefere a área coberta (parte interna) ou a área descoberta (quintal)?'
+  );
 });
 
 test('pergunta aleatória no meio da reserva não apaga a data e puxa a área', async () => {

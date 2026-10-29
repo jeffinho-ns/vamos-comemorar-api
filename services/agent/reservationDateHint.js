@@ -22,15 +22,19 @@ function looksLikeRelativeDateQuestion(text) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
   if (!normalized) return false;
-  const asksCalendar =
-    /\b(qual dia|que dia|dia do mes|data seria|data e|data é|quando e|quando é|que data|em que dia)\b/.test(
-      normalized
-    );
-  const mentionsWeekday =
-    /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado|proximo|proxima|essa|nesta)\b/.test(
-      normalized
-    );
-  return asksCalendar || (mentionsWeekday && /\b(proximo|proxima|essa|nesta|sabado|sexta)\b/.test(normalized));
+  return /\b(qual dia|que dia|dia do mes|data seria|data e|data é|quando e|quando é|que data|em que dia)\b/.test(
+    normalized
+  );
+}
+
+function bookingAlreadyNamesTheDay(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const hasDay = /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado|hoje|amanha)\b/.test(normalized);
+  const hasSlot = /\b\d{1,2}\s*h\b/.test(normalized) || /\b\d{1,3}\s*pessoas?\b/.test(normalized);
+  return looksLikeReservationIntent(text) && hasDay && hasSlot;
 }
 
 function isAffirmativeConfirmation(text) {
@@ -158,10 +162,11 @@ function buildReservationDateHint({
 
   const labels = formatReservationDateLabels(parsed.iso);
   const mustConfirm =
-    parsed.needsConfirmation === true ||
-    parsed.source === 'weekday_relative' ||
-    parsed.confidence === 'medium' ||
-    parsed.ambiguous === true;
+    !bookingAlreadyNamesTheDay(text) &&
+    (parsed.needsConfirmation === true ||
+      parsed.source === 'weekday_relative' ||
+      parsed.confidence === 'medium' ||
+      parsed.ambiguous === true);
 
   if (mustConfirm && !state.reservation_date_confirmed) {
     const phrase = labels.weekdayWithDate || labels.confirmationPhrase || parsed.iso;

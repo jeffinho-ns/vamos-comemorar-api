@@ -224,9 +224,31 @@ const RESERVATION_FIELD_ORDER = [
   'data_nascimento',
 ];
 
+function isAdultBirthIso(isoDateStr) {
+  const match = String(isoDateStr || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const birth = new Date(Date.UTC(year, month - 1, day));
+  if (
+    birth.getUTCFullYear() !== year ||
+    birth.getUTCMonth() !== month - 1 ||
+    birth.getUTCDate() !== day
+  ) {
+    return false;
+  }
+  const today = new Date();
+  let age = today.getUTCFullYear() - year;
+  const monthDelta = today.getUTCMonth() - (month - 1);
+  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < day)) age -= 1;
+  return age >= 18 && age <= 110;
+}
+
 function hasFieldValue(state, key) {
   const value = state[key];
   if (value === undefined || value === null || value === '') return false;
+  if (key === 'data_nascimento') return isAdultBirthIso(value);
   if (['establishment_id', 'quantidade_convidados', 'area_id'].includes(key)) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0;
@@ -325,9 +347,12 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
 
   // Bloco curto: estado + 1 missão. Fatos estáticos não entram aqui (FAQ já foi filtrada).
   const paragraph =
-    'FUNIL ATIVO: avance a reserva neste turno. Peça no máx. 3 dados em frase corrida; ' +
-    'não use bullets; não diga "confirmada" antes de criar_pre_reserva ok. ' +
-    'Ordem: data+horário+pessoas → verificar_disponibilidade → área (se precisar) → nome+e-mail+nascimento → criar_pre_reserva.';
+    'FUNIL ATIVO: avance a reserva neste turno. Uma pergunta só, em prosa. ' +
+    'Não reconfirme data, horário ou pessoas que já estão em Coletado. ' +
+    'Não repita a pergunta que você acabou de fazer. ' +
+    'Não diga "confirmada" antes de criar_pre_reserva ok. ' +
+    'Ordem: data+horário+pessoas (se já vieram juntos, siga) → área, se faltar → nome → e-mail → nascimento → criar_pre_reserva. ' +
+    'Ocasião só depois de um nascimento válido, e só se ainda não souber.';
 
   const lines = [paragraph];
 
@@ -355,6 +380,17 @@ function assistantAskedForClientName(messageHistory = []) {
   return /\bnome completo\b|\bseu nome\b|\bqual o seu nome\b|\bme confirma seu nome\b/.test(
     normalized
   );
+}
+
+function assistantAskedForBirthDate(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const normalized = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bnascimento\b|\bdata de nasc|\bmaior de 18\b|\b\+18\b/.test(normalized);
 }
 
 function assistantAskedForOccasion(messageHistory = []) {
@@ -498,8 +534,9 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const compactBirth = parseCompactBirthIso(text);
   if (
     compactBirth &&
+    isAdultBirthIso(compactBirth) &&
     !hasFieldValue(workingState, 'data_nascimento') &&
-    (emailMatch || /\bnasc/i.test(text))
+    (emailMatch || /\bnasc/i.test(text) || assistantAskedForBirthDate(messageHistory))
   ) {
     patch.data_nascimento = compactBirth;
   }
@@ -538,10 +575,15 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   const birthParsed = parsePtBrDateFromText(text);
+  const birthContext =
+    /\bnasc/i.test(text) || Boolean(emailMatch) || assistantAskedForBirthDate(messageHistory);
   if (
     birthParsed?.iso &&
+    isAdultBirthIso(birthParsed.iso) &&
+    birthContext &&
     !hasFieldValue(workingState, 'data_nascimento') &&
-    /\bnasc|\d{1,2}[\/-]\d{1,2}/i.test(text)
+    String(birthParsed.iso).slice(0, 10) !==
+      String(workingState.reservation_date || patch.reservation_date || '').slice(0, 10)
   ) {
     patch.data_nascimento = birthParsed.iso;
   }

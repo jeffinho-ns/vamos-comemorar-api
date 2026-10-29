@@ -375,3 +375,42 @@ test('reservationAlreadyCreated e lastAssistantClosedReservation', () => {
     true
   );
 });
+
+test('confirmar a sexta com 30/10/2026 não vira data de nascimento', () => {
+  const patch = parseReservationFieldsFromUserText('Sim, sexta dia 30/10/2026', {
+    establishment_id: 1,
+    pending_reservation_date_iso: '2026-10-30',
+  });
+  assert.equal(patch.data_nascimento, undefined);
+  assert.equal(patch.reservation_date, '2026-10-30');
+});
+
+test('nascimento inválido não conta e a data real de 15/09/1987 substitui', () => {
+  const current = {
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+    reservation_time: '21:00',
+    quantidade_convidados: 6,
+    client_name: 'Jefferson Lima',
+    client_email: 'jeffinho.novostilo@gmail.com',
+    data_nascimento: '2026-10-30',
+  };
+  assert.ok(getReservationMissingFields(current).includes('data_nascimento'));
+  const patch = parseReservationFieldsFromUserText(
+    'eu tenho 39 anos, minha data de nascimento é 15/09/1987',
+    current
+  );
+  assert.equal(patch.data_nascimento, '1987-09-15');
+  assert.equal(patch.quantidade_convidados, undefined);
+});
+
+test('reserva na sexta às 21h para 6 pessoas já confirma a data', () => {
+  const hint = buildReservationDateHint({
+    userText: 'Quero reservar no Seu Justino na sexta às 21h para 6 pessoas. Qual área combina melhor?',
+    referenceDateIso: '2026-10-29',
+    workingState: { establishment_id: 1 },
+  });
+  assert.equal(hint.confirmed, true);
+  assert.equal(hint.patch.reservation_date, '2026-10-30');
+  assert.equal(hint.patch.reservation_date_confirmed, true);
+});

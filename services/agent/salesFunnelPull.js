@@ -72,8 +72,13 @@ function buildSalesPullQuestion(workingState = {}) {
 
 function alreadyAsks(replyText, question) {
   const reply = normalizeLoose(replyText);
-  const probe = normalizeLoose(question).slice(0, 28);
-  return Boolean(probe) && reply.includes(probe);
+  const normalizedQuestion = normalizeLoose(question);
+  const probe = normalizedQuestion.slice(0, 28);
+  if (probe && reply.includes(probe)) return true;
+  if (normalizedQuestion.includes('coberta') && normalizedQuestion.includes('descoberta')) {
+    return reply.includes('coberta') && reply.includes('descoberta');
+  }
+  return false;
 }
 
 function appendSalesPull(replyText, workingState, { skip = false } = {}) {
