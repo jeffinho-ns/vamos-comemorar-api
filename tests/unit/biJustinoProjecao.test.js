@@ -2,15 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { projecaoConsolidada } = require('../../services/biJustino/projecaoConsolidada');
 
-test('sem envio das áreas, a projeção usa o faturamento do mês e a referência do painel', () => {
+test('sem envio das áreas, a projeção não inventa custo de referência', () => {
   const projecao = projecaoConsolidada({ faturamento: 100000, agora: new Date('2026-10-28T15:00:00Z') });
   assert.equal(projecao.faturamentoBruto, 100000);
-  assert.equal(Number(projecao.cmvReal.toFixed(2)), 22.41);
-  assert.equal(Math.round(projecao.controlaveis), 329575);
-  assert.equal(Math.round(projecao.estruturais), 34247);
+  assert.equal(projecao.cmvReal, null);
+  assert.equal(projecao.controlaveis, null);
+  assert.equal(projecao.estruturais, null);
   assert.equal(projecao.envios.cmv, null);
-  assert.equal(projecao.bonusDestravado, 0);
-  assert.ok(projecao.margem < 8);
+  assert.equal(projecao.bonusDestravado, null);
+  assert.equal(projecao.margem, null);
   assert.equal(JSON.stringify(projecao).includes('submittedByName'), false);
 });
 

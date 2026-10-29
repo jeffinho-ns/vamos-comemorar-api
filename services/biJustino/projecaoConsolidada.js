@@ -2,29 +2,14 @@
 
 const { custoFreelancer } = require('./graficoDiretoria');
 
-const BASE = {
-  revenue: 526000,
-  tax: 3.86,
-  card: 2.11,
-  fee: 7,
-  incomeTax: 2.7,
-  traffic: 4500,
-  marketingOther: 6439,
-  attractions: 48114,
-  security: 7979,
-  extras: 26447,
-  rent: 51613,
-  disposable: 7113,
-  coreHr: 104744,
-  adminFixed: 27671,
-  financeOther: 3208,
-  otherOps: 18577,
-};
-
-function numeroOu(valores, nome, reserva) {
-  if (!valores || valores[nome] == null || valores[nome] === '') return reserva;
+function numero(valores, nome) {
+  if (!valores || valores[nome] == null || valores[nome] === '') return null;
   const n = Number(valores[nome]);
-  return Number.isFinite(n) ? n : reserva;
+  return Number.isFinite(n) ? n : null;
+}
+
+function zero(valores, nome) {
+  return numero(valores, nome) ?? 0;
 }
 
 function ultimo(payload) {
@@ -45,6 +30,14 @@ function mesAtual(agora) {
   }).format(agora || new Date());
 }
 
+function cmvDaArea(valores) {
+  const food = numero(valores, 'cmvFoodReal');
+  const bev = numero(valores, 'cmvBevReal');
+  if (food == null && bev == null) return null;
+  const mix = numero(valores, 'cmvFoodMix') ?? 0;
+  return ((food || 0) * mix) / 100 + ((bev || 0) * (100 - mix)) / 100;
+}
+
 function projecaoConsolidada(entrada) {
   const fonte = entrada || {};
   const fin = ultimo(fonte.financeiro);
@@ -58,50 +51,47 @@ function projecaoConsolidada(entrada) {
   const opV = (op && op.values) || {};
   const cmvV = (cmv && cmv.values) || {};
   const faturamento = fonte.faturamento == null ? null : Number(fonte.faturamento);
-  const r = Number.isFinite(faturamento) ? faturamento : numeroOu(finV, 'fnRevenueInput', BASE.revenue);
-  const mix = numeroOu(cmvV, 'cmvFoodMix', 30);
-  const cmvReal = (numeroOu(cmvV, 'cmvFoodReal', 25.14) * mix) / 100
-    + (numeroOu(cmvV, 'cmvBevReal', 21.24) * (100 - mix)) / 100;
-  const pctCosts = r * (
-    numeroOu(finV, 'fnTax', BASE.tax)
-    + numeroOu(finV, 'fnCard', BASE.card)
-    + numeroOu(finV, 'fnFee', BASE.fee)
-    + numeroOu(finV, 'fnIncomeTax', BASE.incomeTax)
-  ) / 100;
-  const cmvCost = r * cmvReal / 100;
-  const mkSpend = numeroOu(mkV, 'mkTraffic', BASE.traffic)
-    + numeroOu(mkV, 'mkOther', BASE.marketingOther)
-    + numeroOu(mkV, 'mkAttractions', BASE.attractions);
-  const financeAbs = numeroOu(finV, 'fnRent', BASE.rent)
-    + numeroOu(finV, 'fnEnergy', 10000)
-    + numeroOu(finV, 'fnWater', 6000)
-    + numeroOu(finV, 'fnGas', 3337)
-    + numeroOu(finV, 'fnDisposable', BASE.disposable)
-    + numeroOu(finV, 'fnSecurity', BASE.security)
-    + numeroOu(finV, 'fnAdminFixed', BASE.adminFixed)
-    + numeroOu(finV, 'fnFinanceOther', BASE.financeOther);
-  const rhCost = numeroOu(rhV, 'rhCore', BASE.coreHr)
-    + numeroOu(rhV, 'rhExtras', BASE.extras)
-    + custoFreelancer(fonte.freelancers, mesAtual(fonte.agora));
-  const opCost = numeroOu(opV, 'opLoss', 0) + numeroOu(opV, 'opMaintenance', 0);
-  const otherOps = Math.max(BASE.otherOps, r * 0.027);
-  const total = pctCosts + cmvCost + mkSpend + financeAbs + rhCost + opCost + otherOps;
-  const margem = r ? ((r - total) / r) * 100 : 0;
+  const r = Number.isFinite(faturamento) ? faturamento : numero(finV, 'fnRevenueInput');
+  const cmvReal = cmvDaArea(cmvV);
+  const pctCosts = r
+    ? r * (zero(finV, 'fnTax') + zero(finV, 'fnCard') + zero(finV, 'fnFee') + zero(finV, 'fnIncomeTax')) / 100
+    : 0;
+  const cmvCost = r && cmvReal != null ? r * cmvReal / 100 : 0;
+  const mkSpend = zero(mkV, 'mkTraffic') + zero(mkV, 'mkOther') + zero(mkV, 'mkAttractions');
+  const financeAbs = zero(finV, 'fnRent')
+    + zero(finV, 'fnEnergy')
+    + zero(finV, 'fnWater')
+    + zero(finV, 'fnGas')
+    + zero(finV, 'fnDisposable')
+    + zero(finV, 'fnSecurity')
+    + zero(finV, 'fnAdminFixed')
+    + zero(finV, 'fnFinanceOther');
+  const rhCost = zero(rhV, 'rhCore') + zero(rhV, 'rhExtras') + custoFreelancer(fonte.freelancers, mesAtual(fonte.agora));
+  const opCost = zero(opV, 'opLoss') + zero(opV, 'opMaintenance');
+  const controlaveis = mkSpend + financeAbs + rhCost + opCost + cmvCost;
+  const estruturais = pctCosts;
+  const total = controlaveis + estruturais;
+  const temCusto = total > 0;
+  const margem = r && temCusto ? ((r - total) / r) * 100 : null;
   const saudavel = {
-    mk: Math.max(4500, r * 0.00855) + 4500 + r * 0.08,
-    fn: numeroOu(finV, 'fnRent', BASE.rent) + Math.max(18000, r * 0.03) + r * 0.03 + 28000,
-    rh: r * 0.19,
-    op: r * 0.006 + Math.max(0, numeroOu(opV, 'opMaintenance', 0)),
-    cmv: r * 0.22,
+    mk: r ? Math.max(0, r * 0.00855) + r * 0.08 : 0,
+    fn: zero(finV, 'fnRent') + (r ? Math.max(0, r * 0.03) + r * 0.03 : 0),
+    rh: r ? r * 0.19 : 0,
+    op: r ? r * 0.006 + Math.max(0, zero(opV, 'opMaintenance')) : 0,
+    cmv: r ? r * 0.22 : 0,
   };
   const real = { mk: mkSpend, fn: financeAbs, rh: rhCost, op: opCost, cmv: cmvCost };
-  const economia = Object.keys(real).reduce((soma, chave) => soma + (saudavel[chave] - real[chave]), 0);
-  const bonusDestravado = margem < 8 ? 0 : margem < 10 ? 25 : margem < 12 ? 60 : margem < 15 ? 100 : 125;
+  const economia = temCusto
+    ? Object.keys(real).reduce((soma, chave) => soma + (saudavel[chave] - real[chave]), 0)
+    : null;
+  const bonusDestravado = margem == null
+    ? null
+    : margem < 8 ? 0 : margem < 10 ? 25 : margem < 12 ? 60 : margem < 15 ? 100 : 125;
   return {
-    faturamentoBruto: r,
+    faturamentoBruto: r == null ? null : r,
     cmvReal,
-    controlaveis: mkSpend + financeAbs + rhCost + opCost + cmvCost,
-    estruturais: pctCosts + otherOps,
+    controlaveis: temCusto ? controlaveis : null,
+    estruturais: estruturais > 0 ? estruturais : null,
     margem,
     economia,
     bonusDestravado,

@@ -43,5 +43,5 @@ test('o gráfico separa ZigPay e eventos e o custo usa o último envio', () => {
   assert.equal(grafico.custos[0].label, 'Marketing');
   assert.equal(grafico.custos[0].valor, 4500);
   assert.equal(grafico.custos[3].valor, 0);
-  assert.equal(grafico.custos[2].valor, 104744 + 26447 + 100);
+  assert.equal(grafico.custos[2].valor, 100);
 });

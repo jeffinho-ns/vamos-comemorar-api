@@ -115,8 +115,18 @@ function displayFrom(row) {
     ranking: payload.ranking || null,
     cmvZig: Array.isArray(payload.cmvZig) ? payload.cmvZig : [],
     projecao: projecaoPublica(payload.projecao),
+    publicoMes: numero(payload.publicoMes) ?? (painelPublico(payload)),
+    porDiaSemana: Array.isArray(payload.porDiaSemana) ? payload.porDiaSemana : [],
+    semanas: Array.isArray(payload.semanas) ? payload.semanas : [],
+    eventosResumo: payload.eventosResumo || null,
+    lancamentos: payload.lancamentos || null,
     zigCarregando: false,
   };
+}
+
+function painelPublico(payload) {
+  if (payload && payload.mes && typeof payload.mes === 'object') return numero(payload.mes.publico);
+  return null;
 }
 
 function resumoDaColeta(painel) {
@@ -137,6 +147,9 @@ function resumoDaColeta(painel) {
     ticketSemana: painel.tickets && painel.tickets.semana,
     ticketMes: painel.tickets && painel.tickets.mes,
     ticketAno: painel.tickets && painel.tickets.ano,
+    publicoMes: painel.mes.publico,
+    porDiaSemana: painel.porDiaSemana || [],
+    semanas: painel.semanas || [],
   };
 }
 
@@ -232,6 +245,11 @@ function montarPayloadZig(base, painel) {
     servicoMes: painel && painel.mes ? painel.mes.servico : null,
     ranking: painel ? painel.ranking : null,
     cmvZig: painel && Array.isArray(painel.cmv) ? painel.cmv : [],
+    publicoMes: painel && painel.mes ? painel.mes.publico : (base && base.publicoMes) || null,
+    porDiaSemana: painel && Array.isArray(painel.porDiaSemana) ? painel.porDiaSemana : (base && base.porDiaSemana) || [],
+    semanas: painel && Array.isArray(painel.semanas) ? painel.semanas : (base && base.semanas) || [],
+    eventosResumo: painel && painel.eventosResumo ? painel.eventosResumo : null,
+    lancamentos: painel && painel.lancamentos ? painel.lancamentos : null,
   };
 }
 

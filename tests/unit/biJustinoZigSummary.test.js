@@ -35,6 +35,12 @@ test('faturamento do mês, semana e ticket saem só da ZigRevenue', () => {
   assert.equal(resumo.serieAno.length, 12);
   assert.equal(resumo.serieAno[11].mes, '2026-10');
   assert.equal(resumo.serieAno[11].valor, 600);
+  const quinta = resumo.porDiaSemana.find((dia) => dia.nome === 'Quinta');
+  const segunda = resumo.porDiaSemana.find((dia) => dia.nome === 'Segunda');
+  assert.ok(quinta);
+  assert.equal(quinta.faturamento, 100);
+  assert.equal(segunda.faturamento, 200);
+  assert.ok(resumo.semanas.length >= 1);
 });
 
 test('semana sem faturamento usa a semana anterior completa', () => {

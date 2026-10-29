@@ -1,4 +1,5 @@
 const WEEKDAY = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 function addDays(iso, days) {
   const [year, month, day] = iso.split('-').map(Number);
@@ -96,6 +97,57 @@ function serieMes(byDate, monthKey, todayIso) {
   return serie;
 }
 
+function dowDe(iso) {
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+function ordemComercial(lista) {
+  return [...lista.slice(1), lista[0]];
+}
+
+function porDiaSemana(byDate, publicoByDate, dates) {
+  const acc = DIAS.map((nome) => ({ nome, dias: 0, faturamento: 0, publico: 0 }));
+  for (const date of dates) {
+    const item = acc[dowDe(date)];
+    item.dias += 1;
+    item.faturamento += byDate[date] || 0;
+    item.publico += publicoByDate[date] || 0;
+  }
+  return ordemComercial(acc).map((item) => ({
+    nome: item.nome,
+    dias: item.dias,
+    faturamento: item.faturamento,
+    publico: item.publico,
+    faturamentoMedio: item.dias ? item.faturamento / item.dias : null,
+    publicoMedio: item.dias ? item.publico / item.dias : null,
+    ticketMedio: item.publico > 0 ? item.faturamento / item.publico : null,
+  }));
+}
+
+function semanasFechadas(byDate, publicoByDate, iso, dow, quantidade = 26) {
+  const thisMonday = addDays(iso, -((dow + 6) % 7));
+  const lastSunday = addDays(thisMonday, -1);
+  const lista = [];
+  for (let semana = 0; semana < quantidade; semana += 1) {
+    const fim = addDays(lastSunday, -7 * semana);
+    const inicio = addDays(fim, -6);
+    const dates = [];
+    for (let i = 0; i < 7; i += 1) dates.push(addDays(inicio, i));
+    const faturamento = soma(dates, byDate);
+    const publico = dates.reduce((total, date) => total + (publicoByDate[date] || 0), 0);
+    if (!faturamento && !publico) continue;
+    lista.push({
+      inicio,
+      fim,
+      faturamento,
+      publico,
+      ticket: publico > 0 ? faturamento / publico : null,
+    });
+  }
+  return lista;
+}
+
 function serieAno(byDate, monthKey) {
   const serie = [];
   for (let i = 11; i >= 0; i -= 1) {
@@ -162,6 +214,8 @@ function summarizeZig(docs, now = new Date()) {
     },
     serieMes: serieMes(byDate, monthKey, iso),
     serieAno: serieAno(byDate, monthKey),
+    porDiaSemana: porDiaSemana(byDate, publicoByDate, monthDates),
+    semanas: semanasFechadas(byDate, publicoByDate, iso, dow),
   };
 }
 

@@ -23,11 +23,11 @@ const CHAMADAS = [
   { action: 'getZigHourly', payload: { days: 14 } },
   { action: 'getEventos' },
   { action: 'getFreelancerRequests' },
-  { action: 'getEntries', payload: { area: 'financeiro', limit: 1 } },
-  { action: 'getEntries', payload: { area: 'cmv', limit: 1 } },
-  { action: 'getEntries', payload: { area: 'marketing', limit: 1 } },
-  { action: 'getEntries', payload: { area: 'rh', limit: 1 } },
-  { action: 'getEntries', payload: { area: 'operacao', limit: 1 } },
+  { action: 'getEntries', payload: { area: 'financeiro', limit: 8 } },
+  { action: 'getEntries', payload: { area: 'cmv', limit: 8 } },
+  { action: 'getEntries', payload: { area: 'marketing', limit: 8 } },
+  { action: 'getEntries', payload: { area: 'rh', limit: 8 } },
+  { action: 'getEntries', payload: { area: 'operacao', limit: 8 } },
   { action: 'getZigRevenue', payload: { limit: 2000 } },
 ];
 
@@ -65,6 +65,11 @@ function mesclarZig(anterior, painel) {
     servicoMes: painel.mes && painel.mes.servico != null ? painel.mes.servico : (base.servicoMes ?? null),
     ranking: painel.ranking || base.ranking || null,
     cmvZig: painel.cmv && painel.cmv.length ? painel.cmv : (base.cmvZig || []),
+    publicoMes: painel.mes && painel.mes.publico != null ? painel.mes.publico : (base.publicoMes ?? null),
+    porDiaSemana: painel.porDiaSemana && painel.porDiaSemana.length ? painel.porDiaSemana : (base.porDiaSemana || []),
+    semanas: painel.semanas && painel.semanas.length ? painel.semanas : (base.semanas || []),
+    eventosResumo: painel.eventosResumo || base.eventosResumo || null,
+    lancamentos: painel.lancamentos || base.lancamentos || null,
   };
 }
 

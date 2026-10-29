@@ -1,18 +1,6 @@
 const { addDays } = require('./zigSummary');
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const BASE = {
-  traffic: 4500,
-  marketingOther: 6439,
-  attractions: 48114,
-  rent: 51613,
-  disposable: 7113,
-  security: 7979,
-  coreHr: 104744,
-  extras: 26447,
-  adminFixed: 27671,
-  financeOther: 3208,
-};
 
 function addMonths(monthKey, delta) {
   const [year, month] = monthKey.split('-').map(Number);
@@ -102,8 +90,8 @@ function serieDoAno(porZig, porEvento, hoje) {
   return serie;
 }
 
-function campo(valores, nome, reserva) {
-  if (!valores || valores[nome] == null || valores[nome] === '') return reserva;
+function campo(valores, nome) {
+  if (!valores || valores[nome] == null || valores[nome] === '') return 0;
   return Number(valores[nome]) || 0;
 }
 
@@ -126,28 +114,30 @@ function custosPorArea({ entradas, freelancers, faturamento, monthKey }) {
   const rh = ultimoEnvio(entradas.rh);
   const op = ultimoEnvio(entradas.operacao);
   const cmv = ultimoEnvio(entradas.cmv);
-  const mix = campo(cmv, 'cmvFoodMix', 30);
-  const comida = campo(cmv, 'cmvFoodReal', 25.14);
-  const bebida = campo(cmv, 'cmvBevReal', 21.24);
-  const cmvReal = (comida * mix) / 100 + (bebida * (100 - mix)) / 100;
+  const mix = campo(cmv, 'cmvFoodMix');
+  const comida = campo(cmv, 'cmvFoodReal');
+  const bebida = campo(cmv, 'cmvBevReal');
+  const cmvReal = mix || comida || bebida
+    ? (comida * (mix || 0)) / 100 + (bebida * (100 - (mix || 0))) / 100
+    : 0;
   return [
     {
       label: 'Marketing',
-      valor: campo(mk, 'mkTraffic', BASE.traffic) + campo(mk, 'mkOther', BASE.marketingOther) + campo(mk, 'mkAttractions', BASE.attractions),
+      valor: campo(mk, 'mkTraffic') + campo(mk, 'mkOther') + campo(mk, 'mkAttractions'),
     },
     {
       label: 'Financeiro',
-      valor: campo(fn, 'fnRent', BASE.rent) + campo(fn, 'fnEnergy', 10000) + campo(fn, 'fnWater', 6000) + campo(fn, 'fnGas', 3337)
-        + campo(fn, 'fnDisposable', BASE.disposable) + campo(fn, 'fnSecurity', BASE.security)
-        + campo(fn, 'fnAdminFixed', BASE.adminFixed) + campo(fn, 'fnFinanceOther', BASE.financeOther),
+      valor: campo(fn, 'fnRent') + campo(fn, 'fnEnergy') + campo(fn, 'fnWater') + campo(fn, 'fnGas')
+        + campo(fn, 'fnDisposable') + campo(fn, 'fnSecurity')
+        + campo(fn, 'fnAdminFixed') + campo(fn, 'fnFinanceOther'),
     },
     {
       label: 'RH',
-      valor: campo(rh, 'rhCore', BASE.coreHr) + campo(rh, 'rhExtras', BASE.extras) + custoFreelancer(freelancers, monthKey),
+      valor: campo(rh, 'rhCore') + campo(rh, 'rhExtras') + custoFreelancer(freelancers, monthKey),
     },
     {
       label: 'Operação',
-      valor: campo(op, 'opLoss', 0) + campo(op, 'opMaintenance', 0),
+      valor: campo(op, 'opLoss') + campo(op, 'opMaintenance'),
     },
     {
       label: 'CMV',
