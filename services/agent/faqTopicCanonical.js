@@ -311,7 +311,11 @@ function detectFaqTopicsFromUserText(text) {
   }
 
   const { detectSeuJustinoFaqTopics } = require('./seuJustinoFaqCatalog');
-  const specific = detectSeuJustinoFaqTopics(normalized);
+  const { detectPracinhaFaqTopics } = require('./pracinhaFaqCatalog');
+  const specific = [
+    ...detectSeuJustinoFaqTopics(normalized),
+    ...detectPracinhaFaqTopics(normalized),
+  ];
   const merged = [];
   for (const topic of [...specific, ...topics]) {
     if (topic && !merged.includes(topic)) merged.push(topic);
