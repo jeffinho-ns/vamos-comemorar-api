@@ -283,13 +283,29 @@ test('nascimento não substitui a data da reserva e o nome entra no estado', () 
   assert.equal(merged.area_label, 'área descoberta');
 });
 
-test('área descoberta fica salva junto com a data já confirmada', () => {
-  const current = { establishment_id: 1, reservation_date: '2026-10-30' };
-  const fields = parseReservationFieldsFromUserText('Área descoberta', current);
-  const merged = mergeWorkingState(current, {}, fields);
-  assert.equal(merged.area_label, 'área descoberta');
-  assert.equal(merged.area_id, 2);
+test('área descoberta ainda não escolhe a mesa, pede o quintal', () => {
+  const fields = parseReservationFieldsFromUserText('Área descoberta', {
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+  });
+  const merged = mergeWorkingState(
+    { establishment_id: 1, reservation_date: '2026-10-30' },
+    {},
+    fields
+  );
+  assert.equal(merged.justino_zone, 'descoberta');
+  assert.equal(merged.area_label, undefined);
   assert.equal(merged.reservation_date, '2026-10-30');
+});
+
+test('Quintal Lateral Esquerdo grava a área real', () => {
+  const fields = parseReservationFieldsFromUserText('Quintal Lateral Esquerdo', {
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+  });
+  assert.equal(fields.area_label, 'Quintal Lateral Esquerdo');
+  assert.equal(fields.area_id, 2);
+  assert.equal(fields.justino_subarea_key, 'quintal-lateral-esquerdo');
 });
 
 test('frase sobre a casa não vira nome do cliente', () => {

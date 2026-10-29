@@ -1,4 +1,5 @@
 const { getReservationMissingFields } = require('./reservationFunnel');
+const { listJustinoAreaQuestion } = require('./seuJustinoReservationAreas');
 
 function hasText(value) {
   return String(value || '').trim().length > 0;
@@ -34,7 +35,7 @@ function buildSalesPullQuestion(workingState = {}) {
   const houseId = Number(state.establishment_id);
   const hasArea = hasText(state.area_label) || hasText(state.area_preferida);
   if (houseId === 1 && !hasArea) {
-    return 'Você prefere a área coberta ou a área descoberta?';
+    return listJustinoAreaQuestion(state.justino_zone);
   }
   if (next === 'client_name') return 'Me confirma seu nome completo?';
   if (next === 'client_email') return 'Qual seu e-mail?';

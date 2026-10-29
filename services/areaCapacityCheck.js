@@ -7,6 +7,10 @@ const {
   resolveHighlineSubareaLabelForTable,
   isHighlineEstablishment,
 } = require('./agent/highlineReservationAreas');
+const {
+  getEstablishmentRules,
+  areaAllowedForEstablishment,
+} = require('./establishmentRules');
 
 const EXCLUDED_STATUS_SQL = `
   UPPER(REPLACE(COALESCE(status, ''), '-', '_')) NOT IN (
@@ -184,10 +188,28 @@ async function checkAreaCapacity(pool, args = {}) {
 
   if (areaRow && areaRow.establishment_id != null) {
     const areaEst = Number(areaRow.establishment_id);
+    const sameHouse = Number.isFinite(areaEst) && areaEst > 0 && areaEst === Number(establishmentId);
+    const sharedJustinoArea =
+      Number(establishmentId) === 1 && (Number(areaId) === 1 || Number(areaId) === 2);
+    let allowedByProfile = false;
+    if (!sameHouse && !sharedJustinoArea && Number.isFinite(areaEst) && areaEst > 0) {
+      try {
+        const rules = await getEstablishmentRules(pool, establishmentId);
+        allowedByProfile = areaAllowedForEstablishment(
+          rules,
+          { ...areaRow, id: areaId },
+          establishmentId
+        );
+      } catch (_error) {
+        allowedByProfile = false;
+      }
+    }
     if (
       Number.isFinite(areaEst) &&
       areaEst > 0 &&
-      areaEst !== Number(establishmentId)
+      !sameHouse &&
+      !sharedJustinoArea &&
+      !allowedByProfile
     ) {
       const err = new Error('Área não pertence a este estabelecimento');
       err.statusCode = 403;

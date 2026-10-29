@@ -35,6 +35,23 @@ test('área descoberta cai numa mesa livre do quintal', async () => {
   assert.notEqual(slot.table_number, '20');
 });
 
+test('12 pessoas no Lateral Esquerdo juntam duas mesas', async () => {
+  const pool = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  const slot = await pickJustinoReservationSlot(pool, {
+    reservationDate: '2026-10-30',
+    reservationTime: '19:00',
+    partySize: 12,
+    subareaKey: 'quintal-lateral-esquerdo',
+  });
+  assert.equal(slot.area_id, 2);
+  assert.equal(slot.guestLabel, 'Quintal Lateral Esquerdo');
+  assert.equal(slot.table_number, '20,22');
+  assert.equal(slot.combined.mesas_count, 2);
+});
 test('Seu Justino pode dizer área coberta na conversa', () => {
   const blocked = sanitizeAssistantReply('Você prefere a área coberta ou a área descoberta?', {
     workingState: {},

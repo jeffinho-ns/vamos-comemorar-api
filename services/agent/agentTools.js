@@ -27,7 +27,8 @@ const {
 const {
   isSeuJustinoEstablishment,
   resolveJustinoGuestZone,
-  guestZoneLabel,
+  resolveJustinoSubarea,
+  listJustinoAreaQuestion,
   pickJustinoReservationSlot,
 } = require('./seuJustinoReservationAreas');
 const {
@@ -602,7 +603,7 @@ async function verificarDisponibilidade(pool, args = {}) {
       ? 'No HighLine só ofereça Deck - Mesas, Deck - Mesas Redondas e Bar Central - Bistrôs de Espera. Rooftop/Balada/VIP apenas se o cliente pedir. Rotativo só para lista/fila de espera (máx. 4 pessoas). NÃO cite "Terraço", "Balcão", "Área Coberta", "Área Descoberta", "Área VIP" genérica, "Mezanino" ou "Pista Interna".'
       : null,
     areas_seu_justino: isSeuJustinoEstablishment(establishmentId)
-      ? 'Ofereça ao cliente somente área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema escolhe a subárea livre do painel: lounge na coberta, quintal na descoberta. Não cite Lounge, Quintal, Praça nem Apê.'
+      ? 'O cliente escolhe uma área real do Seu Justino. No salão: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco ou Lounge Bar. No quintal: Lateral Esquerdo, Central Esquerdo, Central Direito ou Lateral Direito. Em criar_pre_reserva envie area com esse nome. Se o grupo não couber numa mesa, o sistema junta mesas dessa área.'
       : null,
     override: override || null,
     party_size_allowed: partyValidation.ok,
@@ -907,39 +908,30 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
 
   let justinoZone = null;
   let justinoPanelLabel = null;
+  let justinoSubareaKey = null;
   if (isSeuJustinoEstablishment(establishmentId)) {
-    justinoZone = resolveJustinoGuestZone(args.area || areaLabel);
-    if (!justinoZone) {
+    const justinoSubarea = resolveJustinoSubarea(args.area || areaLabel);
+    if (!justinoSubarea) {
+      const zone = resolveJustinoGuestZone(args.area || areaLabel);
       return {
         ok: false,
-        error:
-          'Pergunte se o cliente prefere área coberta ou área descoberta. Depois crie a reserva com area="coberta" ou area="descoberta". Não ofereça Lounge, Quintal, Praça nem Apê.',
+        error: listJustinoAreaQuestion(zone),
       };
     }
+    justinoZone = justinoSubarea.zone;
+    justinoSubareaKey = justinoSubarea.key;
     const slot = await pickJustinoReservationSlot(pool, {
       reservationDate,
       reservationTime,
       partySize,
-      zone: justinoZone,
+      zone: justinoSubarea.zone,
+      subareaKey: justinoSubarea.key,
       excludeTableNumbers: excludedTables,
     });
     if (!slot) {
-      const other =
-        justinoZone === 'coberta' ? 'descoberta' : justinoZone === 'descoberta' ? 'coberta' : null;
-      const otherSlot = other
-        ? await pickJustinoReservationSlot(pool, {
-            reservationDate,
-            reservationTime,
-            partySize,
-            zone: other,
-          })
-        : null;
-      const asked = guestZoneLabel(justinoZone) || 'área coberta e área descoberta';
       return {
         ok: false,
-        error: otherSlot
-          ? `A ${asked} está sem mesa livre para ${partySize} pessoas nesse horário. A ${otherSlot.guestLabel} tem vaga. Confirme com o cliente antes de trocar.`
-          : 'Área coberta e área descoberta estão sem mesa livre para esse grupo nesse horário.',
+        error: `O ${justinoSubarea.label} não comporta ${partySize} pessoas nem juntando as mesas livres. Quer escolher outra área?`,
       };
     }
     areaId = slot.area_id;
@@ -991,6 +983,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
         reservationTime,
         partySize,
         zone: justinoZone,
+        subareaKey: justinoSubareaKey,
         excludeTableNumbers: excludedTables,
       });
       if (!slot) break;
@@ -1027,6 +1020,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       reservation_date: reservationDate,
       reservation_time: reservationTime,
       area_id: areaId,
+      area_display_name: justinoPanelLabel || null,
     };
 
     const notes = buildNotesFromReservationArgs(args, {
@@ -1041,12 +1035,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     }
 
     if (combinedTablesInfo) {
-      const mesaText = combinedTablesInfo.mesas_count === 1 ? 'mesa' : 'mesas';
-      const escopo =
-        combinedTablesInfo.escopo_combinacao === 'area'
-          ? 'mesas combinadas na mesma área do painel (várias subáreas)'
-          : 'mesas combinadas na subárea';
-      let obsCombo = `${combinedTablesInfo.mesas_count} ${mesaText} combinadas (${combinedTablesInfo.table_numbers.join(', ')}) — capacidade total ${combinedTablesInfo.total_capacity} pessoas. Reserva única (${escopo}), como no modal "Reservar múltiplas mesas".`;
+      let obsCombo = `${combinedTablesInfo.mesas_count} mesas reservadas para esta reserva (${combinedTablesInfo.table_numbers.join(', ')}).`;
       if (combinedTablesInfo.capacidade_abaixo_do_grupo || combinedTablesInfo.partial) {
         obsCombo += ` Grupo grande (${partySize} pessoas): pode não haver cadeira para todos — Hostess organiza na chegada.`;
       }

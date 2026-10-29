@@ -66,6 +66,44 @@ function resolveJustinoGuestZone(text) {
   return null;
 }
 
+function listSubareas() {
+  return [
+    ...COBERTA_SUBAREAS.map((subarea) => ({ ...subarea, area_id: 1, zone: 'coberta' })),
+    ...DESCOBERTA_SUBAREAS.map((subarea) => ({ ...subarea, area_id: 2, zone: 'descoberta' })),
+  ];
+}
+
+function resolveJustinoSubarea(text) {
+  const normalized = normalizeZoneText(text);
+  if (!normalized) return null;
+  const aliases = [
+    ['quintal-lateral-esquerdo', /\blateral esquerdo\b/],
+    ['quintal-central-esquerdo', /\bcentral esquerdo\b/],
+    ['quintal-central-direito', /\bcentral direito\b/],
+    ['quintal-lateral-direito', /\blateral direito\b/],
+    ['lounge-aquario-tv', /\baquario tv\b/],
+    ['lounge-aquario-spaten', /\bspaten\b|\baquario spaten\b/],
+    ['lounge-palco', /\bpalco\b/],
+    ['lounge-bar', /\blounge bar\b/],
+  ];
+  for (const [key, pattern] of aliases) {
+    if (pattern.test(normalized)) {
+      return listSubareas().find((subarea) => subarea.key === key) || null;
+    }
+  }
+  return null;
+}
+
+function listJustinoAreaQuestion(zone) {
+  if (zone === 'coberta') {
+    return 'No salão, qual você prefere: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco ou Lounge Bar?';
+  }
+  if (zone === 'descoberta') {
+    return 'No quintal, qual você prefere: Lateral Esquerdo, Central Esquerdo, Central Direito ou Lateral Direito?';
+  }
+  return 'Qual área você prefere? No salão: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco ou Lounge Bar. No quintal: Lateral Esquerdo, Central Esquerdo, Central Direito ou Lateral Direito.';
+}
+
 function guestZoneLabel(zone) {
   if (zone === 'coberta') return GUEST_ZONES.coberta.guestLabel;
   if (zone === 'descoberta') return GUEST_ZONES.descoberta.guestLabel;
@@ -172,11 +210,27 @@ function pickSlotInZone(zoneKey, reserved, partySize, excludeTableNumbers) {
 
 async function pickJustinoReservationSlot(
   pool,
-  { reservationDate, reservationTime = null, partySize, zone, excludeTableNumbers = [] } = {}
+  { reservationDate, reservationTime = null, partySize, zone, subareaKey = null, excludeTableNumbers = [] } = {}
 ) {
   const size = Number(partySize);
   if (!reservationDate || !Number.isFinite(size) || size <= 0) return null;
   const reserved = await loadReservedTableNumbers(pool, reservationDate, reservationTime);
+  const exclude = new Set((excludeTableNumbers || []).map((number) => String(number).trim()).filter(Boolean));
+  if (subareaKey) {
+    const subarea = listSubareas().find((item) => item.key === subareaKey);
+    if (!subarea) return null;
+    const picked = pickTablesInSubarea(subarea, subarea.area_id, reserved, size, exclude);
+    if (!picked) return null;
+    return {
+      area_id: subarea.area_id,
+      table_number: picked.table_number,
+      internalLabel: subarea.label,
+      guestLabel: subarea.label,
+      zone: subarea.zone,
+      subareaKey: subarea.key,
+      combined: picked.combined,
+    };
+  }
   if (zone === 'qualquer') {
     return (
       pickSlotInZone('coberta', reserved, size, excludeTableNumbers) ||
@@ -191,6 +245,8 @@ module.exports = {
   GUEST_ZONES,
   isSeuJustinoEstablishment,
   resolveJustinoGuestZone,
+  resolveJustinoSubarea,
+  listJustinoAreaQuestion,
   guestZoneLabel,
   pickJustinoReservationSlot,
 };
