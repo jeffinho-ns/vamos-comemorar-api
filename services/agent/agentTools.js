@@ -1033,6 +1033,9 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       reservation_time: reservationTime,
       area_id: areaId,
       area_display_name: justinoPanelLabel || null,
+      is_birthday:
+        args.is_birthday === true || String(args.event_type || '') === 'aniversario',
+      event_type: String(args.event_type || '').trim() || undefined,
     };
 
     const notes = buildNotesFromReservationArgs(args, {

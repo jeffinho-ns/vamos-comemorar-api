@@ -10,7 +10,7 @@ const {
   resolveJustinoGuestZone,
   guestZoneLabel,
 } = require('./seuJustinoReservationAreas');
-const { getReservationMissingFields } = require('./reservationFunnel');
+const { getReservationMissingFields, buildOccasionNotes } = require('./reservationFunnel');
 const { mergeWorkingState, extractWorkingStatePatchFromToolResult } = require('./agentMemoryService');
 const { recordZeroTokenPath } = require('./aiUsageRepository');
 
@@ -66,7 +66,12 @@ function buildCreatePreReservaArgs(workingState = {}, context = {}, areaLabel = 
       email: clientEmail,
       data_nascimento: birthDate,
     },
-    observacoes: String(workingState.observacoes || '').trim() || undefined,
+    observacoes:
+      [String(workingState.observacoes || '').trim(), buildOccasionNotes(workingState)]
+        .filter(Boolean)
+        .join(' | ') || undefined,
+    event_type: String(workingState.event_type || '').trim() || undefined,
+    is_birthday: String(workingState.event_type || '') === 'aniversario',
   };
 }
 

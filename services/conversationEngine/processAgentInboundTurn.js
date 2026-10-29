@@ -527,7 +527,17 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       agentResult.preReservationResult &&
       !String(agentResult.replyText || '').includes(agentResult.guestListLink)
     ) {
-      const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink);
+      const partySize = Number(
+        agentResult.workingState?.quantidade_convidados ||
+          agentResult.preReservationResult?.pre_reserva?.quantidade_pessoas ||
+          0
+      );
+      const isBirthday =
+        agentResult.workingState?.event_type === 'aniversario' ||
+        agentResult.workingState?.is_birthday === true;
+      const linkMsg = buildGuestListSecondMessage(agentResult.guestListLink, {
+        birthdayDrink: isBirthday && partySize > 5,
+      });
       await outboundGateway.sendText(waId, linkMsg);
       await persistOutbound(linkMsg, 'GUEST_LIST_LINK');
     } else if (agentResult.preReservationResult?.reservation) {

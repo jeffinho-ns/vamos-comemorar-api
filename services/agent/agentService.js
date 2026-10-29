@@ -58,6 +58,7 @@ const {
   extractFirstName,
   looksLikeIdentityPayload,
   prefixReplyWithContactName,
+  shouldAskOccasion,
 } = require('./reservationFunnel');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
@@ -112,11 +113,13 @@ async function maybeReplyFromFunnelData({
     textFieldPatch?.area_preferida ||
     textFieldPatch?.client_name ||
     textFieldPatch?.client_email ||
-    textFieldPatch?.data_nascimento
+    textFieldPatch?.data_nascimento ||
+    textFieldPatch?.event_type ||
+    textFieldPatch?.occasion_declined
   );
   if (!advanced) return null;
   if (!isReservationFunnelInProgress(workingState, messageHistory)) return null;
-  if (reservationFunnelIsComplete(workingState)) return null;
+  if (reservationFunnelIsComplete(workingState) && !shouldAskOccasion(workingState)) return null;
 
   let state = workingState;
   let toolTrace = [];
@@ -726,7 +729,12 @@ async function forceCreatePreReservaIfReady({
   const guestLink = closed.toolResult?.guest_list_link || closed.guestListLink || null;
   const partySize = Number(closed.workingState?.quantidade_convidados);
   if (guestLink && partySize > 4 && replyText && !String(replyText).includes(guestLink)) {
-    replyText = `${replyText} ${buildGuestListSecondMessage(guestLink)}`.trim();
+    replyText = `${replyText} ${buildGuestListSecondMessage(guestLink, {
+      birthdayDrink:
+        (closed.workingState?.event_type === 'aniversario' ||
+          closed.workingState?.is_birthday === true) &&
+        partySize > 5,
+    })}`.trim();
   }
 
   return {
@@ -1554,6 +1562,23 @@ async function runAgentTurn({
   ) {
     return {
       replyText: buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState),
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
+
+  if (
+    !informationalOnly &&
+    !areaAvailabilityQuestion &&
+    reservationFunnelIsComplete(workingState) &&
+    shouldAskOccasion(workingState)
+  ) {
+    return {
+      replyText:
+        buildSalesPullQuestion(workingState) ||
+        'É alguma data especial, tipo aniversário?',
       workingState,
       toolTrace: [],
       preReservationResult: null,

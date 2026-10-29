@@ -12,6 +12,9 @@ const {
   inferAvailabilityCheckedFromHistory,
   prefixReplyWithContactName,
   mergeContactHintsIntoWorkingState,
+  shouldAskOccasion,
+  parseOccasionFromUserText,
+  buildOccasionNotes,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
@@ -319,4 +322,33 @@ test('apelido do WhatsApp não entra no cumprimento nem no nome da reserva', () 
   );
   assert.equal(hinted.client_name, undefined);
   assert.equal(hinted.client_email, 'nunesuellen@gmail.com');
+});
+
+test('grupo acima de 4 pessoas pede se é aniversário', () => {
+  assert.equal(shouldAskOccasion({ quantidade_convidados: 4 }), false);
+  assert.equal(shouldAskOccasion({ quantidade_convidados: 5 }), true);
+  assert.equal(
+    shouldAskOccasion({ quantidade_convidados: 13, event_type: 'aniversario' }),
+    false
+  );
+  const birthday = parseOccasionFromUserText('é aniversário da Jefferson', {
+    quantidade_convidados: 13,
+  });
+  assert.equal(birthday.event_type, 'aniversario');
+  const confirmed = parseOccasionFromUserText(
+    'Sim',
+    {
+      establishment_id: 1,
+      reservation_date: '2026-10-30',
+      reservation_time: '19:00',
+      quantidade_convidados: 13,
+      client_name: 'Jefferson Lima',
+      client_email: 'jeffinho_ns@hotmail.com',
+      data_nascimento: '1987-09-15',
+    },
+    [{ role: 'assistant', content: 'É alguma data especial, tipo aniversário?' }]
+  );
+  assert.equal(confirmed.event_type, 'aniversario');
+  assert.match(buildOccasionNotes({ event_type: 'aniversario', quantidade_convidados: 13 }), /drink especial/i);
+  assert.match(buildOccasionNotes({ event_type: 'aniversario', quantidade_convidados: 5 }), /mais de 5/i);
 });

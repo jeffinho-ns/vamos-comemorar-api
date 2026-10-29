@@ -311,6 +311,70 @@ function assistantAskedForClientName(messageHistory = []) {
   );
 }
 
+function assistantAskedForOccasion(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const normalized = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bdata especial\b|\btipo aniversario\b|\be aniversario\b/.test(normalized);
+}
+
+function shouldAskOccasion(workingState = {}) {
+  const party = Number(workingState.quantidade_convidados);
+  if (!Number.isFinite(party) || party <= 4) return false;
+  if (workingState.occasion_declined === true) return false;
+  if (String(workingState.event_type || '').trim()) return false;
+  return true;
+}
+
+function parseOccasionFromUserText(userText, workingState = {}, messageHistory = []) {
+  if (workingState.event_type || workingState.occasion_declined === true) return {};
+  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) return {};
+  const normalized = String(userText || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/\b(aniversario|niver|aniversariante)\b/.test(normalized)) {
+    return { event_type: 'aniversario', is_birthday: true };
+  }
+  if (/\bdespedida\b/.test(normalized)) {
+    return { event_type: 'despedida' };
+  }
+  if (!assistantAskedForOccasion(messageHistory)) return {};
+  const identityStillMissing = getReservationMissingFields(workingState).some((key) =>
+    ['client_name', 'client_email', 'data_nascimento'].includes(key)
+  );
+  if (isAffirmativeConfirmation(userText)) {
+    if (identityStillMissing) return {};
+    return { event_type: 'aniversario', is_birthday: true };
+  }
+  if (
+    /^(nao|nada|nenhuma|so isso|so a reserva|nao e|nao tem)(\s|$|[!.?,])/i.test(normalized) ||
+    /\bnada especial\b|\bnao e aniversario\b|\bnao vai ser aniversario\b/.test(normalized)
+  ) {
+    return { occasion_declined: true };
+  }
+  return {};
+}
+
+function buildOccasionNotes(workingState = {}) {
+  const eventType = String(workingState.event_type || '').trim();
+  if (eventType === 'aniversario') {
+    const party = Number(workingState.quantidade_convidados);
+    if (Number.isFinite(party) && party > 5) {
+      return 'Aniversário — tipo de evento aniversario. Lista de convidados para compartilhamento. Brinde: drink especial se os convidados fizerem check-in na entrada pelo QR Code da lista.';
+    }
+    return 'Aniversário — tipo de evento aniversario. Lista de convidados para compartilhamento. Brinde de drink somente se o grupo tiver mais de 5 convidados.';
+  }
+  if (eventType === 'despedida') {
+    return 'Despedida — tipo de evento despedida. Lista de convidados para compartilhamento.';
+  }
+  return '';
+}
+
 function assistantAskedForReservationTime(messageHistory = []) {
   const lastAssistant = [...(messageHistory || [])]
     .reverse()
@@ -483,6 +547,8 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
       patch.area_label = 'qualquer';
     }
   }
+
+  Object.assign(patch, parseOccasionFromUserText(text, workingState, messageHistory));
 
   const subarea = justinoHouse ? null : resolveHighlineSubarea(text);
   if (subarea?.label) {
@@ -698,4 +764,7 @@ module.exports = {
   extractFirstName,
   looksLikeIdentityPayload,
   prefixReplyWithContactName,
+  shouldAskOccasion,
+  parseOccasionFromUserText,
+  buildOccasionNotes,
 };

@@ -38,6 +38,19 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
     }),
     /nome completo.*e-mail.*nascimento/i
   );
+  assert.match(
+    buildSalesPullQuestion({
+      establishment_id: 1,
+      reservation_date: '2026-10-31',
+      reservation_time: '21:00',
+      quantidade_convidados: 13,
+      area_label: 'área descoberta',
+      client_name: 'Jefferson Lima',
+      client_email: 'jeffinho_ns@hotmail.com',
+      data_nascimento: '1987-09-15',
+    }),
+    /data especial.*anivers/i
+  );
   assert.equal(shouldSkipSalesPull(['eventos_corporativos']), true);
   assert.equal(
     appendSalesPull('Pode sim, pet é bem-vindo.', { establishment_id: 1 }),

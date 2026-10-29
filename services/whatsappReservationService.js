@@ -289,6 +289,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     area_display_name,
     table_number,
     is_birthday,
+    event_type,
     reservation_notes,
   } = params || {};
 
@@ -332,15 +333,23 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     created_by: null,
     send_email: Boolean(client_email && String(client_email).trim()),
     send_whatsapp: false,
-    event_type: is_birthday ? 'aniversario' : undefined,
+    event_type: is_birthday
+      ? 'aniversario'
+      : event_type
+        ? String(event_type).trim().toLowerCase()
+        : undefined,
   };
 }
 
 /**
  * Mensagem fixa do link de convidados (produto pediu texto específico).
  */
-function buildGuestListSecondMessage(link) {
-  return `Aqui tá o link da sua lista de convidados — pode mandar pro pessoal já adicionar o nome (ajuda a agilizar a entrada): ${link}`;
+function buildGuestListSecondMessage(link, options = {}) {
+  const base = `Aqui tá o link da sua lista de convidados — pode mandar pro pessoal já adicionar o nome (ajuda a agilizar a entrada): ${link}`;
+  if (options.birthdayDrink) {
+    return `${base} Como é aniversário e o grupo tem mais de 5 pessoas, se os convidados fizerem o check-in na entrada pelo QR Code dessa lista, a aniversariante ganha um drink especial.`;
+  }
+  return base;
 }
 
 module.exports = {

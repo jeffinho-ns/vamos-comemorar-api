@@ -1,4 +1,4 @@
-const { getReservationMissingFields } = require('./reservationFunnel');
+const { getReservationMissingFields, shouldAskOccasion } = require('./reservationFunnel');
 
 function hasText(value) {
   return String(value || '').trim().length > 0;
@@ -59,6 +59,7 @@ function buildSalesPullQuestion(workingState = {}) {
   if (missing.includes('client_name')) identity.push('nome completo');
   if (missing.includes('client_email')) identity.push('e-mail');
   if (missing.includes('data_nascimento')) identity.push('data de nascimento (DD/MM/AAAA)');
+  if (shouldAskOccasion(state)) identity.push('se é alguma data especial, tipo aniversário');
   if (identity.length > 0) {
     return `Pra fechar, me manda ${joinPt(identity)}?`;
   }
