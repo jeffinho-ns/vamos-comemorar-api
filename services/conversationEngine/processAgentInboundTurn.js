@@ -5,6 +5,7 @@ const { buildReservationDateHint, looksLikeReservationIntent } = require('../age
 const {
   parseReservationFieldsFromUserText,
   mergeContactHintsIntoWorkingState,
+  prefixReplyWithContactName,
 } = require('../agent/reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
@@ -462,6 +463,16 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }).catch((memoryError) => {
       console.error('[agentEngine] falha ao persistir memória:', memoryError.message);
     });
+
+    const replyText = prefixReplyWithContactName(agentResult.replyText, {
+      messageHistory,
+      contactName:
+        whatsappContact?.contact_name ||
+        conversation?.contact_name ||
+        extractContactName(payload) ||
+        '',
+    });
+    agentResult.replyText = replyText;
 
     if (inboundRow?.id) {
       await inbox.updateInboundAiFields(pool, inboundRow.id, {

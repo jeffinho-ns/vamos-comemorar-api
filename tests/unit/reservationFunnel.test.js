@@ -10,7 +10,9 @@ const {
   shouldAutoRunAvailabilityCheck,
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
+  prefixReplyWithContactName,
 } = require('../../services/agent/reservationFunnel');
+const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 
 test('isReservationFunnelInProgress quando há estabelecimento e data', () => {
   assert.equal(
@@ -221,4 +223,35 @@ test('getReservationMissingFields lista campos obrigatórios', () => {
   });
   assert.ok(missing.includes('reservation_time'));
   assert.ok(missing.includes('client_name'));
+});
+
+test('nome, e-mail e nascimento 27041986 fecham a identidade', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Suellem Lima, nunesuellen@gmail.com, 27041986',
+    { establishment_id: 1, reservation_date: '2026-10-30', reservation_time: '19:00', quantidade_convidados: 10, area_label: 'área descoberta' }
+  );
+  assert.equal(patch.client_name, 'Suellem Lima');
+  assert.equal(patch.client_email, 'nunesuellen@gmail.com');
+  assert.equal(patch.data_nascimento, '1986-04-27');
+  assert.equal(patch.reservation_date, undefined);
+});
+
+test('a primeira resposta usa o nome do WhatsApp', () => {
+  const reply = prefixReplyWithContactName('Amanhã é sexta, 30/10.', {
+    messageHistory: [{ role: 'user', content: 'vai ter o que amanhã?' }],
+    contactName: 'Suellem Lima',
+  });
+  assert.match(reply, /^Oi, Suellem!/);
+  const later = prefixReplyWithContactName('Qual horário fica melhor?', {
+    messageHistory: [
+      { role: 'user', content: 'oi' },
+      { role: 'user', content: 'amanhã' },
+    ],
+    contactName: 'Suellem Lima',
+  });
+  assert.equal(later.startsWith('Oi, Suellem'), false);
+});
+
+test('vai ter o que amanhã é pergunta de programação do dia', () => {
+  assert.equal(looksLikeEventProgramQuestion('Oi, vai ter o que amanhã no Seu Justino?'), true);
 });

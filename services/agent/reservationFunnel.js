@@ -112,6 +112,58 @@ function extractFirstName(text) {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
+function prefixReplyWithContactName(replyText, { messageHistory = [], contactName = '' } = {}) {
+  const userTurns = (messageHistory || []).filter((msg) => msg?.role === 'user');
+  if (userTurns.length > 1) return String(replyText || '').trim();
+  const firstName = extractFirstName(contactName);
+  const text = String(replyText || '').trim();
+  if (!firstName || !text) return text;
+  const normalizedReply = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normalizedName = firstName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (normalizedReply.includes(normalizedName)) return text;
+  return `Oi, ${firstName}! ${text}`;
+}
+
+function parseCompactBirthIso(text) {
+  const match = String(text || '').match(/(?:^|\D)(\d{2})(\d{2})(\d{4})(?:\D|$)/);
+  if (!match) return '';
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  const currentYear = new Date().getFullYear();
+  if (year < 1900 || year > currentYear) return '';
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return '';
+  }
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function extractFullNameBeforeEmail(text) {
+  const source = String(text || '');
+  const email = source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (!email || email.index == null) return '';
+  const before = source.slice(0, email.index).replace(/[,:;|/]+/g, ' ').trim();
+  const words = before.split(/\s+/).filter((word) => /^[A-Za-zÀ-ÿ'.-]{2,}$/.test(word));
+  if (words.length < 2) return '';
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function looksLikeIdentityPayload(text) {
+  const raw = String(text || '');
+  return (
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(raw) ||
+    Boolean(parseCompactBirthIso(raw))
+  );
+}
+
 const MISSING_FIELD_PROMPTS = {
   establishment_id: 'Em qual casa você quer reservar?',
   reservation_date: 'Pra quando seria a reserva?',
@@ -313,6 +365,19 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
   if (emailMatch && !hasFieldValue(workingState, 'client_email')) {
     patch.client_email = emailMatch[0].toLowerCase();
+  }
+  if (!hasFieldValue(workingState, 'client_name')) {
+    const nameBeforeEmail = extractFullNameBeforeEmail(text);
+    if (nameBeforeEmail) patch.client_name = nameBeforeEmail;
+  }
+
+  const compactBirth = parseCompactBirthIso(text);
+  if (
+    compactBirth &&
+    !hasFieldValue(workingState, 'data_nascimento') &&
+    (emailMatch || /\bnasc/i.test(text))
+  ) {
+    patch.data_nascimento = compactBirth;
   }
 
   const partyMatch =
@@ -596,4 +661,6 @@ module.exports = {
   detectClientCorrectingPreviousReply,
   isFirstUserMessageInConversation,
   extractFirstName,
+  looksLikeIdentityPayload,
+  prefixReplyWithContactName,
 };

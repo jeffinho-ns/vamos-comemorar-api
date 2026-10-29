@@ -201,7 +201,7 @@ function looksLikeEventProgramQuestion(text) {
   if (!normalized) return false;
 
   const asksProgram =
-    /\b(o que vai ter|o que tem|o que rola|que vai ter|que tem|programacao|atracao|atracoes|line[- ]?up|quem toca|qual (e )?o dj|dj da (noite|festa)|evento do dia|festa do dia|comemoracao do dia)\b/.test(
+    /\b(o que vai ter|o que tem|o que rola|vai ter o que|tem o que|que vai ter|que tem|que vai rolar|programacao|atracao|atracoes|line[- ]?up|quem toca|qual (e )?o dj|dj da (noite|festa)|evento do dia|festa do dia|comemoracao do dia)\b/.test(
       normalized
     );
   if (asksProgram) return true;

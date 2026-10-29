@@ -56,6 +56,8 @@ const {
   detectClientCorrectingPreviousReply,
   isFirstUserMessageInConversation,
   extractFirstName,
+  looksLikeIdentityPayload,
+  prefixReplyWithContactName,
 } = require('./reservationFunnel');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
@@ -67,6 +69,7 @@ const {
 } = require('./establishmentEventProgram');
 const {
   appendSalesPull,
+  buildSalesPullQuestion,
   keepFunnelState,
   shouldSkipSalesPull,
 } = require('./salesFunnelPull');
@@ -1081,7 +1084,18 @@ async function tryFaqFirstReply({
   }
 
   if (hasDateSpecificContext) {
-    faqEntries = faqEntries.filter((entry) => entry.topic !== 'dias_horarios_funcionamento');
+    faqEntries = faqEntries.filter(
+      (entry) =>
+        entry.topic !== 'dias_horarios_funcionamento' && entry.topic !== 'horario_funcionamento'
+    );
+  }
+  if (programQuestion && dayProgram?.iso) {
+    const dayTopic = weekdayFaqTopicForIso(dayProgram.iso);
+    const focused = faqEntries.filter((entry) => {
+      const topic = String(entry.topic || '');
+      return topic === dayTopic || topic.startsWith('programacao_') || topic === 'reveillon';
+    });
+    if (focused.length) faqEntries = focused;
   }
 
   const informationalNoReservation =
@@ -1462,18 +1476,35 @@ async function runAgentTurn({
     }
   }
 
+  if (funnelActive && looksLikeIdentityPayload(userText) && !reservationFunnelIsComplete(workingState)) {
+    return {
+      replyText:
+        buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState),
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
+
   const topicHints = detectRelevantFaqTopics(userText, messageHistory, {
     funnelActive,
     establishmentId: context.lockedEstablishmentId,
     establishmentName: context.lockedEstablishmentName,
   });
+  const focusedDay = workingState.reservation_date || workingState.pending_reservation_date_iso;
+  const focusedTopicHints = focusedDay
+    ? topicHints.filter(
+        (topic) => topic !== 'dias_horarios_funcionamento' && topic !== 'horario_funcionamento'
+      )
+    : topicHints;
   let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
 
   if (!faqKnowledgeBlock && pool && establishmentId > 0) {
     try {
       // Funil: orçamento menor; só tópicos detectados (sem dump da base).
-      const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
+      const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, focusedTopicHints, {
         funnelActive,
         maxChars: funnelActive ? 800 : undefined,
       });
@@ -1482,8 +1513,8 @@ async function runAgentTurn({
           relevant,
           context.lockedEstablishmentName || ''
         );
-      } else if (topicHints.length && !funnelActive) {
-        const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints);
+      } else if (focusedTopicHints.length && !funnelActive) {
+        const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, focusedTopicHints);
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
           prefetched,
           context.lockedEstablishmentName || ''
@@ -1499,8 +1530,8 @@ async function runAgentTurn({
       }
     } catch (faqError) {
       console.warn('[agentService] falha ao pré-carregar base oficial:', faqError.message);
-      if (topicHints.length && !funnelActive) {
-        const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, topicHints).catch(
+      if (focusedTopicHints.length && !funnelActive) {
+        const prefetched = await prefetchEstablishmentFaqs(pool, establishmentId, focusedTopicHints).catch(
           () => []
         );
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
