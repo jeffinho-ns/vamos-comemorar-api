@@ -1,5 +1,4 @@
 const { getReservationMissingFields } = require('./reservationFunnel');
-const { listJustinoAreaQuestion } = require('./seuJustinoReservationAreas');
 
 function hasText(value) {
   return String(value || '').trim().length > 0;
@@ -15,9 +14,16 @@ function normalizeLoose(value) {
     .trim();
 }
 
+function joinPt(parts) {
+  const items = (parts || []).filter(Boolean);
+  if (items.length <= 1) return items[0] || '';
+  if (items.length === 2) return `${items[0]} e ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
+}
+
 /**
- * Uma pergunta só, no ponto em que a reserva parou.
- * No Seu Justino, a área coberta ou descoberta entra antes do nome.
+ * Poucas perguntas, juntando o que ainda falta.
+ * No Seu Justino o cliente só escolhe coberta ou descoberta.
  */
 function buildSalesPullQuestion(workingState = {}) {
   const state = workingState && typeof workingState === 'object' ? workingState : {};
@@ -29,17 +35,33 @@ function buildSalesPullQuestion(workingState = {}) {
     return label ? `Quer que eu reserve para ${label}?` : 'Pra quando seria a reserva?';
   }
   if (next === 'reservation_date') return 'Pra quando seria a reserva?';
-  if (next === 'reservation_time') return 'Qual horário fica melhor pra você?';
-  if (next === 'quantidade_convidados') return 'Quantas pessoas vão?';
 
   const houseId = Number(state.establishment_id);
-  const hasArea = hasText(state.area_label) || hasText(state.area_preferida);
-  if (houseId === 1 && !hasArea) {
-    return listJustinoAreaQuestion(state.justino_zone);
+  const hasArea = hasText(state.area_label) || hasText(state.area_preferida) || hasText(state.justino_zone);
+  const ops = [];
+  if (missing.includes('reservation_time')) ops.push('qual horário');
+  if (missing.includes('quantidade_convidados')) ops.push('para quantas pessoas');
+  if (houseId === 1 && !hasArea) ops.push('se prefere área coberta ou descoberta');
+  if (ops.length > 0) {
+    if (ops.length === 1 && missing.includes('reservation_time')) {
+      return 'Qual horário fica melhor pra você?';
+    }
+    if (ops.length === 1 && missing.includes('quantidade_convidados')) {
+      return 'Para quantas pessoas?';
+    }
+    if (ops.length === 1) {
+      return 'Você prefere área coberta ou área descoberta?';
+    }
+    return `Pra eu já deixar a mesa, me conta ${joinPt(ops)}?`;
   }
-  if (next === 'client_name') return 'Me confirma seu nome completo?';
-  if (next === 'client_email') return 'Qual seu e-mail?';
-  if (next === 'data_nascimento') return 'E sua data de nascimento?';
+
+  const identity = [];
+  if (missing.includes('client_name')) identity.push('nome completo');
+  if (missing.includes('client_email')) identity.push('e-mail');
+  if (missing.includes('data_nascimento')) identity.push('data de nascimento (DD/MM/AAAA)');
+  if (identity.length > 0) {
+    return `Pra fechar, me manda ${joinPt(identity)}?`;
+  }
   return '';
 }
 

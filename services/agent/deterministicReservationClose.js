@@ -8,8 +8,7 @@ const { resolveHighlineSubarea } = require('./highlineReservationAreas');
 const {
   isSeuJustinoEstablishment,
   resolveJustinoGuestZone,
-  resolveJustinoSubarea,
-  listJustinoAreaQuestion,
+  guestZoneLabel,
 } = require('./seuJustinoReservationAreas');
 const { getReservationMissingFields } = require('./reservationFunnel');
 const { mergeWorkingState, extractWorkingStatePatchFromToolResult } = require('./agentMemoryService');
@@ -82,19 +81,16 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     String(workingState.area_label || workingState.area_preferida || '').trim();
 
   if (isSeuJustinoEstablishment(establishmentId)) {
-    const subarea =
-      resolveJustinoSubarea(userText) ||
-      resolveJustinoSubarea(preferred) ||
-      resolveJustinoSubarea(String(workingState.area_label || ''));
-    if (!subarea) {
-      return {
-        needsChoice: true,
-        zone: workingState.justino_zone || resolveJustinoGuestZone(userText) || resolveJustinoGuestZone(preferred),
-        label: '',
-        snapshot: null,
-      };
+    const zone =
+      resolveJustinoGuestZone(userText) ||
+      resolveJustinoGuestZone(preferred) ||
+      workingState.justino_zone ||
+      resolveJustinoGuestZone(String(workingState.area_label || ''));
+    if (!zone) {
+      return { needsChoice: true, label: '', snapshot: null };
     }
-    return { label: subarea.label, subareaKey: subarea.key, snapshot: null };
+    const label = zone === 'qualquer' ? 'qualquer' : guestZoneLabel(zone);
+    return { label, snapshot: null };
   }
 
   if (!isHighlineEstablishment(establishmentId) || !pool) {
@@ -167,7 +163,7 @@ async function tryDeterministicReservationClose({
     return {
       workingState: nextState,
       toolTrace: nextTrace,
-      replyText: listJustinoAreaQuestion(areaResolution.zone),
+      replyText: 'Você prefere área coberta ou área descoberta?',
       preReservationResult: null,
       guestListLink: null,
       deterministic: true,

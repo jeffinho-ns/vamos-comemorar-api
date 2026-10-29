@@ -16,10 +16,8 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
     buildSalesPullQuestion({
       establishment_id: 1,
       reservation_date: '2026-10-31',
-      reservation_time: '21:00',
-      quantidade_convidados: 4,
     }),
-    /Lounge Aquário Spaten/
+    /horário.*pessoas.*coberta ou descoberta/i
   );
   assert.equal(
     buildSalesPullQuestion({
@@ -27,9 +25,18 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
       reservation_date: '2026-10-31',
       reservation_time: '21:00',
       quantidade_convidados: 4,
+    }),
+    'Você prefere área coberta ou área descoberta?'
+  );
+  assert.match(
+    buildSalesPullQuestion({
+      establishment_id: 1,
+      reservation_date: '2026-10-31',
+      reservation_time: '21:00',
+      quantidade_convidados: 4,
       area_label: 'área coberta',
     }),
-    'Me confirma seu nome completo?'
+    /nome completo.*e-mail.*nascimento/i
   );
   assert.equal(shouldSkipSalesPull(['eventos_corporativos']), true);
   assert.equal(
@@ -71,7 +78,7 @@ test('pergunta aleatória no meio da reserva não apaga a data e puxa a área', 
   });
 
   assert.match(result.replyText, /pet é bem-vindo/);
-  assert.match(result.replyText, /Lounge Aquário Spaten/);
+  assert.match(result.replyText, /área coberta ou área descoberta/);
   assert.equal(result.workingState.reservation_date, '2026-10-31');
   assert.equal(result.workingState.reservation_time, '21:00');
   assert.equal(result.workingState.quantidade_convidados, 4);

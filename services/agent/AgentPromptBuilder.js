@@ -155,7 +155,7 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
       return 'ESCOPO: HighLine (id=7). Use regras e base cadastradas para esta casa.';
     }
     if (id === 1) {
-      return 'ESCOPO: Seu Justino (id=1). O cliente escolhe uma área real: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco, Lounge Bar, Quintal Lateral Esquerdo, Quintal Central Esquerdo, Quintal Central Direito ou Quintal Lateral Direito. Em criar_pre_reserva envie area com esse nome. Se o grupo passar da capacidade de uma mesa, o sistema reserva várias mesas dessa área.';
+      return 'ESCOPO: Seu Justino (id=1). Na conversa o cliente escolhe só área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema coloca a reserva numa subárea livre do painel (lounge na coberta, quintal na descoberta) e junta mesas se o grupo não couber em uma só. Peça horário, pessoas e coberta/descoberta na mesma frase quando faltar. Depois peça nome, e-mail e nascimento juntos.';
     }
     return `ESCOPO: "${name || 'estabelecimento'}" (id=${id}). Ignore menções a Highline se não forem desta casa.`;
   }

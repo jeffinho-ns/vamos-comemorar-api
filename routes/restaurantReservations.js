@@ -1410,7 +1410,12 @@ module.exports = (pool) => {
         try {
           const tableNumberStr = String(table_number).trim();
           const hasMultipleTables = tableNumberStr.includes(',');
-          const isAdminReservation = origin === 'PESSOAL'; // Admin cria com origin 'PESSOAL'
+          const originUpper = String(origin || '').trim().toUpperCase();
+          const isAdminReservation = originUpper === 'PESSOAL';
+          const allowVirtualTables =
+            isAdminReservation ||
+            (originUpper === 'WHATSAPP' &&
+              establishmentRules.areasManagementFrozen(createEstRules));
           
           if (hasMultipleTables) {
             // Múltiplas mesas: validar cada uma individualmente
@@ -1423,16 +1428,15 @@ module.exports = (pool) => {
               );
               
               // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
-              if (tableRowResult.rows.length === 0 && !isAdminReservation) {
+              if (tableRowResult.rows.length === 0 && !allowVirtualTables) {
                 return res.status(400).json({ 
                   success: false, 
                   error: `Mesa ${singleTableNumber} inválida para a área selecionada` 
                 });
               }
               
-              // Se é admin, apenas logar que está usando mesa virtual
-              if (tableRowResult.rows.length === 0 && isAdminReservation) {
-                console.log(`ℹ️ Admin usando mesa virtual: ${singleTableNumber} na área ${areaIdNumber}`);
+              if (tableRowResult.rows.length === 0 && allowVirtualTables) {
+                console.log(`ℹ️ Mesa virtual permitida: ${singleTableNumber} na área ${areaIdNumber} origin=${originUpper}`);
               }
             }
           } else {
@@ -1443,13 +1447,12 @@ module.exports = (pool) => {
             );
             
             // Se a mesa não existe na tabela, mas é uma reserva de admin, permitir (mesa virtual)
-            if (tableRowResult.rows.length === 0 && !isAdminReservation) {
+            if (tableRowResult.rows.length === 0 && !allowVirtualTables) {
               return res.status(400).json({ success: false, error: 'Mesa inválida para a área selecionada' });
             }
             
-            // Se é admin, apenas logar que está usando mesa virtual
-            if (tableRowResult.rows.length === 0 && isAdminReservation) {
-              console.log(`ℹ️ Admin usando mesa virtual: ${tableNumberStr} na área ${areaIdNumber}`);
+            if (tableRowResult.rows.length === 0 && allowVirtualTables) {
+              console.log(`ℹ️ Mesa virtual permitida: ${tableNumberStr} na área ${areaIdNumber} origin=${originUpper}`);
             }
           }
         } catch (e) {
