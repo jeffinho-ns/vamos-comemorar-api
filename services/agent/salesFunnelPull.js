@@ -61,7 +61,11 @@ function buildSalesPullQuestion(workingState = {}) {
   if (missing.includes('data_nascimento')) identity.push('data de nascimento (DD/MM/AAAA)');
   if (shouldAskOccasion(state)) identity.push('se é alguma data especial, tipo aniversário');
   if (identity.length > 0) {
-    return `Pra fechar, me manda ${joinPt(identity)}?`;
+    const next = identity[0];
+    if (next.startsWith('nome')) return 'Me passa seu nome completo?';
+    if (next.startsWith('e-mail')) return 'Qual o seu e-mail?';
+    if (next.startsWith('data de nascimento')) return 'Qual a data de nascimento?';
+    return 'É alguma data especial, tipo aniversário?';
   }
   return '';
 }

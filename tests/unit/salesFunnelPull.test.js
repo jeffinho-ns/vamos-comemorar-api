@@ -36,7 +36,7 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
       quantidade_convidados: 4,
       area_label: 'área coberta',
     }),
-    /nome completo.*e-mail.*nascimento/i
+    /^Me passa seu nome completo\?$/
   );
   assert.match(
     buildSalesPullQuestion({

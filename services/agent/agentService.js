@@ -317,16 +317,16 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
     return `Pra ${dateLabel}${horarioBit} está bem cheio${extra}. Quer testar outro horário ou prefere que eu te coloque na lista de espera?`;
   }
 
-  const labels = extractWindowLabels(result.windows);
-  if (labels.length > 0) {
-    return `Boa, ${dateLabel} a casa abre! Temos esses horários disponíveis: ${labels.join(', ')}. Qual fica melhor pra você?`;
-  }
-
   if (horarioConsultado && result.capacidade?.pode_reservar === true) {
     const pessoas = Number(result.quantidade_pessoas);
     const pessoasBit =
       Number.isFinite(pessoas) && pessoas > 0 ? ` para ${pessoas} pessoas` : '';
     return `Perfeito, ${dateLabel} às ${horarioConsultado} tem vaga sim${pessoasBit}.`;
+  }
+
+  const labels = extractWindowLabels(result.windows);
+  if (labels.length > 0) {
+    return `Boa, ${dateLabel} a casa abre! Temos esses horários disponíveis: ${labels.join(', ')}. Qual fica melhor pra você?`;
   }
 
   if (result.is_open !== false && result.capacidade?.pode_reservar !== false) {
@@ -588,6 +588,14 @@ async function withTimeout(promise, timeoutMs) {
   }
 }
 
+function resolveTurnReasoningEffort(modelName, toolChoice) {
+  const envEffort = String(process.env.OPENAI_AGENT_REASONING_EFFORT || '').trim();
+  if (envEffort) return normalizeReasoningEffort(envEffort);
+  const model = String(modelName || '').toLowerCase();
+  if (toolChoice === 'none' && model.startsWith('gpt-6.1-sol')) return 'medium';
+  return 'low';
+}
+
 async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', outputMode = 'conversational') {
   const scheduled = resolveAgentModels();
   const primaryModel = scheduled.primary;
@@ -608,7 +616,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
               tools,
               toolChoice,
               outputMode,
-              reasoningEffort: normalizeReasoningEffort(process.env.OPENAI_AGENT_REASONING_EFFORT),
+              reasoningEffort: resolveTurnReasoningEffort(modelName, toolChoice),
             }),
             OPENAI_REQUEST_TIMEOUT_MS
           );
@@ -1018,6 +1026,40 @@ function sanitizeAssistantReply(
   }
 
   return { text, blocked: false };
+}
+
+async function requestHostSentence(messages, tools, assistantMessage, toolTrace, workingState) {
+  const hasTools = Boolean(assistantMessage?.tool_calls?.length);
+  const avail = [...(toolTrace || [])].reverse().find(
+    (entry) => entry?.name === 'verificar_disponibilidade' && entry?.result && entry.result.ok !== false
+  );
+  if (!hasTools && !avail) return '';
+
+  const proseMessages = (messages || []).map((message) => ({ ...message }));
+  if (hasTools) proseMessages.push(assistantMessage);
+  const hasToolMessage = proseMessages.some((message) => message.role === 'tool');
+  if (avail && !hasToolMessage) {
+    proseMessages.push({
+      role: 'user',
+      content:
+        `Fatos da consulta, use só isto e não invente vaga: ${JSON.stringify(sanitizeToolResultForModel(avail.result))}. ` +
+        'Responda agora em uma ou duas frases de WhatsApp, como anfitrião da casa. ' +
+        'Se o cliente já escolheu o horário e a consulta confirma, confirme esse horário. ' +
+        'Faça uma pergunta só. Sem lista, sem markdown.',
+    });
+  }
+
+  try {
+    const forced = await requestAssistantCompletion(proseMessages, tools, 'none', 'funnel');
+    const replyText = String(forced?.content || '').trim();
+    if (!replyText) return '';
+    const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+    if (sanitized.blocked) return '';
+    return sanitized.text;
+  } catch (error) {
+    console.warn('[agentService] frase do anfitrião falhou:', error.message);
+    return '';
+  }
 }
 
 async function finalizeAssistantReply(
@@ -1971,13 +2013,29 @@ async function runAgentTurn({
   }
 
   const funnelFallback = funnelActive ? buildNextFieldQuestion(workingState) : null;
-  const candidateReply =
-    forcedCreate.replyText ||
-    ensured.forcedReply ||
-    (await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
+  const modelText = String(assistantMessage?.content || '').trim();
+  let candidateReply = forcedCreate.replyText || '';
+  if (!candidateReply && modelText) {
+    candidateReply = await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
       funnelFallback,
       workingState,
-    }));
+    });
+  } else if (!candidateReply) {
+    const hostSentence = await requestHostSentence(
+      messages,
+      tools,
+      assistantMessage,
+      toolTraceFinal,
+      workingState
+    );
+    candidateReply =
+      hostSentence ||
+      ensured.forcedReply ||
+      (await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
+        funnelFallback,
+        workingState,
+      }));
+  }
 
   const sanitized = sanitizeAssistantReply(candidateReply, {
     toolTrace: toolTraceFinal,

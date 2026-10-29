@@ -69,6 +69,23 @@ test('synthesizeAvailabilityFromToolResult confirma vaga com horário consultado
   assert.match(reply, /23\/05\/2026/);
   assert.match(reply, /20:00/);
   assert.match(reply, /vaga sim/i);
+  assert.doesNotMatch(reply, /horários disponíveis/i);
+});
+
+test('synthesizeAvailabilityFromToolResult confirma o horário mesmo com a grade aberta', () => {
+  const reply = synthesizeAvailabilityFromToolResult({
+    ok: true,
+    reservation_date: '2026-10-30',
+    is_open: true,
+    horario_consultado: '21:00',
+    windows: [{ label: '18:00-04:00' }],
+    quantidade_pessoas: 6,
+    capacidade: { pode_reservar: true },
+  });
+
+  assert.match(reply, /21:00/);
+  assert.match(reply, /6 pessoas/);
+  assert.doesNotMatch(reply, /18:00-04:00/);
 });
 
 test('synthesizeAvailabilityFromToolResult segue reserva quando aberto sem janelas rotuladas', () => {

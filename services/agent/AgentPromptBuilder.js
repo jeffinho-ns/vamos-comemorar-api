@@ -155,7 +155,7 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
       return 'ESCOPO: HighLine (id=7). Use regras e base cadastradas para esta casa.';
     }
     if (id === 1) {
-      return 'ESCOPO: Seu Justino (id=1). Na conversa o cliente escolhe só área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema coloca a reserva numa subárea livre do painel (lounge na coberta, quintal na descoberta) e junta mesas se o grupo não couber em uma só. Peça horário, pessoas e coberta/descoberta na mesma frase quando faltar. Depois peça nome, e-mail e nascimento juntos.';
+      return 'ESCOPO: Seu Justino (id=1). Na conversa o cliente escolhe só área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema coloca a reserva numa subárea livre do painel (lounge na coberta, quintal na descoberta) e junta mesas se o grupo não couber em uma só. Peça um dado por vez: horário, depois pessoas, depois coberta ou descoberta, depois o nome.';
     }
     return `ESCOPO: "${name || 'estabelecimento'}" (id=${id}). Ignore menções a Highline se não forem desta casa.`;
   }
@@ -164,19 +164,19 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
     const funnelActive = Boolean(String(context.reservationFunnelBlock || '').trim());
     const funnelHint = funnelActive
       ? `
-- FUNIL: só tools + próximo dado. Sem reinjetar FAQ; sem textão.`
+- FUNIL: a tool traz o fato; a frase é sua, em prosa de WhatsApp, como anfitrião. Se o cliente já disse o horário, confirme esse horário. Uma pergunta. Sem lista de horários, sem markdown, sem textão, sem reinjetar FAQ.`
       : '';
 
     const base = funnelActive
       ? `COMPORTAMENTO (FUNIL):
-- Tom WhatsApp curto. PROIBIDO: "Caro X", bullets, formulário, "vou confirmar com a equipe" sem tool.
-- Disponibilidade/área/mesa: tools. Com dados completos: criar_pre_reserva na mesma interação.
+- Tom WhatsApp curto, falado, humano. PROIBIDO: "Caro X", bullets, formulário, grade de horários, "vou confirmar com a equipe" sem tool.
+- Disponibilidade/área/mesa: tools. Depois escreva 1 ou 2 frases com o que a tool devolveu. Com dados completos: criar_pre_reserva na mesma interação.
 - Highline: Deck Mesas/Redondas, Bar Central; VIP/Rooftop/Balada só se pedir; Rotativo máx. 4.
 - Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.${funnelHint}`
       : `COMPORTAMENTO:
 - Tom WhatsApp: "você", "fechado", "show", "beleza". PROIBIDO: "Caro X", "Prezado", "Atenciosamente", markdown, bullets, formulário.
-- Fatos estáticos (horário, dress, bolo, entrada): use a BASE. Disponibilidade/área/mesa: use tools.
-- Coleta: data+horário+pessoas → área → nome+e-mail+nascimento. Máx. 3 dados por mensagem.
+- Fatos estáticos (horário, dress, bolo, entrada): use a BASE. Disponibilidade/área/mesa: use tools e responda em prosa, sem despejar a grade se o cliente já escolheu o horário.
+- Coleta: uma pergunta por vez. Data, depois horário, depois pessoas, depois área, depois nome, depois e-mail, depois nascimento.
 - Ecoe saudação. Não repita pergunta já respondida. Datas: HOJE (America/Sao_Paulo).
 - Highline (id=7): Deck Mesas/Redondas, Bar Central; Rooftop/Balada/VIP só se pedir; Rotativo máx. 4 (lista/espera). NUNCA Terraço/Balcão/VIP genérico/Deck Frente.
 - Áreas com vaga no dia: consultar_areas_mesa_reserva — sem inventar horário nem criar_pre_reserva só por perguntar áreas.
