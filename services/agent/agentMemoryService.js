@@ -139,6 +139,8 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
       client_name: pre.cliente?.nome,
       client_email: pre.cliente?.email,
       data_nascimento: pre.cliente?.data_nascimento,
+      reservation_id: pre.reservation_id || null,
+      reservation_created: true,
     };
   }
 

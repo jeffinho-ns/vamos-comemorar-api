@@ -15,6 +15,9 @@ const {
   shouldAskOccasion,
   parseOccasionFromUserText,
   buildOccasionNotes,
+  looksLikeClosingThanks,
+  reservationAlreadyCreated,
+  lastAssistantClosedReservation,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
@@ -351,4 +354,24 @@ test('grupo acima de 4 pessoas pede se é aniversário', () => {
   assert.equal(confirmed.event_type, 'aniversario');
   assert.match(buildOccasionNotes({ event_type: 'aniversario', quantidade_convidados: 13 }), /drink especial/i);
   assert.match(buildOccasionNotes({ event_type: 'aniversario', quantidade_convidados: 5 }), /mais de 5/i);
+});
+
+test('looksLikeClosingThanks reconhece agradecimento curto', () => {
+  assert.equal(looksLikeClosingThanks('Entendi, obrigadaaa'), true);
+  assert.equal(looksLikeClosingThanks('Obrigada!'), true);
+  assert.equal(looksLikeClosingThanks('Sim, quero!'), false);
+  assert.equal(looksLikeClosingThanks('Então pode ser área descoberta'), false);
+});
+
+test('reservationAlreadyCreated e lastAssistantClosedReservation', () => {
+  assert.equal(reservationAlreadyCreated({ reservation_created: true }), true);
+  assert.equal(reservationAlreadyCreated({ reservation_id: 88 }), true);
+  assert.equal(reservationAlreadyCreated({}), false);
+  assert.equal(
+    lastAssistantClosedReservation([
+      { role: 'assistant', content: 'Fechado! Sua reserva ficou pra 30/10/2026 às 20:00.' },
+      { role: 'user', content: 'Entendi, obrigadaaa' },
+    ]),
+    true
+  );
 });

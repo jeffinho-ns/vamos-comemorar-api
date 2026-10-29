@@ -94,8 +94,51 @@ test('synthesizeReplyFromToolTrace informa erro de criar_pre_reserva', () => {
     },
   ]);
 
-  assert.match(reply, /não consegui registrar/i);
   assert.match(reply, /Área inválida/i);
+  assert.match(reply, /finalizo agora/i);
+  assert.doesNotMatch(reply, /não consegui registrar/i);
+});
+
+test('synthesizeReplyFromToolTrace fala com o cliente na troca de área', () => {
+  const reply = synthesizeReplyFromToolTrace([
+    {
+      name: 'criar_pre_reserva',
+      result: {
+        ok: false,
+        needs_area_switch: true,
+        error:
+          'A área coberta não comporta 13 pessoas nesse horário. Na área descoberta ainda tem vaga — posso colocar vocês lá?',
+      },
+    },
+  ]);
+
+  assert.match(reply, /posso colocar vocês lá/i);
+  assert.doesNotMatch(reply, /Confirme com o cliente/i);
+  assert.doesNotMatch(reply, /não consegui registrar/i);
+});
+
+test('synthesizeReplyFromToolTrace confirma reserva com data em pt e quebra de linha', () => {
+  const reply = synthesizeReplyFromToolTrace([
+    {
+      name: 'criar_pre_reserva',
+      result: {
+        ok: true,
+        pre_reserva: {
+          reservation_id: 99,
+          reservation_date: '2026-10-30',
+          reservation_time: '20:00',
+          area_label: 'área descoberta',
+          mesas_combinadas: { mesas_count: 4, total_capacity: 16 },
+        },
+      },
+    },
+  ]);
+
+  assert.match(reply, /30\/10\/2026/);
+  assert.doesNotMatch(reply, /2026-10-30/);
+  assert.match(reply, /área descoberta/);
+  assert.match(reply, /\n\n/);
+  assert.match(reply, /4 mesas juntas/);
 });
 
 test('looksLikeFakeReservationConfirmation detecta variações de confirmação falsa', () => {
@@ -172,7 +215,7 @@ test('sanitizeAssistantReply SEMPRE prefere texto determinístico quando há res
   );
   // O texto deve vir do template determinístico (que sempre começa com "Fechado!").
   assert.match(result.text, /^Fechado!/);
-  assert.match(result.text, /2026-05-30/);
+  assert.match(result.text, /30\/05\/2026/);
   assert.match(result.text, /21:00/);
   // reason indica que foi override determinístico (sem risco extra detectado).
   assert.equal(result.reason, 'deterministic_confirmation_override');
@@ -224,8 +267,8 @@ test('sanitizeAssistantReply substitui tom formal mesmo com reserva criada', () 
     `motivo inesperado: ${result.reason}`
   );
   assert.doesNotMatch(result.text, /Caro|Atenciosamente|grande alegria|2027|Terraço/i);
-  // Texto deve usar a data REAL retornada pela tool (2026-05-30), não a alucinada (2027).
-  assert.match(result.text, /2026-05-30/);
+  // Texto deve usar a data REAL retornada pela tool (30/05/2026), não a alucinada (2027).
+  assert.match(result.text, /30\/05\/2026/);
 });
 
 test('sanitizeAssistantReply bloqueia tom formal mesmo sem outros gatilhos', () => {
@@ -234,6 +277,31 @@ test('sanitizeAssistantReply bloqueia tom formal mesmo sem outros gatilhos', () 
     { toolTrace: [], workingState: {} }
   );
   assert.equal(result.blocked, true);
+});
+
+test('buildGuestListSecondMessage separa link e brinde', () => {
+  const { buildGuestListSecondMessage } = require('../../services/whatsappReservationService');
+  const text = buildGuestListSecondMessage('https://agilizaiapp.com.br/lista/abc', {
+    birthdayDrink: true,
+  });
+  assert.match(text, /\n\nhttps:\/\/agilizaiapp\.com\.br\/lista\/abc\n\n/);
+  assert.match(text, /🎁 \*Brinde de aniversário:\*/);
+});
+
+test('criar_pre_reserva marca reservation_created no working state', () => {
+  const { extractWorkingStatePatchFromToolResult } = require('../../services/agent/agentMemoryService');
+  const patch = extractWorkingStatePatchFromToolResult('criar_pre_reserva', {
+    ok: true,
+    pre_reserva: {
+      reservation_id: 42,
+      establishment_id: 1,
+      reservation_date: '2026-10-30',
+      reservation_time: '20:00',
+      quantidade_pessoas: 13,
+    },
+  });
+  assert.equal(patch.reservation_created, true);
+  assert.equal(patch.reservation_id, 42);
 });
 
 test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', () => {

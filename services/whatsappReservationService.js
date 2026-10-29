@@ -345,11 +345,17 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
  * Mensagem fixa do link de convidados (produto pediu texto específico).
  */
 function buildGuestListSecondMessage(link, options = {}) {
-  const base = `Aqui tá o link da sua lista de convidados — pode mandar pro pessoal já adicionar o nome (ajuda a agilizar a entrada): ${link}`;
+  const parts = [
+    'Aqui tá o link da sua lista de convidados:',
+    String(link || '').trim(),
+    'Pode mandar pro pessoal já adicionar o nome — ajuda a agilizar a entrada.',
+  ];
   if (options.birthdayDrink) {
-    return `${base} Como é aniversário e o grupo tem mais de 5 pessoas, se os convidados fizerem o check-in na entrada pelo QR Code dessa lista, a aniversariante ganha um drink especial.`;
+    parts.push(
+      '🎁 *Brinde de aniversário:* se os convidados fizerem o check-in na entrada pelo QR Code dessa lista, a aniversariante ganha um drink especial.'
+    );
   }
-  return base;
+  return parts.filter(Boolean).join('\n\n');
 }
 
 module.exports = {

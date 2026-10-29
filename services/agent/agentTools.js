@@ -941,9 +941,10 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       const asked = guestZoneLabel(justinoZone) || 'área coberta e área descoberta';
       return {
         ok: false,
+        needs_area_switch: Boolean(otherSlot),
         error: otherSlot
-          ? `A ${asked} está sem mesa livre para ${partySize} pessoas nesse horário. A ${otherSlot.guestLabel} tem vaga. Confirme com o cliente antes de trocar.`
-          : 'Área coberta e área descoberta estão sem mesa livre para esse grupo nesse horário.',
+          ? `A ${asked} não comporta ${partySize} pessoas nesse horário. Na ${otherSlot.guestLabel} ainda tem vaga — posso colocar vocês lá?`
+          : 'Poxa, a área coberta e a área descoberta estão sem mesa livre pra esse grupo nesse horário. Quer tentar outro horário?',
       };
     }
     areaId = slot.area_id;

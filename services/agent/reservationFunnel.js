@@ -157,6 +157,44 @@ function extractFullNameBeforeEmail(text) {
     .join(' ');
 }
 
+function looksLikeClosingThanks(text) {
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 100) return false;
+  if (/\?/.test(raw)) return false;
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+  if (/\b(reserva|horario|pessoas|area coberta|area descoberta|e-mail|email|nascimento)\b/.test(normalized)) {
+    return false;
+  }
+  return (
+    /\bobrigad/.test(normalized) ||
+    /^(valeu|vlw|tmj|entendi|show|perfeito|ok|okay|blz|beleza|combinado|fechado|top)(\s|$)/.test(
+      normalized
+    )
+  );
+}
+
+function reservationAlreadyCreated(workingState = {}) {
+  return (
+    workingState.reservation_created === true ||
+    Boolean(workingState.reservation_id)
+  );
+}
+
+function lastAssistantClosedReservation(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const text = String(lastAssistant?.content || '');
+  return /fechado!|sua reserva ficou pra|lista de convidados/i.test(text);
+}
+
 function looksLikeIdentityPayload(text) {
   const raw = String(text || '');
   return (
@@ -270,6 +308,14 @@ function buildNextFieldQuestion(workingState = {}, options = {}) {
 }
 
 function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = []) {
+  if (reservationAlreadyCreated(workingState) || lastAssistantClosedReservation(messageHistory)) {
+    return (
+      'RESERVA JÁ CRIADA: não chame criar_pre_reserva de novo. ' +
+      'Se o cliente só agradeceu, agradeça de volta em uma frase e encerre. ' +
+      'Se perguntou algo, responda em prosa e feche (a reserva já está confirmada).'
+    );
+  }
+
   if (!isReservationFunnelInProgress(workingState, messageHistory)) return '';
 
   const missing = getReservationMissingFields(workingState);
@@ -763,6 +809,9 @@ module.exports = {
   isFirstUserMessageInConversation,
   extractFirstName,
   looksLikeIdentityPayload,
+  looksLikeClosingThanks,
+  reservationAlreadyCreated,
+  lastAssistantClosedReservation,
   prefixReplyWithContactName,
   shouldAskOccasion,
   parseOccasionFromUserText,

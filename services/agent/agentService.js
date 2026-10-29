@@ -57,6 +57,9 @@ const {
   isFirstUserMessageInConversation,
   extractFirstName,
   looksLikeIdentityPayload,
+  looksLikeClosingThanks,
+  reservationAlreadyCreated,
+  lastAssistantClosedReservation,
   prefixReplyWithContactName,
   shouldAskOccasion,
 } = require('./reservationFunnel');
@@ -371,21 +374,32 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
     if (entry.name === 'criar_pre_reserva') {
       if (result.pre_reserva) {
         const pre = result.pre_reserva;
+        const dateLabel = formatReservationDateLabel(pre.reservation_date);
         const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
-        const comboBit = pre.mesas_combinadas
-          ? ` (combinei ${pre.mesas_combinadas.mesas_count} mesas próximas pra acomodar todo mundo, capacidade total ${pre.mesas_combinadas.total_capacity} pessoas)`
-          : '';
-        const closing = pickVariant(
-          RESERVATION_CLOSING_VARIANTS,
-          `${pre.reservation_date || ''}-${pre.reservation_time || ''}-${pre.reservation_id || ''}`
+        const lines = [
+          `Fechado! 🎉 Sua reserva ficou pra ${dateLabel} às ${pre.reservation_time}${areaBit}.`,
+        ];
+        if (pre.mesas_combinadas?.mesas_count) {
+          lines.push(
+            `Separei ${pre.mesas_combinadas.mesas_count} mesas juntas pra caber todo mundo.`
+          );
+        }
+        lines.push(
+          pickVariant(
+            RESERVATION_CLOSING_VARIANTS,
+            `${pre.reservation_date || ''}-${pre.reservation_time || ''}-${pre.reservation_id || ''}`
+          )
         );
-        return `Fechado! Sua reserva ficou pra ${pre.reservation_date} às ${pre.reservation_time}${areaBit}${comboBit}. ${closing}`;
+        return lines.filter(Boolean).join('\n\n');
       }
       if (result.duplicate === true) {
-        return 'Opa, vi aqui que você já tem reserva pra esse mesmo dia e horário — não precisa mandar outra. Se quiser ajustar algo (data, horário ou número de pessoas), é só me chamar por aqui que eu peço pra equipe acertar.';
+        return 'Sua reserva pra esse dia e horário já está anotada, pode ficar tranquila. Qualquer coisa é só chamar.';
+      }
+      if (result.ok === false && result.needs_area_switch && result.error) {
+        return String(result.error).trim();
       }
       if (result.ok === false && result.error) {
-        return `Ainda não consegui registrar: ${String(result.error).trim()} Me passa o que falta que eu finalizo agora.`;
+        return `${String(result.error).trim()}\n\nMe confirma o que falta que eu finalizo agora.`;
       }
       continue;
     }
@@ -697,6 +711,9 @@ async function forceCreatePreReservaIfReady({
   userText = '',
 }) {
   if (!pool) return { workingState, toolTrace, replyText: null };
+  if (reservationAlreadyCreated(workingState)) {
+    return { workingState, toolTrace, replyText: null };
+  }
   if (!reservationFunnelIsComplete(workingState) && !isFunnelCompleteForDeterministic(workingState)) {
     return { workingState, toolTrace, replyText: null };
   }
@@ -729,7 +746,7 @@ async function forceCreatePreReservaIfReady({
   const guestLink = closed.toolResult?.guest_list_link || closed.guestListLink || null;
   const partySize = Number(closed.workingState?.quantidade_convidados);
   if (guestLink && partySize > 4 && replyText && !String(replyText).includes(guestLink)) {
-    replyText = `${replyText} ${buildGuestListSecondMessage(guestLink, {
+    replyText = `${replyText}\n\n${buildGuestListSecondMessage(guestLink, {
       birthdayDrink:
         (closed.workingState?.event_type === 'aniversario' ||
           closed.workingState?.is_birthday === true) &&
@@ -1474,6 +1491,18 @@ async function runAgentTurn({
       : {}
   );
   workingState = inferAvailabilityCheckedFromHistory(workingState, messageHistory, context);
+  if (
+    looksLikeClosingThanks(userText) &&
+    (reservationAlreadyCreated(workingState) || lastAssistantClosedReservation(messageHistory))
+  ) {
+    return {
+      replyText: 'Eu que agradeço! Qualquer coisa é só chamar. Te espero lá 💛',
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+    };
+  }
   const funnelActive = isReservationFunnelInProgress(workingState, messageHistory);
   const currentTurnIsFaq = shouldPrioritizeFaqForCurrentTurn(userText);
   const areaAvailabilityQuestion = looksLikeAreaAvailabilityQuestion(userText);
@@ -1590,7 +1619,8 @@ async function runAgentTurn({
   if (
     !informationalOnly &&
     !areaAvailabilityQuestion &&
-    reservationFunnelIsComplete(workingState)
+    reservationFunnelIsComplete(workingState) &&
+    !reservationAlreadyCreated(workingState)
   ) {
     const closedEarly = await forceCreatePreReservaIfReady({
       pool,
@@ -1748,7 +1778,9 @@ async function runAgentTurn({
   // modelo gerar texto solto antes ("Sua reserva foi confirmada!") sem chamar
   // a tool. Caso contrário, deixa o modelo decidir (auto).
   const initialToolChoice =
-    !informationalOnly && reservationFunnelIsComplete(workingState)
+    !informationalOnly &&
+    reservationFunnelIsComplete(workingState) &&
+    !reservationAlreadyCreated(workingState)
       ? { type: 'function', function: { name: 'criar_pre_reserva' } }
       : 'auto';
 
@@ -1768,7 +1800,7 @@ async function runAgentTurn({
     for (const toolCall of assistantMessage.tool_calls) {
       const toolName = toolCall?.function?.name || '';
       if (
-        (informationalOnly || areaAvailabilityQuestion) &&
+        (informationalOnly || areaAvailabilityQuestion || reservationAlreadyCreated(workingState)) &&
         (toolName === 'criar_pre_reserva' ||
           (informationalOnly && toolName === 'verificar_disponibilidade'))
       ) {
