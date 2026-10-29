@@ -342,9 +342,17 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
   const customerFacing = (faqEntries || []).filter((entry) =>
     isCustomerFacingFaqEntry(entry, { forOffline: true })
   );
-  if (!customerFacing.length) return false;
+  const seenTopics = new Set();
+  const uniqueFacing = [];
+  for (const entry of customerFacing) {
+    const key = normalizeTopicKey(entry.topic);
+    if (!key || seenTopics.has(key)) continue;
+    seenTopics.add(key);
+    uniqueFacing.push(entry);
+  }
+  if (!uniqueFacing.length) return false;
 
-  const best = pickBestFaqEntry(customerFacing, topicHints);
+  const best = pickBestFaqEntry(uniqueFacing, topicHints);
   if (!best?.answer) return false;
   if (looksLikeMultiStepInstructions(best.answer)) return false;
   if (/override_capacidade|Hor[aá]rio semanal cadastrado|REGRAS DO PAINEL/i.test(best.answer)) {
@@ -353,17 +361,18 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
 
   const hints = Array.isArray(topicHints) ? topicHints.filter(Boolean) : [];
   if (hints.length >= 2) {
-    // Dois fatos distintos → deixa o LLM econômico fundir (Camada 2).
-    const distinctCustomer = hints.filter((hint) =>
-      customerFacing.some((entry) => topicsMatch(entry.topic, hint))
-    );
-    if (distinctCustomer.length >= 2) return false;
+    const matched = new Set();
+    for (const hint of hints) {
+      const entry = uniqueFacing.find((item) => topicsMatch(item.topic, hint));
+      if (entry) matched.add(normalizeTopicKey(entry.topic));
+    }
+    if (matched.size >= 2) return false;
   }
 
-  if (customerFacing.length === 1) return true;
+  if (uniqueFacing.length === 1) return true;
 
   if (hints.length === 1) {
-    const matching = customerFacing.filter((entry) => topicsMatch(entry.topic, hints[0]));
+    const matching = uniqueFacing.filter((entry) => topicsMatch(entry.topic, hints[0]));
     if (matching.length === 1) return true;
   }
 

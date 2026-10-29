@@ -153,6 +153,7 @@ test('a conversa de amanhã responde com o evento da casa e não com o de outra'
   assert.match(result.replyText, /Open de Petiscos/);
   assert.match(result.replyText, /Marina Sena/);
   assert.match(result.replyText, /entrada VIP/);
+  assert.match(result.replyText, /Quer que eu reserve para/);
   assert.equal(result.replyText.includes('15000'), false);
   assert.equal(pool.calls.some((call) => /FROM eventos/i.test(call.sql) && call.params[0] === 1), true);
 

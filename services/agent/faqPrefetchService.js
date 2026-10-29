@@ -461,6 +461,7 @@ function buildFaqGroundedSystemPrompt({
   eventProgramOnly = false,
   settings = null,
 }) {
+  void eventProgramOnly;
   const personaBlock =
     settings && settings.is_active
       ? faqPersonaBuilder.buildPersonaBlock({
@@ -485,10 +486,10 @@ function buildFaqGroundedSystemPrompt({
 
 REGRAS FAQ:
 - Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
-- Responda a PERGUNTA ATUAL. O histórico recente é só contexto; não continue fluxo antigo de reserva se a pergunta atual for operacional.
+- Responda a PERGUNTA ATUAL em uma ou duas frases. O histórico recente é só contexto.
 ${bulletRule}
 - Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
-${eventProgramOnly ? '- O cliente só perguntou sobre o evento/programação — NÃO ofereça reserva, horário nem link de lista nesta resposta.' : '- Se a dúvida estiver respondida, pode encerrar com UMA pergunta natural sobre reserva.'}
+- Não faça a pergunta de reserva no final. O sistema puxa o próximo passo da reserva depois da sua resposta.
 ${emojiRule}
 - Limite a resposta a no máximo 3 frases curtas, mesmo que a configuração peça respostas maiores.
 

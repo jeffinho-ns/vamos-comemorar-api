@@ -51,7 +51,6 @@ const {
   buildAvailabilityCheckedPatch,
   tryAdvanceFunnelFromUserMessage,
   inferAvailabilityCheckedFromHistory,
-  scrubReservationStateForInformationalTurn,
   looksLikeAdEntryGreeting,
   detectOpeningGreeting,
   detectClientCorrectingPreviousReply,
@@ -66,6 +65,11 @@ const {
   formatEventProgramPromptBlock,
   resolveDayProgram,
 } = require('./establishmentEventProgram');
+const {
+  appendSalesPull,
+  keepFunnelState,
+  shouldSkipSalesPull,
+} = require('./salesFunnelPull');
 const { recordOpenAiUsageSafe, recordZeroTokenPath, runWithOpenAiUsageContext } = require('./aiUsageRepository');
 const { tripOpenAiCircuit } = require('./openaiCircuitBreaker');
 const {
@@ -1008,12 +1012,11 @@ async function tryFaqFirstReply({
     return null;
   });
   const programReply = formatEventProgramReply(dayProgram);
+  const funnelState = keepFunnelState(memory.workingState || {}, establishmentId, dayProgram);
   if (programReply) {
     return {
-      replyText: programReply,
-      workingState: scrubReservationStateForInformationalTurn(
-        mergeWorkingState(memory.workingState || {}, { establishment_id: establishmentId })
-      ),
+      replyText: appendSalesPull(programReply, funnelState),
+      workingState: funnelState,
       toolTrace: [
         {
           name: 'consultar_programacao_dia',
@@ -1093,13 +1096,12 @@ async function tryFaqFirstReply({
         `[agentService] FAQ-first evento sem registros establishment_id=${establishmentId}`
       );
       return {
-        replyText:
+        replyText: appendSalesPull(
           'Boa! Deixa eu confirmar a programação desse dia com a equipe e já te respondo, tá?',
-        workingState: scrubReservationStateForInformationalTurn(
-          mergeWorkingState(memory.workingState || {}, {
-            establishment_id: establishmentId,
-          })
+          funnelState,
+          { skip: shouldSkipSalesPull(topicHints) }
         ),
+        workingState: funnelState,
         toolTrace: [],
         preReservationResult: null,
         guestListLink: null,
@@ -1115,10 +1117,7 @@ async function tryFaqFirstReply({
   const settings = await loadActiveAssistantSettings(pool, establishmentId).catch(() => null);
   const externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
 
-  const cleanedState = scrubReservationStateForInformationalTurn(memory.workingState || {});
-  const baseWorkingState = mergeWorkingState(cleanedState, {
-    establishment_id: establishmentId,
-  });
+  const skipPull = shouldSkipSalesPull(topicHints);
   const buildFaqToolTrace = (entries, hints) =>
     (hints.length ? hints : entries.map((entry) => entry.topic)).map((topic) => ({
       name: 'consultar_faq_estabelecimento',
@@ -1139,7 +1138,7 @@ async function tryFaqFirstReply({
       establishmentName: context.lockedEstablishmentName || '',
       userText,
       messageHistory,
-      options: { appendCta: true },
+      options: { appendCta: false },
     });
     await recordZeroTokenPath(pool, {
       path: 'faq_direct',
@@ -1150,8 +1149,8 @@ async function tryFaqFirstReply({
       },
     });
     return {
-      replyText: formatted.text,
-      workingState: baseWorkingState,
+      replyText: appendSalesPull(formatted.text, funnelState, { skip: skipPull }),
+      workingState: funnelState,
       toolTrace: buildFaqToolTrace(faqEntries, topicHints),
       preReservationResult: null,
       guestListLink: null,
@@ -1173,8 +1172,8 @@ async function tryFaqFirstReply({
   });
 
   return {
-    replyText,
-    workingState: baseWorkingState,
+    replyText: appendSalesPull(replyText, funnelState, { skip: skipPull }),
+    workingState: funnelState,
     toolTrace: buildFaqToolTrace(faqEntries, topicHints),
     preReservationResult: null,
     guestListLink: null,
@@ -1398,7 +1397,7 @@ async function runAgentTurn({
     if (faqFirst) {
       return {
         ...faqFirst,
-        workingState,
+        workingState: mergeWorkingState(workingState, faqFirst.workingState || {}),
       };
     }
   }
