@@ -871,8 +871,22 @@ function looksLikeFakeReservationConfirmation(text) {
 }
 
 function forbiddenAreaPatterns(establishmentId) {
-  if (Number(establishmentId) !== 1) return FORBIDDEN_AREA_NAMES;
-  return FORBIDDEN_AREA_NAMES.filter((pattern) => !/coberta|descoberta/.test(pattern.source));
+  const id = Number(establishmentId);
+  if (id === 1) {
+    return FORBIDDEN_AREA_NAMES.filter((pattern) => !/coberta|descoberta/.test(pattern.source));
+  }
+  if (id === 8) {
+    return FORBIDDEN_AREA_NAMES.filter((pattern) => !/balc/i.test(pattern.source));
+  }
+  return FORBIDDEN_AREA_NAMES;
+}
+
+function recoveryAfterForbiddenArea(workingState = {}) {
+  const id = Number(workingState.establishment_id || workingState.estabelecimento_id);
+  const hasArea = String(workingState.area_label || workingState.area_preferida || '').trim();
+  if (id === 8 && !hasArea) return 'No Pracinha, prefere o Balcão ou a Praça?';
+  if (id === 1 && !hasArea) return 'Você prefere a área coberta ou a área descoberta?';
+  return buildSafeFollowupQuestion(workingState);
 }
 
 function containsForbiddenAreaName(text, establishmentId = null) {
@@ -1001,7 +1015,7 @@ function sanitizeAssistantReply(
     const safe = successPre
       ? synthesizeReplyFromToolTrace(toolTrace) ||
         'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
-      : 'Pra te direcionar pra área certa, deixa eu verificar a disponibilidade. Pode me confirmar a data, o horário e quantas pessoas vão?';
+      : recoveryAfterForbiddenArea(workingState);
     return { text: safe, blocked: true, reason: 'forbidden_area_name' };
   }
 

@@ -10,7 +10,7 @@ const {
   resolveJustinoGuestZone,
   guestZoneLabel,
 } = require('./seuJustinoReservationAreas');
-const { getReservationMissingFields, buildOccasionNotes } = require('./reservationFunnel');
+const { getReservationMissingFields, buildOccasionNotes, resolvePracinhaGuestArea } = require('./reservationFunnel');
 const { mergeWorkingState, extractWorkingStatePatchFromToolResult } = require('./agentMemoryService');
 const { recordZeroTokenPath } = require('./aiUsageRepository');
 
@@ -98,6 +98,12 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     return { label, snapshot: null };
   }
 
+  if (establishmentId === 8) {
+    const area = resolvePracinhaGuestArea(userText) || resolvePracinhaGuestArea(preferred);
+    if (!area) return { needsChoice: true, label: '', snapshot: null };
+    return { label: area.label, snapshot: null };
+  }
+
   if (!isHighlineEstablishment(establishmentId) || !pool) {
     // Casas não-Highline: criar_pre_reserva resolve área padrão no backend.
     return { label: preferred || 'padrão', snapshot: null };
@@ -168,7 +174,10 @@ async function tryDeterministicReservationClose({
     return {
       workingState: nextState,
       toolTrace: nextTrace,
-      replyText: 'Você prefere área coberta ou área descoberta?',
+      replyText:
+        Number(nextState.establishment_id || context.lockedEstablishmentId) === 8
+          ? 'No Pracinha, prefere o Balcão ou a Praça?'
+          : 'Você prefere área coberta ou área descoberta?',
       preReservationResult: null,
       guestListLink: null,
       deterministic: true,

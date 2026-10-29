@@ -42,6 +42,9 @@ function buildSalesPullQuestion(workingState = {}) {
   if (missing.includes('reservation_time')) ops.push('qual horário');
   if (missing.includes('quantidade_convidados')) ops.push('para quantas pessoas');
   if (houseId === 1 && !hasArea) ops.push('se prefere área coberta ou descoberta');
+  if (houseId === 8 && !hasArea && !missing.includes('reservation_time') && !missing.includes('quantidade_convidados')) {
+    return 'No Pracinha, prefere o Balcão ou a Praça?';
+  }
   if (ops.length > 0) {
     if (ops.length === 1 && missing.includes('reservation_time')) {
       return 'Qual horário fica melhor pra você?';
@@ -77,6 +80,9 @@ function alreadyAsks(replyText, question) {
   if (probe && reply.includes(probe)) return true;
   if (normalizedQuestion.includes('coberta') && normalizedQuestion.includes('descoberta')) {
     return reply.includes('coberta') && reply.includes('descoberta');
+  }
+  if (normalizedQuestion.includes('balcao') && normalizedQuestion.includes('praca')) {
+    return reply.includes('balcao') && reply.includes('praca');
   }
   return false;
 }

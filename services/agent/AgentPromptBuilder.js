@@ -157,6 +157,9 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
     if (id === 1) {
       return 'ESCOPO: Seu Justino (id=1). Na conversa o cliente escolhe só área coberta ou área descoberta. Em criar_pre_reserva envie area="coberta" ou area="descoberta". O sistema coloca a reserva numa subárea livre do painel (lounge na coberta, quintal na descoberta) e junta mesas se o grupo não couber em uma só. Se a mensagem já trouxer o dia, o horário e as pessoas, aceite e pergunte só coberta ou descoberta. Coberta é a parte interna; descoberta é o quintal. Uma pergunta por vez.';
     }
+    if (id === 8) {
+      return 'ESCOPO: Pracinha do Seu Justino (id=8). Áreas de reserva: só Balcão ou Praça. Balcão é nome válido nesta casa. Não ofereça Área Coberta, Descoberta, VIP, Terraço nem Apê. Se dia, horário e pessoas já foram ditos, pergunte só Balcão ou Praça. Uma pergunta por vez.';
+    }
     return `ESCOPO: "${name || 'estabelecimento'}" (id=${id}). Ignore menções a Highline se não forem desta casa.`;
   }
 
@@ -172,6 +175,7 @@ TOM: mensagens curtas (1-3 frases), prosa corrida, uma pergunta por vez. NUNCA l
 - Tom WhatsApp curto, falado, humano. PROIBIDO: "Caro X", bullets, formulário, grade de horários, "vou confirmar com a equipe" sem tool.
 - Disponibilidade/área/mesa: tools. Depois escreva 1 ou 2 frases com o que a tool devolveu. Com dados completos: criar_pre_reserva na mesma interação.
 - Highline: Deck Mesas/Redondas, Bar Central; VIP/Rooftop/Balada só se pedir; Rotativo máx. 4.
+- Pracinha (id=8): só Balcão ou Praça. Balcão é permitido nesta casa.
 - Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.${funnelHint}`
       : `COMPORTAMENTO:
 - Tom WhatsApp: "você", "fechado", "show", "beleza". PROIBIDO: "Caro X", "Prezado", "Atenciosamente", markdown, bullets, formulário.

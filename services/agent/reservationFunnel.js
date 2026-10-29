@@ -122,7 +122,20 @@ function prefixReplyWithContactName(replyText, { messageHistory = [], contactNam
   const normalizedReply = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normalizedName = firstName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (normalizedReply.includes(normalizedName)) return text;
+  if (/^(oi|ola|opa|bom dia|boa tarde|boa noite)\b/.test(normalizedReply)) {
+    return text.replace(/^(oi|ol[aá]|opa)\b[!.,\s]*/i, `Oi, ${firstName}! `);
+  }
   return `Oi, ${firstName}! ${text}`;
+}
+
+function resolvePracinhaGuestArea(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/\bbalcao\b/.test(normalized)) return { label: 'Balcão', key: 'balcao' };
+  if (/\bpraca\b/.test(normalized)) return { label: 'Praça', key: 'praca' };
+  return null;
 }
 
 function parseCompactBirthIso(text) {
@@ -621,6 +634,12 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     patch.area_id = justinoSubarea.area_id;
     patch.justino_subarea_key = justinoSubarea.key;
     patch.justino_zone = justinoSubarea.zone;
+  } else if (Number(workingState.establishment_id) === 8) {
+    const pracinhaArea = resolvePracinhaGuestArea(text);
+    if (pracinhaArea) {
+      patch.area_preferida = pracinhaArea.label;
+      patch.area_label = pracinhaArea.label;
+    }
   } else if (justinoHouse) {
     const justinoZone = resolveJustinoGuestZone(text);
     if (justinoZone && justinoZone !== 'qualquer') {
@@ -855,6 +874,7 @@ module.exports = {
   reservationAlreadyCreated,
   lastAssistantClosedReservation,
   prefixReplyWithContactName,
+  resolvePracinhaGuestArea,
   shouldAskOccasion,
   parseOccasionFromUserText,
   buildOccasionNotes,

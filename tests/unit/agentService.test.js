@@ -193,6 +193,24 @@ test('containsForbiddenAreaName bloqueia rótulos inválidos no HighLine', () =>
   assert.equal(containsForbiddenAreaName('te indico o Deck - Mesas'), false);
   assert.equal(containsForbiddenAreaName('Rooftop - Lounges livre'), false);
   assert.equal(containsForbiddenAreaName('te indico a Bar Central - Bistrôs de Espera'), false);
+  assert.equal(containsForbiddenAreaName('confirmo no Balcão', 8), false);
+  assert.equal(containsForbiddenAreaName('confirmo no Balcão', 7), true);
+  assert.equal(containsForbiddenAreaName('Área Coberta no Pracinha', 8), true);
+});
+
+test('sanitizeAssistantReply no Pracinha pergunta Balcão ou Praça sem repetir a data', () => {
+  const result = sanitizeAssistantReply('Te coloquei na Área Coberta, pode ser?', {
+    toolTrace: [],
+    workingState: {
+      establishment_id: 8,
+      reservation_date: '2026-10-30',
+      reservation_time: '19:00',
+      quantidade_convidados: 7,
+    },
+  });
+  assert.equal(result.blocked, true);
+  assert.match(result.text, /Balcão ou a Praça/i);
+  assert.doesNotMatch(result.text, /confirmar a data/i);
 });
 
 test('sanitizeAssistantReply substitui confirmação falsa por pergunta segura', () => {

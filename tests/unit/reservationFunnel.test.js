@@ -245,6 +245,26 @@ test('nome, e-mail e nascimento 27041986 fecham a identidade', () => {
   assert.equal(patch.reservation_date, undefined);
 });
 
+test('a primeira resposta não duplica o oi', () => {
+  const reply = prefixReplyWithContactName('Oi! Amanhã, sexta, a casa abre às 17h.', {
+    messageHistory: [{ role: 'user', content: 'o que vai ter amanhã?' }],
+    contactName: 'Jefferson Lima',
+  });
+  assert.equal(reply, 'Oi, Jefferson! Amanhã, sexta, a casa abre às 17h.');
+});
+
+test('balcão e praça entram na reserva do Pracinha', () => {
+  const patch = parseReservationFieldsFromUserText('quero o balcão', {
+    establishment_id: 8,
+    reservation_date: '2026-10-30',
+  });
+  assert.equal(patch.area_label, 'Balcão');
+  const praca = parseReservationFieldsFromUserText('na Pracinha, a praça', {
+    establishment_id: 8,
+  });
+  assert.equal(praca.area_label, 'Praça');
+});
+
 test('a primeira resposta usa o nome do WhatsApp', () => {
   const reply = prefixReplyWithContactName('Amanhã é sexta, 30/10.', {
     messageHistory: [{ role: 'user', content: 'vai ter o que amanhã?' }],

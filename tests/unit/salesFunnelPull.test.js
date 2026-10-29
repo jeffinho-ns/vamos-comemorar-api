@@ -51,6 +51,15 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
     }),
     /data especial.*anivers/i
   );
+  assert.equal(
+    buildSalesPullQuestion({
+      establishment_id: 8,
+      reservation_date: '2026-10-30',
+      reservation_time: '19:00',
+      quantidade_convidados: 7,
+    }),
+    'No Pracinha, prefere o Balcão ou a Praça?'
+  );
   assert.equal(shouldSkipSalesPull(['eventos_corporativos']), true);
   assert.equal(
     appendSalesPull('Pode sim, pet é bem-vindo.', { establishment_id: 1 }),
