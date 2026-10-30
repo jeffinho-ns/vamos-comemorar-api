@@ -22,7 +22,17 @@ test('os quadros de cada área usam DRE, último envio e CMV do robô', () => {
     marketing: { docs: [{ date: '2026-10-31', values: { mkTraffic: 0, mkAttractions: 4500, mkOther: 0, mkReservations: 0, mkShow: 0 } }] },
     rh: { docs: [{ date: '2026-09-28', values: { rhCore: 45841.92, rhExtras: 27826.25 } }] },
     operacao: { docs: [] },
-    cmvZig: [{ cmvComida: 20.1, cmvBebida: 24.6, cobertura: 62.6, coberturaFood: 55.1, coberturaBev: 88.1, vendaComida: 100, vendaBebida: 100 }],
+    cmvZig: [{
+      cmvComida: 20.1,
+      cmvBebida: 24.6,
+      cobertura: 62.6,
+      coberturaFood: 55.1,
+      coberturaBev: 88.1,
+      custoComida: 100,
+      custoBebida: 103,
+      cobertoComida: 500,
+      cobertoBebida: 500,
+    }],
   });
   assert.equal(quadros.marketing.kpis.gasto, 4500);
   assert.ok(quadros.marketing.alertas.some((item) => item.titulo === 'ROAS atribuído'));

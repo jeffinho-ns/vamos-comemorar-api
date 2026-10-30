@@ -7,6 +7,8 @@ const snapshotStore = require('./snapshotStore');
 const { erroRecente } = require('./erroRecente');
 const { projecaoConsolidada } = require('./projecaoConsolidada');
 const { quadrosArea } = require('./quadrosArea');
+const { SOURCE: ENVIO_OPERACAO, aplicarEnvioOperacao } = require('./envioOperacao');
+const { montarEscala } = require('./escalaJustino');
 
 const erroZig = erroRecente();
 
@@ -196,6 +198,22 @@ function quadrosDoPayload(payload) {
   };
 }
 
+function envioPublico(doc) {
+  if (!doc || typeof doc !== 'object') return null;
+  const values = doc.values && typeof doc.values === 'object' ? doc.values : {};
+  const notes = doc.notes && typeof doc.notes === 'object' ? doc.notes : {};
+  return {
+    date: texto(doc.date),
+    submittedByName: texto(doc.submittedByName),
+    opPublic: numero(values.opPublic),
+    opLoss: numero(values.opLoss),
+    opMaintenance: numero(values.opMaintenance),
+    opDisposableReq: numero(values.opDisposableReq),
+    opIncidents: texto(notes.opIncidents),
+    opAction: texto(notes.opAction),
+  };
+}
+
 function displayFrom(row) {
   const payload = row && row.payload ? row.payload : {};
   return {
@@ -214,7 +232,17 @@ function displayFrom(row) {
     semanas: Array.isArray(payload.semanas) ? payload.semanas : [],
     eventosResumo: payload.eventosResumo || null,
     lancamentos: payload.lancamentos || null,
+    envioOperacao: envioPublico(payload.envioOperacao),
     quadros: quadrosDoPayload(payload),
+    freelancers: Array.isArray(payload.freelancers) ? payload.freelancers : [],
+    sectorBase: payload.sectorBase || null,
+    escala: montarEscala({
+      porDiaSemana: payload.porDiaSemana,
+      horario: payload.horario,
+      semanas: payload.semanas,
+      sectorBase: payload.sectorBase,
+      hoje: payload.hoje,
+    }),
     zigCarregando: false,
   };
 }
@@ -258,7 +286,11 @@ async function loadZigOverview(pool, env, deps) {
   const store = options.store || snapshotStore;
   const sourceEnv = env || process.env;
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
-  if (last) return displayFrom(last);
+  if (last) {
+    const envio = await store.latestPayload(pool, ENVIO_OPERACAO).catch(() => null);
+    const payload = aplicarEnvioOperacao(last.payload, envio && envio.payload);
+    return displayFrom({ ...last, payload });
+  }
   if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
   const recente = erroZig.ler();
   if (recente) return ausente(recente);

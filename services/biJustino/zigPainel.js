@@ -129,7 +129,7 @@ function extrasDoPainel({
       marketing: linhasEnvio(marketing, ['mkTraffic', 'mkOther', 'mkAttractions', 'mkReservas', 'mkAttendance', 'mkRevenue']),
       financeiro: linhasEnvio(financeiro, ['fnRevenueInput', 'fnTax', 'fnCard', 'fnRent', 'fnEnergy', 'fnWater', 'fnGas', 'fnDisposable', 'fnSecurity']),
       rh: linhasEnvio(rh, ['rhCore', 'rhExtras', 'rhHeadcount', 'rhActive']),
-      operacao: linhasEnvio(operacao, ['opPublico', 'opLoss', 'opMaintenance']),
+      operacao: linhasEnvio(operacao, ['opPublic', 'opPublico', 'opLoss', 'opMaintenance', 'opDisposableReq']),
       cmv: linhasEnvio(cmvArea, ['cmvFoodReal', 'cmvBevReal', 'cmvFoodMix', 'cmvFoodCover', 'cmvBevCover']),
     },
   };
@@ -193,7 +193,43 @@ function compactCmv(payload) {
     coberturaBev: doc.coberturaBevPct == null ? null : Number(doc.coberturaBevPct),
     vendaComida: Number(doc.valorTotalFood) || 0,
     vendaBebida: Number(doc.valorTotalBev) || 0,
+    custoComida: doc.custoFoodTeorico == null ? null : Number(doc.custoFoodTeorico),
+    custoBebida: doc.custoBevTeorico == null ? null : Number(doc.custoBevTeorico),
+    cobertoComida: doc.valorCobertoFood == null ? null : Number(doc.valorCobertoFood),
+    cobertoBebida: doc.valorCobertoBev == null ? null : Number(doc.valorCobertoBev),
   }));
+}
+
+function compactFreelancers(payload) {
+  const items = payload && Array.isArray(payload.items) ? payload.items : [];
+  return items.slice(0, 80).map((item) => ({
+    date: String(item.date || '').slice(0, 10),
+    sector: String(item.sector || '').slice(0, 40),
+    reason: String(item.reason || '').slice(0, 40),
+    shiftHours: Number(item.shiftHours) || 0,
+    qty: Number(item.qty) || 0,
+    totalCost: Number(item.totalCost) || 0,
+    status: String(item.status || '').slice(0, 20),
+    attendance: item.attendance ? String(item.attendance).slice(0, 20) : null,
+  }));
+}
+
+function quadroSetorPublico(payload) {
+  const bruto = payload && payload.bySector;
+  if (!bruto || typeof bruto !== 'object') return null;
+  const quadro = {};
+  Object.keys(bruto).forEach((setor) => {
+    const base = bruto[setor] || {};
+    quadro[String(setor).slice(0, 40)] = {
+      atendimentoPorPessoa: Number(base.atendimentoPorPessoa) || 0,
+      clt: Number(base.clt) || 0,
+      int: Number(base.int) || 0,
+      pj: Number(base.pj) || 0,
+      brigadaPadrao: Number(base.brigadaPadrao) || 0,
+      limiteBrigada: Number(base.limiteBrigada) || 0,
+    };
+  });
+  return quadro;
 }
 
 function compactBilheteria(payload) {
@@ -208,7 +244,7 @@ function compactBilheteria(payload) {
 }
 
 async function buscarZigPainel(env, fetchImpl) {
-  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas] = await readActions([
+  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas, setores] = await readActions([
     { action: 'getZigRevenue', payload: { limit: 2000 } },
     { action: 'getZigHourly', payload: { days: 14 } },
     { action: 'getZigBilheteria', payload: { limit: 13 } },
@@ -221,6 +257,7 @@ async function buscarZigPainel(env, fetchImpl) {
     { action: 'getEntries', payload: { area: 'operacao', limit: 1 } },
     { action: 'getEntries', payload: { area: 'cmv', limit: 1 } },
     { action: 'getFreelancerRequests' },
+    { action: 'getSectorBase' },
   ], env, fetchImpl);
 
   if (!revenue || !Array.isArray(revenue.docs)) {
@@ -253,6 +290,8 @@ async function buscarZigPainel(env, fetchImpl) {
       operacao,
       cmvArea,
     }),
+    freelancers: compactFreelancers(freelas),
+    sectorBase: quadroSetorPublico(setores),
   };
 }
 
@@ -300,6 +339,7 @@ function painelDeMapa(mapa) {
   const cmv = fonte.getCmvTeoricoParcial;
   const eventos = fonte.getEventos;
   const freelas = fonte.getFreelancerRequests;
+  const setores = fonte.getSectorBase;
   const temRevenue = Boolean(revenue && Array.isArray(revenue.docs));
   const extras = extrasDoPainel({
     hourly,
@@ -337,7 +377,12 @@ function painelDeMapa(mapa) {
       now: new Date(),
     }),
   } : {};
-  return { ...base, ...extras };
+  return {
+    ...base,
+    ...extras,
+    freelancers: compactFreelancers(freelas),
+    sectorBase: quadroSetorPublico(setores),
+  };
 }
 
 module.exports = {

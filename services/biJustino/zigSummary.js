@@ -137,12 +137,21 @@ function semanasFechadas(byDate, publicoByDate, iso, dow, quantidade = 26) {
     const faturamento = soma(dates, byDate);
     const publico = dates.reduce((total, date) => total + (publicoByDate[date] || 0), 0);
     if (!faturamento && !publico) continue;
+    let receitaComPublico = 0;
+    let publicoComReceita = 0;
+    dates.forEach((date) => {
+      const receita = byDate[date] || 0;
+      const pessoas = publicoByDate[date];
+      if (!(pessoas > 0 && receita > 0)) return;
+      receitaComPublico += receita;
+      publicoComReceita += pessoas;
+    });
     lista.push({
       inicio,
       fim,
       faturamento,
       publico,
-      ticket: publico > 0 ? faturamento / publico : null,
+      ticket: publicoComReceita > 0 ? receitaComPublico / publicoComReceita : null,
     });
   }
   return lista;

@@ -24,6 +24,7 @@ const CHAMADAS = [
   { action: 'getZigHourly', payload: { days: 14 } },
   { action: 'getEventos' },
   { action: 'getFreelancerRequests' },
+  { action: 'getSectorBase' },
   { action: 'getEntries', payload: { area: 'financeiro', limit: 8 } },
   { action: 'getEntries', payload: { area: 'cmv', limit: 8 } },
   { action: 'getEntries', payload: { area: 'marketing', limit: 8 } },
@@ -71,6 +72,8 @@ function mesclarZig(anterior, painel) {
     semanas: painel.semanas && painel.semanas.length ? painel.semanas : (base.semanas || []),
     eventosResumo: painel.eventosResumo || base.eventosResumo || null,
     lancamentos: painel.lancamentos || base.lancamentos || null,
+    freelancers: painel.freelancers && painel.freelancers.length ? painel.freelancers : (base.freelancers || []),
+    sectorBase: painel.sectorBase || base.sectorBase || null,
   };
 }
 

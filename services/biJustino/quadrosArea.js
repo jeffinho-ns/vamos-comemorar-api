@@ -162,10 +162,10 @@ function cmvBlend(doc) {
   const food = doc.cmvComida;
   const bev = doc.cmvBebida;
   const cover = doc.cobertura;
-  const vFood = n(doc.vendaComida, 0);
-  const vBev = n(doc.vendaBebida, 0);
+  const coberto = n(doc.cobertoComida, 0) + n(doc.cobertoBebida, 0);
+  const custo = n(doc.custoComida, 0) + n(doc.custoBebida, 0);
   let theo = null;
-  if (food != null && bev != null && vFood + vBev > 0) theo = (food * vFood + bev * vBev) / (vFood + vBev);
+  if (coberto > 0 && (doc.custoComida != null || doc.custoBebida != null)) theo = (custo / coberto) * 100;
   else if (food != null && bev != null) theo = (food + bev) / 2;
   else theo = food ?? bev;
   return { theo, cover, food, bev };

@@ -54,6 +54,21 @@ test('semana sem faturamento usa a semana anterior completa', () => {
   assert.equal(resumo.semana.fim, '2026-10-18');
   assert.equal(resumo.semana.faturamento, 100);
   assert.equal(resumo.tickets.semana, 10);
+  const fechada = resumo.semanas.find((item) => item.inicio === '2026-10-12');
+  assert.equal(fechada.faturamento, 100);
+  assert.equal(fechada.ticket, 10);
+});
+
+test('ticket da semana fechada ignora dia sem público', () => {
+  const resumo = summarizeZig([
+    { date: '2026-10-12', revenue: 80, publico: 8 },
+    { date: '2026-10-13', revenue: 300, publico: '' },
+    { date: '2026-10-18', revenue: 20, publico: 2 },
+  ], AGORA);
+  const semana = resumo.semanas.find((item) => item.inicio === '2026-10-12');
+  assert.equal(semana.faturamento, 400);
+  assert.equal(semana.publico, 10);
+  assert.equal(semana.ticket, 10);
 });
 
 test('um login só pede o faturamento com limite de 2000 dias', async () => {
