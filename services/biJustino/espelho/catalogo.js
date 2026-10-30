@@ -34,6 +34,8 @@ function mesesAnteriores(qtd) {
 
 const AREAS_ENTRIES = ['financeiro', 'cmv', 'marketing', 'rh', 'operacao'];
 const AREAS_FECHAMENTO = ['financeiro', 'marketing', 'rh', 'operacao', 'cmv'];
+// Fechamento de mês das abas Reservas / Eventos / Auditoria Operacional (MONTH_CLOSURE_AREAS do Code.gs).
+const AREAS_FECHAMENTO_OPERACAO = ['reservas', 'eventos', 'auditoriaop'];
 
 function fixas() {
   return [
@@ -47,7 +49,8 @@ function fixas() {
     { chave: 'getBandRanking', action: 'getBandRanking', ritmo: 'lento' },
     { chave: 'getBudgetAtracoesBase', action: 'getBudgetAtracoesBase', ritmo: 'lento' },
     { chave: 'get99Food', action: 'get99Food', ritmo: 'lento' },
-    { chave: 'getZigDelivery', action: 'getZigDelivery', payload: { days: 90 }, ritmo: 'lento' },
+    // O painel do Renato pede 150 dias (maior período do seletor da aba Delivery).
+    { chave: 'getZigDelivery', action: 'getZigDelivery', payload: { days: 150 }, ritmo: 'lento' },
     // Faturamento / Zig / DRE
     { chave: 'getDreBase', action: 'getDreBase', ritmo: 'lento' },
     { chave: 'getDreFaturamentoHistorico', action: 'getDreFaturamentoHistorico', ritmo: 'lento' },
@@ -56,9 +59,11 @@ function fixas() {
     { chave: 'getZigRevenue', action: 'getZigRevenue', payload: { limit: 2000 }, ritmo: 'rapido' },
     { chave: 'getZigBilheteria', action: 'getZigBilheteria', payload: { limit: 60 }, ritmo: 'lento' },
     { chave: 'getZigHourly', action: 'getZigHourly', payload: { days: 400 }, ritmo: 'lento' },
-    { chave: 'getZigHourlyDetail', action: 'getZigHourlyDetail', payload: { days: 120 }, ritmo: 'lento' },
+    // Sugestão de horário pra banda/DJ (Marketing) cruza 400 dias de detalhe, igual ao painel do Renato.
+    { chave: 'getZigHourlyDetail', action: 'getZigHourlyDetail', payload: { days: 400 }, ritmo: 'lento' },
     { chave: 'getZigItemSalesRanking', action: 'getZigItemSalesRanking', payload: { days: 30 }, ritmo: 'lento' },
-    { chave: 'getCmvTeoricoParcial', action: 'getCmvTeoricoParcial', payload: { limit: 24 }, ritmo: 'lento' },
+    // limit 30 = mesmo pedido do painel do Renato (refreshCmvTeoricoParcial), base do gráfico de tendência do CMV.
+    { chave: 'getCmvTeoricoParcial', action: 'getCmvTeoricoParcial', payload: { limit: 30 }, ritmo: 'lento' },
     { chave: 'getMeterReadings', action: 'getMeterReadings', ritmo: 'rapido' },
     // RH
     { chave: 'getEmployees', action: 'getEmployees', ritmo: 'lento' },
@@ -96,10 +101,14 @@ function parametrizadas() {
     ...AREAS_FECHAMENTO.map((area) => ({
       chave: `getMonthClosures:${area}`, action: 'getMonthClosures', payload: { area }, ritmo: 'lento',
     })),
-    ...mesesAnteriores(3).map((mesKey) => ({
-      chave: `getDreParaMes:${mesKey}`, action: 'getDreParaMes', payload: { mesKey }, ritmo: 'lento',
+    ...AREAS_FECHAMENTO_OPERACAO.map((area) => ({
+      chave: `getMonthClosures:${area}`, action: 'getMonthClosures', payload: { area }, ritmo: 'lento',
     })),
-    ...mesesAnteriores(2).map((mesKey) => ({
+    // O Apps Script lê `body.mes` (getDreParaMes_(body.mes)) — `mesKey` era ignorado e a leitura voltava mes_invalido.
+    ...mesesAnteriores(3).map((mesKey) => ({
+      chave: `getDreParaMes:${mesKey}`, action: 'getDreParaMes', payload: { mes: mesKey }, ritmo: 'lento',
+    })),
+    ...mesesAnteriores(3).map((mesKey) => ({
       chave: `getEmployeesMonth:${mesKey}`, action: 'getEmployeesMonth', payload: { mes: mesKey }, ritmo: 'lento',
     })),
     { chave: 'getDailyAttendance', action: 'getDailyAttendance', ritmo: 'rapido' },
@@ -128,6 +137,7 @@ function fonteDaChave(chave) {
 module.exports = {
   AREAS_ENTRIES,
   AREAS_FECHAMENTO,
+  AREAS_FECHAMENTO_OPERACAO,
   listarLeituras,
   leiturasPorRitmo,
   encontrarLeitura,

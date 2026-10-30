@@ -33,6 +33,8 @@ module.exports = (pool) => {
   router.use(authenticateToken);
   router.use(require('./biJustinoEspelho')(pool));
   router.use(require('./biJustinoAreas/marketing')(pool));
+  router.use(require('./biJustinoAreas/eventos')(pool));
+  router.use(require('./biJustinoAreas/reservas')(pool));
   router.use(require('./biJustinoAreas/financeiro')(pool));
   router.use(require('./biJustinoAreas/operacao')(pool));
 
