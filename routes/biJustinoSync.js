@@ -31,6 +31,10 @@ async function gravarSeVazio(blocos) {
 module.exports = (pool) => {
   const router = express.Router();
   router.use(authenticateToken);
+  router.use(require('./biJustinoEspelho')(pool));
+  router.use(require('./biJustinoAreas/marketing')(pool));
+  router.use(require('./biJustinoAreas/financeiro')(pool));
+  router.use(require('./biJustinoAreas/operacao')(pool));
 
   router.get('/justino/fontes', requireSuperAdmin, async (req, res) => {
     try {
