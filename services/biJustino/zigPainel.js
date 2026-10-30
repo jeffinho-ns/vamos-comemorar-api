@@ -10,6 +10,7 @@ const {
   itensRecentes,
   hojeSp,
 } = require('./escalaDia');
+const { compactMkPlans } = require('./projecaoMarketing');
 
 const DIAS_HORARIO = ['Geral', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 const NOME_DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -266,7 +267,7 @@ function compactBilheteria(payload) {
 }
 
 async function buscarZigPainel(env, fetchImpl) {
-  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas, setores, employees, reservas] = await readActions([
+  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas, setores, employees, reservas, mkPlans] = await readActions([
     { action: 'getZigRevenue', payload: { limit: 2000 } },
     { action: 'getZigHourly', payload: { days: 400 } },
     { action: 'getZigBilheteria', payload: { limit: 13 } },
@@ -282,6 +283,7 @@ async function buscarZigPainel(env, fetchImpl) {
     { action: 'getSectorBase' },
     { action: 'getEmployees' },
     { action: 'getReservations', payload: { limit: 400 } },
+    { action: 'getMkPlans' },
   ], env, fetchImpl);
 
   if (!revenue || !Array.isArray(revenue.docs)) {
@@ -316,6 +318,7 @@ async function buscarZigPainel(env, fetchImpl) {
     }),
     freelancers: compactFreelancers(freelas),
     sectorBase: quadroSetorPublico(setores),
+    mkPlans: compactMkPlans(mkPlans),
     ...anexosEscala({ getEmployees: employees, getReservations: reservas }, revenue.docs, hourly),
   };
 }
@@ -408,6 +411,7 @@ function painelDeMapa(mapa) {
     ...extras,
     freelancers: compactFreelancers(freelas),
     sectorBase: quadroSetorPublico(setores),
+    mkPlans: compactMkPlans(fonte.getMkPlans),
     ...anexosEscala(fonte, revenueDocs, hourly),
   };
 }

@@ -9,6 +9,7 @@ const { projecaoConsolidada } = require('./projecaoConsolidada');
 const { quadrosArea } = require('./quadrosArea');
 const { SOURCE: ENVIO_OPERACAO, aplicarEnvioOperacao } = require('./envioOperacao');
 const { SOURCE: ENVIO_MARKETING, aplicarEnvioMarketing } = require('./envioMarketing');
+const { SOURCE: MK_PLANS, aplicarProjecaoMarketing, compactMkPlans } = require('./projecaoMarketing');
 const { montarEscala } = require('./escalaJustino');
 
 const erroZig = erroRecente();
@@ -282,6 +283,7 @@ function displayFrom(row) {
     lancamentos: payload.lancamentos || null,
     envioOperacao: envioPublico(payload.envioOperacao),
     envioMarketing: envioMarketingPublico(payload.envioMarketing),
+    mkPlans: compactMkPlans({ docs: payload.mkPlans }),
     quadros: quadrosDoPayload(payload),
     freelancers: Array.isArray(payload.freelancers) ? payload.freelancers : [],
     sectorBase: payload.sectorBase || null,
@@ -343,9 +345,13 @@ async function loadZigOverview(pool, env, deps) {
   if (last) {
     const envio = await store.latestPayload(pool, ENVIO_OPERACAO).catch(() => null);
     const marketing = await store.latestPayload(pool, ENVIO_MARKETING).catch(() => null);
-    const payload = aplicarEnvioMarketing(
-      aplicarEnvioOperacao(last.payload, envio && envio.payload),
-      marketing && marketing.payload,
+    const planos = await store.latestPayload(pool, MK_PLANS).catch(() => null);
+    const payload = aplicarProjecaoMarketing(
+      aplicarEnvioMarketing(
+        aplicarEnvioOperacao(last.payload, envio && envio.payload),
+        marketing && marketing.payload,
+      ),
+      planos && planos.payload,
     );
     return displayFrom({ ...last, payload });
   }

@@ -13,6 +13,7 @@ const { loadNovidades } = require('../services/biJustino/painelNovidades');
 const { coletarAbertura } = require('../services/biJustino/bootstrapColeta');
 const { gravarEnvioOperacao } = require('../services/biJustino/envioOperacao');
 const { gravarEnvioMarketing } = require('../services/biJustino/envioMarketing');
+const { gravarProjecaoMarketing, apagarProjecaoMarketing } = require('../services/biJustino/projecaoMarketing');
 
 function precisaGravar(bloco) {
   return Boolean(bloco && !bloco.disponivel && bloco.motivo === 'aguardando_coleta');
@@ -121,6 +122,34 @@ module.exports = (pool) => {
         message: err && err.message ? err.message : String(err),
       });
       return res.status(500).json({ ok: false, error: 'falha_ao_gravar' });
+    }
+  });
+
+  router.post('/justino/marketing/projecao', async (req, res) => {
+    try {
+      const allowed = await canReadBiJustino(pool, req.user);
+      if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
+      const gravado = await gravarProjecaoMarketing(pool, req.body || {});
+      if (!gravado.ok) return res.status(400).json({ ok: false, error: gravado.error });
+      console.log('[bi-justino] projeção do marketing', { establishment: 'Seu Justino', date: gravado.date, planilha: gravado.planilha });
+      return res.json({ ok: true, date: gravado.date, planilha: gravado.planilha });
+    } catch (err) {
+      console.error('[bi-justino] falha ao gravar projeção do marketing', { establishment: 'Seu Justino', message: err && err.message ? err.message : String(err) });
+      return res.status(500).json({ ok: false, error: 'falha_ao_gravar' });
+    }
+  });
+
+  router.post('/justino/marketing/projecao/apagar', async (req, res) => {
+    try {
+      const allowed = await canReadBiJustino(pool, req.user);
+      if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
+      const apagado = await apagarProjecaoMarketing(pool, req.body || {});
+      if (!apagado.ok) return res.status(400).json({ ok: false, error: apagado.error });
+      console.log('[bi-justino] projeção do marketing apagada', { establishment: 'Seu Justino', date: apagado.date, planilha: apagado.planilha });
+      return res.json({ ok: true, date: apagado.date, planilha: apagado.planilha });
+    } catch (err) {
+      console.error('[bi-justino] falha ao apagar projeção do marketing', { establishment: 'Seu Justino', message: err && err.message ? err.message : String(err) });
+      return res.status(500).json({ ok: false, error: 'falha_ao_apagar' });
     }
   });
 
