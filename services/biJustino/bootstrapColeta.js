@@ -21,7 +21,7 @@ const CHAMADAS = [
   { action: 'getZigBilheteria', payload: { limit: 13 } },
   { action: 'getCmvTeoricoParcial', payload: { limit: 8 } },
   { action: 'getZigItemSalesRanking', payload: { days: 30 } },
-  { action: 'getZigHourly', payload: { days: 14 } },
+  { action: 'getZigHourly', payload: { days: 400 } },
   { action: 'getEventos' },
   { action: 'getFreelancerRequests' },
   { action: 'getSectorBase' },
@@ -31,6 +31,8 @@ const CHAMADAS = [
   { action: 'getEntries', payload: { area: 'rh', limit: 8 } },
   { action: 'getEntries', payload: { area: 'operacao', limit: 8 } },
   { action: 'getZigRevenue', payload: { limit: 2000 } },
+  { action: 'getEmployees' },
+  { action: 'getReservations', payload: { limit: 400 } },
 ];
 
 let emAndamento = null;
@@ -74,6 +76,11 @@ function mesclarZig(anterior, painel) {
     lancamentos: painel.lancamentos || base.lancamentos || null,
     freelancers: painel.freelancers && painel.freelancers.length ? painel.freelancers : (base.freelancers || []),
     sectorBase: painel.sectorBase || base.sectorBase || null,
+    colaboradores: painel.colaboradores && painel.colaboradores.length ? painel.colaboradores : (base.colaboradores || []),
+    calor: painel.calor || base.calor || null,
+    reservas: painel.reservas && painel.reservas.length ? painel.reservas : (base.reservas || []),
+    reservaFator: painel.reservaFator && painel.reservaFator.length ? painel.reservaFator : (base.reservaFator || []),
+    diasZig: painel.diasZig && painel.diasZig.length ? painel.diasZig : (base.diasZig || []),
   };
 }
 

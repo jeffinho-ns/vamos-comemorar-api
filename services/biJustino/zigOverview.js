@@ -214,6 +214,34 @@ function envioPublico(doc) {
   };
 }
 
+function horarioPublico(dia) {
+  const item = dia && typeof dia === 'object' ? dia : {};
+  return {
+    trabalha: Boolean(item.trabalha),
+    entrada: texto(item.entrada),
+    saida: texto(item.saida),
+    almoco: texto(item.almoco),
+    jantar: texto(item.jantar),
+  };
+}
+
+function colaboradorPublico(item) {
+  if (!item || typeof item !== 'object') return null;
+  const semana = Array.isArray(item.horarioSemanal) ? item.horarioSemanal.slice(0, 7).map(horarioPublico) : [];
+  return {
+    id: texto(item.id),
+    nome: texto(item.nome),
+    cargo: texto(item.cargo),
+    cargoOutro: texto(item.cargoOutro),
+    funcaoCargo: texto(item.funcaoCargo),
+    nivel: texto(item.nivel),
+    contratacao: texto(item.contratacao),
+    horarioSemanal: semana,
+    feriasInicio: texto(item.feriasInicio),
+    feriasFim: texto(item.feriasFim),
+  };
+}
+
 function displayFrom(row) {
   const payload = row && row.payload ? row.payload : {};
   return {
@@ -236,6 +264,11 @@ function displayFrom(row) {
     quadros: quadrosDoPayload(payload),
     freelancers: Array.isArray(payload.freelancers) ? payload.freelancers : [],
     sectorBase: payload.sectorBase || null,
+    colaboradores: Array.isArray(payload.colaboradores) ? payload.colaboradores.map(colaboradorPublico).filter(Boolean) : [],
+    calor: payload.calor || null,
+    reservas: Array.isArray(payload.reservas) ? payload.reservas : [],
+    reservaFator: Array.isArray(payload.reservaFator) ? payload.reservaFator : [],
+    diasZig: Array.isArray(payload.diasZig) ? payload.diasZig : [],
     escala: montarEscala({
       porDiaSemana: payload.porDiaSemana,
       horario: payload.horario,
@@ -377,6 +410,13 @@ function montarPayloadZig(base, painel) {
     semanas: painel && Array.isArray(painel.semanas) ? painel.semanas : (base && base.semanas) || [],
     eventosResumo: painel && painel.eventosResumo ? painel.eventosResumo : null,
     lancamentos: painel && painel.lancamentos ? painel.lancamentos : null,
+    freelancers: painel && Array.isArray(painel.freelancers) && painel.freelancers.length ? painel.freelancers : (base && base.freelancers) || [],
+    sectorBase: painel && painel.sectorBase ? painel.sectorBase : (base && base.sectorBase) || null,
+    colaboradores: painel && Array.isArray(painel.colaboradores) && painel.colaboradores.length ? painel.colaboradores : (base && base.colaboradores) || [],
+    calor: painel && painel.calor ? painel.calor : (base && base.calor) || null,
+    reservas: painel && Array.isArray(painel.reservas) && painel.reservas.length ? painel.reservas : (base && base.reservas) || [],
+    reservaFator: painel && Array.isArray(painel.reservaFator) && painel.reservaFator.length ? painel.reservaFator : (base && base.reservaFator) || [],
+    diasZig: painel && Array.isArray(painel.diasZig) && painel.diasZig.length ? painel.diasZig : (base && base.diasZig) || [],
   };
 }
 

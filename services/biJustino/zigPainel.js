@@ -1,6 +1,15 @@
 const { readActions } = require('./appsScriptClient');
 const { summarizeZig } = require('./zigSummary');
 const { montarGrafico, valorEvento } = require('./graficoDiretoria');
+const {
+  compactColaboradores,
+  compactCalor,
+  compactReservas,
+  compactDiasZig,
+  fatorReserva,
+  itensRecentes,
+  hojeSp,
+} = require('./escalaDia');
 
 const DIAS_HORARIO = ['Geral', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 const NOME_DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -120,7 +129,7 @@ function extrasDoPainel({
   cmvArea,
 }) {
   return {
-    horario: compactHorario(hourly),
+    horario: compactHorario(itensRecentes(hourly, 14)),
     bilheteria: compactBilheteria(bilheteria),
     ranking: compactRanking(ranking),
     cmv: compactCmv(cmv),
@@ -203,6 +212,7 @@ function compactCmv(payload) {
 function compactFreelancers(payload) {
   const items = payload && Array.isArray(payload.items) ? payload.items : [];
   return items.slice(0, 80).map((item) => ({
+    id: String(item.id || '').slice(0, 40),
     date: String(item.date || '').slice(0, 10),
     sector: String(item.sector || '').slice(0, 40),
     reason: String(item.reason || '').slice(0, 40),
@@ -211,6 +221,10 @@ function compactFreelancers(payload) {
     totalCost: Number(item.totalCost) || 0,
     status: String(item.status || '').slice(0, 20),
     attendance: item.attendance ? String(item.attendance).slice(0, 20) : null,
+    freelancerNames: String(item.freelancerNames || '').slice(0, 120),
+    horaEntrada: String(item.horaEntrada || '').slice(0, 5),
+    horaSaida: String(item.horaSaida || '').slice(0, 5),
+    horaPausa: String(item.horaPausa || '').slice(0, 5),
   }));
 }
 
@@ -244,9 +258,9 @@ function compactBilheteria(payload) {
 }
 
 async function buscarZigPainel(env, fetchImpl) {
-  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas, setores] = await readActions([
+  const [revenue, hourly, bilheteria, ranking, cmv, eventos, marketing, financeiro, rh, operacao, cmvArea, freelas, setores, employees, reservas] = await readActions([
     { action: 'getZigRevenue', payload: { limit: 2000 } },
-    { action: 'getZigHourly', payload: { days: 14 } },
+    { action: 'getZigHourly', payload: { days: 400 } },
     { action: 'getZigBilheteria', payload: { limit: 13 } },
     { action: 'getZigItemSalesRanking', payload: { days: 30 } },
     { action: 'getCmvTeoricoParcial', payload: { limit: 8 } },
@@ -258,6 +272,8 @@ async function buscarZigPainel(env, fetchImpl) {
     { action: 'getEntries', payload: { area: 'cmv', limit: 1 } },
     { action: 'getFreelancerRequests' },
     { action: 'getSectorBase' },
+    { action: 'getEmployees' },
+    { action: 'getReservations', payload: { limit: 400 } },
   ], env, fetchImpl);
 
   if (!revenue || !Array.isArray(revenue.docs)) {
@@ -292,6 +308,7 @@ async function buscarZigPainel(env, fetchImpl) {
     }),
     freelancers: compactFreelancers(freelas),
     sectorBase: quadroSetorPublico(setores),
+    ...anexosEscala({ getEmployees: employees, getReservations: reservas }, revenue.docs, hourly),
   };
 }
 
@@ -340,6 +357,7 @@ function painelDeMapa(mapa) {
   const eventos = fonte.getEventos;
   const freelas = fonte.getFreelancerRequests;
   const setores = fonte.getSectorBase;
+  const revenueDocs = revenue && Array.isArray(revenue.docs) ? revenue.docs : [];
   const temRevenue = Boolean(revenue && Array.isArray(revenue.docs));
   const extras = extrasDoPainel({
     hourly,
@@ -364,7 +382,7 @@ function painelDeMapa(mapa) {
   const base = temRevenue ? {
     ...summarizeZig(revenue.docs, new Date()),
     ...montarGrafico({
-      docs: revenue.docs,
+      docs: revenueDocs,
       eventos: eventos && Array.isArray(eventos.items) ? eventos.items : [],
       entradas: {
         marketing: fonte['getEntries:marketing'],
@@ -382,6 +400,19 @@ function painelDeMapa(mapa) {
     ...extras,
     freelancers: compactFreelancers(freelas),
     sectorBase: quadroSetorPublico(setores),
+    ...anexosEscala(fonte, revenueDocs, hourly),
+  };
+}
+
+function anexosEscala(fonte, docs, hourly) {
+  const diasZig = compactDiasZig(docs);
+  const reservas = compactReservas(fonte && fonte.getReservations);
+  return {
+    colaboradores: compactColaboradores(fonte && fonte.getEmployees),
+    calor: compactCalor(hourly),
+    reservas,
+    reservaFator: fatorReserva(reservas, diasZig, hojeSp()),
+    diasZig,
   };
 }
 
