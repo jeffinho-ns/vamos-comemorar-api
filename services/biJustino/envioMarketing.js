@@ -64,7 +64,13 @@ function validarEnvioMarketing(entrada, agora) {
 
 function linhaMarketing(doc) {
   const values = doc && doc.values ? doc.values : {};
-  return { date: doc.date, ...values, mkNote: doc.notes && doc.notes.mkNote ? doc.notes.mkNote : '' };
+  return {
+    date: doc.date,
+    ...values,
+    mkNote: doc.notes && doc.notes.mkNote ? doc.notes.mkNote : '',
+    submittedByName: doc.submittedByName || '',
+    submittedAt: doc.submittedAt || '',
+  };
 }
 
 function juntarMarketing(planilha, locais) {
@@ -101,9 +107,11 @@ async function gravarEnvioMarketing(pool, entrada, deps) {
   const store = options.store || snapshotStore;
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
   const anteriores = last && last.payload && Array.isArray(last.payload.docs) ? last.payload.docs : [];
+  const agora = options.agora ? options.agora() : new Date();
+  const doc = { ...validado.doc, submittedAt: agora.toISOString() };
   const docs = [
-    validado.doc,
-    ...anteriores.filter((doc) => !doc || doc.date !== validado.doc.date),
+    doc,
+    ...anteriores.filter((item) => !item || item.date !== doc.date),
   ].slice(0, 60);
   await store.saveSnapshot(pool, { source: SOURCE, action: 'submitEntry', payload: { docs } });
   let planilha = false;

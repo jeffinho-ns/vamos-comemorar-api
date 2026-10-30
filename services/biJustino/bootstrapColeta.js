@@ -27,7 +27,7 @@ const CHAMADAS = [
   { action: 'getSectorBase' },
   { action: 'getEntries', payload: { area: 'financeiro', limit: 8 } },
   { action: 'getEntries', payload: { area: 'cmv', limit: 8 } },
-  { action: 'getEntries', payload: { area: 'marketing', limit: 8 } },
+  { action: 'getEntries', payload: { area: 'marketing', limit: 62 } },
   { action: 'getEntries', payload: { area: 'rh', limit: 8 } },
   { action: 'getEntries', payload: { area: 'operacao', limit: 8 } },
   { action: 'getZigRevenue', payload: { limit: 2000 } },

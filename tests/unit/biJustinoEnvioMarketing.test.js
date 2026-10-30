@@ -37,9 +37,11 @@ test('o envio de marketing exige nome, data e algum valor', () => {
 test('o envio de marketing entra no lançamento e manda recalcular o quadro', () => {
   const payload = aplicarEnvioMarketing(
     { lancamentos: { marketing: [] }, quadros: { marketing: { kpis: {} } }, projecao: { areas: [] } },
-    { docs: [{ date: '2026-10-30', values: { mkTraffic: 100, mkRevenue: 2000 }, notes: {} }] },
+    { docs: [{ date: '2026-10-30', submittedByName: 'Ana', values: { mkTraffic: 100, mkRevenue: 2000 }, notes: { mkNote: 'sexta' } }] },
   );
   assert.equal(payload.lancamentos.marketing[0].mkTraffic, 100);
+  assert.equal(payload.lancamentos.marketing[0].submittedByName, 'Ana');
+  assert.equal(payload.lancamentos.marketing[0].mkNote, 'sexta');
   assert.equal(payload.quadros, undefined);
   assert.equal(payload.projecao, undefined);
 });

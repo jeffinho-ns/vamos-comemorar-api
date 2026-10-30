@@ -135,7 +135,7 @@ function extrasDoPainel({
     cmv: compactCmv(cmv),
     eventosResumo: resumirEventos(eventos),
     lancamentos: {
-      marketing: linhasEnvio(marketing, ['mkTraffic', 'mkOther', 'mkAttractions', 'mkReservas', 'mkAttendance', 'mkRevenue']),
+      marketing: linhasEnvio(marketing, ['mkTraffic', 'mkOther', 'mkAttractions', 'mkReservas', 'mkReservations', 'mkAttendance', 'mkShow', 'mkRevenue', 'mkPeople', 'mkTicket', 'mkWalkins'], 62),
       financeiro: linhasEnvio(financeiro, ['fnRevenueInput', 'fnTax', 'fnCard', 'fnRent', 'fnEnergy', 'fnWater', 'fnGas', 'fnDisposable', 'fnSecurity']),
       rh: linhasEnvio(rh, ['rhCore', 'rhExtras', 'rhHeadcount', 'rhActive']),
       operacao: linhasEnvio(operacao, ['opPublic', 'opPublico', 'opLoss', 'opMaintenance', 'opDisposableReq']),
@@ -144,15 +144,23 @@ function extrasDoPainel({
   };
 }
 
-function linhasEnvio(payload, chaves) {
+function linhasEnvio(payload, chaves, limite) {
   const docs = payload && Array.isArray(payload.docs) ? payload.docs : [];
-  return docs.slice(0, 8).map((doc) => {
+  return docs.slice(0, limite || 8).map((doc) => {
     const values = doc && doc.values && typeof doc.values === 'object' ? doc.values : {};
+    const notes = doc && doc.notes && typeof doc.notes === 'object' ? doc.notes : {};
     const linha = { date: String(doc.date || '').slice(0, 10) };
     chaves.forEach((chave) => {
       const n = Number(values[chave]);
       linha[chave] = Number.isFinite(n) ? n : null;
     });
+    const nome = String(doc.submittedByName || '').replace(/\s+/g, ' ').trim();
+    if (nome) linha.submittedByName = nome.slice(0, 80);
+    const quando = String(doc.submittedAt || '').trim();
+    if (quando) linha.submittedAt = quando.slice(0, 40);
+    const nota = String(notes.mkNote || '').trim();
+    if (nota) linha.mkNote = nota.slice(0, 500);
+    if (Array.isArray(values.mkOtherItems)) linha.mkOtherCount = values.mkOtherItems.length;
     return linha;
   });
 }
@@ -265,7 +273,7 @@ async function buscarZigPainel(env, fetchImpl) {
     { action: 'getZigItemSalesRanking', payload: { days: 30 } },
     { action: 'getCmvTeoricoParcial', payload: { limit: 8 } },
     { action: 'getEventos' },
-    { action: 'getEntries', payload: { area: 'marketing', limit: 1 } },
+    { action: 'getEntries', payload: { area: 'marketing', limit: 62 } },
     { action: 'getEntries', payload: { area: 'financeiro', limit: 1 } },
     { action: 'getEntries', payload: { area: 'rh', limit: 1 } },
     { action: 'getEntries', payload: { area: 'operacao', limit: 1 } },
