@@ -12,6 +12,7 @@ const { loadDre } = require('../services/biJustino/dreSharepoint');
 const { loadNovidades } = require('../services/biJustino/painelNovidades');
 const { coletarAbertura } = require('../services/biJustino/bootstrapColeta');
 const { gravarEnvioOperacao } = require('../services/biJustino/envioOperacao');
+const { gravarEnvioMarketing } = require('../services/biJustino/envioMarketing');
 
 function precisaGravar(bloco) {
   return Boolean(bloco && !bloco.disponivel && bloco.motivo === 'aguardando_coleta');
@@ -99,6 +100,27 @@ module.exports = (pool) => {
         error: code,
         missing: err && err.missing ? err.missing : undefined,
       });
+    }
+  });
+
+  router.post('/justino/envio/marketing', async (req, res) => {
+    try {
+      const allowed = await canReadBiJustino(pool, req.user);
+      if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
+      const gravado = await gravarEnvioMarketing(pool, req.body || {});
+      if (!gravado.ok) return res.status(400).json({ ok: false, error: gravado.error });
+      console.log('[bi-justino] envio do marketing', {
+        establishment: 'Seu Justino',
+        date: gravado.date,
+        planilha: gravado.planilha,
+      });
+      return res.json({ ok: true, date: gravado.date, planilha: gravado.planilha });
+    } catch (err) {
+      console.error('[bi-justino] falha ao gravar envio do marketing', {
+        establishment: 'Seu Justino',
+        message: err && err.message ? err.message : String(err),
+      });
+      return res.status(500).json({ ok: false, error: 'falha_ao_gravar' });
     }
   });
 

@@ -8,6 +8,7 @@ const { erroRecente } = require('./erroRecente');
 const { projecaoConsolidada } = require('./projecaoConsolidada');
 const { quadrosArea } = require('./quadrosArea');
 const { SOURCE: ENVIO_OPERACAO, aplicarEnvioOperacao } = require('./envioOperacao');
+const { SOURCE: ENVIO_MARKETING, aplicarEnvioMarketing } = require('./envioMarketing');
 const { montarEscala } = require('./escalaJustino');
 
 const erroZig = erroRecente();
@@ -214,6 +215,25 @@ function envioPublico(doc) {
   };
 }
 
+function envioMarketingPublico(doc) {
+  if (!doc || typeof doc !== 'object') return null;
+  const values = doc.values && typeof doc.values === 'object' ? doc.values : {};
+  const notes = doc.notes && typeof doc.notes === 'object' ? doc.notes : {};
+  return {
+    date: texto(doc.date),
+    submittedByName: texto(doc.submittedByName),
+    mkTraffic: numero(values.mkTraffic),
+    mkAttractions: numero(values.mkAttractions),
+    mkOther: numero(values.mkOther),
+    mkReservations: numero(values.mkReservations),
+    mkPeople: numero(values.mkPeople),
+    mkShow: numero(values.mkShow),
+    mkTicket: numero(values.mkTicket),
+    mkWalkins: numero(values.mkWalkins),
+    mkNote: texto(notes.mkNote),
+  };
+}
+
 function horarioPublico(dia) {
   const item = dia && typeof dia === 'object' ? dia : {};
   return {
@@ -261,6 +281,7 @@ function displayFrom(row) {
     eventosResumo: payload.eventosResumo || null,
     lancamentos: payload.lancamentos || null,
     envioOperacao: envioPublico(payload.envioOperacao),
+    envioMarketing: envioMarketingPublico(payload.envioMarketing),
     quadros: quadrosDoPayload(payload),
     freelancers: Array.isArray(payload.freelancers) ? payload.freelancers : [],
     sectorBase: payload.sectorBase || null,
@@ -321,7 +342,11 @@ async function loadZigOverview(pool, env, deps) {
   const last = await store.latestPayload(pool, SOURCE).catch(() => null);
   if (last) {
     const envio = await store.latestPayload(pool, ENVIO_OPERACAO).catch(() => null);
-    const payload = aplicarEnvioOperacao(last.payload, envio && envio.payload);
+    const marketing = await store.latestPayload(pool, ENVIO_MARKETING).catch(() => null);
+    const payload = aplicarEnvioMarketing(
+      aplicarEnvioOperacao(last.payload, envio && envio.payload),
+      marketing && marketing.payload,
+    );
     return displayFrom({ ...last, payload });
   }
   if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
