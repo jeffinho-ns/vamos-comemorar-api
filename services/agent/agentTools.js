@@ -475,6 +475,28 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
     if (bestRow) {
       answer = bestRow.answer;
       matchedTopic = bestRow.topic;
+    } else {
+      const needle = String(args.topico || topic || '')
+        .replace(/[%_]/g, '')
+        .trim();
+      if (needle.length >= 3) {
+        const fuzzy = await pool.query(
+          `SELECT topic, answer, updated_at
+             FROM establishment_faq
+            WHERE establishment_id = $1
+              AND is_active = TRUE
+              AND COALESCE(TRIM(answer), '') <> ''
+              AND topic ILIKE $2
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1`,
+          [establishmentId, `%${needle}%`]
+        );
+        const row = fuzzy.rows[0];
+        if (row?.answer) {
+          answer = String(row.answer).trim();
+          matchedTopic = row.topic || topic;
+        }
+      }
     }
   } catch (_error) {
     answer = null;

@@ -1,6 +1,7 @@
 const businessRulesEngine = require('../businessRulesEngine');
 const { buildDefaultWeekly } = require('../operationalHours/defaultWeeklySchedule');
 const { formatReservationDateLabels } = require('../../nlp/dateResolver');
+const { isTimeInsideWindows, weekdayFromIso } = require('./reservationSlotGuard');
 
 function formatTimeWindows(row) {
   const windows = [];
@@ -204,8 +205,56 @@ async function buildAgentReservationOperatingBlock(
   return lines.join('\n');
 }
 
+function saoPauloNowParts(now = new Date()) {
+  const iso = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const time = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now);
+  return { iso, timeHHmm: time };
+}
+
+async function isHouseOpenNow(pool, establishmentId, establishmentName = '', now = new Date()) {
+  void establishmentName;
+  const id = Number(establishmentId);
+  if (!pool || !Number.isFinite(id) || id <= 0) return true;
+  let savedRows = [];
+  try {
+    const weeklyResult = await pool.query(
+      `SELECT weekday, is_open, start_time::text, end_time::text,
+              second_start_time::text, second_end_time::text
+         FROM restaurant_reservation_operating_hours
+        WHERE establishment_id = $1`,
+      [id]
+    );
+    savedRows = weeklyResult.rows || [];
+  } catch (_error) {
+    return true;
+  }
+  if (!savedRows.length) return true;
+
+  const weekly = await loadWeeklyHoursForEstablishment(pool, id, establishmentName);
+  const { iso, timeHHmm } = saoPauloNowParts(now);
+  const weekday = weekdayFromIso(iso);
+  const day = weekly.find((item) => Number(item.weekday) === weekday);
+  if (!day) return true;
+  if (!day.is_open) return false;
+  const windows = Array.isArray(day.windows) ? day.windows : [];
+  if (!windows.length) return true;
+  return isTimeInsideWindows(timeHHmm, windows);
+}
+
 module.exports = {
   buildAgentReservationOperatingBlock,
   checkCapacityViaInternalApi,
   loadBlocksForDate,
+  loadWeeklyHoursForEstablishment,
+  isHouseOpenNow,
 };

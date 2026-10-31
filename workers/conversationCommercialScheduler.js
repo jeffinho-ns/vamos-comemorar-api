@@ -61,7 +61,7 @@ async function runFollowUp(pool, app) {
       return;
     }
     const result = await processFollowUpBatch(pool, app);
-    if (result.preSent > 0 || result.postSent > 0) {
+    if (result.preSent > 0 || result.postSent > 0 || result.conversationFollowUp?.sent > 0) {
       console.log('[conversationCommercialScheduler] follow-up:', result);
     }
   } catch (error) {

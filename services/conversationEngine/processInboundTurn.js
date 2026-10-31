@@ -838,7 +838,7 @@ async function processLegacyInboundTurn({
             pool,
             activeEstablishmentId,
             topicHints,
-            { funnelActive: true }
+            { funnelActive: true, userText: messageText }
           );
           faqKnowledgeBlock = buildFaqKnowledgeBlock(faqEntries, establishmentNameForFaq);
         }

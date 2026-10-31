@@ -1,5 +1,6 @@
 const { sendMessage } = require('../whatsappService');
 const inbox = require('../whatsappInboxRepository');
+const { processConversationFollowUpBatch } = require('../agent/conversationFollowUpEngine');
 
 const PRE_EVENT_HOURS = Number(process.env.CONVERSATION_PRE_EVENT_HOURS || 24);
 const POST_EVENT_HOURS = Number(process.env.CONVERSATION_POST_EVENT_HOURS || 24);
@@ -127,7 +128,20 @@ async function processFollowUpBatch(pool, app) {
     }
   }
 
-  return { preScanned: preRows.length, preSent, postScanned: postRows.length, postSent };
+  let conversationFollowUp = { scanned: 0, sent: 0, takeovers: 0 };
+  try {
+    conversationFollowUp = await processConversationFollowUpBatch(pool, app);
+  } catch (error) {
+    console.warn('[followUpEngine] falha no follow-up de conversa:', error.message);
+  }
+
+  return {
+    preScanned: preRows.length,
+    preSent,
+    postScanned: postRows.length,
+    postSent,
+    conversationFollowUp,
+  };
 }
 
 module.exports = {

@@ -904,20 +904,22 @@ function buildSafeFollowupQuestion(workingState = {}) {
   return 'Pra eu deixar tudo certo no seu nome, me passa o nome completo?';
 }
 
-function finishSanitizedReply(result, workingState = {}) {
+function finishSanitizedReply(result, workingState = {}, settings = null) {
   const state = workingState && typeof workingState === 'object' ? workingState : {};
   let text = String(result?.text || '').trim();
   let blocked = Boolean(result?.blocked);
   let reason = result?.reason;
   if (text) {
     const beforeList = text;
-    text = sanitizeListOrGridReply(text, {
-      workingState: state,
-      alreadySaidTime: state.reservation_time,
-    });
-    if (text !== beforeList) {
-      blocked = true;
-      reason = reason || 'list_or_grid';
+    if (!settings?.use_bullets) {
+      text = sanitizeListOrGridReply(text, {
+        workingState: state,
+        alreadySaidTime: state.reservation_time,
+      });
+      if (text !== beforeList) {
+        blocked = true;
+        reason = reason || 'list_or_grid';
+      }
     }
     const beforeQuestion = text;
     if (sanitizeToOneQuestion(text) !== beforeQuestion) {
@@ -964,13 +966,15 @@ function looksLikeFormalToneViolation(text) {
  */
 function sanitizeAssistantReply(
   replyText,
-  { toolTrace = [], workingState = {}, establishmentId = null } = {}
+  { toolTrace = [], workingState = {}, establishmentId = null, assistantSettings = null } = {}
 ) {
   const houseId = Number(
     establishmentId || workingState.establishment_id || workingState.estabelecimento_id
   );
+  const settings = assistantSettings && typeof assistantSettings === 'object' ? assistantSettings : null;
+  const finish = (result) => finishSanitizedReply(result, workingState, settings);
   const text = String(replyText || '').trim();
-  if (!text) return finishSanitizedReply({ text, blocked: false }, workingState);
+  if (!text) return finish({ text, blocked: false });
 
   const successPre = lastSuccessfulPreReserva(toolTrace);
 
@@ -989,16 +993,13 @@ function sanitizeAssistantReply(
           '[agentService] guard: descartando texto do LLM (risco detectado) e usando síntese determinística da reserva.'
         );
       }
-      return finishSanitizedReply(
-        {
-          text: synthetic,
-          blocked: text !== synthetic,
-          reason: llmAddedRisk
-            ? 'deterministic_confirmation_override_risky'
-            : 'deterministic_confirmation_override',
-        },
-        workingState
-      );
+      return finish({
+        text: synthetic,
+        blocked: text !== synthetic,
+        reason: llmAddedRisk
+          ? 'deterministic_confirmation_override_risky'
+          : 'deterministic_confirmation_override',
+      });
     }
   }
 
@@ -1007,14 +1008,11 @@ function sanitizeAssistantReply(
     console.warn(
       '[agentService] guard: bloqueado texto de confirmação falsa de reserva (sem criar_pre_reserva ok).'
     );
-    return finishSanitizedReply(
-      {
-        text: safe,
-        blocked: true,
-        reason: 'fake_reservation_confirmation',
-      },
-      workingState
-    );
+    return finish({
+      text: safe,
+      blocked: true,
+      reason: 'fake_reservation_confirmation',
+    });
   }
 
   // Tom formal SEMPRE bloqueado, independente de ter reserva ou não.
@@ -1026,7 +1024,7 @@ function sanitizeAssistantReply(
       ? synthesizeReplyFromToolTrace(toolTrace) ||
         'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
       : buildSafeFollowupQuestion(workingState);
-    return finishSanitizedReply({ text: safe, blocked: true, reason: 'formal_tone' }, workingState);
+    return finish({ text: safe, blocked: true, reason: 'formal_tone' });
   }
 
   if (containsForbiddenAreaName(text, houseId)) {
@@ -1037,26 +1035,20 @@ function sanitizeAssistantReply(
       const safe =
         synthesizeReplyFromToolTrace(toolTrace) ||
         'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.';
-      return finishSanitizedReply({ text: safe, blocked: true, reason: 'forbidden_area_name' }, workingState);
+      return finish({ text: safe, blocked: true, reason: 'forbidden_area_name' });
     }
     const { sanitizeForbiddenAreaNames, hasUsefulReservationProse } = require('./reservationAreaSanitize');
     const sanitized = sanitizeForbiddenAreaNames(text, houseId);
     const stillForbidden = containsForbiddenAreaName(sanitized, houseId);
     const useful = hasUsefulReservationProse(sanitized);
     if (sanitized && useful && !stillForbidden) {
-      return finishSanitizedReply(
-        { text: sanitized, blocked: true, reason: 'forbidden_area_name' },
-        workingState
-      );
+      return finish({ text: sanitized, blocked: true, reason: 'forbidden_area_name' });
     }
-    return finishSanitizedReply(
-      {
-        text: recoveryAfterForbiddenArea(workingState),
-        blocked: true,
-        reason: 'forbidden_area_name',
-      },
-      workingState
-    );
+    return finish({
+      text: recoveryAfterForbiddenArea(workingState),
+      blocked: true,
+      reason: 'forbidden_area_name',
+    });
   }
 
   if (looksLikeInternalOperatingLeak(text)) {
@@ -1064,10 +1056,7 @@ function sanitizeAssistantReply(
       '[agentService] guard: bloqueado vazamento do bloco operacional interno pro WhatsApp.'
     );
     const safe = buildSafeFollowupQuestion(workingState);
-    return finishSanitizedReply(
-      { text: safe, blocked: true, reason: 'operating_block_leak' },
-      workingState
-    );
+    return finish({ text: safe, blocked: true, reason: 'operating_block_leak' });
   }
 
   // Bloqueia plano de "fazer N reservas SEPARADAS" pro mesmo grupo.
@@ -1082,13 +1071,10 @@ function sanitizeAssistantReply(
     );
     const safe =
       'Para grupos maiores, eu deixo tudo em UMA reserva só. Quer seguir assim?';
-    return finishSanitizedReply(
-      { text: safe, blocked: true, reason: 'multi_reservation_attempt' },
-      workingState
-    );
+    return finish({ text: safe, blocked: true, reason: 'multi_reservation_attempt' });
   }
 
-  return finishSanitizedReply({ text, blocked: false }, workingState);
+  return finish({ text, blocked: false });
 }
 
 async function requestHostSentence(messages, tools, assistantMessage, toolTrace, workingState) {
@@ -1116,7 +1102,11 @@ async function requestHostSentence(messages, tools, assistantMessage, toolTrace,
     const forced = await requestAssistantCompletion(proseMessages, tools, 'none', 'funnel');
     const replyText = String(forced?.content || '').trim();
     if (!replyText) return '';
-    const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+    const sanitized = sanitizeAssistantReply(replyText, {
+      toolTrace,
+      workingState,
+      assistantSettings: workingState.assistantSettings || null,
+    });
     if (sanitized.blocked) return '';
     return sanitized.text;
   } catch (error) {
@@ -1130,11 +1120,12 @@ async function finalizeAssistantReply(
   tools,
   assistantMessage,
   toolTrace,
-  { funnelFallback = null, workingState = {} } = {}
+  { funnelFallback = null, workingState = {}, assistantSettings = null } = {}
 ) {
+  const sanitizeOpts = { toolTrace, workingState, assistantSettings };
   let replyText = String(assistantMessage?.content || '').trim();
   if (replyText) {
-    const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+    const sanitized = sanitizeAssistantReply(replyText, sanitizeOpts);
     return sanitized.text;
   }
 
@@ -1143,7 +1134,7 @@ async function finalizeAssistantReply(
     const forced = await requestAssistantCompletion(messages, tools, 'none');
     replyText = String(forced?.content || '').trim();
     if (replyText) {
-      const sanitized = sanitizeAssistantReply(replyText, { toolTrace, workingState });
+      const sanitized = sanitizeAssistantReply(replyText, sanitizeOpts);
       return sanitized.text;
     }
   }
@@ -1331,6 +1322,7 @@ async function tryFaqFirstReply({
   try {
     faqEntries = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
       funnelActive: false,
+      userText,
     });
   } catch (_error) {
     faqEntries = [];
@@ -1842,6 +1834,7 @@ async function runAgentTurn({
       const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, focusedTopicHints, {
         funnelActive,
         maxChars: funnelActive ? 800 : undefined,
+        userText,
       });
       if (relevant.length > 0) {
         faqKnowledgeBlock = buildFaqKnowledgeBlock(
@@ -1880,8 +1873,8 @@ async function runAgentTurn({
   const reservationFunnelBlock = buildReservationFunnelPromptBlock(workingState, messageHistory);
 
   // Identidade/personalidade configurada por estabelecimento (aba "Configurações
-  // de IA"). Retorna null quando a casa não ativou a config customizada — nesse
-  // caso o AgentPromptBuilder mantém a persona/comportamento padrão.
+  // de IA"). Usa a linha da casa mesmo com is_active=false, para a Sol obedecer
+  // o que a atendente já preencheu. Sem linha, persona padrão.
   let assistantSettings = context.assistantSettings || null;
   if (!assistantSettings && pool && establishmentId > 0) {
     assistantSettings = await loadActiveAssistantSettings(pool, establishmentId).catch((error) => {
@@ -2096,6 +2089,7 @@ async function runAgentTurn({
     candidateReply = await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
       funnelFallback,
       workingState,
+      assistantSettings,
     });
   } else if (!candidateReply) {
     const hostSentence = await requestHostSentence(
@@ -2111,12 +2105,14 @@ async function runAgentTurn({
       (await finalizeAssistantReply(messages, tools, assistantMessage, toolTraceFinal, {
         funnelFallback,
         workingState,
+        assistantSettings,
       }));
   }
 
   const sanitized = sanitizeAssistantReply(candidateReply, {
     toolTrace: toolTraceFinal,
     workingState,
+    assistantSettings,
   });
   const replyText = sanitized.text;
 

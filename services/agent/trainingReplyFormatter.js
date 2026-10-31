@@ -301,11 +301,10 @@ function formatTrainingReply({
     usedSettings = true;
   }
 
-  // Remove bullets residuais — tom WhatsApp, não chatbot.
-  text = text
-    .replace(/^[•\-\*]\s+/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  if (!settings?.use_bullets) {
+    text = text.replace(/^[•\-\*]\s+/gm, '');
+  }
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
 
   return { text, usedSettings };
 }

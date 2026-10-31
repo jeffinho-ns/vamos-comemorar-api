@@ -367,11 +367,45 @@ function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
  * Carrega apenas FAQs dos tópicos detectados, com teto de chars/turno.
  * Sem tópicos detectados: não carrega a base inteira (caro e impreciso).
  */
+function normalizeFaqNeedle(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreFaqAgainstText(entry, queryText) {
+  const query = normalizeFaqNeedle(queryText);
+  const topic = normalizeFaqNeedle(entry?.topic);
+  const answer = normalizeFaqNeedle(entry?.answer).slice(0, 240);
+  if (!query || !topic) return 0;
+  if (topic === query || topic.includes(query) || query.includes(topic)) return 100;
+  const tokens = query.split(' ').filter((token) => token.length >= 3);
+  if (!tokens.length) return 0;
+  const hits = tokens.filter((token) => topic.includes(token) || answer.includes(token)).length;
+  return hits === 0 ? 0 : Math.round((hits / tokens.length) * 80);
+}
+
+async function loadFaqsMatchingFreeText(pool, establishmentId, userText, { limit = 3 } = {}) {
+  const query = String(userText || '').trim();
+  if (query.length < 3 || !pool) return [];
+  const all = await loadAllActiveFaqsForEstablishment(pool, establishmentId);
+  return all
+    .map((entry) => ({ entry, score: scoreFaqAgainstText(entry, query) }))
+    .filter((item) => item.score >= 40)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((item) => item.entry);
+}
+
 async function loadRelevantFaqsForEstablishment(
   pool,
   establishmentId,
   topicHints = [],
-  { maxChars = FAQ_MAX_CHARS_PER_TURN, funnelActive = false } = {}
+  { maxChars = FAQ_MAX_CHARS_PER_TURN, funnelActive = false, userText = '' } = {}
 ) {
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
@@ -385,6 +419,10 @@ async function loadRelevantFaqsForEstablishment(
   }
 
   let entries = await prefetchEstablishmentFaqs(pool, establishment, topics);
+
+  if (!entries.length && !funnelActive && userText) {
+    entries = await loadFaqsMatchingFreeText(pool, establishment, userText);
+  }
 
   if (!entries.length) {
     const fallbackEntries = topics
@@ -462,23 +500,22 @@ function buildFaqGroundedSystemPrompt({
   settings = null,
 }) {
   void eventProgramOnly;
-  const personaBlock =
-    settings && settings.is_active
-      ? faqPersonaBuilder.buildPersonaBlock({
-          assistantSettings: settings,
-          lockedEstablishmentName: establishmentName,
-        })
-      : `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp. Tom caloroso e direto. Português do Brasil.`;
+  const hasSettings = Boolean(settings && typeof settings === 'object');
+  const personaBlock = hasSettings
+    ? faqPersonaBuilder.buildPersonaBlock({
+        assistantSettings: settings,
+        lockedEstablishmentName: establishmentName,
+      })
+    : `Você é a anfitriã digital${establishmentName ? ` do ${establishmentName}` : ''} no WhatsApp. Tom caloroso e direto. Português do Brasil.`;
 
-  const emojiRule =
-    settings && settings.is_active
-      ? settings.use_emojis
-        ? '- Máximo 1 emoji discreto se couber.'
-        : '- Não use emojis.'
-      : '- Não invente datas. Máximo 1 emoji discreto se couber.';
+  const emojiRule = hasSettings
+    ? settings.use_emojis
+      ? '- Máximo 1 emoji discreto se couber.'
+      : '- Não use emojis.'
+    : '- Não invente datas. Máximo 1 emoji discreto se couber.';
 
   const bulletRule =
-    settings && settings.is_active && settings.use_bullets
+    hasSettings && settings.use_bullets
       ? '- Pode usar bullets curtos se organizar melhor a resposta.'
       : '- Responda em até 3 frases curtas, em texto corrido (sem bullets, sem listas).';
 
@@ -575,4 +612,6 @@ module.exports = {
   resolveFaqTopicsForTurn,
   fetchFaqAnswerForTopic,
   invalidateFaqCache,
+  loadFaqsMatchingFreeText,
+  scoreFaqAgainstText,
 };

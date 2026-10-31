@@ -81,7 +81,6 @@ TOM: mensagens curtas (1-3 frases), prosa corrida. Peça data+horário+pessoas j
   getAssistantSettings(context = {}) {
     const settings = context.assistantSettings;
     if (!settings || typeof settings !== 'object') return null;
-    if (!settings.is_active) return null;
     return settings;
   }
 
@@ -164,21 +163,26 @@ TOM: mensagens curtas (1-3 frases), prosa corrida. Peça data+horário+pessoas j
   }
 
   buildBehaviorBlock(context = {}) {
+    const settings = this.getAssistantSettings(context);
     const funnelActive = Boolean(String(context.reservationFunnelBlock || '').trim());
     const funnelHint = funnelActive
       ? `
 - FUNIL: a tool traz o fato; a frase é sua, em prosa de WhatsApp, como anfitrião. Se o cliente já disse o horário, confirme esse horário. Uma pergunta. Sem lista de horários, sem markdown, sem textão, sem reinjetar FAQ.`
       : '';
 
+    const toneGuard = settings?.use_bullets
+      ? 'PROIBIDO: "Caro X", formulário, grade de horários. Listas curtas só se organizarem a info.'
+      : 'PROIBIDO: "Caro X", bullets, formulário, grade de horários';
+
     const base = funnelActive
       ? `COMPORTAMENTO (FUNIL):
-- Tom WhatsApp curto, falado, humano. PROIBIDO: "Caro X", bullets, formulário, grade de horários, "vou confirmar com a equipe" sem tool.
+- Tom WhatsApp curto, falado, humano. ${toneGuard}, "vou confirmar com a equipe" sem tool.
 - Disponibilidade/área/mesa: tools. Depois escreva 1 ou 2 frases com o que a tool devolveu. Com dados completos: criar_pre_reserva na mesma interação.
 - Highline: Deck Mesas/Redondas, Bar Central; VIP/Rooftop/Balada só se pedir; Rotativo máx. 4.
 - Pracinha (id=8): só Balcão ou Praça. Balcão é permitido nesta casa.
 - Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.${funnelHint}`
       : `COMPORTAMENTO:
-- Tom WhatsApp: "você", "fechado", "show", "beleza". PROIBIDO: "Caro X", "Prezado", "Atenciosamente", markdown, bullets, formulário.
+- Tom WhatsApp: "você", "fechado", "show", "beleza". ${toneGuard}. "Prezado" e "Atenciosamente" também são proibidos.
 - Fatos estáticos (horário, dress, bolo, entrada): use a BASE. Disponibilidade/área/mesa: use tools e responda em prosa, sem despejar a grade se o cliente já escolheu o horário.
 - Coleta: data, horário e pessoas na mesma frase. Depois nome, e-mail e nascimento na mesma frase. Área só se faltar, numa pergunta curta.
 - Ecoe saudação. Não repita pergunta já respondida. Datas: HOJE (America/Sao_Paulo).
@@ -187,17 +191,15 @@ TOM: mensagens curtas (1-3 frases), prosa corrida. Peça data+horário+pessoas j
 - Com dados completos: criar_pre_reserva na mesma interação. Grupos 7-60: 1 reserva com mesas combinadas; >60: handoff.
 - Use tools na mesma interação — não diga "vou verificar" sem chamar a ferramenta.${funnelHint}`;
 
-    const settings = this.getAssistantSettings(context);
     if (!settings) return base;
 
     const lines = [];
     const rules = Array.isArray(settings.custom_rules) ? settings.custom_rules : [];
-    // No funil, no máximo 3 regras custom (tokens).
-    const limitedRules = funnelActive ? rules.slice(0, 3) : rules;
-    limitedRules.forEach((rule) => lines.push(`- ${rule}`));
-    if (!funnelActive) {
-      this.buildBehaviorConfigLines(settings.behavior_config).forEach((line) => lines.push(`- ${line}`));
-    }
+    rules.forEach((rule) => {
+      const text = String(rule || '').trim();
+      if (text) lines.push(`- ${text}`);
+    });
+    this.buildBehaviorConfigLines(settings.behavior_config).forEach((line) => lines.push(`- ${line}`));
 
     if (!lines.length) return base;
     return `${base}

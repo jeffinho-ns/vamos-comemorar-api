@@ -52,7 +52,19 @@ const {
   getWhatsappDefaultEstablishmentId,
   resolveConversationHouseId,
 } = require('./whatsappEstablishmentContext');
-const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
+const {
+  loadInboundAccessGate,
+  loadActiveSettings: loadActiveAssistantSettings,
+  pickStickerForText,
+} = require('../agent/assistantSettingsService');
+const {
+  evaluateAssistantBehavior,
+  shouldSendStickers,
+  shouldIgnoreInstagramComments,
+  handoffMessage,
+} = require('../agent/assistantBehaviorRuntime');
+const { loadIceBreakers, shouldOfferIceBreakers, appendIceBreakers } = require('../agent/iceBreakerService');
+const { isHouseOpenNow } = require('../agent/reservationOperatingContext');
 const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
 const { isOpenAiCircuitOpen, tripOpenAiCircuit } = require('../agent/openaiCircuitBreaker');
@@ -65,6 +77,15 @@ const B2B_THRESHOLD_PEOPLE = 60;
 const NEUTRAL_HANDOFF_REPLY =
   'Recebi sua mensagem! Já passei seu atendimento para alguém da nossa equipe e em instantes você recebe a resposta por aqui.';
 const B2B_KEYWORDS = /\b(locac[aã]o|loca[cç][aã]o|exclusiv[ao]|privativ[ao]|formatura|formaturas|evento\s+corporativo|corporativ[ao]|empresa|empresarial|confraterniza[cç][aã]o|workshop|congresso|festa\s+de\s+formatura)\b/i;
+
+function isInstagramCommentPayload(payload) {
+  const object = String(payload?.object || '').toLowerCase();
+  const change = payload?.entry?.[0]?.changes?.[0] || {};
+  const field = String(change.field || '').toLowerCase();
+  if (object === 'instagram' && field.includes('comment')) return true;
+  const value = change.value && typeof change.value === 'object' ? change.value : {};
+  return Boolean(object === 'instagram' && (value.comment_id || value.comment));
+}
 
 function detectB2BIntent(text) {
   if (!text) return null;
@@ -338,6 +359,21 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   );
   const lockedEstablishmentName = resolvedEstablishment?.name || 'HighLine';
 
+  let assistantSettings = null;
+  if (lockedEstablishmentId) {
+    assistantSettings = await loadActiveAssistantSettings(pool, lockedEstablishmentId).catch(() => null);
+    if (
+      assistantSettings &&
+      shouldIgnoreInstagramComments(assistantSettings) &&
+      isInstagramCommentPayload(payload)
+    ) {
+      console.log(
+        `[agentEngine] comentário Instagram ignorado establishment_id=${lockedEstablishmentId} waId=${waId}`
+      );
+      return;
+    }
+  }
+
   if (lockedEstablishmentId && waId) {
     try {
       await inbox.setConversationEstablishment(pool, waId, lockedEstablishmentId);
@@ -456,6 +492,50 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     return;
   }
 
+  if (assistantSettings) {
+    const afterHours = String(
+      assistantSettings.behavior_config?.fora_horario_comportamento || 'padrao'
+    ).trim();
+    let houseIsOpen = true;
+    if (afterHours && afterHours !== 'padrao') {
+      houseIsOpen = await isHouseOpenNow(
+        pool,
+        lockedEstablishmentId,
+        lockedEstablishmentName
+      ).catch(() => true);
+    }
+    const behavior = evaluateAssistantBehavior({
+      settings: assistantSettings,
+      userText: incomingText,
+      houseIsOpen,
+    });
+    if (behavior.action === 'silence') {
+      console.log(
+        `[agentEngine] silêncio fora de horário waId=${waId} establishment_id=${lockedEstablishmentId}`
+      );
+      return;
+    }
+    if (behavior.action === 'handoff' || (behavior.action === 'reply' && behavior.replyText)) {
+      await persistMemory(pool, conversation.id, {
+        workingState: workingStateForTurn,
+        contextSummary: memory.contextSummary || null,
+      }).catch(() => {});
+      if (behavior.action === 'handoff') {
+        await activateHumanTakeover(pool, waId, 48);
+      }
+      await outboundGateway.sendText(waId, behavior.replyText);
+      await persistOutbound(
+        behavior.replyText,
+        behavior.action === 'handoff' ? 'HUMAN_REQUESTED' : 'AGENT_BEHAVIOR',
+        { source: 'assistant_behavior', reason: behavior.reason }
+      );
+      console.log(
+        `[agentEngine] comportamento ${behavior.reason} waId=${waId} action=${behavior.action}`
+      );
+      return;
+    }
+  }
+
   const focusDateIso =
     (() => {
       const fromConversation = resolveDateFromConversation(incomingText, messageHistory);
@@ -528,6 +608,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         establishmentRulesBlock: catalog.establishmentRulesBlock,
         dateOverridesBlock: catalog.dateOverridesBlock,
         reservationOperatingBlock,
+        assistantSettings,
         lockedEstablishmentId,
         lockedEstablishmentName,
         contextSummary: contextSummaryForTurn,
@@ -556,7 +637,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       console.error('[agentEngine] falha ao persistir memória:', memoryError.message);
     });
 
-    const replyText = prefixReplyWithContactName(agentResult.replyText, {
+    let replyText = prefixReplyWithContactName(agentResult.replyText, {
       messageHistory,
       contactName:
         whatsappContact?.contact_name ||
@@ -564,6 +645,19 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         extractContactName(payload) ||
         '',
     });
+    if (
+      shouldOfferIceBreakers({
+        settings: assistantSettings,
+        userText: incomingText,
+        messageHistory,
+        channel: 'whatsapp',
+      })
+    ) {
+      const iceBreakers = await loadIceBreakers(pool, lockedEstablishmentId, 'whatsapp').catch(
+        () => []
+      );
+      replyText = appendIceBreakers(replyText, iceBreakers);
+    }
     agentResult.replyText = replyText;
 
     if (inboundRow?.id) {
@@ -584,7 +678,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     // Figurinha opcional: enviada quando o gatilho cadastrado (aba Figurinhas)
     // bate com a mensagem do cliente ou a resposta da IA. Falha não interrompe.
-    if (lockedEstablishmentId) {
+    if (lockedEstablishmentId && shouldSendStickers(assistantSettings)) {
       try {
         const sticker = await pickStickerForText(
           pool,
@@ -708,7 +802,12 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
 
     // Mensagens neutras de propósito: o cliente não deve perceber falha técnica.
+    const customHandoff =
+      assistantSettings?.behavior_config?.chamar_humano_erro === true
+        ? handoffMessage(assistantSettings)
+        : null;
     const fallback =
+      customHandoff ||
       'Recebi sua mensagem! Só um instante que um atendente da nossa equipe já continua seu atendimento por aqui.';
 
     try {
@@ -746,8 +845,8 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
       if (shouldEscalateToHuman) {
         await activateHumanTakeover(pool, waId, 48);
-        await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
-        await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
+        await outboundGateway.sendText(waId, customHandoff || NEUTRAL_HANDOFF_REPLY);
+        await persistOutbound(customHandoff || NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
           source: 'agent_error_guard',
           recentAgentErrors,
           offlineReason: offlineResult.reason,

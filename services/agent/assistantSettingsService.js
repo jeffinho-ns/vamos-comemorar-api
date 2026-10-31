@@ -1,11 +1,11 @@
 /**
  * Carrega as configurações de identidade/personalidade da IA por estabelecimento
  * (tabela ai_assistant_settings) e expõe os valores normalizados para o
- * AgentPromptBuilder. Quando não há linha cadastrada — ou is_active = false —
- * o agente continua usando a persona/comportamento hard-coded (fallback seguro).
+ * AgentPromptBuilder. Sem linha cadastrada, o agente usa a persona padrão.
+ * Se a casa já preencheu o painel, a Sol usa esses valores — is_active
+ * continua existindo no admin, mas não apaga o que a atendente configurou.
  *
- * Feature flag por casa: a coluna is_active funciona como o "liga só na casa
- * piloto". Há ainda um kill-switch global via env AI_ASSISTANT_SETTINGS_ENABLED.
+ * Kill-switch global: AI_ASSISTANT_SETTINGS_ENABLED=false.
  */
 
 const SETTINGS_CACHE = new Map();
@@ -120,8 +120,9 @@ async function getSettingsForAdmin(pool, establishmentId) {
 }
 
 /**
- * Versão runtime (com cache + feature flag): usada pelo agente para montar o
- * prompt. Retorna null quando o agente deve usar o comportamento padrão.
+ * Versão runtime (com cache + feature flag): usada pelo agente.
+ * Devolve a linha da casa mesmo com is_active=false, para a Sol obedecer
+ * o que a atendente já preencheu. Sem linha, devolve null.
  */
 async function loadActiveSettings(pool, establishmentId) {
   const id = Number(establishmentId);
@@ -136,8 +137,7 @@ async function loadActiveSettings(pool, establishmentId) {
 
   let value = null;
   try {
-    const row = await fetchSettingsRow(pool, id);
-    value = row && row.is_active ? row : null;
+    value = await fetchSettingsRow(pool, id);
   } catch (error) {
     console.warn('[assistantSettings] falha ao carregar config da IA:', error.message);
     value = null;

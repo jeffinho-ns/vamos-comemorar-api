@@ -220,6 +220,7 @@ async function tryOfflineKnowledgeReply(pool, {
   if (pool) {
     entries = await loadRelevantFaqsForEstablishment(pool, establishment, topicHints, {
       maxChars: OFFLINE_MAX_CHARS,
+      userText: question,
     });
     entries = entries.filter((entry) => isCustomerFacingFaqEntry(entry, { forOffline: true }));
     entries = expandEntriesWithTopicAliases(entries);
