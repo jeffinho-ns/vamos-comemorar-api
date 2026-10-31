@@ -7,10 +7,9 @@
  */
 
 const DATA_MAP = [
-  { action: 'getReservations', area: 'Operação', label: 'Reservas', origem: 'nosso_banco', tabela: 'restaurant_reservations' },
+  { action: 'getReservations', area: 'Operação', label: 'Reservas (Agilizaiapp + Dionísio, sem duplicar)', origem: 'nosso_banco', tabela: 'restaurant_reservations + planilha:getReservations' },
   { action: 'getDailyAttendance', area: 'Operação', label: 'Presença e check-in do dia', origem: 'nosso_banco', tabela: 'restaurant_reservations.checked_in, guests.checked_in' },
-
-  { action: 'getReservationEntries', area: 'Operação', label: 'Lançamentos manuais de reserva', origem: 'aguarda_variaveis', tabela: null },
+  { action: 'getReservationEntries', area: 'Operação', label: 'Lista de reservas (Agilizaiapp + Dionísio, sem duplicar)', origem: 'nosso_banco', tabela: 'restaurant_reservations + planilha:getReservationEntries' },
   { action: 'getEntries', area: 'Áreas', label: 'Lançamentos por área (master, marketing, financeiro, RH, operação, CMV)', origem: 'aguarda_variaveis', tabela: null },
   { action: 'getMonthClosures', area: 'Financeiro', label: 'Fechamentos do mês', origem: 'aguarda_variaveis', tabela: null },
   { action: 'getZigRevenue', area: 'Financeiro', label: 'Faturamento Zig dia a dia', origem: 'aguarda_variaveis', tabela: null },

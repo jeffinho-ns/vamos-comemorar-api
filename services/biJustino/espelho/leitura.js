@@ -2,6 +2,7 @@
 
 const snapshotStore = require('../snapshotStore');
 const { aplicarProjecaoMarketing } = require('../projecaoMarketing');
+const { carregarUnidas } = require('../reservasUnidas');
 const { listarLeituras, fonteDaChave } = require('./catalogo');
 
 const PREFIXO = 'planilha:';
@@ -92,6 +93,28 @@ async function completarEspelho(pool, dados, chaves, store) {
           || (envio && envio.captured_at)
           || (zig && zig.captured_at),
       };
+    }
+  }
+  if (lista.includes('getReservationEntries') || lista.includes('getReservations')) {
+    try {
+      const unidas = await carregarUnidas(pool, {
+        store,
+        dionisioPayload: saida.getReservationEntries && saida.getReservationEntries.payload,
+      });
+      const capturedAt = (saida.getReservationEntries && saida.getReservationEntries.capturedAt)
+        || (saida.getReservations && saida.getReservations.capturedAt)
+        || new Date().toISOString();
+      if (lista.includes('getReservationEntries') && (unidas.items.length || saida.getReservationEntries)) {
+        saida.getReservationEntries = { payload: { ok: true, items: unidas.items }, capturedAt };
+      }
+      if (lista.includes('getReservations') && (unidas.docs.length || saida.getReservations)) {
+        saida.getReservations = { payload: { ok: true, docs: unidas.docs }, capturedAt };
+      }
+    } catch (err) {
+      console.warn('[bi-justino] não deu para unir reservas Agilizaiapp + Dionísio', {
+        establishment: 'Seu Justino',
+        message: err && err.message ? err.message : String(err),
+      });
     }
   }
   return saida;

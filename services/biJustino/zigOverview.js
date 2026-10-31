@@ -353,7 +353,20 @@ async function loadZigOverview(pool, env, deps) {
       ),
       planos && planos.payload,
     );
-    return displayFrom({ ...last, payload });
+    const visivel = displayFrom({ ...last, payload });
+    try {
+      const { carregarUnidas } = require('./reservasUnidas');
+      const unidas = await carregarUnidas(pool, { store });
+      if (unidas.docs.length) {
+        visivel.reservas = unidas.docs.map((doc) => ({ date: doc.date, pax: doc.pax }));
+      }
+    } catch (err) {
+      console.warn('[bi-justino] reservas unidas no painel Zig indisponíveis', {
+        establishment: 'Seu Justino',
+        message: err && err.message ? err.message : String(err),
+      });
+    }
+    return visivel;
   }
   if (missingCredentialNames(sourceEnv).length) return ausente('credenciais_ausentes');
   const recente = erroZig.ler();

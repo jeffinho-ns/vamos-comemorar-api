@@ -7,7 +7,7 @@ const { listDataMap } = require('../../services/biJustino/dataMap');
 test('o mapa cobre reservas e check-in no nosso banco e não vaza segredo', () => {
   const mapa = listDataMap();
   const nossos = mapa.filter((item) => item.origem === 'nosso_banco').map((item) => item.action);
-  assert.deepEqual(nossos.sort(), ['getDailyAttendance', 'getReservations']);
+  assert.deepEqual(nossos.sort(), ['getDailyAttendance', 'getReservationEntries', 'getReservations']);
   for (const item of mapa) {
     assert.ok(item.action.startsWith('get'));
     assert.ok(item.label);

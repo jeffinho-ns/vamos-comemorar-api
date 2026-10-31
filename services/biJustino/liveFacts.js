@@ -1,5 +1,8 @@
 'use strict';
 
+const snapshotStore = require('./snapshotStore');
+const { extrasDionisioDoBanco, aplicarExtrasNoLive } = require('./reservasUnidas');
+
 const TZ = 'America/Sao_Paulo';
 
 const CANCELLED = ['cancelled', 'cancelada', 'canceled'];
@@ -183,7 +186,7 @@ async function loadLiveFacts(pool) {
     { reservas: 0, pessoas: 0, checkins: 0 },
   );
 
-  return {
+  const live = {
     establishment: 'Seu Justino',
     placeIds,
     hoje: { ...hoje, convidados },
@@ -217,6 +220,18 @@ async function loadLiveFacts(pool) {
     })),
     quadroSemana: await loadQuadroReservas(pool, placeIds, CANCELLED, today, checkinExpr, notCancelled).catch(() => null),
   };
+  try {
+    const snap = await snapshotStore.latestPayload(pool, 'planilha:getReservationEntries');
+    const extras = await extrasDionisioDoBanco(pool, placeIds, snap && snap.payload);
+    const hojeIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+    return aplicarExtrasNoLive(live, extras, hojeIso);
+  } catch (err) {
+    console.warn('[bi-justino] extras Dionísio no ao-vivo indisponíveis', {
+      establishment: 'Seu Justino',
+      message: err && err.message ? err.message : String(err),
+    });
+    return live;
+  }
 }
 
 async function loadQuadroReservas(pool, placeIds, cancelled, today, checkinExpr, notCancelled) {
