@@ -52,7 +52,8 @@ function isStaffShift(date = new Date()) {
 }
 
 /**
- * No expediente dos colaboradores usa o modelo leve. Fora dele, o mais forte.
+ * A voz ao cliente é sempre a Sol. Terra fica só como fallback de modelo (acesso/compat).
+ * shift distingue expediente (seg–sex 8h–17h, São Paulo) apenas para log.
  * OPENAI_AGENT_SCHEDULE=off volta ao par fixo das variáveis de ambiente.
  */
 function resolveAgentModels(date = new Date()) {
@@ -60,10 +61,8 @@ function resolveAgentModels(date = new Date()) {
   if (scheduleOff) {
     return { primary: MODEL_AGENT, fallback: MODEL_FALLBACK, shift: 'fixo' };
   }
-  if (isStaffShift(date)) {
-    return { primary: MODEL_SHIFT_LIGHT, fallback: MODEL_SHIFT_STRONG, shift: 'expediente' };
-  }
-  return { primary: MODEL_SHIFT_STRONG, fallback: MODEL_SHIFT_LIGHT, shift: 'fora' };
+  const shift = isStaffShift(date) ? 'expediente' : 'fora';
+  return { primary: MODEL_SHIFT_STRONG, fallback: MODEL_SHIFT_LIGHT, shift };
 }
 const MODEL_ECONOMY = sanitizeOpenAiModelName(
   process.env.OPENAI_ECONOMY_MODEL,

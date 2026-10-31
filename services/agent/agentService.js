@@ -90,6 +90,9 @@ const {
   tryDeterministicReservationClose,
   reservationFunnelIsComplete: isFunnelCompleteForDeterministic,
 } = require('./deterministicReservationClose');
+const { sanitizeListOrGridReply } = require('./replyListSanitize');
+const { sanitizeToOneQuestion } = require('./oneQuestionSanitize');
+const { shouldUseTimeoutFallback } = require('./solTimeoutFallback');
 
 function looksLikeBookingDataTurn(text) {
   const raw = String(text || '');
@@ -347,7 +350,7 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
     if (pessoasBit) {
       return `Boa, ${dateLabel}${pessoasBit} está liberado. Qual horário fica melhor pra você?`;
     }
-    return `Boa, ${dateLabel} está aberto pra reserva. Pra eu seguir, me conta o horário e quantas pessoas vão.`;
+    return `Boa, ${dateLabel} está aberto pra reserva. Qual horário fica melhor pra você?`;
   }
 
   return null;
@@ -453,9 +456,8 @@ function shouldPrioritizeFaqForCurrentTurn(userText) {
 // ============================================================================
 // TRAVA DE PRODUÇÃO: o agente (tools, reservas, funil) está em teste com
 // gpt-6.1-sol. Function calling desse modelo só existe na Responses API.
-// Segunda a sexta, 8h–17h (São Paulo): gpt-6.1-terra.
-// Noite, madrugada e fim de semana: gpt-6.1-sol.
-// Se o modelo do turno falhar, cai no outro.
+// A frase final, mesmo no expediente, fica com a Sol. Terra só entra como
+// fallback de acesso/compat — timeout de 25s não cai nela nem na grade.
 //
 // FAQ e resumos de histórico continuam no modelo econômico
 // (OPENAI_ECONOMY_MODEL, default gpt-4o-mini).
@@ -725,6 +727,7 @@ async function requestAssistantCompletion(messages, tools, toolChoice = 'auto', 
     const shouldFallbackModel =
       fallbackModel &&
       String(fallbackModel) !== String(primaryModel) &&
+      !shouldUseTimeoutFallback(error) &&
       (isOpenAiCompatError(error) ||
         (modelRequiresResponsesForTools(primaryModel) && isRetryableOpenAiError(error)));
     if (!shouldFallbackModel) throw error;
@@ -898,7 +901,32 @@ function buildSafeFollowupQuestion(workingState = {}) {
   } catch (_e) {
     // ignore
   }
-  return 'Pra eu deixar tudo certo no seu nome, me passa o nome completo, o e-mail e a data de nascimento (DD/MM/AAAA — pra confirmar +18).';
+  return 'Pra eu deixar tudo certo no seu nome, me passa o nome completo?';
+}
+
+function finishSanitizedReply(result, workingState = {}) {
+  const state = workingState && typeof workingState === 'object' ? workingState : {};
+  let text = String(result?.text || '').trim();
+  let blocked = Boolean(result?.blocked);
+  let reason = result?.reason;
+  if (text) {
+    const beforeList = text;
+    text = sanitizeListOrGridReply(text, {
+      workingState: state,
+      alreadySaidTime: state.reservation_time,
+    });
+    if (text !== beforeList) {
+      blocked = true;
+      reason = reason || 'list_or_grid';
+    }
+    const beforeQuestion = text;
+    text = sanitizeToOneQuestion(text);
+    if (text !== beforeQuestion) {
+      blocked = true;
+      reason = reason || 'multiple_questions';
+    }
+  }
+  return { ...result, text, blocked, reason };
 }
 
 /**
@@ -941,7 +969,7 @@ function sanitizeAssistantReply(
     establishmentId || workingState.establishment_id || workingState.estabelecimento_id
   );
   const text = String(replyText || '').trim();
-  if (!text) return { text, blocked: false };
+  if (!text) return finishSanitizedReply({ text, blocked: false }, workingState);
 
   const successPre = lastSuccessfulPreReserva(toolTrace);
 
@@ -960,13 +988,16 @@ function sanitizeAssistantReply(
           '[agentService] guard: descartando texto do LLM (risco detectado) e usando síntese determinística da reserva.'
         );
       }
-      return {
-        text: synthetic,
-        blocked: text !== synthetic,
-        reason: llmAddedRisk
-          ? 'deterministic_confirmation_override_risky'
-          : 'deterministic_confirmation_override',
-      };
+      return finishSanitizedReply(
+        {
+          text: synthetic,
+          blocked: text !== synthetic,
+          reason: llmAddedRisk
+            ? 'deterministic_confirmation_override_risky'
+            : 'deterministic_confirmation_override',
+        },
+        workingState
+      );
     }
   }
 
@@ -975,11 +1006,14 @@ function sanitizeAssistantReply(
     console.warn(
       '[agentService] guard: bloqueado texto de confirmação falsa de reserva (sem criar_pre_reserva ok).'
     );
-    return {
-      text: safe,
-      blocked: true,
-      reason: 'fake_reservation_confirmation',
-    };
+    return finishSanitizedReply(
+      {
+        text: safe,
+        blocked: true,
+        reason: 'fake_reservation_confirmation',
+      },
+      workingState
+    );
   }
 
   // Tom formal SEMPRE bloqueado, independente de ter reserva ou não.
@@ -991,7 +1025,7 @@ function sanitizeAssistantReply(
       ? synthesizeReplyFromToolTrace(toolTrace) ||
         'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
       : buildSafeFollowupQuestion(workingState);
-    return { text: safe, blocked: true, reason: 'formal_tone' };
+    return finishSanitizedReply({ text: safe, blocked: true, reason: 'formal_tone' }, workingState);
   }
 
   if (containsForbiddenAreaName(text, houseId)) {
@@ -1002,20 +1036,26 @@ function sanitizeAssistantReply(
       const safe =
         synthesizeReplyFromToolTrace(toolTrace) ||
         'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.';
-      return { text: safe, blocked: true, reason: 'forbidden_area_name' };
+      return finishSanitizedReply({ text: safe, blocked: true, reason: 'forbidden_area_name' }, workingState);
     }
     const { sanitizeForbiddenAreaNames, hasUsefulReservationProse } = require('./reservationAreaSanitize');
     const sanitized = sanitizeForbiddenAreaNames(text, houseId);
     const stillForbidden = containsForbiddenAreaName(sanitized, houseId);
     const useful = hasUsefulReservationProse(sanitized);
     if (sanitized && useful && !stillForbidden) {
-      return { text: sanitized, blocked: true, reason: 'forbidden_area_name' };
+      return finishSanitizedReply(
+        { text: sanitized, blocked: true, reason: 'forbidden_area_name' },
+        workingState
+      );
     }
-    return {
-      text: recoveryAfterForbiddenArea(workingState),
-      blocked: true,
-      reason: 'forbidden_area_name',
-    };
+    return finishSanitizedReply(
+      {
+        text: recoveryAfterForbiddenArea(workingState),
+        blocked: true,
+        reason: 'forbidden_area_name',
+      },
+      workingState
+    );
   }
 
   if (looksLikeInternalOperatingLeak(text)) {
@@ -1023,7 +1063,10 @@ function sanitizeAssistantReply(
       '[agentService] guard: bloqueado vazamento do bloco operacional interno pro WhatsApp.'
     );
     const safe = buildSafeFollowupQuestion(workingState);
-    return { text: safe, blocked: true, reason: 'operating_block_leak' };
+    return finishSanitizedReply(
+      { text: safe, blocked: true, reason: 'operating_block_leak' },
+      workingState
+    );
   }
 
   // Bloqueia plano de "fazer N reservas SEPARADAS" pro mesmo grupo.
@@ -1037,11 +1080,14 @@ function sanitizeAssistantReply(
       '[agentService] guard: bloqueado plano de múltiplas reservas pro mesmo grupo.'
     );
     const safe =
-      'Para grupos maiores, eu deixo TUDO em UMA reserva só (a casa usa a feature de "múltiplas mesas" do painel pra juntar mesas próximas). Quer seguir assim? Me passa o nome completo, o e-mail e a data de nascimento que eu já registro.';
-    return { text: safe, blocked: true, reason: 'multi_reservation_attempt' };
+      'Para grupos maiores, eu deixo tudo em UMA reserva só. Quer seguir assim?';
+    return finishSanitizedReply(
+      { text: safe, blocked: true, reason: 'multi_reservation_attempt' },
+      workingState
+    );
   }
 
-  return { text, blocked: false };
+  return finishSanitizedReply({ text, blocked: false }, workingState);
 }
 
 async function requestHostSentence(messages, tools, assistantMessage, toolTrace, workingState) {

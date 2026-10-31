@@ -17,6 +17,7 @@ const readyOps = {
   reservation_date: '2026-10-30',
   reservation_time: '21:00',
   quantidade_convidados: 6,
+  area_label: 'Deck - Mesas',
 };
 
 test('looksLikeFakeReservationConfirmation detecta reserva confirmada sem ferramenta', () => {

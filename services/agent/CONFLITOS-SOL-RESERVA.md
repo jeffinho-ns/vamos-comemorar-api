@@ -8,7 +8,7 @@ Já no `master` e fora desta lista:
 - `497f2e6` — no Pracinha, Balcão e Praça são áreas válidas; o oi não sai duplicado.
 - `8c58561` — a frase do WhatsApp é da Sol, e a grade de horários só entra se essa frase não sair.
 
-4 conflitos ainda abertos (tom: 27–30).
+Os 30 conflitos estão no `master`. Quarta leva (tom): 27, 28, 29 e 30.
 
 Primeira leva no `master` (parse do funil): 1, 2, 6, 8, 9 e 12.
 Segunda leva (fechamento): 7, 10, 11, 13, 14, 18, 20, 23, 24 e 26.
@@ -57,7 +57,7 @@ Terceira leva (casa, área, identidade): 3, 4, 5, 15, 16, 17, 19, 21, 22 e 25.
 
 ## Tom
 
-27. **Lista ou grade.** A resposta vem em bullets, markdown ou grade de horários. Direção: se vier lista, reescrever em uma ou duas frases antes de enviar.
-28. **Expediente.** Segunda a sexta, das 8h às 17h, quem escreve é a Terra. Direção: decidir se a frase final, mesmo de dia, fica com a Sol.
-29. **Timeout de 25 segundos.** A prosa da Sol estoura e cai na Terra ou no texto pronto, e a grade volta. Direção: se a prosa falhar, uma frase curta com o horário já dito. Sem lista de janelas.
-30. **Três perguntas juntas.** Faltam horário, pessoas e área ao mesmo tempo. Direção: uma pergunta por turno, na ordem horário, pessoas, área, nome, e-mail, nascimento.
+27. **Lista ou grade.** Feito. Lista, markdown ou grade vira uma ou duas frases antes de enviar.
+28. **Expediente.** Feito. A frase final, mesmo de dia, fica com a Sol. Terra só entra se o modelo da Sol falhar por acesso/compat.
+29. **Timeout de 25 segundos.** Feito. Se a prosa estourar, uma frase curta com o horário já dito. Sem Terra, sem FAQ offline e sem grade.
+30. **Três perguntas juntas.** Feito. Uma pergunta por turno, na ordem horário, pessoas, área, nome, e-mail, nascimento.

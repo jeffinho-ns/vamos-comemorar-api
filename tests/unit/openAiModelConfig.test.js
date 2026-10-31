@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   sanitizeOpenAiModelName,
   MODEL_AGENT,
+  MODEL_FALLBACK,
   MODEL_ECONOMY,
   getModelForTask,
   applyOutputLimit,
@@ -36,7 +37,7 @@ test('getModelForTask usa MODEL_AGENT para agente e tarefas desconhecidas', () =
   assert.equal(getModelForTask(undefined), MODEL_AGENT);
 });
 
-test('expediente usa Terra e fora do expediente usa Sol', () => {
+test('primary é Sol de dia e de noite; Terra só entra como fallback', () => {
   assert.equal(isStaffShift(new Date('2026-10-29T16:30:00-03:00')), true);
   assert.equal(isStaffShift(new Date('2026-10-29T17:00:00-03:00')), false);
   assert.equal(isStaffShift(new Date('2026-10-29T07:59:00-03:00')), false);
@@ -45,9 +46,34 @@ test('expediente usa Terra e fora do expediente usa Sol', () => {
   const previous = process.env.OPENAI_AGENT_SCHEDULE;
   delete process.env.OPENAI_AGENT_SCHEDULE;
   try {
-    assert.equal(resolveAgentModels(new Date('2026-10-29T10:00:00-03:00')).primary, 'gpt-6.1-terra');
-    assert.equal(resolveAgentModels(new Date('2026-10-29T21:00:00-03:00')).primary, 'gpt-6.1-sol');
-    assert.equal(resolveAgentModels(new Date('2026-10-31T15:00:00-03:00')).primary, 'gpt-6.1-sol');
+    const expediente = resolveAgentModels(new Date('2026-10-29T10:00:00-03:00'));
+    assert.equal(expediente.primary, 'gpt-6.1-sol');
+    assert.equal(expediente.fallback, 'gpt-6.1-terra');
+    assert.equal(expediente.shift, 'expediente');
+
+    const noite = resolveAgentModels(new Date('2026-10-29T21:00:00-03:00'));
+    assert.equal(noite.primary, 'gpt-6.1-sol');
+    assert.equal(noite.fallback, 'gpt-6.1-terra');
+    assert.equal(noite.shift, 'fora');
+
+    const sabado = resolveAgentModels(new Date('2026-10-31T15:00:00-03:00'));
+    assert.equal(sabado.primary, 'gpt-6.1-sol');
+    assert.equal(sabado.fallback, 'gpt-6.1-terra');
+    assert.equal(sabado.shift, 'fora');
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_AGENT_SCHEDULE;
+    else process.env.OPENAI_AGENT_SCHEDULE = previous;
+  }
+});
+
+test('OPENAI_AGENT_SCHEDULE=off mantém o par fixo das variáveis de ambiente', () => {
+  const previous = process.env.OPENAI_AGENT_SCHEDULE;
+  process.env.OPENAI_AGENT_SCHEDULE = 'off';
+  try {
+    const resolved = resolveAgentModels(new Date('2026-10-29T10:00:00-03:00'));
+    assert.equal(resolved.primary, MODEL_AGENT);
+    assert.equal(resolved.fallback, MODEL_FALLBACK);
+    assert.equal(resolved.shift, 'fixo');
   } finally {
     if (previous === undefined) delete process.env.OPENAI_AGENT_SCHEDULE;
     else process.env.OPENAI_AGENT_SCHEDULE = previous;

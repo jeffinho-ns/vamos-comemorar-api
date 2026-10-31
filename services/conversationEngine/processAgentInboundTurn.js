@@ -57,6 +57,10 @@ const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
 const { isOpenAiCircuitOpen, tripOpenAiCircuit } = require('../agent/openaiCircuitBreaker');
 const { tryOfflineKnowledgeReply } = require('../agent/offlineKnowledgeService');
+const {
+  buildTimeoutFallbackReply,
+  shouldUseTimeoutFallback,
+} = require('../agent/solTimeoutFallback');
 const B2B_THRESHOLD_PEOPLE = 60;
 const NEUTRAL_HANDOFF_REPLY =
   'Recebi sua mensagem! Já passei seu atendimento para alguém da nossa equipe e em instantes você recebe a resposta por aqui.';
@@ -683,6 +687,25 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     const shouldEscalateToHuman =
       shouldImmediateHumanHandoffOnAgentError(errorCode) || errorCode === 'OPENAI_QUOTA_EXCEEDED';
+
+    if (shouldUseTimeoutFallback(error)) {
+      const timeoutReply = buildTimeoutFallbackReply(memoryForTurn?.workingState || {}, {});
+      try {
+        await persistMemory(pool, conversation.id, {
+          workingState: memoryForTurn?.workingState || {},
+          contextSummary: contextSummaryForTurn,
+        }).catch(() => {});
+        await outboundGateway.sendText(waId, timeoutReply);
+        await persistOutbound(timeoutReply, 'AGENT_TIMEOUT_FALLBACK', {
+          source: 'sol_timeout_fallback',
+          ...errorMeta,
+        });
+        console.warn(`[agentEngine] fallback de timeout da Sol waId=${waId}`);
+      } catch (timeoutSendError) {
+        console.error('[agentEngine] falha ao enviar fallback de timeout:', timeoutSendError.message);
+      }
+      return;
+    }
 
     // Mensagens neutras de propósito: o cliente não deve perceber falha técnica.
     const fallback =

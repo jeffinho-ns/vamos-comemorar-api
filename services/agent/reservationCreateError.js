@@ -42,10 +42,7 @@ function areaUnlockQuestion(workingState = {}) {
 
 function birthUnlockQuestion(workingState = {}) {
   if (workingState.pending_birth_from_age) return buildBirthFromAgeQuestion();
-  const askState = { ...workingState };
-  delete askState.data_nascimento;
-  delete askState.pending_contact_birth_iso;
-  return buildNextFieldQuestion(askState);
+  return 'Por último, sua data de nascimento (DD/MM/AAAA) pra eu confirmar +18.';
 }
 
 function humanizeCreateError(toolResult = {}, workingState = {}) {

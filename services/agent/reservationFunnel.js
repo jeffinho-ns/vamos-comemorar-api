@@ -4,14 +4,14 @@ const {
   isInformationalFaqTurn,
   looksLikeEventProgramQuestion,
 } = require('./faqTopicCanonical');
-const {
-  buildCollectBundlePrompt,
-  BUNDLE_FIELD_ORDER,
-  OBSERVATIONS_STEP,
-  getStepPrompt,
-} = require('../stateManager/conversationSteps');
+const { OBSERVATIONS_STEP, getStepPrompt } = require('../stateManager/conversationSteps');
 const { resolveHighlineSubarea } = require('./highlineReservationAreas');
-const { resolveJustinoGuestZone, resolveJustinoSubarea, guestZoneLabel } = require('./seuJustinoReservationAreas');
+const {
+  resolveJustinoGuestZone,
+  resolveJustinoSubarea,
+  guestZoneLabel,
+  guestZonePromptForClient,
+} = require('./seuJustinoReservationAreas');
 const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
 
 /**
@@ -417,38 +417,58 @@ function getReservationMissingFields(workingState = {}) {
   return missing;
 }
 
-function buildNextFieldQuestion(workingState = {}, options = {}) {
-  const missing = getReservationMissingFields(workingState);
+const AREA_QUESTION_BY_ESTABLISHMENT = {
+  1: guestZonePromptForClient(),
+  7: 'Qual área combina melhor pra você?',
+  8: 'No Pracinha, prefere o Balcão ou a Praça?',
+};
+
+const OPERATIONAL_FIELD_ORDER = [
+  'establishment_id',
+  'reservation_date',
+  'reservation_time',
+  'quantidade_convidados',
+];
+
+function hasReservationArea(state = {}) {
+  if (hasFieldValue(state, 'area_id')) return true;
+  return ['area_label', 'area_preferida', 'justino_zone'].some(
+    (key) => String(state[key] ?? '').trim().length > 0
+  );
+}
+
+function buildNextFieldQuestion(workingState = {}) {
+  const state = workingState && typeof workingState === 'object' ? workingState : {};
+  const missing = getReservationMissingFields(state);
   if (missing.includes('reservation_date_confirm')) {
-    const label = workingState.pending_reservation_date_label || workingState.pending_reservation_date_iso;
+    const label = state.pending_reservation_date_label || state.pending_reservation_date_iso;
     return `Só confirmando: é para ${label}? (sim/não)`;
   }
   if (missing.length === 0) {
     return getStepPrompt(OBSERVATIONS_STEP);
   }
-  if (workingState.pending_birth_md && missing.includes('data_nascimento')) {
-    return buildBirthYearQuestion(workingState.pending_birth_md);
+  if (state.pending_birth_md && missing.includes('data_nascimento')) {
+    return buildBirthYearQuestion(state.pending_birth_md);
   }
-  if (workingState.pending_birth_from_age && missing.includes('data_nascimento')) {
+  if (state.pending_birth_from_age && missing.includes('data_nascimento')) {
     return buildBirthFromAgeQuestion();
   }
-  const operationalMissing = ['reservation_date', 'reservation_time', 'quantidade_convidados'].some(
-    (key) => missing.includes(key)
-  );
+
+  const firstOperational = OPERATIONAL_FIELD_ORDER.find((key) => missing.includes(key));
+  if (firstOperational) return MISSING_FIELD_PROMPTS[firstOperational];
+
+  const areaQuestion = AREA_QUESTION_BY_ESTABLISHMENT[Number(state.establishment_id)];
+  if (areaQuestion && !hasReservationArea(state)) return areaQuestion;
+
   const firstIdentity = ['client_name', 'client_email', 'data_nascimento'].find((key) =>
     missing.includes(key)
   );
-  if (firstIdentity && !operationalMissing) {
-    if (firstIdentity === 'data_nascimento' && workingState.pending_contact_birth_iso) {
-      return buildContactBirthConfirmQuestion(workingState.pending_contact_birth_iso);
-    }
-    return MISSING_FIELD_PROMPTS[firstIdentity] || buildCollectBundlePrompt(workingState, options);
+  if (firstIdentity === 'data_nascimento' && state.pending_contact_birth_iso) {
+    return buildContactBirthConfirmQuestion(state.pending_contact_birth_iso);
   }
-  if (missing.length >= 2 || missing.some((key) => BUNDLE_FIELD_ORDER.includes(key))) {
-    return buildCollectBundlePrompt(workingState, options);
-  }
-  const first = missing[0];
-  return MISSING_FIELD_PROMPTS[first] || buildCollectBundlePrompt(workingState, options);
+  if (firstIdentity) return MISSING_FIELD_PROMPTS[firstIdentity];
+
+  return MISSING_FIELD_PROMPTS[missing[0]] || '';
 }
 
 function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = []) {

@@ -14,15 +14,8 @@ function normalizeLoose(value) {
     .trim();
 }
 
-function joinPt(parts) {
-  const items = (parts || []).filter(Boolean);
-  if (items.length <= 1) return items[0] || '';
-  if (items.length === 2) return `${items[0]} e ${items[1]}`;
-  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
-}
-
 /**
- * Poucas perguntas, juntando o que ainda falta.
+ * Uma pergunta por turno. Ordem operacional: horário → pessoas → área.
  * No Seu Justino o cliente só escolhe coberta ou descoberta.
  */
 function buildSalesPullQuestion(workingState = {}) {
@@ -46,16 +39,9 @@ function buildSalesPullQuestion(workingState = {}) {
     return 'No Pracinha, prefere o Balcão ou a Praça?';
   }
   if (ops.length > 0) {
-    if (ops.length === 1 && missing.includes('reservation_time')) {
-      return 'Qual horário fica melhor pra você?';
-    }
-    if (ops.length === 1 && missing.includes('quantidade_convidados')) {
-      return 'Para quantas pessoas?';
-    }
-    if (ops.length === 1) {
-      return 'Você prefere área coberta ou área descoberta?';
-    }
-    return `Pra eu já deixar a mesa, me conta ${joinPt(ops)}?`;
+    if (missing.includes('reservation_time')) return 'Qual horário fica melhor pra você?';
+    if (missing.includes('quantidade_convidados')) return 'Para quantas pessoas?';
+    return 'Você prefere área coberta ou área descoberta?';
   }
 
   const identity = [];

@@ -27,6 +27,7 @@ const {
   assistantAskedForOccasion,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
+const { buildSalesPullQuestion } = require('../../services/agent/salesFunnelPull');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
 const { mergeWorkingState } = require('../../services/agent/agentMemoryService');
 const { resolveDateFromText } = require('../../nlp/dateResolver');
@@ -190,6 +191,7 @@ test('tryAdvanceFunnelFromUserMessage avança após horário "18"', () => {
     establishment_id: 7,
     reservation_date: '2026-05-23',
     quantidade_convidados: 4,
+    area_label: 'Rooftop',
     availability_checked_for: '7|2026-05-23|4',
   };
   const history = [
@@ -229,6 +231,7 @@ test('buildNextFieldQuestion pede próximo campo faltante', () => {
     reservation_date: '2026-05-24',
     reservation_time: '20:00',
     quantidade_convidados: 2,
+    area_label: 'Rooftop',
   });
   assert.match(q, /nome|e-mail|nascimento/i);
 });
@@ -519,6 +522,7 @@ const identityReadyState = {
   reservation_date: '2026-10-30',
   reservation_time: '21:00',
   quantidade_convidados: 6,
+  area_label: 'área coberta',
   client_name: 'Ana Silva',
   client_email: 'ana@example.com',
 };
@@ -643,6 +647,7 @@ test('buildNextFieldQuestion pede o nome quando só falta o nome', () => {
     reservation_date: '2026-10-30',
     reservation_time: '21:00',
     quantidade_convidados: 4,
+    area_label: 'área coberta',
     client_email: 'ana@example.com',
     data_nascimento: '1987-09-15',
   });
@@ -656,6 +661,7 @@ test('buildNextFieldQuestion pede o e-mail quando só falta o e-mail', () => {
     reservation_date: '2026-10-30',
     reservation_time: '21:00',
     quantidade_convidados: 4,
+    area_label: 'área coberta',
     client_name: 'Ana Silva',
     data_nascimento: '1987-09-15',
   });
@@ -747,4 +753,137 @@ test('sim após confirmação de data não vira aniversário', () => {
   const patch = parseReservationFieldsFromUserText('Sim', state, history);
   assert.equal(patch.event_type, undefined);
   assert.equal(patch.reservation_date, '2026-10-30');
+});
+
+test('buildNextFieldQuestion com casa e data pergunta só o horário', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+  });
+  assert.equal((q.match(/\?/g) || []).length, 1);
+  assert.match(q, /horário/i);
+  assert.doesNotMatch(q, /pessoas|coberta|descoberta|balcão|praça|e-mail|nascimento/i);
+  assert.doesNotMatch(q, /me conta a data/i);
+});
+
+test('buildNextFieldQuestion com casa, data e hora pergunta só as pessoas', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 7,
+    reservation_date: '2026-05-24',
+    reservation_time: '20:00',
+  });
+  assert.equal((q.match(/\?/g) || []).length, 1);
+  assert.match(q, /pessoas/i);
+  assert.doesNotMatch(q, /horário|área|nome completo|e-mail|nascimento/i);
+});
+
+test('buildNextFieldQuestion sem data pergunta a data antes do horário', () => {
+  const q = buildNextFieldQuestion({ establishment_id: 7 });
+  assert.equal((q.match(/\?/g) || []).length, 1);
+  assert.match(q, /quando/i);
+  assert.doesNotMatch(q, /horário|pessoas|área/i);
+});
+
+test('buildNextFieldQuestion no Justino sem área pede só coberta ou descoberta', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+  });
+  assert.equal(q, 'Você prefere a área coberta ou a área descoberta?');
+  assert.equal((q.match(/\?/g) || []).length, 1);
+});
+
+test('buildNextFieldQuestion no Pracinha sem área pede só Balcão ou Praça', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 8,
+    reservation_date: '2026-10-30',
+    reservation_time: '19:00',
+    quantidade_convidados: 7,
+  });
+  assert.equal(q, 'No Pracinha, prefere o Balcão ou a Praça?');
+});
+
+test('buildNextFieldQuestion no Highline sem área pede uma área, sem grade', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 7,
+    reservation_date: '2026-05-24',
+    reservation_time: '20:00',
+    quantidade_convidados: 2,
+  });
+  assert.equal(q, 'Qual área combina melhor pra você?');
+  assert.doesNotMatch(q, /deck|rooftop|bar central|terraço/i);
+});
+
+test('buildNextFieldQuestion com operacional completo pede só o nome', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+    area_label: 'área coberta',
+  });
+  assert.match(q, /nome/i);
+  assert.doesNotMatch(q, /e-mail|nascimento|coberta|pessoas|horário/i);
+  assert.equal((q.match(/\?/g) || []).length, 1);
+});
+
+test('buildSalesPullQuestion com horário, pessoas e área pede só o horário', () => {
+  const q = buildSalesPullQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+  });
+  assert.equal((q.match(/\?/g) || []).length, 1);
+  assert.match(q, /horário/i);
+  assert.doesNotMatch(q, /pessoas|coberta|descoberta/i);
+  assert.doesNotMatch(q, /me conta .+, .+ e /i);
+});
+
+test('buildSalesPullQuestion com hora definida pede só as pessoas', () => {
+  const q = buildSalesPullQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+    reservation_time: '21:00',
+  });
+  assert.match(q, /pessoas/i);
+  assert.doesNotMatch(q, /coberta|horário/i);
+  assert.equal((q.match(/\?/g) || []).length, 1);
+});
+
+test('buildNextFieldQuestion trata area_id, justino_zone e area_preferida como área escolhida', () => {
+  const base = {
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+  };
+  for (const extra of [{ area_id: 2 }, { justino_zone: 'coberta' }, { area_preferida: 'área coberta' }]) {
+    const q = buildNextFieldQuestion({ ...base, ...extra });
+    assert.match(q, /nome/i);
+    assert.doesNotMatch(q, /coberta ou a área descoberta/i);
+  }
+});
+
+test('buildNextFieldQuestion ignora area_label em branco', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-31',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+    area_label: '   ',
+  });
+  assert.equal(q, 'Você prefere a área coberta ou a área descoberta?');
+});
+
+test('buildSalesPullQuestion no Pracinha com hora e pessoas pede Balcão ou Praça', () => {
+  assert.equal(
+    buildSalesPullQuestion({
+      establishment_id: 8,
+      reservation_date: '2026-10-30',
+      reservation_time: '19:00',
+      quantidade_convidados: 7,
+    }),
+    'No Pracinha, prefere o Balcão ou a Praça?'
+  );
 });

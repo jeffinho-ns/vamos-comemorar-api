@@ -339,6 +339,28 @@ test('criar_pre_reserva marca reservation_created no working state', () => {
   assert.equal(patch.reservation_id, 42);
 });
 
+test('sanitizeAssistantReply reescreve lista de horários em prosa', () => {
+  const result = sanitizeAssistantReply('- 17h\n- 18h\n- 19h\n- 20h', {
+    toolTrace: [],
+    workingState: { reservation_time: '21:00', reservation_date: '2026-10-30' },
+  });
+  assert.equal(result.blocked, true);
+  assert.match(result.text, /21h/);
+  assert.doesNotMatch(result.text, /^\s*[-*]\s/m);
+  assert.doesNotMatch(result.text, /17h/);
+});
+
+test('sanitizeAssistantReply deixa só a primeira pergunta', () => {
+  const result = sanitizeAssistantReply(
+    'Qual horário fica melhor pra você? E quantas pessoas vão? Qual área você prefere?',
+    { toolTrace: [], workingState: {} }
+  );
+  assert.equal(result.blocked, true);
+  assert.match(result.text, /horário/i);
+  assert.doesNotMatch(result.text, /pessoas|área/i);
+  assert.equal((result.text.match(/\?/g) || []).length, 1);
+});
+
 test('sanitizeAssistantReply PERMITE combinar múltiplas MESAS em uma reserva', () => {
   const benignTexts = [
     'Vou combinar 3 mesas próximas no Deck pra acomodar o grupo numa única reserva.',

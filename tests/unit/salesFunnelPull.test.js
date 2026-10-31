@@ -17,7 +17,14 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
       establishment_id: 1,
       reservation_date: '2026-10-31',
     }),
-    /horário.*pessoas.*coberta ou descoberta/i
+    /horário/i
+  );
+  assert.doesNotMatch(
+    buildSalesPullQuestion({
+      establishment_id: 1,
+      reservation_date: '2026-10-31',
+    }),
+    /pessoas|coberta|descoberta/i
   );
   assert.equal(
     buildSalesPullQuestion({
