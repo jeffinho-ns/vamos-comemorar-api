@@ -116,7 +116,7 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.OPENAI_API_KEY) missingWhatsAppEnv.push('OPENAI_API_KEY');
   if (!process.env.IG_ACCESS_TOKEN && !process.env.INSTAGRAM_ACCESS_TOKEN) {
     console.warn(
-      '[startup] Instagram Direct sem token (IG_ACCESS_TOKEN ou INSTAGRAM_ACCESS_TOKEN). A Sol não consegue responder no Instagram até isso existir.'
+      '[startup] Instagram Direct: sem token global. Cada casa precisa do cadastro em Configurações de IA > Instagram.'
     );
   }
   if (missingWhatsAppEnv.length > 0) {
@@ -269,6 +269,7 @@ const whatsappAdminRoutes = require('./routes/whatsappAdmin');
 const conversationMetricsRoutes = require('./routes/conversationMetrics');
 const establishmentFaqsAdminRoutes = require('./routes/establishmentFaqsAdmin');
 const aiAssistantSettingsAdminRoutes = require('./routes/aiAssistantSettingsAdmin');
+const instagramAccountsAdminRoutes = require('./routes/instagramAccountsAdmin');
 const aiAssistantConfigAdminRoutes = require('./routes/aiAssistantConfigAdmin');
 const aiFlyersAdminRoutes = require('./routes/aiFlyersAdmin');
 const privacyLgpdRoutes = require('./routes/privacyLgpd');
@@ -329,6 +330,7 @@ app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
 app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
 app.use('/api/admin', establishmentFaqsAdminRoutes(pool));
 app.use('/api/admin', aiAssistantSettingsAdminRoutes(pool));
+app.use('/api/admin', instagramAccountsAdminRoutes(pool));
 app.use('/api/admin', aiAssistantConfigAdminRoutes(pool));
 app.use('/api/admin', aiFlyersAdminRoutes(pool));
 app.use('/api/privacy/lgpd', privacyLgpdRoutes(pool));

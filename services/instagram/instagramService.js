@@ -1,37 +1,72 @@
 const { instagramSenderId } = require('./instagramIdentity');
+const {
+  findActiveByCustomerWaId,
+  findActiveByEstablishmentId,
+} = require('./instagramAccountService');
 
-function instagramAccessToken() {
+function envAccessToken() {
   return (
     String(process.env.INSTAGRAM_ACCESS_TOKEN || process.env.IG_ACCESS_TOKEN || '').trim() || null
   );
 }
 
-function instagramUserId() {
+function envUserId() {
   return String(process.env.INSTAGRAM_USER_ID || process.env.IG_USER_ID || '').trim() || null;
 }
 
-function instagramMessagesUrl() {
+function instagramMessagesUrl(igUserId) {
   const version = String(process.env.INSTAGRAM_GRAPH_VERSION || 'v21.0').replace(/^\//, '');
-  const userId = instagramUserId();
+  const userId = String(igUserId || '').replace(/\D/g, '');
   if (userId) return `https://graph.facebook.com/${version}/${userId}/messages`;
   return `https://graph.instagram.com/${version}/me/messages`;
 }
 
-async function sendInstagramMessage(to, text) {
+async function defaultLookupAccount({ to, establishmentId } = {}) {
+  const pool = require('../../config/database');
+  if (establishmentId) {
+    const byHouse = await findActiveByEstablishmentId(pool, establishmentId);
+    if (byHouse) return byHouse;
+  }
+  if (to) return findActiveByCustomerWaId(pool, to);
+  return null;
+}
+
+async function resolveSendCredentials(options = {}) {
+  if (options.accessToken) {
+    return {
+      accessToken: String(options.accessToken).trim(),
+      igUserId: options.igUserId || null,
+    };
+  }
+  const lookup = options.lookupAccount || defaultLookupAccount;
+  const account = await lookup({
+    to: options.to,
+    establishmentId: options.establishmentId,
+  });
+  if (account?.access_token) {
+    return { accessToken: account.access_token, igUserId: account.ig_user_id };
+  }
+  return { accessToken: envAccessToken(), igUserId: envUserId() };
+}
+
+async function sendInstagramMessage(to, text, options = {}) {
   const recipientId = instagramSenderId(to) || String(to || '').replace(/\D/g, '');
-  const token = instagramAccessToken();
   const body = String(text || '').trim();
   if (!recipientId || !body) {
     throw new Error('Parâmetros inválidos para envio no Instagram.');
   }
-  if (!token) {
-    throw new Error('IG_ACCESS_TOKEN ou INSTAGRAM_ACCESS_TOKEN não definido no ambiente.');
+
+  const credentials = await resolveSendCredentials({ ...options, to });
+  if (!credentials.accessToken) {
+    throw new Error(
+      'Instagram desta casa sem token. Cadastre o Direct em Configurações de IA > Instagram.'
+    );
   }
 
-  const response = await fetch(instagramMessagesUrl(), {
+  const response = await fetch(instagramMessagesUrl(credentials.igUserId), {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${credentials.accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -49,12 +84,13 @@ async function sendInstagramMessage(to, text) {
 }
 
 function isInstagramConfigured() {
-  return Boolean(instagramAccessToken());
+  return Boolean(envAccessToken());
 }
 
 module.exports = {
   sendInstagramMessage,
   isInstagramConfigured,
-  instagramAccessToken,
-  instagramUserId,
+  resolveSendCredentials,
+  instagramAccessToken: envAccessToken,
+  instagramUserId: envUserId,
 };

@@ -3,7 +3,17 @@ const messageDedup = require('../whatsappMessageDedupRepository');
 const { processInboundTurn } = require('../conversationEngine/processInboundTurn');
 const { enqueueInboundTurn } = require('../../infrastructure/queue/producers');
 const { isQueueEnabled } = require('../../infrastructure/queue/redisConnection');
-const { extractInstagramInbound } = require('./instagramWebhookParse');
+const { extractInstagramInbound, extractInstagramAccountIds } = require('./instagramWebhookParse');
+const { findActiveByAccountIds } = require('./instagramAccountService');
+
+async function resolveHouseFromPayload(pool, payload) {
+  try {
+    return await findActiveByAccountIds(pool, extractInstagramAccountIds(payload));
+  } catch (error) {
+    console.warn('[instagram] falha ao resolver a casa do Direct:', error.message);
+    return null;
+  }
+}
 
 async function processInstagramWebhook({ pool, app, payload }) {
   const inbound = extractInstagramInbound(payload);
@@ -14,6 +24,17 @@ async function processInstagramWebhook({ pool, app, payload }) {
   }
   if (!inbound.text) {
     return { handled: true, reason: 'no_text' };
+  }
+  const account = await resolveHouseFromPayload(pool, payload);
+  const hintedEstablishmentId = Number(account?.establishment_id) || null;
+  if (hintedEstablishmentId) {
+    console.log(
+      `[instagram] Direct da casa establishment_id=${hintedEstablishmentId} ig=${account.ig_user_id} waId=${inbound.waId}`
+    );
+  } else {
+    console.warn(
+      `[instagram] Direct sem casa cadastrada accountIds=${extractInstagramAccountIds(payload).join(',') || 'vazio'} waId=${inbound.waId}`
+    );
   }
 
   const wamid = inbound.messageId;
@@ -32,6 +53,7 @@ async function processInstagramWebhook({ pool, app, payload }) {
       wamid,
       payload,
       incomingMessageText: inbound.text,
+      hintedEstablishmentId,
     });
     if (enqueueResult.enqueued) {
       return { handled: true, reason: 'queued', jobId: enqueueResult.jobId };
@@ -45,6 +67,7 @@ async function processInstagramWebhook({ pool, app, payload }) {
       payload,
       incomingMessageText: inbound.text,
       waId: inbound.waId,
+      hintedEstablishmentId,
     });
   });
   return { handled: true, reason: 'inline' };

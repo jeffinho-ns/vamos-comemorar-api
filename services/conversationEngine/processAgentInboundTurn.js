@@ -184,7 +184,14 @@ async function sendOfflineKnowledgeFallback({
   return offlineResult;
 }
 
-async function processAgentInboundTurn({ pool, app, payload, incomingMessageText, waId }) {
+async function processAgentInboundTurn({
+  pool,
+  app,
+  payload,
+  incomingMessageText,
+  waId,
+  hintedEstablishmentId = null,
+}) {
   const incomingText = String(incomingMessageText || '').trim();
   if (!incomingText) {
     return;
@@ -198,7 +205,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     conversation = await inbox.upsertConversation(pool, {
       waId,
       contactName,
-      establishmentId: null,
+      establishmentId: Number(hintedEstablishmentId) || null,
     });
     inboundRow = await inbox.insertMessage(pool, {
       conversationId: conversation.id,
@@ -325,7 +332,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     catalog.establishments || []
   );
   const conversationEstablishmentId = resolveConversationHouseId({
-    conversationEstablishmentId: conversation?.establishment_id,
+    conversationEstablishmentId: conversation?.establishment_id || hintedEstablishmentId,
     contactLastEstablishmentId,
     mentionedId: mentionedHouses.length === 1 ? mentionedHouses[0] : null,
   });
@@ -360,7 +367,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     detectEstablishmentFromText(historyPlainText, catalog.establishments || []) ||
     Number(memory.workingState?.establishment_id) ||
     conversationEstablishmentId ||
-    defaultWhatsappEstablishmentId ||
+    (isInstagramWaId(waId) ? Number(hintedEstablishmentId) || null : defaultWhatsappEstablishmentId) ||
     null;
 
   const resolvedEstablishment = (catalog.establishments || []).find(

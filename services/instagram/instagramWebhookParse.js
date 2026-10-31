@@ -15,6 +15,22 @@ function messagingEvents(payload) {
   return [];
 }
 
+function uniqueIds(values = []) {
+  return [...new Set(values.map((value) => String(value || '').replace(/\D/g, '')).filter(Boolean))];
+}
+
+function extractInstagramAccountIds(payload) {
+  const entry = firstEntry(payload);
+  const event = messagingEvents(payload)[0] || {};
+  const value = entry?.changes?.[0]?.value || {};
+  return uniqueIds([
+    entry?.id,
+    event.recipient?.id,
+    value.recipient?.id,
+    value.ig_user_id,
+  ]);
+}
+
 function isInstagramPayload(payload) {
   return String(payload?.object || '').toLowerCase() === 'instagram';
 }
@@ -37,6 +53,7 @@ function extractInstagramInbound(payload) {
       text: String(value.text || '').trim() || null,
       messageId: value.id ? String(value.id) : null,
       contactName: from.username ? String(from.username) : null,
+      accountId: extractInstagramAccountIds(payload)[0] || null,
     };
   }
 
@@ -56,6 +73,7 @@ function extractInstagramInbound(payload) {
     text,
     messageId: message.mid || event.mid || message.id || null,
     contactName: event.sender?.username || event.from?.username || null,
+    accountId: extractInstagramAccountIds(payload)[0] || null,
   };
 }
 
@@ -63,4 +81,5 @@ module.exports = {
   isInstagramPayload,
   isInstagramComment,
   extractInstagramInbound,
+  extractInstagramAccountIds,
 };

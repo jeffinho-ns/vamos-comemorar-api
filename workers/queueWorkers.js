@@ -56,7 +56,7 @@ function startQueueWorkers(pool, app) {
   registerWorker(
     queueNames.INBOUND_TURN,
     async (job) => {
-      const { waId, payload, incomingMessageText } = job.data;
+      const { waId, payload, incomingMessageText, hintedEstablishmentId } = job.data;
       await withConversationLock(pool, waId, async () => {
         await processInboundTurn({
           pool,
@@ -64,6 +64,7 @@ function startQueueWorkers(pool, app) {
           payload,
           incomingMessageText,
           waId,
+          hintedEstablishmentId,
         });
       });
     },
