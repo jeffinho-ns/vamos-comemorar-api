@@ -110,8 +110,32 @@ test('looksLikeFreshReservationStart reconhece reinício de reserva', () => {
 });
 
 const { normalizeCanonicalEstablishmentId } = require('../../services/whatsappReservationService');
+const {
+  normalizeCanonicalEstablishmentId: normalizeCanonicalFromHelpers,
+} = require('../../services/conversationEngine/helpers');
 
 test('normalizeCanonicalEstablishmentId mapeia o bar Reserva Rooftop para o place 9', () => {
   assert.equal(normalizeCanonicalEstablishmentId(5), 9);
   assert.equal(normalizeCanonicalEstablishmentId(9), 9);
+});
+
+const pracinhaCatalog = [
+  ...establishments,
+  { id: 17, name: 'Apê do Pracinha' },
+];
+
+test("detectEstablishmentFromText('no Pracinha') resolve casa 8 e nunca o Apê", () => {
+  assert.equal(detectEstablishmentFromText('no Pracinha', pracinhaCatalog), 8);
+  assert.equal(detectEstablishmentFromText('quero reserva no Pracinha', pracinhaCatalog), 8);
+  assert.deepEqual(listMentionedEstablishments('no Pracinha', pracinhaCatalog), [8]);
+});
+
+test("texto com 'Apê do Pracinha' não trava reserva no 17", () => {
+  assert.notEqual(detectEstablishmentFromText('Apê do Pracinha', pracinhaCatalog), 17);
+  assert.equal(detectEstablishmentFromText('Apê do Pracinha', pracinhaCatalog), 8);
+  assert.ok(!listMentionedEstablishments('Apê do Pracinha', pracinhaCatalog).includes(17));
+  assert.equal(normalizeCanonicalEstablishmentId(17, 'Apê do Pracinha'), 8);
+  assert.equal(normalizeCanonicalFromHelpers(17, 'Apê do Pracinha'), 8);
+  assert.equal(normalizeCanonicalEstablishmentId(17, 'Apê'), null);
+  assert.equal(normalizeCanonicalFromHelpers(17, 'Apê'), null);
 });

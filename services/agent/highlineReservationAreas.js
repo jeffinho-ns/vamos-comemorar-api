@@ -846,6 +846,7 @@ async function consultHighlineReservationAreas(pool, args = {}) {
     ok: true,
     estabelecimento_id: establishmentId,
     reservation_date: reservationDate,
+    horario_consultado: reservationTime ? String(reservationTime).trim().slice(0, 5) : null,
     quantidade_pessoas: partySize,
     consulta_exploratoria: !partyProvided,
     grupo_grande: isLargeGroup,
@@ -1074,6 +1075,45 @@ function resolveHighlineSubareaLabelForTable(tableNumber, areaId = null) {
   return resolveHighlineSubareaByTableNumber(tableNumber, areaId)?.label || null;
 }
 
+function formatHighlineSlotHour(horario) {
+  const raw = String(horario || '').trim();
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?/);
+  if (!match) return '';
+  const hour = String(Number(match[1]));
+  const minutes = match[2] && match[2] !== '00' ? match[2] : '';
+  return minutes ? `${hour}h${minutes}` : `${hour}h`;
+}
+
+function pickHighlineSlotAreaLabel(snapshot) {
+  if (!snapshot || snapshot.todas_areas_cheias) return null;
+  const recommended = String(snapshot.area_recomendada?.label || '').trim();
+  if (recommended) return recommended;
+  const fromAreas = Array.isArray(snapshot.areas_com_vaga)
+    ? String(snapshot.areas_com_vaga[0]?.label || '').trim()
+    : '';
+  if (fromAreas) return fromAreas;
+  const fromLabels = Array.isArray(snapshot.areas_com_vaga_labels)
+    ? String(snapshot.areas_com_vaga_labels[0] || '').trim()
+    : '';
+  return fromLabels || null;
+}
+
+/** Uma área com vaga nesse horário + uma pergunta. Sem grade e sem lista. */
+function suggestHighlineAreaForSlot({ snapshot, horario, partySize } = {}) {
+  const label = pickHighlineSlotAreaLabel(snapshot);
+  if (!label) return null;
+  const size = Number(partySize ?? snapshot?.quantidade_pessoas);
+  const timeBit = formatHighlineSlotHour(
+    horario || snapshot?.horario || snapshot?.horario_consultado || snapshot?.reservation_time
+  );
+  const timePart = timeBit ? `às ${timeBit} ` : '';
+  const peoplePart = Number.isFinite(size) && size > 0 ? `para ${size} pessoas, ` : '';
+  return {
+    label,
+    question: `No Highline, ${timePart}${peoplePart}combina o ${label}. Pode ser?`,
+  };
+}
+
 /** Label oficial no lugar de Terraço / Área VIP / Balcão (Highline). */
 function validHighlineLabelForForbiddenName(name) {
   const normalized = normalizeLabel(name);
@@ -1097,6 +1137,7 @@ module.exports = {
   resolveHighlineSubareaByTableNumber,
   resolveHighlineSubareaLabelForTable,
   validHighlineLabelForForbiddenName,
+  suggestHighlineAreaForSlot,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
   findCombinedTablesInSubareaForGroup,

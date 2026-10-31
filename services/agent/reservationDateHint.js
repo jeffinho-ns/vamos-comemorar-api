@@ -27,7 +27,23 @@ function looksLikeRelativeDateQuestion(text) {
   );
 }
 
-function bookingAlreadyNamesTheDay(text) {
+function weekdayForcesOtherWeek(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\b(que vem|proxima|proximo|prox\.?)\b/.test(normalized);
+}
+
+function isUniqueWeekdayRelative(parsed, text) {
+  if (!parsed || parsed.source !== 'weekday_relative') return false;
+  if (parsed.ambiguous === true) return false;
+  if (weekdayForcesOtherWeek(text)) return false;
+  return true;
+}
+
+function bookingAlreadyNamesTheDay(text, parsed) {
+  if (isUniqueWeekdayRelative(parsed, text)) return true;
   const normalized = String(text || '')
     .toLowerCase()
     .normalize('NFD')
@@ -103,10 +119,17 @@ function buildReservationDateHint({
     };
   }
 
+  const namesAWeekday = /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado|hoje|amanha)\b/.test(
+    String(text || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  );
   const inReservationFlow =
     looksLikeReservationIntent(text) ||
     Boolean(state.pending_reservation_date_iso) ||
     Boolean(state.reservation_date) ||
+    (Boolean(state.establishment_id) && namesAWeekday) ||
     looksLikeRelativeDateQuestion(text);
 
   let parsed = resolveDateFromConversation(text, messageHistory);
@@ -172,7 +195,8 @@ function buildReservationDateHint({
 
   const labels = formatReservationDateLabels(parsed.iso);
   const mustConfirm =
-    !bookingAlreadyNamesTheDay(text) &&
+    !bookingAlreadyNamesTheDay(text, parsed) &&
+    !isUniqueWeekdayRelative(parsed, text) &&
     (parsed.needsConfirmation === true ||
       parsed.source === 'weekday_relative' ||
       parsed.confidence === 'medium' ||
@@ -211,5 +235,6 @@ module.exports = {
   looksLikeReservationIntent,
   looksLikeRelativeDateQuestion,
   isAffirmativeConfirmation,
+  bookingAlreadyNamesTheDay,
   buildCalendarFactsBlock,
 };

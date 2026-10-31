@@ -59,7 +59,7 @@ function resolveJustinoGuestZone(text) {
     return 'qualquer';
   }
   const descoberta = /\b(descoberta|descoberto|quintal|area externa)\b/.test(normalized);
-  const coberta = /\b(coberta|coberto|area interna|salao)\b/.test(normalized);
+  const coberta = /\b(coberta|coberto|area interna|salao|lounge)\b/.test(normalized);
   if (descoberta && coberta) return null;
   if (descoberta) return 'descoberta';
   if (coberta) return 'coberta';
@@ -91,17 +91,21 @@ function resolveJustinoSubarea(text) {
       return listSubareas().find((subarea) => subarea.key === key) || null;
     }
   }
+  if (/\blounge\b/.test(normalized) && !/\bquintal\b/.test(normalized)) {
+    return { zone: 'coberta', area_id: 1, key: null, label: 'área coberta' };
+  }
+  if (/\bquintal\b/.test(normalized) && !/\blounge\b/.test(normalized)) {
+    return { zone: 'descoberta', area_id: 2, key: null, label: 'área descoberta' };
+  }
   return null;
 }
 
-function listJustinoAreaQuestion(zone) {
-  if (zone === 'coberta') {
-    return 'No salão, qual você prefere: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco ou Lounge Bar?';
-  }
-  if (zone === 'descoberta') {
-    return 'No quintal, qual você prefere: Lateral Esquerdo, Central Esquerdo, Central Direito ou Lateral Direito?';
-  }
-  return 'Qual área você prefere? No salão: Lounge Aquário Spaten, Lounge Aquário TV, Lounge Palco ou Lounge Bar. No quintal: Lateral Esquerdo, Central Esquerdo, Central Direito ou Lateral Direito.';
+function guestZonePromptForClient() {
+  return 'Você prefere a área coberta ou a área descoberta?';
+}
+
+function listJustinoAreaQuestion() {
+  return guestZonePromptForClient();
 }
 
 function guestZoneLabel(zone) {
@@ -246,6 +250,7 @@ module.exports = {
   isSeuJustinoEstablishment,
   resolveJustinoGuestZone,
   resolveJustinoSubarea,
+  guestZonePromptForClient,
   listJustinoAreaQuestion,
   guestZoneLabel,
   pickJustinoReservationSlot,

@@ -21,6 +21,25 @@ function getWhatsappDefaultEstablishmentId() {
   return null;
 }
 
+function toPositiveHouseId(value) {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/**
+ * Casa da conversa atual. last_establishment_id do contato NÃO trava casa:
+ * o mesmo cliente no Highline e no número central são funis separados.
+ * Prioridade: menção no texto > establishment_id da conversa > null.
+ */
+function resolveConversationHouseId({
+  conversationEstablishmentId,
+  contactLastEstablishmentId: _contactLastEstablishmentId,
+  mentionedId,
+} = {}) {
+  return toPositiveHouseId(mentionedId) || toPositiveHouseId(conversationEstablishmentId) || null;
+}
+
 module.exports = {
   getWhatsappDefaultEstablishmentId,
+  resolveConversationHouseId,
 };

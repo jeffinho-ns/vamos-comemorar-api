@@ -22,7 +22,7 @@ const {
   buildFaqKnowledgeBlock,
   generateFaqGroundedReply,
 } = require('./faqPrefetchService');
-const { isHighlineEstablishment } = require('./highlineReservationAreas');
+const { isHighlineEstablishment, suggestHighlineAreaForSlot } = require('./highlineReservationAreas');
 const {
   applyOutputLimit,
   resolveAgentModels,
@@ -68,6 +68,7 @@ const {
   shouldAskOccasion,
 } = require('./reservationFunnel');
 const { evaluateWorkingStateSlot } = require('./reservationSlotGuard');
+const { humanizeCreateError } = require('./reservationCreateError');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
@@ -325,7 +326,11 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
     return `Perfeito, ${dateLabel} às ${horarioConsultado} tem vaga sim${pessoasBit}.`;
   }
 
-  const labels = extractWindowLabels(result.windows);
+  const labels = horarioConsultado
+    ? []
+    : extractWindowLabels(result.windows).filter(
+        (label) => !/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(String(label).trim())
+      );
   if (labels.length > 0) {
     return `Boa, ${dateLabel} a casa abre! Temos esses horários disponíveis: ${labels.join(', ')}. Qual fica melhor pra você?`;
   }
@@ -370,7 +375,7 @@ function pickVariant(variants, seed) {
   return variants[Math.abs(hash) % variants.length];
 }
 
-function synthesizeReplyFromToolTrace(toolTrace = []) {
+function synthesizeReplyFromToolTrace(toolTrace = [], workingState = {}) {
   for (let index = toolTrace.length - 1; index >= 0; index -= 1) {
     const entry = toolTrace[index];
     const result = entry?.result;
@@ -397,17 +402,9 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
         );
         return lines.filter(Boolean).join('\n\n');
       }
-      if (result.duplicate === true) {
-        return 'Sua reserva pra esse dia e horário já está anotada, pode ficar tranquila. Qualquer coisa é só chamar.';
-      }
-      if (result.ok === false && result.needs_area_switch && result.error) {
-        return String(result.error).trim();
-      }
-      if (result.ok === false && result.error) {
-        if (/\+18|maiores de 18/i.test(String(result.error))) {
-          return 'Pra eu fechar, me passa sua data de nascimento? A reserva é para maiores de 18.';
-        }
-        return `${String(result.error).trim()}\n\nMe diz só o que ainda falta que eu finalizo agora.`;
+      if (result.ok === false || result.duplicate === true) {
+        const humanized = humanizeCreateError(result, workingState);
+        if (humanized.replyText) return humanized.replyText;
       }
       continue;
     }
@@ -430,29 +427,13 @@ function synthesizeReplyFromToolTrace(toolTrace = []) {
           'Olha, tá tudo cheio nesse dia. Posso te colocar na lista de espera — assim que abrir mesa eu te chamo aqui mesmo, beleza?'
         );
       }
-      const labels =
-        Array.isArray(result.areas_com_vaga_labels) && result.areas_com_vaga_labels.length
-          ? result.areas_com_vaga_labels
-          : [
-              result.area_recomendada?.label,
-              ...(Array.isArray(result.alternativas_com_vaga) ? result.alternativas_com_vaga : []),
-            ].filter(Boolean);
-      if (labels.length) {
-        const dateLabel = String(result.reservation_date || '').slice(0, 10);
-        const dateBit = dateLabel ? ` no dia ${dateLabel.split('-').reverse().join('/')}` : '';
-        const list =
-          labels.length === 1
-            ? labels[0]
-            : `${labels.slice(0, -1).join(', ')} e ${labels[labels.length - 1]}`;
-        const pessoas = Number(result.quantidade_pessoas);
-        if (result.consulta_exploratoria || !Number.isFinite(pessoas) || pessoas <= 0) {
-          return `No Highline${dateBit} as áreas operacionais com vaga agora são: ${list}. Quantas pessoas vêm com você pra eu indicar a melhor?`;
-        }
-        if (result.grupo_grande || pessoas >= 16) {
-          return `Pra ${pessoas} pessoas${dateBit} a gente organiza em ${result.area_recomendada?.label || labels[0]} juntando mesas — pode ser que não tenha cadeira pra todo mundo ao mesmo tempo, mas a reserva segue normal.${labels.length > 1 ? ` Também tem vaga em: ${labels.filter((l) => l !== result.area_recomendada?.label).join(', ')}.` : ''} Posso seguir com a reserva?`;
-        }
-        return `Pra ${pessoas} pessoas${dateBit}, tem vaga em ${list}. Qual dessas você prefere?`;
-      }
+      const suggestion = suggestHighlineAreaForSlot({
+        snapshot: result,
+        horario: result.horario || result.horario_consultado || result.reservation_time,
+        partySize: result.quantidade_pessoas,
+      });
+      if (suggestion?.question) return suggestion.question;
+      return 'No Highline tem vaga nesse horário. Quantas pessoas vêm com você pra eu indicar a melhor área?';
     }
 
     if (entry.name === 'criar_lista_espera' && result.ok) {
@@ -811,7 +792,7 @@ async function forceCreatePreReservaIfReady({
 
   let replyText =
     closed.replyText ||
-    synthesizeReplyFromToolTrace(closed.toolTrace) ||
+    synthesizeReplyFromToolTrace(closed.toolTrace, closed.workingState) ||
     (closed.toolResult?.ok
       ? 'Pronto, fechei sua reserva! Qualquer coisa, é só chamar.'
       : null);

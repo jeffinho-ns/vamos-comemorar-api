@@ -48,7 +48,10 @@ const {
   buildAgentRuntimeErrorMeta,
   shouldImmediateHumanHandoffOnAgentError,
 } = require('./agentErrorPolicy');
-const { getWhatsappDefaultEstablishmentId } = require('./whatsappEstablishmentContext');
+const {
+  getWhatsappDefaultEstablishmentId,
+  resolveConversationHouseId,
+} = require('./whatsappEstablishmentContext');
 const { loadInboundAccessGate, pickStickerForText } = require('../agent/assistantSettingsService');
 const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
@@ -280,9 +283,6 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     // ignore
   }
 
-  const conversationEstablishmentId = Number.isFinite(Number(conversation?.establishment_id))
-    ? Number(conversation.establishment_id)
-    : contactLastEstablishmentId;
   const historyPlainText = messageHistory.map((m) => m?.content || '').join(' ');
   const defaultWhatsappEstablishmentId = getWhatsappDefaultEstablishmentId();
 
@@ -290,6 +290,11 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     incomingText,
     catalog.establishments || []
   );
+  const conversationEstablishmentId = resolveConversationHouseId({
+    conversationEstablishmentId: conversation?.establishment_id,
+    contactLastEstablishmentId,
+    mentionedId: mentionedHouses.length === 1 ? mentionedHouses[0] : null,
+  });
 
   if (mentionedHouses.length > 1) {
     const choiceReply = buildHouseChoiceQuestion(incomingText, catalog.establishments || []);

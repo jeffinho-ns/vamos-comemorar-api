@@ -2,7 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   resolveJustinoGuestZone,
+  resolveJustinoSubarea,
   pickJustinoReservationSlot,
+  guestZonePromptForClient,
+  listJustinoAreaQuestion,
 } = require('../../services/agent/seuJustinoReservationAreas');
 const { sanitizeAssistantReply } = require('../../services/agent/agentService');
 
@@ -52,6 +55,42 @@ test('12 pessoas no Lateral Esquerdo juntam duas mesas', async () => {
   assert.equal(slot.table_number, '20,22');
   assert.equal(slot.combined.mesas_count, 2);
 });
+test('lounge sozinho é coberta e quintal sozinho é descoberta', () => {
+  assert.equal(resolveJustinoGuestZone('lounge'), 'coberta');
+  assert.equal(resolveJustinoGuestZone('quero lounge'), 'coberta');
+  assert.equal(resolveJustinoGuestZone('quintal'), 'descoberta');
+
+  const lounge = resolveJustinoSubarea('lounge');
+  assert.ok(lounge);
+  assert.equal(lounge.zone, 'coberta');
+  assert.equal(lounge.area_id, 1);
+  assert.equal(lounge.key == null, true);
+
+  const quintal = resolveJustinoSubarea('quintal');
+  assert.ok(quintal);
+  assert.equal(quintal.zone, 'descoberta');
+  assert.equal(quintal.area_id, 2);
+  assert.equal(quintal.key == null, true);
+
+  const palco = resolveJustinoSubarea('lounge palco');
+  assert.equal(palco.key, 'lounge-palco');
+  assert.equal(palco.zone, 'coberta');
+});
+
+test('pergunta ao cliente é só coberta ou descoberta, sem lista de lounge', () => {
+  assert.equal(
+    guestZonePromptForClient(),
+    'Você prefere a área coberta ou a área descoberta?'
+  );
+  assert.equal(
+    guestZonePromptForClient('coberta'),
+    'Você prefere a área coberta ou a área descoberta?'
+  );
+  assert.doesNotMatch(guestZonePromptForClient(), /Lounge|Aquário|Palco|Spaten|Lateral/i);
+  assert.doesNotMatch(listJustinoAreaQuestion('coberta'), /Lounge|Aquário|Palco|Spaten/i);
+  assert.doesNotMatch(listJustinoAreaQuestion(), /Lounge|Quintal Lateral|Central Esquerdo/i);
+});
+
 test('Seu Justino pode dizer área coberta na conversa', () => {
   const blocked = sanitizeAssistantReply('Você prefere a área coberta ou a área descoberta?', {
     workingState: {},

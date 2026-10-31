@@ -2,11 +2,26 @@ const businessRulesEngine = require('../businessRulesEngine');
 const {
   getOperationalIdForProfile,
   getAliasPatternsFromCatalog,
+  isAncillaryVenueName,
 } = require('../../tenancy/operationalProfileIds');
 const {
   RESERVA_PINHEIROS_PLACE_ID,
   canonicalizeReservaEstablishmentId,
 } = require('../reservaEstablishmentIds');
+
+const PRACINHA_RESERVATION_PLACE_ID = 8;
+const APE_PRACINHA_PLACE_ID = 17;
+
+function remapAncillaryReservationHouseId(establishmentIdRaw, establishmentNameRaw = '') {
+  const establishmentId = Number(establishmentIdRaw);
+  const hint = normalizeInboundText(establishmentNameRaw);
+  const ancillary = isAncillaryVenueName(establishmentNameRaw) || establishmentId === APE_PRACINHA_PLACE_ID;
+  if (!ancillary) {
+    return Number.isFinite(establishmentId) && establishmentId > 0 ? establishmentId : null;
+  }
+  if (hint.includes('pracinha')) return PRACINHA_RESERVATION_PLACE_ID;
+  return null;
+}
 
 function extractEstablishmentToken(text) {
   const normalizedText = String(text || '');
@@ -252,7 +267,8 @@ function getEstablishmentAliasPatterns() {
   }
   for (const alias of getAliasPatternsFromCatalog() || []) {
     const id = Number(alias.id);
-    if (Number.isFinite(id) && id > 0 && !byId.has(id)) {
+    if (!Number.isFinite(id) || id <= 0 || id === APE_PRACINHA_PLACE_ID) continue;
+    if (!byId.has(id)) {
       byId.set(id, alias);
     }
   }
@@ -295,8 +311,13 @@ function listMentionedEstablishments(text, establishments = []) {
     .map((establishment) => ({
       id: Number(establishment?.id),
       name: normalizeInboundText(establishment?.name),
+      rawName: establishment?.name,
     }))
-    .filter((hit) => Number.isFinite(hit.id) && hit.id > 0 && hit.name && normalized.includes(hit.name))
+    .filter((hit) => {
+      if (!Number.isFinite(hit.id) || hit.id <= 0 || !hit.name) return false;
+      if (isAncillaryVenueName(hit.rawName) || hit.id === APE_PRACINHA_PLACE_ID) return false;
+      return normalized.includes(hit.name);
+    })
     .sort((left, right) => right.name.length - left.name.length);
 
   const keptNames = [];
@@ -320,7 +341,13 @@ function listMentionedEstablishments(text, establishments = []) {
     if (!absorbed) ids.add(aliasId);
   }
 
-  return [...ids];
+  const remapped = new Set();
+  for (const id of ids) {
+    const house = remapAncillaryReservationHouseId(id, '');
+    if (Number.isFinite(house) && house > 0) remapped.add(house);
+    else if (id !== APE_PRACINHA_PLACE_ID) remapped.add(id);
+  }
+  return [...remapped];
 }
 
 function detectEstablishmentFromText(text, establishments = []) {
@@ -332,7 +359,9 @@ function detectEstablishmentFromText(text, establishments = []) {
   if (!normalized) return null;
   for (const alias of getEstablishmentAliasPatterns()) {
     if (!Number.isFinite(Number(alias.id)) || Number(alias.id) <= 0) continue;
-    if (alias.pattern.test(normalized)) return alias.id;
+    if (!alias.pattern.test(normalized)) continue;
+    if (Number(alias.id) === APE_PRACINHA_PLACE_ID) return PRACINHA_RESERVATION_PLACE_ID;
+    return alias.id;
   }
   return null;
 }
@@ -408,6 +437,11 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+
+  const remappedAncillary = remapAncillaryReservationHouseId(establishmentIdRaw, establishmentNameRaw);
+  if (isAncillaryVenueName(establishmentNameRaw) || establishmentId === APE_PRACINHA_PLACE_ID) {
+    return remappedAncillary;
+  }
 
   const highlineId = getOperationalIdForProfile('highline');
   // "Reserva Rooftop" (id 9) só pode ser resolvido pela string completa.

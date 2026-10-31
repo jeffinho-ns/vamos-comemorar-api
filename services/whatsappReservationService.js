@@ -105,6 +105,13 @@ function normalizeCanonicalEstablishmentId(establishmentIdRaw, establishmentName
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
+  const { isAncillaryVenueName } = require('../tenancy/operationalProfileIds');
+  const APE_PRACINHA_PLACE_ID = 17;
+  const PRACINHA_RESERVATION_PLACE_ID = 8;
+  if (isAncillaryVenueName(establishmentNameHintRaw) || establishmentId === APE_PRACINHA_PLACE_ID) {
+    return hint.includes('pracinha') ? PRACINHA_RESERVATION_PLACE_ID : null;
+  }
+
   // IDs canônicos usados no projeto
   // - Seu Justino: 1
   // - Pracinha do Seu Justino: 8

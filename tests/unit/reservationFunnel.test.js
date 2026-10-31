@@ -22,6 +22,9 @@ const {
   lastAssistantClosedReservation,
   shouldHandoffLargeGroup,
   buildContactBirthConfirmQuestion,
+  looksLikeAgeOnly,
+  buildBirthFromAgeQuestion,
+  assistantAskedForOccasion,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
@@ -664,4 +667,84 @@ test('buildNextFieldQuestion pede o nascimento quando só falta o nascimento', (
   const q = buildNextFieldQuestion(identityReadyState);
   assert.match(q, /nascimento/i);
   assert.doesNotMatch(q, /nome completo|e-mail/i);
+});
+
+test('looksLikeAgeOnly reconhece idade sem DD/MM/AAAA', () => {
+  assert.equal(looksLikeAgeOnly('Tenho 39 anos'), true);
+  assert.equal(looksLikeAgeOnly('39 anos'), true);
+  assert.equal(looksLikeAgeOnly('eu tenho 39 anos'), true);
+  assert.equal(looksLikeAgeOnly('tenho 39 anos.'), true);
+  assert.equal(
+    looksLikeAgeOnly('eu tenho 39 anos, minha data de nascimento é 15/09/1987'),
+    false
+  );
+  assert.equal(looksLikeAgeOnly('15/09/1987'), false);
+  assert.equal(looksLikeAgeOnly('somos 4 pessoas'), false);
+});
+
+test('idade sozinha não vira nascimento nem data da reserva', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Tenho 39 anos',
+    identityReadyState,
+    birthAskHistory
+  );
+  assert.equal(patch.data_nascimento, undefined);
+  assert.equal(patch.reservation_date, undefined);
+  assert.equal(patch.quantidade_convidados, undefined);
+  const next = { ...identityReadyState, ...patch };
+  assert.ok(getReservationMissingFields(next).includes('data_nascimento'));
+  const q = buildNextFieldQuestion(next);
+  assert.match(q, /dia, o m[eê]s e o ano em que voc[eê] nasceu/i);
+  assert.doesNotMatch(q, /me diz o que falta/i);
+});
+
+test('buildBirthFromAgeQuestion pede dia, mês e ano numa frase', () => {
+  assert.match(
+    buildBirthFromAgeQuestion(),
+    /Me passa o dia, o m[eê]s e o ano em que voc[eê] nasceu/i
+  );
+});
+
+test('aniversário da namorada vira ocasião e não pede o nascimento dela', () => {
+  const parsed = parseOccasionFromUserText('é o aniversário da minha namorada');
+  assert.equal(parsed.event_type, 'aniversario');
+  assert.equal(parsed.data_nascimento, undefined);
+  const notes = String(
+    parsed.occasion_notes ||
+      buildOccasionNotes({ ...parsed, quantidade_convidados: 6 })
+  );
+  assert.match(notes, /namorada/i);
+  assert.match(notes, /ocasi[aã]o|anivers/i);
+
+  const patch = parseReservationFieldsFromUserText(
+    'é o aniversário da minha namorada',
+    identityReadyState,
+    birthAskHistory
+  );
+  assert.equal(patch.event_type, 'aniversario');
+  assert.equal(patch.data_nascimento, undefined);
+  const next = { ...identityReadyState, ...patch };
+  assert.ok(getReservationMissingFields(next).includes('data_nascimento'));
+  const q = buildNextFieldQuestion(next);
+  assert.match(q, /voc[eê]|sua data de nascimento/i);
+  assert.doesNotMatch(q, /namorada/i);
+});
+
+test('sim após confirmação de data não vira aniversário', () => {
+  const state = {
+    establishment_id: 1,
+    pending_reservation_date_iso: '2026-10-30',
+    reservation_time: '21:00',
+    quantidade_convidados: 6,
+    client_name: 'Ana Silva',
+    client_email: 'ana@example.com',
+    data_nascimento: '1987-09-15',
+  };
+  const history = [{ role: 'assistant', content: 'Só confirmando: é para sexta dia 30?' }];
+  assert.equal(assistantAskedForOccasion(history), false);
+  const occasion = parseOccasionFromUserText('Sim', state, history);
+  assert.equal(occasion.event_type, undefined);
+  const patch = parseReservationFieldsFromUserText('Sim', state, history);
+  assert.equal(patch.event_type, undefined);
+  assert.equal(patch.reservation_date, '2026-10-30');
 });

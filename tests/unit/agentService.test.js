@@ -111,8 +111,8 @@ test('synthesizeReplyFromToolTrace informa erro de criar_pre_reserva', () => {
     },
   ]);
 
-  assert.match(reply, /Área inválida/i);
-  assert.match(reply, /finalizo agora/i);
+  assert.match(reply, /lotou|outro horário/i);
+  assert.doesNotMatch(reply, /me diz só o que ainda falta/i);
   assert.doesNotMatch(reply, /não consegui registrar/i);
 });
 

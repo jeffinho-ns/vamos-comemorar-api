@@ -11,7 +11,12 @@ const {
   evaluateHighlineSubareaFromCache,
   pickCombinedTablesForArea,
   resolveHighlineSubareaLabelForTable,
+  suggestHighlineAreaForSlot,
 } = require('../../services/agent/highlineReservationAreas');
+const {
+  synthesizeAvailabilityFromToolResult,
+  synthesizeReplyFromToolTrace,
+} = require('../../services/agent/agentService');
 
 const DECK_TABLES = [
   { table_number: '01', capacity: 8 },
@@ -210,4 +215,92 @@ test('sanitizeForbiddenAreaNames no Pracinha não apaga Balcão', () => {
   assert.match(text, /Balcão/);
   assert.match(text, /19h/);
   assert.match(text, /5 pessoas/);
+});
+
+test('suggestHighlineAreaForSlot sugere UMA área no horário e UMA pergunta', () => {
+  const snapshot = {
+    ok: true,
+    area_recomendada: { label: 'Deck - Mesas' },
+    areas_com_vaga_labels: [
+      'Deck - Mesas',
+      'Deck - Mesas Redondas',
+      'Bar Central - Bistrôs de Espera',
+    ],
+    quantidade_pessoas: 6,
+  };
+  const suggestion = suggestHighlineAreaForSlot({
+    snapshot,
+    horario: '21:00',
+    partySize: 6,
+  });
+  assert.ok(suggestion);
+  assert.equal(suggestion.label, 'Deck - Mesas');
+  assert.equal(
+    suggestion.question,
+    'No Highline, às 21h para 6 pessoas, combina o Deck - Mesas. Pode ser?'
+  );
+  assert.equal((suggestion.question.match(/\?/g) || []).length, 1);
+  assert.doesNotMatch(suggestion.question, /Redondas|Bar Central|14:00|23:30/);
+  assert.doesNotMatch(suggestion.question, /[\n*`#]|^\s*[-•]/);
+});
+
+test('suggestHighlineAreaForSlot devolve null sem vaga', () => {
+  assert.equal(
+    suggestHighlineAreaForSlot({
+      snapshot: { todas_areas_cheias: true, area_recomendada: null },
+      horario: '21:00',
+      partySize: 6,
+    }),
+    null
+  );
+  assert.equal(suggestHighlineAreaForSlot({ snapshot: null, horario: '21:00' }), null);
+});
+
+test('mensagem de área Highline não lista grade nem outras áreas', () => {
+  const reply = synthesizeReplyFromToolTrace([
+    {
+      name: 'consultar_areas_mesa_reserva',
+      result: {
+        ok: true,
+        reservation_date: '2026-11-06',
+        quantidade_pessoas: 6,
+        horario_consultado: '21:00',
+        area_recomendada: { label: 'Deck - Mesas' },
+        areas_com_vaga_labels: [
+          'Deck - Mesas',
+          'Deck - Mesas Redondas',
+          'Bar Central - Bistrôs de Espera',
+        ],
+      },
+    },
+  ]);
+  assert.match(reply, /Deck - Mesas/);
+  assert.match(reply, /21h/);
+  assert.match(reply, /6 pessoas/);
+  assert.doesNotMatch(reply, /Redondas|Bar Central|Qual dessas|14:00-23:30/);
+  assert.doesNotMatch(reply, /[\n*`#]/);
+});
+
+test('synthesizeAvailabilityFromToolResult não despeja grade 14:00-23:30', () => {
+  const withSlot = synthesizeAvailabilityFromToolResult({
+    ok: true,
+    reservation_date: '2026-10-30',
+    is_open: true,
+    horario_consultado: '21:00',
+    windows: [{ label: '14:00-23:30' }],
+    quantidade_pessoas: 6,
+    capacidade: { pode_reservar: true },
+  });
+  assert.match(withSlot, /21:00/);
+  assert.doesNotMatch(withSlot, /14:00-23:30/);
+
+  const onlyRange = synthesizeAvailabilityFromToolResult({
+    ok: true,
+    reservation_date: '2026-10-30',
+    is_open: true,
+    windows: [{ label: '14:00-23:30' }],
+    capacidade: { pode_reservar: true },
+  });
+  assert.doesNotMatch(onlyRange, /14:00-23:30/);
+  assert.match(onlyRange, /horário/i);
 });
