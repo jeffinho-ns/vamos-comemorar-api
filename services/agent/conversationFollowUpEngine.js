@@ -1,8 +1,14 @@
 const { sendMessage } = require('../whatsappService');
 const inbox = require('../whatsappInboxRepository');
+const { getMemory } = require('./agentMemoryService');
 const { loadActiveSettings } = require('./assistantSettingsService');
 const { looksLikeReservationIntent } = require('./reservationDateHint');
 const { inactivityLimitMinutes } = require('./assistantBehaviorRuntime');
+const {
+  reservationAlreadyCreated,
+  lastAssistantClosedReservation,
+} = require('./reservationFunnel');
+const { isInstagramWaId } = require('../instagram/instagramIdentity');
 
 const CATEGORY_HINTS = [
   { key: 'reservas', test: (text) => looksLikeReservationIntent(text) || /\breserv/i.test(text) },
@@ -69,6 +75,34 @@ function alreadySentInterval(messages, minutes) {
   return (messages || []).some((row) => String(row.intent || '') === intent);
 }
 
+function outboundToHistory(messages = []) {
+  return (messages || [])
+    .filter((row) => row?.direction === 'outbound')
+    .slice()
+    .reverse()
+    .map((row) => ({ role: 'assistant', content: String(row.body || '') }));
+}
+
+function hasCreatedReservationIntent(messages = []) {
+  return (messages || []).some((row) => {
+    const intent = String(row.intent || '');
+    return intent === 'PROCESS_RESERVATION' || intent === 'GUEST_LIST_LINK';
+  });
+}
+
+function conversationWaId(waId) {
+  const raw = String(waId || '').trim();
+  if (!raw) return '';
+  return isInstagramWaId(raw) ? raw : raw.replace(/\D/g, '');
+}
+
+function shouldSkipConversationFollowUp({ messages = [], workingState = {} } = {}) {
+  if (reservationAlreadyCreated(workingState)) return true;
+  if (hasCreatedReservationIntent(messages)) return true;
+  if (lastAssistantClosedReservation(outboundToHistory(messages))) return true;
+  return false;
+}
+
 async function processConversationFollowUpBatch(pool, app) {
   if (!pool) return { scanned: 0, sent: 0, takeovers: 0 };
   const houses = await listHousesWithFollowUp(pool).catch(() => []);
@@ -103,6 +137,10 @@ async function processConversationFollowUpBatch(pool, app) {
       scanned += 1;
       try {
       const messages = await lastMessages(pool, conversation.id);
+      const memory = await getMemory(pool, conversation.id).catch(() => ({ workingState: {} }));
+      if (shouldSkipConversationFollowUp({ messages, workingState: memory?.workingState || {} })) {
+        continue;
+      }
       const lastUser = messages.find((row) => row.direction === 'inbound');
       if (!lastUser?.created_at) continue;
       const silentMin = (Date.now() - new Date(lastUser.created_at).getTime()) / 60000;
@@ -132,7 +170,7 @@ async function processConversationFollowUpBatch(pool, app) {
 
       const category = pickCategory(lastUser.body, cfg.categories);
       const text = buildFollowUpText(category);
-      const waId = String(conversation.wa_id || '').replace(/\D/g, '');
+      const waId = conversationWaId(conversation.wa_id);
       if (!waId) continue;
       await sendMessage(waId, text);
       await inbox.insertMessage(pool, {
@@ -162,4 +200,5 @@ module.exports = {
   processConversationFollowUpBatch,
   pickCategory,
   buildFollowUpText,
+  shouldSkipConversationFollowUp,
 };
