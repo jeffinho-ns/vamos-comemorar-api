@@ -1,8 +1,8 @@
-const { getReservationMissingFields, shouldAskOccasion } = require('./reservationFunnel');
-
-function hasText(value) {
-  return String(value || '').trim().length > 0;
-}
+const {
+  getReservationMissingFields,
+  shouldAskOccasion,
+  buildNextFieldQuestion,
+} = require('./reservationFunnel');
 
 function normalizeLoose(value) {
   return String(value || '')
@@ -15,48 +15,15 @@ function normalizeLoose(value) {
 }
 
 /**
- * Uma pergunta por turno. Ordem operacional: horário → pessoas → área.
- * No Seu Justino o cliente só escolhe coberta ou descoberta.
+ * Funil curto: trio operacional, depois identidade. Área só se a casa pedir.
  */
 function buildSalesPullQuestion(workingState = {}) {
   const state = workingState && typeof workingState === 'object' ? workingState : {};
   const missing = getReservationMissingFields(state);
-  const next = missing.find((key) => key !== 'establishment_id') || '';
-
-  if (next === 'reservation_date_confirm' || (!state.reservation_date && state.pending_reservation_date_iso)) {
-    const label = state.pending_reservation_date_label || state.pending_reservation_date_iso;
-    return label ? `Quer que eu reserve para ${label}?` : 'Pra quando seria a reserva?';
-  }
-  if (next === 'reservation_date') return 'Pra quando seria a reserva?';
-
-  const houseId = Number(state.establishment_id);
-  const hasArea = hasText(state.area_label) || hasText(state.area_preferida) || hasText(state.justino_zone);
-  const ops = [];
-  if (missing.includes('reservation_time')) ops.push('qual horário');
-  if (missing.includes('quantidade_convidados')) ops.push('para quantas pessoas');
-  if (houseId === 1 && !hasArea) ops.push('se prefere área coberta ou descoberta');
-  if (houseId === 8 && !hasArea && !missing.includes('reservation_time') && !missing.includes('quantidade_convidados')) {
-    return 'No Pracinha, prefere o Balcão ou a Praça?';
-  }
-  if (ops.length > 0) {
-    if (missing.includes('reservation_time')) return 'Qual horário fica melhor pra você?';
-    if (missing.includes('quantidade_convidados')) return 'Para quantas pessoas?';
-    return 'Você prefere área coberta ou área descoberta?';
-  }
-
-  const identity = [];
-  if (missing.includes('client_name')) identity.push('nome completo');
-  if (missing.includes('client_email')) identity.push('e-mail');
-  if (missing.includes('data_nascimento')) identity.push('data de nascimento (DD/MM/AAAA)');
-  if (shouldAskOccasion(state)) identity.push('se é alguma data especial, tipo aniversário');
-  if (identity.length > 0) {
-    const next = identity[0];
-    if (next.startsWith('nome')) return 'Me passa seu nome completo?';
-    if (next.startsWith('e-mail')) return 'Qual o seu e-mail?';
-    if (next.startsWith('data de nascimento')) return 'Qual a data de nascimento?';
+  if (missing.length === 0 && shouldAskOccasion(state)) {
     return 'É alguma data especial, tipo aniversário?';
   }
-  return '';
+  return buildNextFieldQuestion(state) || '';
 }
 
 function alreadyAsks(replyText, question) {

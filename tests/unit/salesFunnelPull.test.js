@@ -10,21 +10,21 @@ const { tryFaqFirstReply } = require('../../services/agent/agentService');
 test('a pergunta solta puxa o próximo dado da reserva', () => {
   assert.equal(
     buildSalesPullQuestion({ establishment_id: 1 }),
-    'Pra quando seria a reserva?'
+    'Me diz a data, o horário que pretende chegar e quantas pessoas vai levar?'
   );
   assert.match(
     buildSalesPullQuestion({
       establishment_id: 1,
       reservation_date: '2026-10-31',
     }),
-    /horário/i
+    /horário.*pessoas|pessoas.*horário/i
   );
   assert.doesNotMatch(
     buildSalesPullQuestion({
       establishment_id: 1,
       reservation_date: '2026-10-31',
     }),
-    /pessoas|coberta|descoberta/i
+    /coberta|descoberta/i
   );
   assert.equal(
     buildSalesPullQuestion({
@@ -33,7 +33,7 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
       reservation_time: '21:00',
       quantidade_convidados: 4,
     }),
-    'Você prefere área coberta ou área descoberta?'
+    'Você prefere a área coberta ou a área descoberta?'
   );
   assert.match(
     buildSalesPullQuestion({
@@ -43,7 +43,7 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
       quantidade_convidados: 4,
       area_label: 'área coberta',
     }),
-    /^Me passa seu nome completo\?$/
+    /^Qual seu nome, e-mail e data de nascimento\?$/
   );
   assert.match(
     buildSalesPullQuestion({
@@ -70,7 +70,7 @@ test('a pergunta solta puxa o próximo dado da reserva', () => {
   assert.equal(shouldSkipSalesPull(['eventos_corporativos']), true);
   assert.equal(
     appendSalesPull('Pode sim, pet é bem-vindo.', { establishment_id: 1 }),
-    'Pode sim, pet é bem-vindo. Pra quando seria a reserva?'
+    'Pode sim, pet é bem-vindo. Me diz a data, o horário que pretende chegar e quantas pessoas vai levar?'
   );
   assert.equal(
     appendSalesPull(
@@ -119,7 +119,7 @@ test('pergunta aleatória no meio da reserva não apaga a data e puxa a área', 
   });
 
   assert.match(result.replyText, /pet é bem-vindo/);
-  assert.match(result.replyText, /área coberta ou área descoberta/);
+  assert.match(result.replyText, /área coberta ou a área descoberta/);
   assert.equal(result.workingState.reservation_date, '2026-10-31');
   assert.equal(result.workingState.reservation_time, '21:00');
   assert.equal(result.workingState.quantidade_convidados, 4);

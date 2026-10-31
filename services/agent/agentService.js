@@ -920,8 +920,9 @@ function finishSanitizedReply(result, workingState = {}) {
       reason = reason || 'list_or_grid';
     }
     const beforeQuestion = text;
-    text = sanitizeToOneQuestion(text);
-    if (text !== beforeQuestion) {
+    if (sanitizeToOneQuestion(text) !== beforeQuestion) {
+      const bundled = buildNextFieldQuestion(state);
+      text = bundled || sanitizeToOneQuestion(text);
       blocked = true;
       reason = reason || 'multiple_questions';
     }

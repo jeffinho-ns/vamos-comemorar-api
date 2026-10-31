@@ -755,15 +755,15 @@ test('sim após confirmação de data não vira aniversário', () => {
   assert.equal(patch.reservation_date, '2026-10-30');
 });
 
-test('buildNextFieldQuestion com casa e data pergunta só o horário', () => {
+test('buildNextFieldQuestion com casa e data pede horário e pessoas juntos', () => {
   const q = buildNextFieldQuestion({
     establishment_id: 1,
     reservation_date: '2026-10-31',
   });
   assert.equal((q.match(/\?/g) || []).length, 1);
   assert.match(q, /horário/i);
-  assert.doesNotMatch(q, /pessoas|coberta|descoberta|balcão|praça|e-mail|nascimento/i);
-  assert.doesNotMatch(q, /me conta a data/i);
+  assert.match(q, /pessoas/i);
+  assert.doesNotMatch(q, /coberta|descoberta|e-mail|nascimento/i);
 });
 
 test('buildNextFieldQuestion com casa, data e hora pergunta só as pessoas', () => {
@@ -777,11 +777,9 @@ test('buildNextFieldQuestion com casa, data e hora pergunta só as pessoas', () 
   assert.doesNotMatch(q, /horário|área|nome completo|e-mail|nascimento/i);
 });
 
-test('buildNextFieldQuestion sem data pergunta a data antes do horário', () => {
+test('buildNextFieldQuestion sem data pede data, horário e pessoas juntos', () => {
   const q = buildNextFieldQuestion({ establishment_id: 7 });
-  assert.equal((q.match(/\?/g) || []).length, 1);
-  assert.match(q, /quando/i);
-  assert.doesNotMatch(q, /horário|pessoas|área/i);
+  assert.equal(q, 'Me diz a data, o horário que pretende chegar e quantas pessoas vai levar?');
 });
 
 test('buildNextFieldQuestion no Justino sem área pede só coberta ou descoberta', () => {
@@ -816,7 +814,7 @@ test('buildNextFieldQuestion no Highline sem área pede uma área, sem grade', (
   assert.doesNotMatch(q, /deck|rooftop|bar central|terraço/i);
 });
 
-test('buildNextFieldQuestion com operacional completo pede só o nome', () => {
+test('buildNextFieldQuestion com operacional completo pede nome, e-mail e nascimento juntos', () => {
   const q = buildNextFieldQuestion({
     establishment_id: 1,
     reservation_date: '2026-10-31',
@@ -824,20 +822,18 @@ test('buildNextFieldQuestion com operacional completo pede só o nome', () => {
     quantidade_convidados: 4,
     area_label: 'área coberta',
   });
-  assert.match(q, /nome/i);
-  assert.doesNotMatch(q, /e-mail|nascimento|coberta|pessoas|horário/i);
-  assert.equal((q.match(/\?/g) || []).length, 1);
+  assert.equal(q, 'Qual seu nome, e-mail e data de nascimento?');
 });
 
-test('buildSalesPullQuestion com horário, pessoas e área pede só o horário', () => {
+test('buildSalesPullQuestion com data pede horário e pessoas juntos', () => {
   const q = buildSalesPullQuestion({
     establishment_id: 1,
     reservation_date: '2026-10-31',
   });
   assert.equal((q.match(/\?/g) || []).length, 1);
   assert.match(q, /horário/i);
-  assert.doesNotMatch(q, /pessoas|coberta|descoberta/i);
-  assert.doesNotMatch(q, /me conta .+, .+ e /i);
+  assert.match(q, /pessoas/i);
+  assert.doesNotMatch(q, /coberta|descoberta/i);
 });
 
 test('buildSalesPullQuestion com hora definida pede só as pessoas', () => {
@@ -861,6 +857,8 @@ test('buildNextFieldQuestion trata area_id, justino_zone e area_preferida como �
   for (const extra of [{ area_id: 2 }, { justino_zone: 'coberta' }, { area_preferida: 'área coberta' }]) {
     const q = buildNextFieldQuestion({ ...base, ...extra });
     assert.match(q, /nome/i);
+    assert.match(q, /e-mail/i);
+    assert.match(q, /nascimento/i);
     assert.doesNotMatch(q, /coberta ou a área descoberta/i);
   }
 });

@@ -423,18 +423,56 @@ const AREA_QUESTION_BY_ESTABLISHMENT = {
   8: 'No Pracinha, prefere o Balcão ou a Praça?',
 };
 
-const OPERATIONAL_FIELD_ORDER = [
-  'establishment_id',
-  'reservation_date',
-  'reservation_time',
-  'quantidade_convidados',
-];
+const OPERATIONAL_ASK_ORDER = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
+const IDENTITY_ASK_ORDER = ['client_name', 'client_email', 'data_nascimento'];
 
 function hasReservationArea(state = {}) {
   if (hasFieldValue(state, 'area_id')) return true;
   return ['area_label', 'area_preferida', 'justino_zone'].some(
     (key) => String(state[key] ?? '').trim().length > 0
   );
+}
+
+function joinAskList(items = []) {
+  const list = items.filter(Boolean);
+  if (list.length <= 1) return list[0] || '';
+  if (list.length === 2) return `${list[0]} e ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
+}
+
+function buildOperationalBundleQuestion(missing = []) {
+  const asks = [];
+  if (missing.includes('reservation_date')) asks.push('a data');
+  if (missing.includes('reservation_time')) asks.push('o horário que pretende chegar');
+  if (missing.includes('quantidade_convidados')) asks.push('quantas pessoas vai levar');
+  if (asks.length === 0) return '';
+  if (asks.length === 1) {
+    if (missing.includes('reservation_date')) return MISSING_FIELD_PROMPTS.reservation_date;
+    if (missing.includes('reservation_time')) return MISSING_FIELD_PROMPTS.reservation_time;
+    return MISSING_FIELD_PROMPTS.quantidade_convidados;
+  }
+  if (asks.length === 3) {
+    return 'Me diz a data, o horário que pretende chegar e quantas pessoas vai levar?';
+  }
+  return `Me diz ${joinAskList(asks)}?`;
+}
+
+function buildIdentityBundleQuestion(missing = [], workingState = {}) {
+  if (missing.includes('data_nascimento') && workingState.pending_contact_birth_iso) {
+    return buildContactBirthConfirmQuestion(workingState.pending_contact_birth_iso);
+  }
+  const asks = [];
+  if (missing.includes('client_name')) asks.push('nome');
+  if (missing.includes('client_email')) asks.push('e-mail');
+  if (missing.includes('data_nascimento')) asks.push('data de nascimento');
+  if (asks.length === 0) return '';
+  if (asks.length === 1) {
+    if (missing.includes('client_name')) return MISSING_FIELD_PROMPTS.client_name;
+    if (missing.includes('client_email')) return MISSING_FIELD_PROMPTS.client_email;
+    return MISSING_FIELD_PROMPTS.data_nascimento;
+  }
+  if (asks.length === 3) return 'Qual seu nome, e-mail e data de nascimento?';
+  return `Qual seu ${joinAskList(asks)}?`;
 }
 
 function buildNextFieldQuestion(workingState = {}) {
@@ -454,19 +492,16 @@ function buildNextFieldQuestion(workingState = {}) {
     return buildBirthFromAgeQuestion();
   }
 
-  const firstOperational = OPERATIONAL_FIELD_ORDER.find((key) => missing.includes(key));
-  if (firstOperational) return MISSING_FIELD_PROMPTS[firstOperational];
+  if (missing.includes('establishment_id')) return MISSING_FIELD_PROMPTS.establishment_id;
+
+  const operationalMissing = OPERATIONAL_ASK_ORDER.filter((key) => missing.includes(key));
+  if (operationalMissing.length > 0) return buildOperationalBundleQuestion(missing);
 
   const areaQuestion = AREA_QUESTION_BY_ESTABLISHMENT[Number(state.establishment_id)];
   if (areaQuestion && !hasReservationArea(state)) return areaQuestion;
 
-  const firstIdentity = ['client_name', 'client_email', 'data_nascimento'].find((key) =>
-    missing.includes(key)
-  );
-  if (firstIdentity === 'data_nascimento' && state.pending_contact_birth_iso) {
-    return buildContactBirthConfirmQuestion(state.pending_contact_birth_iso);
-  }
-  if (firstIdentity) return MISSING_FIELD_PROMPTS[firstIdentity];
+  const identityMissing = IDENTITY_ASK_ORDER.filter((key) => missing.includes(key));
+  if (identityMissing.length > 0) return buildIdentityBundleQuestion(missing, state);
 
   return MISSING_FIELD_PROMPTS[missing[0]] || '';
 }
@@ -489,11 +524,12 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
 
   // Bloco curto: estado + 1 missão. Fatos estáticos não entram aqui (FAQ já foi filtrada).
   const paragraph =
-    'FUNIL ATIVO: avance a reserva neste turno. Uma pergunta só, em prosa. ' +
+    'FUNIL ATIVO: avance a reserva neste turno, em prosa curta. ' +
+    'Peça data, horário e pessoas na mesma frase. Depois nome, e-mail e nascimento na mesma frase. ' +
+    'Área só se faltar, numa pergunta curta. ' +
     'Não reconfirme data, horário ou pessoas que já estão em Coletado. ' +
     'Não repita a pergunta que você acabou de fazer. ' +
     'Não diga "confirmada" antes de criar_pre_reserva ok. ' +
-    'Ordem: data+horário+pessoas (se já vieram juntos, siga) → área, se faltar → nome → e-mail → nascimento → criar_pre_reserva. ' +
     'Ocasião só depois de um nascimento válido, e só se ainda não souber.';
 
   const lines = [paragraph];

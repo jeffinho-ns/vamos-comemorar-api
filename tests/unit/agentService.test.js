@@ -350,14 +350,17 @@ test('sanitizeAssistantReply reescreve lista de horários em prosa', () => {
   assert.doesNotMatch(result.text, /17h/);
 });
 
-test('sanitizeAssistantReply deixa só a primeira pergunta', () => {
+test('sanitizeAssistantReply junta horário e pessoas quando o modelo despeja três perguntas', () => {
   const result = sanitizeAssistantReply(
     'Qual horário fica melhor pra você? E quantas pessoas vão? Qual área você prefere?',
-    { toolTrace: [], workingState: {} }
+    {
+      toolTrace: [],
+      workingState: { establishment_id: 1, reservation_date: '2026-10-31' },
+    }
   );
   assert.equal(result.blocked, true);
   assert.match(result.text, /horário/i);
-  assert.doesNotMatch(result.text, /pessoas|área/i);
+  assert.match(result.text, /pessoas/i);
   assert.equal((result.text.match(/\?/g) || []).length, 1);
 });
 

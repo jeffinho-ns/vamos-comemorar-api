@@ -60,4 +60,4 @@ Terceira leva (casa, área, identidade): 3, 4, 5, 15, 16, 17, 19, 21, 22 e 25.
 27. **Lista ou grade.** Feito. Lista, markdown ou grade vira uma ou duas frases antes de enviar.
 28. **Expediente.** Feito. A frase final, mesmo de dia, fica com a Sol. Terra só entra se o modelo da Sol falhar por acesso/compat.
 29. **Timeout de 25 segundos.** Feito. Se a prosa estourar, uma frase curta com o horário já dito. Sem Terra, sem FAQ offline e sem grade.
-30. **Três perguntas juntas.** Feito. Uma pergunta por turno, na ordem horário, pessoas, área, nome, e-mail, nascimento.
+30. **Funil curto.** Feito. Data, horário e pessoas na mesma frase. Depois nome, e-mail e nascimento na mesma frase. Área só se a casa precisar.
