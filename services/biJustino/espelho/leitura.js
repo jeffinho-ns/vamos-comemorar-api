@@ -1,9 +1,101 @@
 'use strict';
 
 const snapshotStore = require('../snapshotStore');
+const { aplicarProjecaoMarketing } = require('../projecaoMarketing');
 const { listarLeituras, fonteDaChave } = require('./catalogo');
 
 const PREFIXO = 'planilha:';
+
+function docsDe(bruto) {
+  if (!bruto) return [];
+  if (Array.isArray(bruto)) return bruto;
+  if (typeof bruto !== 'object') return [];
+  if (Array.isArray(bruto.docs)) return bruto.docs;
+  if (Array.isArray(bruto.items)) return bruto.items;
+  if (Array.isArray(bruto.mkPlans)) return bruto.mkPlans;
+  if (bruto.payload) return docsDe(bruto.payload);
+  return [];
+}
+
+function entradaDeLinha(linha) {
+  if (!linha || !linha.date) return null;
+  if (linha.values && typeof linha.values === 'object') return linha;
+  const values = {};
+  Object.keys(linha).forEach((chave) => {
+    if (chave.startsWith('mk') && chave !== 'mkNote') values[chave] = linha[chave];
+  });
+  return {
+    date: String(linha.date).slice(0, 10),
+    values,
+    notes: { mkNote: linha.mkNote || (linha.notes && linha.notes.mkNote) || '' },
+    submittedByName: linha.submittedByName || '',
+    submittedAt: linha.submittedAt || '',
+  };
+}
+
+function misturarMkPlans(espelhoPayload, localPayload, zigPayload) {
+  const daPlanilha = docsDe(espelhoPayload);
+  const doZig = daPlanilha.length ? daPlanilha : docsDe(zigPayload);
+  const aplicado = aplicarProjecaoMarketing({ mkPlans: doZig }, localPayload || {});
+  return { ok: true, docs: aplicado.mkPlans || [] };
+}
+
+function misturarEntradasMarketing(espelhoPayload, envioPayload, zigPayload) {
+  const mapa = new Map();
+  const colocar = (lista) => {
+    (lista || []).forEach((item) => {
+      const doc = entradaDeLinha(item);
+      if (doc) mapa.set(doc.date, doc);
+    });
+  };
+  colocar(docsDe(zigPayload && zigPayload.lancamentos && zigPayload.lancamentos.marketing));
+  colocar(docsDe(espelhoPayload));
+  colocar(envioPayload && envioPayload.docs);
+  const docs = [...mapa.values()].sort((a, b) => b.date.localeCompare(a.date));
+  return { ok: true, docs };
+}
+
+async function completarEspelho(pool, dados, chaves, store) {
+  const lista = chaves || [];
+  const saida = { ...dados };
+  if (lista.includes('getMkPlans')) {
+    const local = await store.latestPayload(pool, 'mk_plans').catch(() => null);
+    const precisaZig = !docsDe(saida.getMkPlans && saida.getMkPlans.payload).length;
+    const zig = precisaZig ? await store.latestPayload(pool, 'faturamento_zig').catch(() => null) : null;
+    const payload = misturarMkPlans(
+      saida.getMkPlans && saida.getMkPlans.payload,
+      local && local.payload,
+      zig && zig.payload,
+    );
+    if (payload.docs.length || saida.getMkPlans || (local && local.payload)) {
+      saida.getMkPlans = {
+        payload,
+        capturedAt: (saida.getMkPlans && saida.getMkPlans.capturedAt)
+          || (local && local.captured_at)
+          || (zig && zig.captured_at),
+      };
+    }
+  }
+  if (lista.includes('getEntries:marketing')) {
+    const envio = await store.latestPayload(pool, 'envio_marketing').catch(() => null);
+    const precisaZig = !docsDe(saida['getEntries:marketing'] && saida['getEntries:marketing'].payload).length;
+    const zig = precisaZig ? await store.latestPayload(pool, 'faturamento_zig').catch(() => null) : null;
+    const payload = misturarEntradasMarketing(
+      saida['getEntries:marketing'] && saida['getEntries:marketing'].payload,
+      envio && envio.payload,
+      zig && zig.payload,
+    );
+    if (payload.docs.length || saida['getEntries:marketing']) {
+      saida['getEntries:marketing'] = {
+        payload,
+        capturedAt: (saida['getEntries:marketing'] && saida['getEntries:marketing'].capturedAt)
+          || (envio && envio.captured_at)
+          || (zig && zig.captured_at),
+      };
+    }
+  }
+  return saida;
+}
 
 function chavesValidas(pedidas) {
   const conhecidas = new Set(listarLeituras().map((l) => l.chave));
@@ -34,7 +126,7 @@ async function lerEspelho(pool, chaves, deps) {
     const chave = String(row.source).slice(PREFIXO.length);
     saida[chave] = { payload: row.payload, capturedAt: row.captured_at };
   }
-  return saida;
+  return completarEspelho(pool, saida, lista, store);
 }
 
 /** Quais chaves do catálogo ainda não têm cópia no banco. */
@@ -54,4 +146,7 @@ module.exports = {
   lerEspelho,
   chavesSemCopia,
   chavesValidas,
+  docsDe,
+  misturarMkPlans,
+  misturarEntradasMarketing,
 };

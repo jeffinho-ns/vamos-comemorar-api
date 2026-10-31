@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { listarLeituras, leiturasPorRitmo, encontrarLeitura, fonteDaChave } = require('../../services/biJustino/espelho/catalogo');
 const { coletarEspelho, emLotes, TAMANHO_LOTE } = require('../../services/biJustino/espelho/coletor');
 const { gravarNaPlanilha } = require('../../services/biJustino/espelho/escrita');
+const { docsDe, misturarMkPlans, misturarEntradasMarketing } = require('../../services/biJustino/espelho/leitura');
 
 function storeFalso() {
   const gravados = [];
@@ -78,4 +79,29 @@ test('a escrita recusa ações de leitura e bloqueadas, e recoleta as chaves afe
     coletar: async () => undefined,
   });
   assert.equal(falha.erro, 'forbidden');
+});
+
+test('misturarMkPlans usa o revenuePlan da planilha, o Zig se o espelho veio vazio, e o snapshot local vence a data', () => {
+  assert.deepEqual(docsDe({ ok: true, docs: [{ date: '2026-10-30' }] }).map((d) => d.date), ['2026-10-30']);
+  assert.deepEqual(docsDe({ mkPlans: [{ date: '2026-10-01' }] }).map((d) => d.date), ['2026-10-01']);
+  const doZig = misturarMkPlans(null, null, { mkPlans: [{ date: '2026-10-30', publicPlan: 100, ticketPlan: 130, revenuePlan: 13000 }] });
+  assert.equal(doZig.docs[0].revenuePlan, 13000);
+  const localVence = misturarMkPlans(
+    { docs: [{ date: '2026-10-30', publicPlan: 10, ticketPlan: 10, revenuePlan: 100 }] },
+    { docs: [{ date: '2026-10-30', publicPlan: 300, ticketPlan: 130, revenuePlan: 39000 }] },
+    null,
+  );
+  assert.equal(localVence.docs[0].revenuePlan, 39000);
+});
+
+test('misturarEntradasMarketing junta Zig, espelho e envio local pela data', () => {
+  const r = misturarEntradasMarketing(
+    { docs: [{ date: '2026-10-29', values: { mkTraffic: 1 } }] },
+    { docs: [{ date: '2026-10-30', values: { mkTraffic: 9, mkShow: 10, mkWalkins: 0, mkTicket: 100 } }] },
+    { lancamentos: { marketing: [{ date: '2026-10-28', mkTraffic: 2, mkShow: 5, mkTicket: 80 }] } },
+  );
+  assert.equal(r.docs.length, 3);
+  assert.equal(r.docs[0].date, '2026-10-30');
+  assert.equal(r.docs[0].values.mkTraffic, 9);
+  assert.equal(r.docs[2].values.mkTraffic, 2);
 });
