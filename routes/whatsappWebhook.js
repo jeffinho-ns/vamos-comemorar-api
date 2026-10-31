@@ -87,6 +87,17 @@ module.exports = (pool, app) => {
       return res.sendStatus(200);
     }
 
+    const { isInstagramPayload } = require('../services/instagram/instagramWebhookParse');
+    if (isInstagramPayload(payload)) {
+      try {
+        const { processInstagramWebhook } = require('../services/instagram/processInstagramInbound');
+        await processInstagramWebhook({ pool, app, payload });
+      } catch (igError) {
+        console.error('[WhatsApp webhook] falha no Direct do Instagram:', igError.message);
+      }
+      return res.sendStatus(200);
+    }
+
     const incomingMessageText = extractMessageText(payload);
     const waId = extractSenderNumber(payload);
     const wamid = extractMessageId(payload);

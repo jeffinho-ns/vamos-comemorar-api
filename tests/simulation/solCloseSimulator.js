@@ -221,6 +221,9 @@ function checkExpect(actual, expect = {}) {
   if (expect.field && actual?.state?.[expect.field.key] !== expect.field.value) {
     failures.push(`${expect.field.key}=${actual?.state?.[expect.field.key]} (queria ${expect.field.value})`);
   }
+  if (expect.client_phone && actual?.state?.client_phone !== expect.client_phone) {
+    failures.push(`telefone=${actual?.state?.client_phone} (queria ${expect.client_phone})`);
+  }
   return failures;
 }
 

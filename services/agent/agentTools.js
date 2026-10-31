@@ -14,6 +14,7 @@ const {
   normalizeCanonicalEstablishmentId,
 } = require('../whatsappReservationService');
 const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
+const { isInstagramWaId, resolveReservationPhone } = require('../instagram/instagramIdentity');
 const { resolveOrganizationIdForEstablishment } = require('../../tenancy/resolveOrganizationId');
 const {
   isHighlineEstablishment,
@@ -786,8 +787,8 @@ async function resolveAreaId(pool, establishmentId, areaValue) {
  *   - duplicateRecent: outras reservas confirmadas nas últimas 24h →
  *     permite registrar, mas marca observação para o admin investigar.
  */
-async function detectReservationDuplicates(pool, { establishmentId, waId, reservationDate, reservationTime }) {
-  const phone = String(waId || '').replace(/\D/g, '');
+async function detectReservationDuplicates(pool, { establishmentId, waId, reservationDate, reservationTime, clientPhone }) {
+  const phone = resolveReservationPhone({ waId, clientPhone }) || String(waId || '').replace(/\D/g, '');
   if (!phone) {
     return { duplicateExact: null, duplicateRecent: [] };
   }
@@ -830,9 +831,20 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
   const partySize = Number(args.quantidade_pessoas);
   const cliente = args.cliente_dados || {};
   const waId = runtimeContext.waId;
+  const reservationPhone = resolveReservationPhone({
+    waId,
+    clientPhone: cliente.telefone || cliente.phone,
+    cliente,
+  });
 
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !reservationDate || !reservationTime) {
     return { ok: false, error: 'Dados obrigatórios para pré-reserva.' };
+  }
+  if (isInstagramWaId(waId) && !reservationPhone) {
+    return {
+      ok: false,
+      error: 'No Instagram eu preciso do WhatsApp com DDD pra deixar a reserva no seu nome.',
+    };
   }
 
   let duplicateInfo = { duplicateExact: null, duplicateRecent: [] };
@@ -842,6 +854,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       waId,
       reservationDate,
       reservationTime,
+      clientPhone: reservationPhone,
     });
   } catch (dupError) {
     console.warn('[agentTools] falha ao checar duplicidade de reserva:', dupError.message);
@@ -1050,6 +1063,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       establishment_id: establishmentId,
       client_name: cliente.nome,
       client_email: cliente.email,
+      client_phone: reservationPhone,
       data_nascimento: cliente.data_nascimento,
       quantidade_convidados: partySize,
       reservation_date: reservationDate,
@@ -1214,11 +1228,8 @@ async function criarListaEspera(pool, args = {}, runtimeContext = {}) {
       subarea?.area_id || null,
       null,
       String(cliente.nome).trim(),
-      cliente.telefone
-        ? String(cliente.telefone).replace(/\D/g, '')
-        : waId
-          ? String(waId).replace(/\D/g, '')
-          : null,
+      resolveReservationPhone({ waId, cliente }) ||
+        (cliente.telefone ? String(cliente.telefone).replace(/\D/g, '') : null),
       cliente.email ? String(cliente.email).trim() : null,
       Number.isFinite(partySize) && partySize > 0 ? partySize : null,
       preferredTime,

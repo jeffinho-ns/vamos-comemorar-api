@@ -1,4 +1,5 @@
 const businessRulesEngine = require('./businessRulesEngine');
+const { resolveReservationPhone, isInstagramWaId } = require('./instagram/instagramIdentity');
 
 /**
  * Idade completa a partir de data YYYY-MM-DD (timezone local).
@@ -317,7 +318,11 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
 
   return {
     client_name: client_name != null ? String(client_name).trim() : null,
-    client_phone: senderWaId ? String(senderWaId).replace(/\D/g, '') : null,
+    client_phone: resolveReservationPhone({
+      waId: senderWaId,
+      clientPhone: params?.client_phone,
+      cliente: { telefone: params?.client_phone },
+    }),
     client_email: client_email != null ? String(client_email).trim() : null,
     data_nascimento_cliente: data_nascimento || null,
     reservation_date: normalizedDate,
@@ -332,7 +337,7 @@ function buildReservationBodyFromParams(params, senderWaId, opts = {}) {
     establishment_id: estId,
     // confirmed: aparece no calendário como reserva válida (check-in, ocupação) como as criadas pela equipe após confirmação
     status: 'confirmed',
-    origin: 'WHATSAPP',
+    origin: isInstagramWaId(senderWaId) ? 'INSTAGRAM' : 'WHATSAPP',
     notes:
       [opts.notes, reservation_notes ? String(reservation_notes).trim() : null]
         .filter(Boolean)

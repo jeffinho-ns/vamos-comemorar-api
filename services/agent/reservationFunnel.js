@@ -13,6 +13,7 @@ const {
   guestZonePromptForClient,
 } = require('./seuJustinoReservationAreas');
 const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
+const { isInstagramWaId, parseBrPhoneFromText, normalizeBrPhone } = require('../instagram/instagramIdentity');
 
 /**
  * Detecta a mensagem padronizada gerada por anúncio/tráfego pago.
@@ -253,6 +254,7 @@ function hasFieldValue(state, key) {
   const value = state[key];
   if (value === undefined || value === null || value === '') return false;
   if (key === 'data_nascimento') return isAdultBirthIso(value);
+  if (key === 'client_phone') return Boolean(normalizeBrPhone(value));
   if (['establishment_id', 'quantidade_convidados', 'area_id'].includes(key)) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0;
@@ -414,6 +416,9 @@ function getReservationMissingFields(workingState = {}) {
     const idx = missing.indexOf('reservation_date');
     if (idx >= 0) missing[idx] = 'reservation_date_confirm';
   }
+  if (isInstagramSource(state) && !hasFieldValue(state, 'client_phone')) {
+    missing.push('client_phone');
+  }
   return missing;
 }
 
@@ -424,7 +429,14 @@ const AREA_QUESTION_BY_ESTABLISHMENT = {
 };
 
 const OPERATIONAL_ASK_ORDER = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
-const IDENTITY_ASK_ORDER = ['client_name', 'client_email', 'data_nascimento'];
+const IDENTITY_ASK_ORDER = ['client_name', 'client_email', 'client_phone', 'data_nascimento'];
+
+function isInstagramSource(state = {}) {
+  return (
+    String(state.source_channel || '').toLowerCase() === 'instagram' ||
+    isInstagramWaId(state.wa_id || state.channel_id)
+  );
+}
 
 function hasReservationArea(state = {}) {
   if (hasFieldValue(state, 'area_id')) return true;
@@ -464,14 +476,21 @@ function buildIdentityBundleQuestion(missing = [], workingState = {}) {
   const asks = [];
   if (missing.includes('client_name')) asks.push('nome');
   if (missing.includes('client_email')) asks.push('e-mail');
+  if (missing.includes('client_phone')) asks.push('WhatsApp com DDD');
   if (missing.includes('data_nascimento')) asks.push('data de nascimento');
   if (asks.length === 0) return '';
   if (asks.length === 1) {
     if (missing.includes('client_name')) return MISSING_FIELD_PROMPTS.client_name;
     if (missing.includes('client_email')) return MISSING_FIELD_PROMPTS.client_email;
+    if (missing.includes('client_phone')) {
+      return 'Me passa seu WhatsApp com DDD pra eu deixar a reserva no seu nome?';
+    }
     return MISSING_FIELD_PROMPTS.data_nascimento;
   }
-  if (asks.length === 3) return 'Qual seu nome, e-mail e data de nascimento?';
+  if (asks.length === 3 && !missing.includes('client_phone')) {
+    return 'Qual seu nome, e-mail e data de nascimento?';
+  }
+  if (asks.length === 4) return 'Qual seu nome, e-mail, WhatsApp com DDD e data de nascimento?';
   return `Qual seu ${joinAskList(asks)}?`;
 }
 
@@ -526,6 +545,9 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   const paragraph =
     'FUNIL ATIVO: avance a reserva neste turno, em prosa curta. ' +
     'Peça data, horário e pessoas na mesma frase. Depois nome, e-mail e nascimento na mesma frase. ' +
+    (isInstagramSource(workingState)
+      ? 'Esta conversa é Instagram Direct: peça também o WhatsApp com DDD e nunca use o IGSID como telefone. '
+      : '') +
     'Área só se faltar, numa pergunta curta. ' +
     'Não reconfirme data, horário ou pessoas que já estão em Coletado. ' +
     'Não repita a pergunta que você acabou de fazer. ' +
@@ -766,6 +788,10 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
   if (emailMatch && !hasFieldValue(workingState, 'client_email')) {
     patch.client_email = emailMatch[0].toLowerCase();
+  }
+  if (isInstagramSource(workingState) && !hasFieldValue(workingState, 'client_phone')) {
+    const phone = parseBrPhoneFromText(text);
+    if (phone) patch.client_phone = phone;
   }
   if (!hasFieldValue(workingState, 'client_name')) {
     const nameBeforeEmail = extractFullNameBeforeEmail(text);

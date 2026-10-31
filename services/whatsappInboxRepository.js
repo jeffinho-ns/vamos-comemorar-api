@@ -43,7 +43,8 @@ async function getConversationByWaId(pool, waId) {
   const r = await pool.query(
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
             c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
-            c.human_takeover_until, c.updated_at, c.created_at
+            c.human_takeover_until, c.updated_at, c.created_at,
+            CASE WHEN c.wa_id LIKE 'ig:%' THEN 'INSTAGRAM' ELSE 'WHATSAPP' END AS source_channel
      FROM whatsapp_conversations c
      LEFT JOIN places p ON p.id = c.establishment_id
      LEFT JOIN users u ON u.id = c.assigned_user_id
@@ -240,18 +241,24 @@ async function upsertContact(
     lastReservationId = null,
     /** true quando o contato iniciou conversa (inbound) — concede opt-in de marketing. */
     grantMarketingOptIn = false,
+    sourceChannel = null,
   }
 ) {
   const orgId = await resolveOrganizationIdForEstablishment(pool, lastEstablishmentId);
+  const channel =
+    String(sourceChannel || '').trim().toUpperCase() === 'INSTAGRAM' ||
+    String(waId || '').toLowerCase().startsWith('ig:')
+      ? 'INSTAGRAM'
+      : String(sourceChannel || '').trim().toUpperCase() || 'WHATSAPP';
   const r = await pool.query(
     `INSERT INTO whatsapp_contacts (
        wa_id, contact_name, client_email, birth_date, last_establishment_id, last_reservation_id,
-       marketing_opt_in, marketing_opt_in_at, last_seen_at, updated_at, organization_id
+       marketing_opt_in, marketing_opt_in_at, last_seen_at, updated_at, organization_id, source_channel
      )
      VALUES (
        $1, $2, $3, $4, $5, $6,
        $7, CASE WHEN $7 THEN NOW() ELSE NULL END,
-       NOW(), NOW(), $8
+       NOW(), NOW(), $8, $9
      )
      ON CONFLICT (wa_id) DO UPDATE SET
        contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_contacts.contact_name),
@@ -260,6 +267,10 @@ async function upsertContact(
        last_establishment_id = COALESCE(EXCLUDED.last_establishment_id, whatsapp_contacts.last_establishment_id),
        last_reservation_id = COALESCE(EXCLUDED.last_reservation_id, whatsapp_contacts.last_reservation_id),
        organization_id = COALESCE(whatsapp_contacts.organization_id, EXCLUDED.organization_id),
+       source_channel = CASE
+         WHEN EXCLUDED.source_channel = 'INSTAGRAM' THEN 'INSTAGRAM'
+         ELSE COALESCE(whatsapp_contacts.source_channel, EXCLUDED.source_channel, 'WHATSAPP')
+       END,
        marketing_opt_in = CASE
          WHEN $7 THEN TRUE
          ELSE whatsapp_contacts.marketing_opt_in
@@ -281,6 +292,7 @@ async function upsertContact(
       lastReservationId,
       Boolean(grantMarketingOptIn),
       orgId,
+      channel,
     ]
   );
   return r.rows[0];
@@ -566,6 +578,7 @@ async function listConversations(pool, options = {}) {
     `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
             c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
             c.human_takeover_until, c.updated_at,
+            CASE WHEN c.wa_id LIKE 'ig:%' THEN 'INSTAGRAM' ELSE 'WHATSAPP' END AS source_channel,
             lm.id AS last_message_id,
             lm.intent AS last_intent,
             ${unreadSelect},

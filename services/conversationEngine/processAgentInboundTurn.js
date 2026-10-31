@@ -65,6 +65,8 @@ const {
 } = require('../agent/assistantBehaviorRuntime');
 const { loadIceBreakers, shouldOfferIceBreakers, appendIceBreakers } = require('../agent/iceBreakerService');
 const { isHouseOpenNow } = require('../agent/reservationOperatingContext');
+const { channelFromWaId, isInstagramWaId } = require('../instagram/instagramIdentity');
+const { extractInstagramInbound } = require('../instagram/instagramWebhookParse');
 const { sendFlyersForEvent } = require('../flyer/flyerService');
 const { isExplicitHumanRequest } = require('../aiService');
 const { isOpenAiCircuitOpen, tripOpenAiCircuit } = require('../agent/openaiCircuitBreaker');
@@ -102,6 +104,8 @@ function detectB2BIntent(text) {
 }
 
 function extractContactName(payload) {
+  const instagram = extractInstagramInbound(payload);
+  if (instagram?.contactName) return instagram.contactName;
   const entry = payload?.entry?.[0];
   const change = entry?.changes?.[0];
   const value = change?.value;
@@ -202,7 +206,12 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       body: incomingText,
       rawPayload: payload,
     });
-    await inbox.upsertContact(pool, { waId, contactName, grantMarketingOptIn: true });
+    await inbox.upsertContact(pool, {
+      waId,
+      contactName,
+      grantMarketingOptIn: true,
+      sourceChannel: channelFromWaId(waId) === 'instagram' ? 'INSTAGRAM' : 'WHATSAPP',
+    });
   } catch (persistError) {
     console.error('[agentEngine] persistência indisponível:', persistError.message);
     return;
@@ -381,6 +390,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         waId,
         lastEstablishmentId: lockedEstablishmentId,
         grantMarketingOptIn: true,
+        sourceChannel: channelFromWaId(waId) === 'instagram' ? 'INSTAGRAM' : 'WHATSAPP',
       });
     } catch (_error) {
       // ignore
@@ -404,6 +414,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         accessGate.aiGloballyEnabled !== false &&
         accessGate.allowedNumbers instanceof Set &&
         accessGate.allowedNumbers.size > 0 &&
+        !isInstagramWaId(waId) &&
         !accessGate.allowedNumbers.has(senderDigits)
       ) {
         console.log(
@@ -439,6 +450,10 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       establishment_id: lockedEstablishmentId,
     });
   }
+  workingStateForTurn = mergeWorkingState(workingStateForTurn, {
+    source_channel: channelFromWaId(waId),
+    wa_id: waId,
+  });
   workingStateForTurn = dropAvailabilityIfSlotChanged(
     memory.workingState || {},
     workingStateForTurn
@@ -650,10 +665,10 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
         settings: assistantSettings,
         userText: incomingText,
         messageHistory,
-        channel: 'whatsapp',
+        channel: channelFromWaId(waId),
       })
     ) {
-      const iceBreakers = await loadIceBreakers(pool, lockedEstablishmentId, 'whatsapp').catch(
+      const iceBreakers = await loadIceBreakers(pool, lockedEstablishmentId, channelFromWaId(waId)).catch(
         () => []
       );
       replyText = appendIceBreakers(replyText, iceBreakers);
@@ -678,7 +693,7 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
 
     // Figurinha opcional: enviada quando o gatilho cadastrado (aba Figurinhas)
     // bate com a mensagem do cliente ou a resposta da IA. Falha não interrompe.
-    if (lockedEstablishmentId && shouldSendStickers(assistantSettings)) {
+    if (lockedEstablishmentId && shouldSendStickers(assistantSettings) && !isInstagramWaId(waId)) {
       try {
         const sticker = await pickStickerForText(
           pool,

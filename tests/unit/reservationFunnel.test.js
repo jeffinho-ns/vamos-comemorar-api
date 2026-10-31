@@ -874,6 +874,51 @@ test('buildNextFieldQuestion ignora area_label em branco', () => {
   assert.equal(q, 'Você prefere a área coberta ou a área descoberta?');
 });
 
+test('funil do Instagram pede WhatsApp e só fecha com telefone BR', () => {
+  const igState = {
+    establishment_id: 8,
+    reservation_date: '2026-10-31',
+    reservation_time: '19:00',
+    quantidade_convidados: 4,
+    area_label: 'Balcão',
+    source_channel: 'instagram',
+    wa_id: 'ig:17841400000000',
+  };
+  assert.deepEqual(getReservationMissingFields(igState), [
+    'client_name',
+    'client_email',
+    'data_nascimento',
+    'client_phone',
+  ]);
+  const question = buildNextFieldQuestion(igState);
+  assert.match(question, /WhatsApp com DDD/i);
+
+  const patch = parseReservationFieldsFromUserText(
+    'Ana Souza, ana@ex.com, 11987654321, 10/05/1990',
+    igState
+  );
+  assert.equal(patch.client_name, 'Ana Souza');
+  assert.equal(patch.client_email, 'ana@ex.com');
+  assert.equal(patch.client_phone, '5511987654321');
+  assert.equal(patch.data_nascimento, '1990-05-10');
+
+  assert.equal(
+    getReservationMissingFields({ ...igState, ...patch }).includes('client_phone'),
+    false
+  );
+});
+
+test('WhatsApp não exige client_phone no funil', () => {
+  const missing = getReservationMissingFields({
+    establishment_id: 8,
+    reservation_date: '2026-10-31',
+    reservation_time: '19:00',
+    quantidade_convidados: 4,
+    wa_id: '5511987654321',
+  });
+  assert.equal(missing.includes('client_phone'), false);
+});
+
 test('buildSalesPullQuestion no Pracinha com hora e pessoas pede Balcão ou Praça', () => {
   assert.equal(
     buildSalesPullQuestion({

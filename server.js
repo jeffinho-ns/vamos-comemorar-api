@@ -114,6 +114,11 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.WHATSAPP_ACCESS_TOKEN) missingWhatsAppEnv.push('WHATSAPP_ACCESS_TOKEN');
   if (!process.env.WHATSAPP_PHONE_NUMBER_ID) missingWhatsAppEnv.push('WHATSAPP_PHONE_NUMBER_ID');
   if (!process.env.OPENAI_API_KEY) missingWhatsAppEnv.push('OPENAI_API_KEY');
+  if (!process.env.IG_ACCESS_TOKEN && !process.env.INSTAGRAM_ACCESS_TOKEN) {
+    console.warn(
+      '[startup] Instagram Direct sem token (IG_ACCESS_TOKEN ou INSTAGRAM_ACCESS_TOKEN). A Sol não consegue responder no Instagram até isso existir.'
+    );
+  }
   if (missingWhatsAppEnv.length > 0) {
     console.error(
       '[startup] WhatsApp/IA incompleto em produção. Variáveis ausentes:',
@@ -144,6 +149,7 @@ app.use((req, res, next) => {
 
 const validateMetaWebhookSignature = require('./middleware/validateMetaWebhookSignature');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+const instagramWebhookRoutes = require('./routes/instagramWebhook');
 
 app.use(
   '/api/webhooks/whatsapp',
@@ -163,6 +169,26 @@ app.use(
     return next();
   },
   whatsappWebhookRoutes(pool, app)
+);
+
+app.use(
+  '/api/webhooks/instagram',
+  express.raw({ type: 'application/json', limit: '5mb' }),
+  validateMetaWebhookSignature,
+  (req, res, next) => {
+    if (req.method === 'GET') {
+      return next();
+    }
+    if (Buffer.isBuffer(req.body)) {
+      try {
+        req.body = JSON.parse(req.body.toString('utf8'));
+      } catch (_parseError) {
+        return res.status(400).send('Invalid JSON');
+      }
+    }
+    return next();
+  },
+  instagramWebhookRoutes(pool, app)
 );
 
 app.use(express.json({ limit: '100mb' }));

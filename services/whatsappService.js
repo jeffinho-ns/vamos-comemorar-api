@@ -121,6 +121,12 @@ async function sendMessage(to, text) {
     throw new Error('Parâmetro "text" inválido para envio de mensagem.');
   }
 
+  const { isInstagramWaId } = require('./instagram/instagramIdentity');
+  if (isInstagramWaId(to)) {
+    const { sendInstagramMessage } = require('./instagram/instagramService');
+    return sendInstagramMessage(to, text);
+  }
+
   return postGraphMessage(
     {
       messaging_product: 'whatsapp',

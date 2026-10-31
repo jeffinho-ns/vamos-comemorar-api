@@ -186,6 +186,7 @@ function buildCreatePreReservaArgs(workingState = {}, context = {}, areaLabel = 
       nome: clientName,
       email: clientEmail,
       data_nascimento: birthDate,
+      telefone: String(workingState.client_phone || '').trim() || undefined,
     },
     observacoes:
       [String(workingState.observacoes || '').trim(), buildOccasionNotes(workingState)]

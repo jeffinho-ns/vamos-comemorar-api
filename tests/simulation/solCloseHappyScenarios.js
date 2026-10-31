@@ -57,6 +57,34 @@ function buildHappyScenarios() {
       expect: { action: 'would_create', wouldCreate: true, establishment_id: 8 },
     },
     {
+      id: 'close-instagram',
+      title: 'Fecha no Instagram depois de pedir o WhatsApp',
+      initialState: { source_channel: 'instagram', wa_id: 'ig:17841400000000' },
+      turns: [
+        'Quero reservar no Pracinha sábado 19h pra 4 pessoas',
+        'Ana Souza, ana@ex.com, 11987654321, 10/05/1990',
+        'Balcão',
+      ],
+      expect: {
+        action: 'would_create',
+        wouldCreate: true,
+        establishment_id: 8,
+        field: { key: 'client_phone', value: '5511987654321' },
+      },
+    },
+    {
+      id: 'ig-asks-phone',
+      title: 'Instagram sem WhatsApp não fecha a reserva',
+      initialState: { source_channel: 'instagram', wa_id: 'ig:17841400000000' },
+      turns: ['Quero reservar no Pracinha sábado 19h pra 4 pessoas', IDENTITY, 'Balcão'],
+      expect: {
+        action: 'collect',
+        wouldCreate: false,
+        missingIncludes: ['client_phone'],
+        replyMatch: /WhatsApp/i,
+      },
+    },
+    {
       id: 'cfg-no-reserve',
       title: 'Config: não informar reservas encaminha humano',
       settings: { behavior_config: { nao_informar_reservas: true } },
