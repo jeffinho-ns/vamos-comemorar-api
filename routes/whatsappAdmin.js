@@ -17,6 +17,7 @@ const uploadImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 const inbox = require('../services/whatsappInboxRepository');
+const { carregarDashboard } = require('../services/whatsappDashboard');
 const {
   deliverCampaignToContact,
   campaignPreviewText,
@@ -1905,7 +1906,7 @@ module.exports = (pool, app) => {
         targetEstablishmentId = scope.allowedEstablishmentIds[0];
       }
 
-      const summary = await inbox.getWhatsappSummaryReport(pool, {
+      const summary = await carregarDashboard(pool, {
         establishmentId: targetEstablishmentId,
         startDate:
           typeof req.query?.start_date === 'string' && req.query.start_date.trim()
