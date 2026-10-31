@@ -243,19 +243,26 @@ function normalizeInboundText(text) {
 // mencionam a Área Rooftop (sub-área do Highline) e empurra o cliente pra outro
 // estabelecimento — bug reportado em produção (caso Julia Monteiro).
 function getEstablishmentAliasPatterns() {
-  const patterns = [];
+  const byId = new Map();
   for (const [profile, regex] of Object.entries(PROFILE_ALIAS_REGEX)) {
     const id = getOperationalIdForProfile(profile);
     if (Number.isFinite(id) && id > 0) {
-      patterns.push({ pattern: regex, id });
+      byId.set(Number(id), { pattern: regex, id: Number(id) });
     }
   }
-  if (patterns.length > 0) return patterns;
-
-  const fromCatalog = getAliasPatternsFromCatalog();
-  if (fromCatalog && fromCatalog.length > 0) return fromCatalog;
-
-  return ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK;
+  for (const alias of getAliasPatternsFromCatalog() || []) {
+    const id = Number(alias.id);
+    if (Number.isFinite(id) && id > 0 && !byId.has(id)) {
+      byId.set(id, alias);
+    }
+  }
+  for (const fallback of ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK) {
+    const id = Number(fallback.id);
+    if (Number.isFinite(id) && id > 0 && !byId.has(id)) {
+      byId.set(id, fallback);
+    }
+  }
+  return [...byId.values()];
 }
 
 /** Regex semânticos por profile — IDs resolvidos do banco no boot. */
@@ -280,28 +287,65 @@ const ESTABLISHMENT_ALIAS_PATTERNS_FALLBACK = [
   { pattern: /\bseu\s*justino\b|\bjustino\b/, id: 1 },
 ];
 
+function listMentionedEstablishments(text, establishments = []) {
+  const normalized = normalizeInboundText(text);
+  if (!normalized) return [];
+
+  const nameHits = (establishments || [])
+    .map((establishment) => ({
+      id: Number(establishment?.id),
+      name: normalizeInboundText(establishment?.name),
+    }))
+    .filter((hit) => Number.isFinite(hit.id) && hit.id > 0 && hit.name && normalized.includes(hit.name))
+    .sort((left, right) => right.name.length - left.name.length);
+
+  const keptNames = [];
+  for (const hit of nameHits) {
+    const absorbed = keptNames.some((kept) => kept.name.includes(hit.name));
+    if (!absorbed) keptNames.push(hit);
+  }
+
+  const ids = new Set(keptNames.map((hit) => hit.id));
+
+  for (const alias of getEstablishmentAliasPatterns()) {
+    const aliasId = Number(alias.id);
+    if (!Number.isFinite(aliasId) || aliasId <= 0) continue;
+    if (!alias.pattern.test(normalized)) continue;
+    const other = (establishments || []).find((item) => Number(item.id) === aliasId);
+    const otherName = normalizeInboundText(other?.name);
+    const absorbed = keptNames.some((kept) => {
+      if (kept.id === aliasId) return true;
+      return Boolean(otherName && kept.name.includes(otherName));
+    });
+    if (!absorbed) ids.add(aliasId);
+  }
+
+  return [...ids];
+}
+
 function detectEstablishmentFromText(text, establishments = []) {
+  const mentioned = listMentionedEstablishments(text, establishments);
+  if (mentioned.length === 1) return mentioned[0];
+  if (mentioned.length > 1) return null;
+
   const normalized = normalizeInboundText(text);
   if (!normalized) return null;
-
-  let bestId = null;
-  let bestNameLength = 0;
-  for (const establishment of establishments) {
-    const name = normalizeInboundText(establishment?.name);
-    if (!name || !normalized.includes(name)) continue;
-    if (name.length > bestNameLength) {
-      bestNameLength = name.length;
-      const id = Number(establishment.id);
-      if (Number.isFinite(id) && id > 0) bestId = id;
-    }
-  }
-  if (bestId) return bestId;
-
   for (const alias of getEstablishmentAliasPatterns()) {
     if (!Number.isFinite(Number(alias.id)) || Number(alias.id) <= 0) continue;
     if (alias.pattern.test(normalized)) return alias.id;
   }
   return null;
+}
+
+function buildHouseChoiceQuestion(text, establishments = []) {
+  const mentioned = listMentionedEstablishments(text, establishments);
+  const names = mentioned
+    .map((id) => establishments.find((item) => Number(item.id) === Number(id))?.name)
+    .filter(Boolean);
+  if (names.length >= 2) {
+    return `Você falou de ${names.join(' e ')}. Qual das duas você quer reservar?`;
+  }
+  return 'Em qual casa você quer reservar?';
 }
 
 function looksLikeFreshReservationStart(text) {
@@ -498,6 +542,8 @@ module.exports = {
   looksLikePetQuestion,
   looksLikeRepeatedDataComplaint,
   detectEstablishmentFromText,
+  listMentionedEstablishments,
+  buildHouseChoiceQuestion,
   looksLikeFreshReservationStart,
   resolveEstablishmentForTurn,
   buildAvailabilityReplyText,

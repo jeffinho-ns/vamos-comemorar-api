@@ -6,6 +6,8 @@ const {
   parseReservationFieldsFromUserText,
   mergeContactHintsIntoWorkingState,
   prefixReplyWithContactName,
+  resetReservationSlotOnHouseChange,
+  dropAvailabilityIfSlotChanged,
 } = require('../agent/reservationFunnel');
 const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
@@ -31,6 +33,8 @@ const {
   mapRowsToOpenAIHistory,
   resolveEstablishmentForTurn,
   detectEstablishmentFromText,
+  listMentionedEstablishments,
+  buildHouseChoiceQuestion,
 } = require('../conversationEngine/helpers');
 const {
   classifyAgentRuntimeError,
@@ -275,6 +279,27 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
   const historyPlainText = messageHistory.map((m) => m?.content || '').join(' ');
   const defaultWhatsappEstablishmentId = getWhatsappDefaultEstablishmentId();
 
+  const mentionedHouses = listMentionedEstablishments(
+    incomingText,
+    catalog.establishments || []
+  );
+
+  if (mentionedHouses.length > 1) {
+    const choiceReply = buildHouseChoiceQuestion(incomingText, catalog.establishments || []);
+    const nextState = { ...(memory.workingState || {}) };
+    delete nextState.establishment_id;
+    await persistMemory(pool, conversation.id, {
+      workingState: nextState,
+      contextSummary: memory.contextSummary || null,
+    }).catch(() => {});
+    await outboundGateway.sendText(waId, choiceReply);
+    await persistOutbound(choiceReply, 'HOUSE_CHOICE');
+    console.log(
+      `[agentEngine] duas casas na mesma fala waId=${waId} mentioned=${mentionedHouses.join(',')}`
+    );
+    return;
+  }
+
   const resolvedEstablishmentId = resolveEstablishmentForTurn({
     messageText: incomingText,
     messageHistory,
@@ -339,19 +364,22 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     }
   }
 
+  const stateAfterHouse = lockedEstablishmentId
+    ? resetReservationSlotOnHouseChange(memory.workingState || {}, lockedEstablishmentId)
+    : memory.workingState || {};
   const dateHint = buildReservationDateHint({
     userText: incomingText,
     referenceDateIso: getReferenceDateIso(),
-    workingState: memory.workingState || {},
+    workingState: stateAfterHouse,
     messageHistory,
   });
   const textFieldPatch = parseReservationFieldsFromUserText(
     incomingText,
-    memory.workingState || {},
+    stateAfterHouse,
     messageHistory
   );
   let workingStateForTurn = mergeContactHintsIntoWorkingState(
-    mergeWorkingState(memory.workingState || {}, dateHint.patch || {}, textFieldPatch),
+    mergeWorkingState(stateAfterHouse, dateHint.patch || {}, textFieldPatch),
     whatsappContact || {}
   );
   if (lockedEstablishmentId) {
@@ -359,6 +387,10 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
       establishment_id: lockedEstablishmentId,
     });
   }
+  workingStateForTurn = dropAvailabilityIfSlotChanged(
+    memory.workingState || {},
+    workingStateForTurn
+  );
   const memoryForTurn = {
     ...memory,
     workingState: workingStateForTurn,

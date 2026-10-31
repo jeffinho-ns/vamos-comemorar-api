@@ -8,28 +8,30 @@ Já no `master` e fora desta lista:
 - `497f2e6` — no Pracinha, Balcão e Praça são áreas válidas; o oi não sai duplicado.
 - `8c58561` — a frase do WhatsApp é da Sol, e a grade de horários só entra se essa frase não sair.
 
-30 conflitos ainda abertos. Os marcados como bloqueiam impedem a reserva de fechar.
+24 conflitos ainda abertos. Os marcados como bloqueiam impedem a reserva de fechar.
+
+Primeira leva no `master` (parse do funil): 1, 2, 6, 8, 9 e 12.
 
 ## Casa
 
-1. **Comparar duas casas.** “Dúvida entre o Pracinha e o Seu Justino.” O nome mais longo trava a conversa numa casa só. Direção: se citar duas casas, perguntar qual delas antes de falar programação ou reserva. Bloqueia.
-2. **Trocar de casa no meio.** Começou no Pracinha e depois diz “na verdade no Highline”. O lock da primeira casa continua. Direção: troca explícita solta o lock e zera data, horário, pessoas e área. Bloqueia.
+1. **Comparar duas casas.** Feito. Duas casas na mesma fala perguntam qual delas, sem lock.
+2. **Trocar de casa no meio.** Feito. Casa nova zera data, horário, pessoas e área.
 3. **“No Pracinha” no número central.** Se o perfil operacional regride, a conversa cai no Apê e a sexta volta a parecer fechada. Direção: Pracinha de reserva é sempre a casa 8. Apê não recebe reserva de mesa.
 4. **Central e número da casa.** A mesma pessoa fala nos dois. São conversas separadas. Direção: cada número segue só a casa daquele canal. Não cruzar o funil.
 
 ## Data e horário
 
 5. **“Sexta” sozinha.** Sem horário e sem pessoas, ainda pede para confirmar o dia. Direção: se a próxima sexta é única, aceitar e perguntar só o horário.
-6. **Mudar o dia.** “Na verdade sábado”, com a sexta já salva. A data antiga não é substituída. Direção: dia novo explícito substitui o anterior e a vaga é consultada de novo. Bloqueia.
+6. **Mudar o dia.** Feito. Dia novo explícito substitui o anterior e a vaga é consultada de novo.
 7. **“15/09” sem ano.** Depois de pedir o nascimento, pode virar a data da reserva do ano corrente. Direção: se a pergunta anterior foi nascimento, tratar como nascimento e pedir o ano. Bloqueia.
-8. **“Umas 19”.** Sem “h” ou “:” o horário não grava. Direção: hora solta entre 12 e 23, logo depois da pergunta de horário, vale como HH:00.
-9. **Trocar o horário.** “Muda para 21h”, com 19h já salvo. O primeiro horário fica preso. Direção: horário novo substitui o antigo e a vaga é checada outra vez. Bloqueia.
+8. **“Umas 19”.** Feito. Hora solta entre 12 e 23, tipo “umas 19”, grava HH:00.
+9. **Trocar o horário.** Feito. Horário novo substitui o antigo e a vaga é consultada de novo.
 10. **Fora da janela.** “14h” na sexta do Pracinha, que abre às 17h. A conversa segue e a criação só falha no fim. Direção: recusar na hora, dizer a janela real e pedir outro horário. Bloqueia.
 11. **Dia fechado.** Terça no Pracinha. A Sol pode falar a casa e só no fechamento dizer que está fechado. Direção: terça no Pracinha é fechado. Oferecer quarta ou sexta, sem criar. Bloqueia.
 
 ## Pessoas e área
 
-12. **“Somos em 7”.** Sem a palavra “pessoas” o número não entra. Direção: número logo depois da pergunta de pessoas conta como o tamanho do grupo.
+12. **“Somos em 7”.** Feito. “Somos em 7” / “vamos 7” entra como tamanho do grupo.
 13. **Grupo grande.** “Somos 70.” A Sol tenta uma reserva normal. Direção: acima de 60, uma frase e handoff. Sem pré-reserva. Bloqueia.
 14. **Nome proibido no Highline.** Terraço, Balcão ou Área VIP apagam a frase inteira. Direção: trocar só o nome inválido pela área válida, sem apagar horário e pessoas. Bloqueia.
 15. **“Qual área combina?” no Highline.** “Sexta às 21h, 6 pessoas.” A resposta lista a grade ou ignora o horário. Direção: uma sugestão com vaga nesse horário e uma pergunta. Sem grade.

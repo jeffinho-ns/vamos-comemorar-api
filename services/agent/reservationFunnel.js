@@ -493,6 +493,16 @@ function normalizeTimeHHmm(text, options = {}) {
     }
   }
 
+  const aroundHour = raw.match(
+    /\b(?:umas?|uns|por volta das?|mais ou menos)\s+(\d{1,2})\b/i
+  );
+  if (aroundHour) {
+    const h = Number(aroundHour[1]);
+    if (h >= 12 && h <= 23) {
+      return `${String(h).padStart(2, '0')}:00`;
+    }
+  }
+
   let match = raw.match(/\b(\d{1,2})\s*[:h]\s*(\d{2})\b/i);
   if (match) {
     const h = Math.min(23, Number(match[1]));
@@ -531,7 +541,8 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
       missingForTime.includes('reservation_time') ||
       missingForTime.length >= 2);
   const time = normalizeTimeHHmm(text, { allowBareHour });
-  if (time && !hasFieldValue(workingState, 'reservation_time')) {
+  const currentTime = String(workingState.reservation_time || '').slice(0, 5);
+  if (time && (!hasFieldValue(workingState, 'reservation_time') || currentTime !== time)) {
     patch.reservation_time = time;
   }
 
@@ -556,7 +567,8 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
 
   const partyMatch =
     text.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i) ||
-    text.match(/\b(\d{1,3})\s+pessoas?\b/i);
+    text.match(/\b(\d{1,3})\s+pessoas?\b/i) ||
+    text.match(/\b(?:somos|vamos|seremos)\s+(?:em\s+)?(\d{1,3})(?!\s*h|\s*:)\b/i);
   if (partyMatch) {
     const n = Number(partyMatch[1]);
     if (n > 0 && n <= 200) {
@@ -574,12 +586,13 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const parsedYear = Number(dateParsed?.year);
   const birthCalendarDate =
     Number.isFinite(parsedYear) && parsedYear < new Date().getFullYear();
+  const currentDate = String(workingState.reservation_date || '').slice(0, 10);
   if (
     dateParsed?.iso &&
-    !hasFieldValue(workingState, 'reservation_date') &&
     !informationalDateQuestion &&
     !emailMatch &&
-    !birthCalendarDate
+    !birthCalendarDate &&
+    (!hasFieldValue(workingState, 'reservation_date') || currentDate !== dateParsed.iso)
   ) {
     patch.reservation_date = dateParsed.iso;
     patch.reservation_date_confirmed = true;
@@ -802,6 +815,50 @@ function inferAvailabilityCheckedFromHistory(workingState = {}, messageHistory =
   return { ...workingState, availability_checked_for: fingerprint };
 }
 
+const RESERVATION_SLOT_KEYS = [
+  'reservation_date',
+  'reservation_date_confirmed',
+  'pending_reservation_date_iso',
+  'pending_reservation_date_label',
+  'reservation_time',
+  'quantidade_convidados',
+  'area_id',
+  'area_label',
+  'area_preferida',
+  'justino_subarea_key',
+  'justino_zone',
+  'availability_checked_for',
+  'availability_time_checked_for',
+];
+
+function resetReservationSlotOnHouseChange(workingState = {}, nextHouseId) {
+  const previousId = Number(workingState.establishment_id);
+  const nextId = Number(nextHouseId);
+  if (!Number.isFinite(nextId) || nextId <= 0 || previousId === nextId) {
+    return workingState;
+  }
+  const next = { ...workingState, establishment_id: nextId };
+  for (const key of RESERVATION_SLOT_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
+
+function dropAvailabilityIfSlotChanged(previous = {}, next = {}) {
+  const prevDate = String(previous.reservation_date || previous.pending_reservation_date_iso || '').slice(0, 10);
+  const nextDate = String(next.reservation_date || next.pending_reservation_date_iso || '').slice(0, 10);
+  const slotChanged =
+    Number(previous.establishment_id || 0) !== Number(next.establishment_id || 0) ||
+    prevDate !== nextDate ||
+    String(previous.reservation_time || '').slice(0, 5) !== String(next.reservation_time || '').slice(0, 5) ||
+    Number(previous.quantidade_convidados || 0) !== Number(next.quantidade_convidados || 0);
+  if (!slotChanged) return next;
+  const cleaned = { ...next };
+  delete cleaned.availability_checked_for;
+  delete cleaned.availability_time_checked_for;
+  return cleaned;
+}
+
 function tryAdvanceFunnelFromUserMessage(workingState = {}, userText = '', messageHistory = []) {
   const patch = parseReservationFieldsFromUserText(userText, workingState, messageHistory);
   if (!patch.reservation_time) return null;
@@ -854,6 +911,8 @@ module.exports = {
   buildReservationFunnelPromptBlock,
   buildNextFieldQuestion,
   parseReservationFieldsFromUserText,
+  resetReservationSlotOnHouseChange,
+  dropAvailabilityIfSlotChanged,
   mergeContactHintsIntoWorkingState,
   looksLikeDeferredAvailabilityCheck,
   canAutoCheckAvailability,

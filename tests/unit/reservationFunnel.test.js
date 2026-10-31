@@ -6,6 +6,8 @@ const {
   getReservationMissingFields,
   buildNextFieldQuestion,
   parseReservationFieldsFromUserText,
+  resetReservationSlotOnHouseChange,
+  dropAvailabilityIfSlotChanged,
   looksLikeDeferredAvailabilityCheck,
   shouldAutoRunAvailabilityCheck,
   tryAdvanceFunnelFromUserMessage,
@@ -22,6 +24,7 @@ const {
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
 const { mergeWorkingState } = require('../../services/agent/agentMemoryService');
+const { resolveDateFromText } = require('../../nlp/dateResolver');
 
 test('isReservationFunnelInProgress quando há estabelecimento e data', () => {
   assert.equal(
@@ -424,13 +427,84 @@ test('nascimento inválido não conta e a data real de 15/09/1987 substitui', ()
   assert.equal(patch.quantidade_convidados, undefined);
 });
 
+test('somos em 7 conta como tamanho do grupo', () => {
+  const patch = parseReservationFieldsFromUserText('Somos em 7', {
+    establishment_id: 8,
+    reservation_date: '2026-10-30',
+  });
+  assert.equal(patch.quantidade_convidados, 7);
+});
+
+test('umas 19 grava o horário depois da pergunta', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'umas 19',
+    { establishment_id: 8, reservation_date: '2026-10-30' },
+    [{ role: 'assistant', content: 'Qual horário fica melhor pra você?' }]
+  );
+  assert.equal(patch.reservation_time, '19:00');
+});
+
+test('horário novo explícito substitui o antigo', () => {
+  const patch = parseReservationFieldsFromUserText('Muda para 21h', {
+    establishment_id: 8,
+    reservation_date: '2026-10-30',
+    reservation_time: '19:00',
+    quantidade_convidados: 4,
+    availability_checked_for: '8|2026-10-30|4',
+  });
+  assert.equal(patch.reservation_time, '21:00');
+  const next = dropAvailabilityIfSlotChanged(
+    { establishment_id: 8, reservation_date: '2026-10-30', reservation_time: '19:00', quantidade_convidados: 4, availability_checked_for: '8|2026-10-30|4' },
+    { establishment_id: 8, reservation_date: '2026-10-30', reservation_time: '21:00', quantidade_convidados: 4, availability_checked_for: '8|2026-10-30|4' }
+  );
+  assert.equal(next.availability_checked_for, undefined);
+});
+
+test('dia novo explícito substitui a sexta já salva', () => {
+  const sabado = resolveDateFromText('sábado');
+  const hint = buildReservationDateHint({
+    userText: 'Na verdade sábado',
+    referenceDateIso: '2026-10-30',
+    workingState: {
+      establishment_id: 8,
+      reservation_date: '2026-10-30',
+      reservation_date_confirmed: true,
+    },
+  });
+  assert.equal(hint.patch.reservation_date, sabado.iso);
+  assert.notEqual(hint.patch.reservation_date, '2026-10-30');
+  assert.equal(hint.patch.reservation_date_confirmed, true);
+});
+
+test('troca de casa zera data, horário, pessoas e área', () => {
+  const next = resetReservationSlotOnHouseChange(
+    {
+      establishment_id: 8,
+      reservation_date: '2026-10-30',
+      reservation_time: '19:00',
+      quantidade_convidados: 4,
+      area_label: 'Balcão',
+      availability_checked_for: '8|2026-10-30|4',
+      client_name: 'Ana Silva',
+    },
+    7
+  );
+  assert.equal(next.establishment_id, 7);
+  assert.equal(next.reservation_date, undefined);
+  assert.equal(next.reservation_time, undefined);
+  assert.equal(next.quantidade_convidados, undefined);
+  assert.equal(next.area_label, undefined);
+  assert.equal(next.client_name, 'Ana Silva');
+});
+
 test('reserva na sexta às 21h para 6 pessoas já confirma a data', () => {
+  const sexta = resolveDateFromText('sexta');
   const hint = buildReservationDateHint({
     userText: 'Quero reservar no Seu Justino na sexta às 21h para 6 pessoas. Qual área combina melhor?',
     referenceDateIso: '2026-10-29',
     workingState: { establishment_id: 1 },
   });
   assert.equal(hint.confirmed, true);
-  assert.equal(hint.patch.reservation_date, '2026-10-30');
+  assert.equal(hint.patch.reservation_date, sexta.iso);
   assert.equal(hint.patch.reservation_date_confirmed, true);
 });

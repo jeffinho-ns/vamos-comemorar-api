@@ -2,8 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   detectEstablishmentFromText,
+  listMentionedEstablishments,
   resolveEstablishmentForTurn,
   looksLikeFreshReservationStart,
+  buildHouseChoiceQuestion,
 } = require('../../services/conversationEngine/helpers');
 
 const establishments = [
@@ -82,6 +84,20 @@ test('resolveEstablishmentForTurn preserva lock no Highline quando cliente menci
       collectedFields: { establishment_id: 7 },
     }),
     7
+  );
+});
+
+test('dúvida entre Pracinha e Seu Justino não trava numa casa só', () => {
+  const text = 'Dúvida entre o Pracinha e o Seu Justino.';
+  assert.deepEqual(listMentionedEstablishments(text, establishments).sort((a, b) => a - b), [1, 8]);
+  assert.equal(detectEstablishmentFromText(text, establishments), null);
+  assert.match(buildHouseChoiceQuestion(text, establishments), /Pracinha|Justino/i);
+});
+
+test('Pracinha do Seu Justino continua sendo uma casa só', () => {
+  assert.deepEqual(
+    listMentionedEstablishments('Me ajude no Pracinha do Seu Justino no sábado', establishments),
+    [8]
   );
 });
 
