@@ -242,7 +242,9 @@ async function carregarDashboard(pool, options = {}) {
   const contactSql = contactWhere.length ? `WHERE ${contactWhere.join(' AND ')}` : '';
 
   const { carregarOperacao } = require('./whatsappOperacao');
+  const { carregarZigPeriodo, aplicarPessoas } = require('./whatsappZig');
   const operacaoP = carregarOperacao(pool, { inicio, fim, establishmentId: estab });
+  const zigP = carregarZigPeriodo(pool, { inicio, fim, establishmentId: estab });
 
   const [
     conversas,
@@ -282,11 +284,13 @@ async function carregarDashboard(pool, options = {}) {
               COUNT(*) FILTER (WHERE lower(COALESCE(origin, '')) LIKE '%whatsapp%')::int AS whatsapp,
               COUNT(*) FILTER (WHERE ${statusConfirmada()})::int AS confirmadas,
               COUNT(*) FILTER (WHERE ${checkinExpr()})::int AS compareceram,
+              COALESCE(SUM(number_of_people) FILTER (WHERE ${checkinExpr()}), 0)::int AS pessoas_compareceram,
+              COALESCE(SUM(number_of_people) FILTER (WHERE ${checkinExpr()} AND lower(COALESCE(origin, '')) LIKE '%whatsapp%'), 0)::int AS pessoas_compareceram_whatsapp,
               COUNT(*) FILTER (WHERE lower(replace(COALESCE(status, ''), '_', '-')) LIKE '%cancel%')::int AS canceladas,
               COUNT(*) FILTER (WHERE lower(replace(COALESCE(status, ''), '_', '-')) LIKE '%no%show%')::int AS noshow
          FROM restaurant_reservations ${res.where}`,
       res.params,
-      { total: 0, pessoas: 0, whatsapp: 0, confirmadas: 0, compareceram: 0, canceladas: 0, noshow: 0 },
+      { total: 0, pessoas: 0, whatsapp: 0, confirmadas: 0, compareceram: 0, pessoas_compareceram: 0, pessoas_compareceram_whatsapp: 0, canceladas: 0, noshow: 0 },
     ),
     queryUm(
       pool,
@@ -410,7 +414,12 @@ async function carregarDashboard(pool, options = {}) {
     porDia.set(row.date, atual);
   });
 
-  const operacao = await operacaoP;
+  const [operacao, zigBase] = await Promise.all([operacaoP, zigP]);
+  const zig = aplicarPessoas(
+    zigBase,
+    soNumero(reservas.pessoas_compareceram),
+    soNumero(reservas.pessoas_compareceram_whatsapp),
+  );
   const dashboard = montarDashboard({
     periodo: { inicio, fim, anteriorInicio, anteriorFim },
     conversas: {
@@ -454,7 +463,7 @@ async function carregarDashboard(pool, options = {}) {
     tempoConversaoHoras: tempoRow.horas == null ? null : soNumero(tempoRow.horas),
     contacts: { total: soNumero(contacts.total), optIn: soNumero(contacts.opt_in) },
   });
-  return { ...dashboard, operacao };
+  return { ...dashboard, operacao, zig };
 }
 
 module.exports = {
