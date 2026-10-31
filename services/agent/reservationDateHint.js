@@ -112,7 +112,17 @@ function buildReservationDateHint({
   let parsed = resolveDateFromConversation(text, messageHistory);
   const parsedYear = Number(String(parsed.iso || '').slice(0, 4));
   const referenceYear = Number(String(referenceDateIso || '').slice(0, 4));
-  const identityTurn = /@/.test(text) || /\bnasc/i.test(text);
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  const lastAssistantNorm = String(lastAssistant?.content || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const askedBirth = /\bnascimento\b|\bdata de nasc|\bmaior de 18\b|\b\+18\b|\bqual ano\b.*\bnasceu\b/.test(
+    lastAssistantNorm
+  );
+  const identityTurn = /@/.test(text) || /\bnasc/i.test(text) || askedBirth;
   const pastYear =
     parsed.ok &&
     Number.isFinite(parsedYear) &&

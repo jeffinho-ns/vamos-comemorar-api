@@ -20,6 +20,8 @@ const {
   looksLikeClosingThanks,
   reservationAlreadyCreated,
   lastAssistantClosedReservation,
+  shouldHandoffLargeGroup,
+  buildContactBirthConfirmQuestion,
 } = require('../../services/agent/reservationFunnel');
 const { looksLikeEventProgramQuestion } = require('../../services/agent/faqTopicCanonical');
 const { buildReservationDateHint } = require('../../services/agent/reservationDateHint');
@@ -507,4 +509,159 @@ test('reserva na sexta às 21h para 6 pessoas já confirma a data', () => {
   assert.equal(hint.confirmed, true);
   assert.equal(hint.patch.reservation_date, sexta.iso);
   assert.equal(hint.patch.reservation_date_confirmed, true);
+});
+
+const identityReadyState = {
+  establishment_id: 1,
+  reservation_date: '2026-10-30',
+  reservation_time: '21:00',
+  quantidade_convidados: 6,
+  client_name: 'Ana Silva',
+  client_email: 'ana@example.com',
+};
+
+const birthAskHistory = [
+  {
+    role: 'assistant',
+    content: 'Por último, sua data de nascimento (DD/MM/AAAA) pra eu confirmar +18.',
+  },
+];
+
+test('15/09 após pergunta de nascimento não vira data da reserva', () => {
+  const patch = parseReservationFieldsFromUserText('15/09', identityReadyState, birthAskHistory);
+  assert.equal(patch.reservation_date, undefined);
+  assert.equal(patch.data_nascimento, undefined);
+  assert.equal(patch.pending_birth_md, '15/09');
+});
+
+test('15-09 após nascimento também fica pendente sem ano', () => {
+  const patch = parseReservationFieldsFromUserText('15-09', identityReadyState, birthAskHistory);
+  assert.equal(patch.reservation_date, undefined);
+  assert.equal(patch.data_nascimento, undefined);
+  assert.equal(patch.pending_birth_md, '15/09');
+});
+
+test('depois de 15/09 a próxima pergunta pede o ano do nascimento', () => {
+  const q = buildNextFieldQuestion({
+    ...identityReadyState,
+    pending_birth_md: '15/09',
+  });
+  assert.match(q, /15 de setembro de qual ano você nasceu/i);
+  assert.doesNotMatch(q, /reserva/i);
+});
+
+test('ano após pending_birth_md fecha o nascimento e não mexe na reserva', () => {
+  const patch = parseReservationFieldsFromUserText(
+    '1987',
+    { ...identityReadyState, pending_birth_md: '15/09' },
+    [{ role: 'assistant', content: '15 de setembro de qual ano você nasceu?' }]
+  );
+  assert.equal(patch.data_nascimento, '1987-09-15');
+  assert.equal(patch.pending_birth_md, null);
+  assert.equal(patch.reservation_date, undefined);
+});
+
+test('15/09 sem pergunta de nascimento continua sendo data da reserva', () => {
+  const patch = parseReservationFieldsFromUserText('15/09', { establishment_id: 8 });
+  assert.match(patch.reservation_date, /^20\d{2}-09-15$/);
+  assert.equal(patch.pending_birth_md, undefined);
+});
+
+test('buildReservationDateHint não trata 15/09 como reserva após nascimento', () => {
+  const hint = buildReservationDateHint({
+    userText: '15/09',
+    referenceDateIso: '2026-10-30',
+    workingState: {
+      establishment_id: 1,
+      reservation_date: '2026-10-30',
+      reservation_date_confirmed: true,
+    },
+    messageHistory: birthAskHistory,
+  });
+  assert.equal(hint.patch.reservation_date, undefined);
+  assert.equal(hint.patch.pending_reservation_date_iso, undefined);
+});
+
+test('shouldHandoffLargeGroup é true acima de 60 e false em 60', () => {
+  assert.equal(shouldHandoffLargeGroup('Somos 70.', {}), true);
+  assert.equal(shouldHandoffLargeGroup('vamos 61 pessoas', {}), true);
+  assert.equal(shouldHandoffLargeGroup('Somos 60.', {}), false);
+  assert.equal(shouldHandoffLargeGroup('ok', { quantidade_convidados: 70 }), true);
+  assert.equal(shouldHandoffLargeGroup('ok', { quantidade_convidados: 60 }), false);
+  assert.equal(shouldHandoffLargeGroup('somos 4', {}), false);
+});
+
+test('nascimento do contato não entra sem confirmar', () => {
+  const hinted = mergeContactHintsIntoWorkingState(
+    { establishment_id: 1, client_name: 'Ana Silva' },
+    { birth_date: '1987-09-15', contact_name: 'Ana Silva' }
+  );
+  assert.equal(hinted.data_nascimento, undefined);
+  assert.equal(hinted.pending_contact_birth_iso, '1987-09-15');
+  assert.equal(hinted.pending_contact_birth_label, '15/09/1987');
+  assert.ok(getReservationMissingFields(hinted).includes('data_nascimento'));
+});
+
+test('buildContactBirthConfirmQuestion pergunta a data salva em uma frase', () => {
+  const q = buildContactBirthConfirmQuestion('1987-09-15');
+  assert.match(q, /15\/09\/1987/);
+  assert.match(q, /nascimento/i);
+  assert.doesNotMatch(q, /\n|•|-/);
+});
+
+test('sim após confirmação do nascimento do contato grava a data', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Sim',
+    {
+      ...identityReadyState,
+      pending_contact_birth_iso: '1987-09-15',
+      pending_contact_birth_label: '15/09/1987',
+    },
+    [{ role: 'assistant', content: buildContactBirthConfirmQuestion('1987-09-15') }]
+  );
+  assert.equal(patch.data_nascimento, '1987-09-15');
+  assert.equal(patch.pending_contact_birth_iso, null);
+  assert.equal(patch.pending_contact_birth_label, null);
+});
+
+test('buildNextFieldQuestion confirma o nascimento do contato antes de criar', () => {
+  const q = buildNextFieldQuestion({
+    ...identityReadyState,
+    pending_contact_birth_iso: '1987-09-15',
+    pending_contact_birth_label: '15/09/1987',
+  });
+  assert.match(q, /15\/09\/1987/);
+  assert.match(q, /nascimento/i);
+});
+
+test('buildNextFieldQuestion pede o nome quando só falta o nome', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+    client_email: 'ana@example.com',
+    data_nascimento: '1987-09-15',
+  });
+  assert.match(q, /nome/i);
+  assert.doesNotMatch(q, /e-mail|nascimento/i);
+});
+
+test('buildNextFieldQuestion pede o e-mail quando só falta o e-mail', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-10-30',
+    reservation_time: '21:00',
+    quantidade_convidados: 4,
+    client_name: 'Ana Silva',
+    data_nascimento: '1987-09-15',
+  });
+  assert.match(q, /e-mail/i);
+  assert.doesNotMatch(q, /nome completo|nascimento/i);
+});
+
+test('buildNextFieldQuestion pede o nascimento quando só falta o nascimento', () => {
+  const q = buildNextFieldQuestion(identityReadyState);
+  assert.match(q, /nascimento/i);
+  assert.doesNotMatch(q, /nome completo|e-mail/i);
 });

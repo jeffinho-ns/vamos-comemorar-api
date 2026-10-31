@@ -162,3 +162,52 @@ test('timesOverlapHHmm detecta janela de 2h', () => {
   assert.equal(timesOverlapHHmm('19:00', '20:30'), true);
   assert.equal(timesOverlapHHmm('19:00', '21:00'), false);
 });
+
+test('resolveHighlineSubarea traduz Terraço e Área VIP para labels válidos', () => {
+  const terraco = resolveHighlineSubarea('Terraço');
+  assert.ok(terraco);
+  assert.equal(terraco.key, 'roof-mesas');
+  assert.equal(terraco.area_id, 5);
+  assert.equal(terraco.label, 'Rooftop - Mesas');
+
+  const vip = resolveHighlineSubarea('Área VIP');
+  assert.ok(vip);
+  assert.equal(vip.key, 'balada-camarotes');
+  assert.match(vip.label, /Camarotes/i);
+});
+
+test('sanitizeForbiddenAreaNames troca só o nome inválido e mantém horário e pessoas', () => {
+  const {
+    sanitizeForbiddenAreaNames,
+    hasUsefulReservationProse,
+  } = require('../../services/agent/reservationAreaSanitize');
+
+  const sanitized = sanitizeForbiddenAreaNames(
+    'Sexta às 21h, 6 pessoas no Terraço tem vaga',
+    7
+  );
+  assert.match(sanitized, /21h/);
+  assert.match(sanitized, /6 pessoas/);
+  assert.doesNotMatch(sanitized, /terra[cç]o/i);
+  assert.match(sanitized, /Rooftop/i);
+  assert.equal(hasUsefulReservationProse(sanitized), true);
+
+  const balcao = sanitizeForbiddenAreaNames('confirmo no Balcão às 20:00 para 4 pessoas', 7);
+  assert.doesNotMatch(balcao, /balc[aã]o/i);
+  assert.match(balcao, /Deck - Mesas/);
+  assert.match(balcao, /20:00/);
+  assert.match(balcao, /4 pessoas/);
+
+  const areaVip = sanitizeForbiddenAreaNames('Área VIP às 22h para 8 pessoas', 7);
+  assert.doesNotMatch(areaVip, /[áa]rea vip/i);
+  assert.match(areaVip, /Camarotes/i);
+  assert.match(areaVip, /22h/);
+});
+
+test('sanitizeForbiddenAreaNames no Pracinha não apaga Balcão', () => {
+  const { sanitizeForbiddenAreaNames } = require('../../services/agent/reservationAreaSanitize');
+  const text = sanitizeForbiddenAreaNames('Prefiro o Balcão às 19h, 5 pessoas', 8);
+  assert.match(text, /Balcão/);
+  assert.match(text, /19h/);
+  assert.match(text, /5 pessoas/);
+});

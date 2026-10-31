@@ -337,6 +337,8 @@ function resolveHighlineSubarea(input) {
     { match: ['bar central', 'bistro espera', 'bistros de espera', 'area bar'], key: 'bar-central' },
     { match: ['balada camarote', 'camarote', 'club camarote'], key: 'balada-camarotes' },
     { match: ['balada bistro', 'bistro balada', 'bistros da balada'], key: 'balada-bistros' },
+    { match: ['terraco', 'area terraco', 'area do terraco'], key: 'roof-mesas' },
+    { match: ['area vip'], key: 'balada-camarotes' },
     { match: ['rooftop lounge', 'lounge rooftop', 'lounges'], key: 'roof-lounges' },
     { match: ['bangalo', 'bangalos', 'rooftop bangalo'], key: 'roof-bangalos' },
     { match: ['rooftop mesas', 'mesa rooftop', 'rooftop direito'], key: 'roof-mesas' },
@@ -1072,6 +1074,16 @@ function resolveHighlineSubareaLabelForTable(tableNumber, areaId = null) {
   return resolveHighlineSubareaByTableNumber(tableNumber, areaId)?.label || null;
 }
 
+/** Label oficial no lugar de Terraço / Área VIP / Balcão (Highline). */
+function validHighlineLabelForForbiddenName(name) {
+  const normalized = normalizeLabel(name);
+  if (!normalized) return null;
+  if (normalized === 'balcao') {
+    return HIGHLINE_SUBAREAS.find((s) => s.key === 'deck-mesas')?.label || 'Deck - Mesas';
+  }
+  return resolveHighlineSubarea(normalized)?.label || null;
+}
+
 module.exports = {
   resolveHighlineOperationalId,
   HIGHLINE_LARGE_GROUP_MIN,
@@ -1084,6 +1096,7 @@ module.exports = {
   resolveHighlineSubarea,
   resolveHighlineSubareaByTableNumber,
   resolveHighlineSubareaLabelForTable,
+  validHighlineLabelForForbiddenName,
   consultHighlineReservationAreas,
   findAvailableTableInSubarea,
   findCombinedTablesInSubareaForGroup,

@@ -24,6 +24,127 @@ function reservationFunnelIsComplete(workingState = {}) {
   return getReservationMissingFields(workingState).length === 0;
 }
 
+function normalizeAreaText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function reservationAlreadyExists(workingState = {}) {
+  return (
+    workingState.reservation_created === true ||
+    Boolean(workingState.reservation_id)
+  );
+}
+
+function asksToChangePartyOrTime(userText) {
+  const t = String(userText || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!t) return false;
+  const change =
+    /\b(passa|passar|muda|mudar|altera|alterar|troca|trocar|ajusta|ajustar|aumenta|aumentar|diminui|diminuir)\b/;
+  if (!change.test(t)) return false;
+  return (
+    /\bpessoas?\b/.test(t) ||
+    /\bhorario\b/.test(t) ||
+    /\b\d{1,2}:\d{2}\b/.test(t) ||
+    /\b\d{1,2}\s*h\b/.test(t)
+  );
+}
+
+function shouldRefuseSecondCreate(workingState = {}, userText = '') {
+  return reservationAlreadyExists(workingState) && asksToChangePartyOrTime(userText);
+}
+
+function secondCreateRefuseReply(userText = '') {
+  const match = String(userText || '').match(/\b(\d{1,2})\s*pessoas?\b/i);
+  const n = match ? match[1] : null;
+  if (n) {
+    return `Sua reserva já está feita. Quer que eu chame a equipe pra ajustar para ${n} pessoas?`;
+  }
+  return 'Sua reserva já está feita. Quer que eu chame a equipe pra ajustar?';
+}
+
+function isCreatableAreaLabel(area, establishmentId) {
+  const label = String(area || '').trim();
+  if (!label) return false;
+  const normalized = normalizeAreaText(label);
+  if (normalized === 'padrao' || normalized === 'area padrao') return false;
+
+  if (isSeuJustinoEstablishment(establishmentId)) {
+    const zone = resolveJustinoGuestZone(label);
+    return zone === 'coberta' || zone === 'descoberta';
+  }
+  if (Number(establishmentId) === 8) {
+    return Boolean(resolvePracinhaGuestArea(label));
+  }
+  if (isHighlineEstablishment(establishmentId)) {
+    return Boolean(resolveHighlineSubarea(label));
+  }
+  return true;
+}
+
+function snapshotConfirmsVacancyForCreate(snapshot) {
+  if (!snapshot || snapshot.ok === false) return false;
+  if (snapshot.todas_areas_cheias) return false;
+  const recommended = Boolean(snapshot.area_recomendada?.label);
+  const labels = Array.isArray(snapshot.areas_com_vaga_labels)
+    ? snapshot.areas_com_vaga_labels.filter(Boolean)
+    : [];
+  return recommended || labels.length > 0;
+}
+
+function buildConfirmedVacancyMessage(snapshot) {
+  if (!snapshotConfirmsVacancyForCreate(snapshot)) return null;
+  const label =
+    snapshot.area_recomendada?.label ||
+    (Array.isArray(snapshot.areas_com_vaga_labels) && snapshot.areas_com_vaga_labels[0]) ||
+    '';
+  if (!label) return null;
+  return `Temos vaga em ${label}.`;
+}
+
+function resolveLabelFromHighlineSnapshot(snapshot, preferred = '') {
+  if (!snapshotConfirmsVacancyForCreate(snapshot)) {
+    return {
+      todasCheias: Boolean(snapshot?.todas_areas_cheias),
+      semMesa: !snapshot || snapshot.ok === false || !snapshot.todas_areas_cheias,
+      snapshot: snapshot || null,
+      label: '',
+    };
+  }
+
+  const preferredStillFree =
+    preferred &&
+    Array.isArray(snapshot?.areas_com_vaga_labels) &&
+    snapshot.areas_com_vaga_labels.some(
+      (label) => resolveHighlineSubarea(label)?.label === resolveHighlineSubarea(preferred)?.label
+    );
+
+  const label =
+    (preferredStillFree && preferred) ||
+    snapshot?.area_recomendada?.label ||
+    (Array.isArray(snapshot?.areas_com_vaga_labels) && snapshot.areas_com_vaga_labels[0]) ||
+    '';
+
+  if (!label) {
+    return { todasCheias: true, semMesa: true, snapshot, label: '' };
+  }
+  return { label, snapshot };
+}
+
+function areaChoiceReply(establishmentId) {
+  return Number(establishmentId) === 8
+    ? 'No Pracinha, prefere o Balcão ou a Praça?'
+    : 'Você prefere área coberta ou área descoberta?';
+}
+
 function buildCreatePreReservaArgs(workingState = {}, context = {}, areaLabel = '') {
   const establishmentId = Number(
     workingState.establishment_id || context.lockedEstablishmentId
@@ -50,7 +171,7 @@ function buildCreatePreReservaArgs(workingState = {}, context = {}, areaLabel = 
     !clientName ||
     !clientEmail ||
     !birthDate ||
-    !area
+    !isCreatableAreaLabel(area, establishmentId)
   ) {
     return null;
   }
@@ -91,22 +212,29 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
       resolveJustinoGuestZone(preferred) ||
       workingState.justino_zone ||
       resolveJustinoGuestZone(String(workingState.area_label || ''));
-    if (!zone) {
+    if (!zone || zone === 'qualquer') {
       return { needsChoice: true, label: '', snapshot: null };
     }
-    const label = zone === 'qualquer' ? 'qualquer' : guestZoneLabel(zone);
+    const label = guestZoneLabel(zone);
+    if (!isCreatableAreaLabel(label, establishmentId)) {
+      return { needsChoice: true, label: '', snapshot: null };
+    }
     return { label, snapshot: null };
   }
 
   if (establishmentId === 8) {
     const area = resolvePracinhaGuestArea(userText) || resolvePracinhaGuestArea(preferred);
-    if (!area) return { needsChoice: true, label: '', snapshot: null };
+    if (!area || !isCreatableAreaLabel(area.label, establishmentId)) {
+      return { needsChoice: true, label: '', snapshot: null };
+    }
     return { label: area.label, snapshot: null };
   }
 
   if (!isHighlineEstablishment(establishmentId) || !pool) {
-    // Casas não-Highline: criar_pre_reserva resolve área padrão no backend.
-    return { label: preferred || 'padrão', snapshot: null };
+    if (isGenericForbiddenArea(preferred) || !isCreatableAreaLabel(preferred, establishmentId)) {
+      return { needsChoice: true, label: '', snapshot: null };
+    }
+    return { label: preferred, snapshot: null };
   }
 
   const reservationDate = String(
@@ -115,7 +243,6 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
   const partySize = Number(workingState.quantidade_convidados);
   const reservationTime = String(workingState.reservation_time || '').slice(0, 5) || null;
 
-  // Sempre consulta o painel: respeita preferência do cliente, mas só fecha com vaga real.
   const snapshot = await consultHighlineReservationAreas(pool, {
     estabelecimento_id: establishmentId,
     data: reservationDate,
@@ -125,25 +252,12 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     contexto_cliente: userText || preferred,
   }).catch(() => null);
 
-  if (snapshot?.todas_areas_cheias) {
-    return { todasCheias: true, snapshot };
-  }
+  return resolveLabelFromHighlineSnapshot(snapshot, preferred);
+}
 
-  const preferredStillFree =
-    preferred &&
-    Array.isArray(snapshot?.areas_com_vaga_labels) &&
-    snapshot.areas_com_vaga_labels.some(
-      (label) => resolveHighlineSubarea(label)?.label === resolveHighlineSubarea(preferred)?.label
-    );
-
-  const label =
-    (preferredStillFree && preferred) ||
-    snapshot?.area_recomendada?.label ||
-    (Array.isArray(snapshot?.areas_com_vaga_labels) && snapshot.areas_com_vaga_labels[0]) ||
-    preferred ||
-    'Deck - Mesas';
-
-  return { label, snapshot };
+function isGenericForbiddenArea(area) {
+  const normalized = normalizeAreaText(area);
+  return !normalized || normalized === 'padrao' || normalized === 'area padrao';
 }
 
 /**
@@ -159,6 +273,7 @@ async function tryDeterministicReservationClose({
   userText = '',
 }) {
   if (!pool) return null;
+  if (reservationAlreadyExists(workingState)) return null;
   if (!reservationFunnelIsComplete(workingState)) return null;
 
   const alreadyCreated = (toolTrace || []).some(
@@ -168,22 +283,20 @@ async function tryDeterministicReservationClose({
 
   let nextState = { ...workingState };
   let nextTrace = [...(toolTrace || [])];
+  const establishmentId = Number(nextState.establishment_id || context.lockedEstablishmentId);
 
   const areaResolution = await resolveAreaLabelForCreate(pool, nextState, context, userText);
   if (areaResolution?.needsChoice) {
     return {
       workingState: nextState,
       toolTrace: nextTrace,
-      replyText:
-        Number(nextState.establishment_id || context.lockedEstablishmentId) === 8
-          ? 'No Pracinha, prefere o Balcão ou a Praça?'
-          : 'Você prefere área coberta ou área descoberta?',
+      replyText: areaChoiceReply(establishmentId),
       preReservationResult: null,
       guestListLink: null,
       deterministic: true,
     };
   }
-  if (areaResolution?.todasCheias) {
+  if (areaResolution?.todasCheias || areaResolution?.semMesa) {
     nextTrace.push({
       name: 'consultar_areas_mesa_reserva',
       result: areaResolution.snapshot,
@@ -198,7 +311,9 @@ async function tryDeterministicReservationClose({
       toolTrace: nextTrace,
       replyText:
         areaResolution.snapshot?.mensagem_hostess ||
-        'Olha, tá tudo cheio nesse dia. Posso te colocar na lista de espera — assim que abrir mesa eu te chamo aqui mesmo, beleza?',
+        (areaResolution.semMesa && !areaResolution.todasCheias
+          ? 'Nesse horário não tem mesa. Quer que eu veja outro horário?'
+          : 'Olha, tá tudo cheio nesse dia. Posso te colocar na lista de espera — assim que abrir mesa eu te chamo aqui mesmo, beleza?'),
       preReservationResult: null,
       guestListLink: null,
       deterministic: true,
@@ -207,7 +322,17 @@ async function tryDeterministicReservationClose({
   }
 
   const areaLabel =
-    typeof areaResolution === 'string' ? areaResolution : areaResolution?.label || 'Deck - Mesas';
+    typeof areaResolution === 'string' ? areaResolution : areaResolution?.label || '';
+  if (!isCreatableAreaLabel(areaLabel, establishmentId)) {
+    return {
+      workingState: nextState,
+      toolTrace: nextTrace,
+      replyText: areaChoiceReply(establishmentId),
+      preReservationResult: null,
+      guestListLink: null,
+      deterministic: true,
+    };
+  }
   if (areaResolution?.snapshot) {
     nextTrace.push({
       name: 'consultar_areas_mesa_reserva',
@@ -273,4 +398,10 @@ module.exports = {
   reservationFunnelIsComplete,
   tryDeterministicReservationClose,
   resolveAreaLabelForCreate,
+  resolveLabelFromHighlineSnapshot,
+  snapshotConfirmsVacancyForCreate,
+  buildConfirmedVacancyMessage,
+  shouldRefuseSecondCreate,
+  secondCreateRefuseReply,
+  isCreatableAreaLabel,
 };

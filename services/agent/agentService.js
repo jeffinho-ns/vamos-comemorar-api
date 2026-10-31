@@ -67,6 +67,7 @@ const {
   prefixReplyWithContactName,
   shouldAskOccasion,
 } = require('./reservationFunnel');
+const { evaluateWorkingStateSlot } = require('./reservationSlotGuard');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const {
@@ -781,6 +782,10 @@ async function forceCreatePreReservaIfReady({
   if (reservationAlreadyCreated(workingState)) {
     return { workingState, toolTrace, replyText: null };
   }
+  const slotGuard = evaluateWorkingStateSlot(workingState);
+  if (!slotGuard.ok) {
+    return { workingState, toolTrace, replyText: slotGuard.replyText };
+  }
   if (!reservationFunnelIsComplete(workingState) && !isFunnelCompleteForDeterministic(workingState)) {
     return { workingState, toolTrace, replyText: null };
   }
@@ -985,7 +990,7 @@ function sanitizeAssistantReply(
   }
 
   if (!successPre && looksLikeFakeReservationConfirmation(text)) {
-    const safe = buildSafeFollowupQuestion(workingState);
+    const safe = buildNextFieldQuestion(workingState);
     console.warn(
       '[agentService] guard: bloqueado texto de confirmação falsa de reserva (sem criar_pre_reserva ok).'
     );
@@ -1010,13 +1015,26 @@ function sanitizeAssistantReply(
 
   if (containsForbiddenAreaName(text, houseId)) {
     console.warn(
-      '[agentService] guard: detectado nome de área proibido — substituindo por resposta segura.'
+      '[agentService] guard: detectado nome de área proibido — sanitizando o nome inválido.'
     );
-    const safe = successPre
-      ? synthesizeReplyFromToolTrace(toolTrace) ||
-        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.'
-      : recoveryAfterForbiddenArea(workingState);
-    return { text: safe, blocked: true, reason: 'forbidden_area_name' };
+    if (successPre) {
+      const safe =
+        synthesizeReplyFromToolTrace(toolTrace) ||
+        'Pronto, fechei sua reserva. Qualquer coisa, é só chamar.';
+      return { text: safe, blocked: true, reason: 'forbidden_area_name' };
+    }
+    const { sanitizeForbiddenAreaNames, hasUsefulReservationProse } = require('./reservationAreaSanitize');
+    const sanitized = sanitizeForbiddenAreaNames(text, houseId);
+    const stillForbidden = containsForbiddenAreaName(sanitized, houseId);
+    const useful = hasUsefulReservationProse(sanitized);
+    if (sanitized && useful && !stillForbidden) {
+      return { text: sanitized, blocked: true, reason: 'forbidden_area_name' };
+    }
+    return {
+      text: recoveryAfterForbiddenArea(workingState),
+      blocked: true,
+      reason: 'forbidden_area_name',
+    };
   }
 
   if (looksLikeInternalOperatingLeak(text)) {
@@ -1128,6 +1146,11 @@ async function ensureAvailabilityChecked({
   userText = '',
   messageHistory = [],
 }) {
+  const slotGuard = evaluateWorkingStateSlot(workingState);
+  if (!slotGuard.ok) {
+    return { workingState, toolTrace, forcedReply: slotGuard.replyText };
+  }
+
   const draftReply = String(assistantMessage?.content || '').trim();
   if (
     !shouldAutoRunAvailabilityCheck(

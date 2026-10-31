@@ -8,7 +8,14 @@ const {
   prefixReplyWithContactName,
   resetReservationSlotOnHouseChange,
   dropAvailabilityIfSlotChanged,
+  shouldHandoffLargeGroup,
+  LARGE_GROUP_HANDOFF_REPLY,
 } = require('../agent/reservationFunnel');
+const { evaluateWorkingStateSlot } = require('../agent/reservationSlotGuard');
+const {
+  shouldRefuseSecondCreate,
+  secondCreateRefuseReply,
+} = require('../agent/deterministicReservationClose');
 const { buildAgentReservationOperatingBlock } = require('../agent/reservationOperatingContext');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
 const { mergeWorkingState } = require('../agent/agentMemoryService');
@@ -395,6 +402,50 @@ async function processAgentInboundTurn({ pool, app, payload, incomingMessageText
     ...memory,
     workingState: workingStateForTurn,
   };
+
+  const slotGuard = evaluateWorkingStateSlot(workingStateForTurn);
+  if (!slotGuard.ok) {
+    await persistMemory(pool, conversation.id, {
+      workingState: workingStateForTurn,
+      contextSummary: memory.contextSummary || null,
+    }).catch(() => {});
+    await outboundGateway.sendText(waId, slotGuard.replyText);
+    await persistOutbound(slotGuard.replyText, 'SLOT_GUARD');
+    console.log(
+      `[agentEngine] slot recusado waId=${waId} reason=${slotGuard.reason} establishment_id=${workingStateForTurn.establishment_id}`
+    );
+    return;
+  }
+
+  if (shouldRefuseSecondCreate(workingStateForTurn, incomingText)) {
+    const refuseReply = secondCreateRefuseReply(incomingText);
+    await persistMemory(pool, conversation.id, {
+      workingState: workingStateForTurn,
+      contextSummary: memory.contextSummary || null,
+    }).catch(() => {});
+    await outboundGateway.sendText(waId, refuseReply);
+    await persistOutbound(refuseReply, 'SECOND_CREATE_REFUSED');
+    console.log(`[agentEngine] segunda reserva recusada waId=${waId}`);
+    return;
+  }
+
+  if (shouldHandoffLargeGroup(incomingText, workingStateForTurn)) {
+    try {
+      await persistMemory(pool, conversation.id, {
+        workingState: workingStateForTurn,
+        contextSummary: memory.contextSummary || null,
+      }).catch(() => {});
+      await activateHumanTakeover(pool, waId, 48);
+      await outboundGateway.sendText(waId, LARGE_GROUP_HANDOFF_REPLY);
+      await persistOutbound(LARGE_GROUP_HANDOFF_REPLY, 'LARGE_GROUP_HANDOFF');
+      console.log(
+        `[agentEngine] handoff grupo grande waId=${waId} qty=${workingStateForTurn.quantidade_convidados}`
+      );
+    } catch (largeGroupError) {
+      console.error('[agentEngine] falha no handoff de grupo grande:', largeGroupError.message);
+    }
+    return;
+  }
 
   const focusDateIso =
     (() => {

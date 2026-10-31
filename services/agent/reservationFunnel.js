@@ -269,6 +269,87 @@ function hasFieldValue(state, key) {
   return true;
 }
 
+const LARGE_GROUP_THRESHOLD = 60;
+const LARGE_GROUP_HANDOFF_REPLY =
+  'Pra um grupo desse tamanho eu chamo a equipe, que monta o melhor encaixe. Já passei seu contato, beleza?';
+const MONTHS_PT = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
+function extractPartySizeFromText(text) {
+  const raw = String(text || '');
+  const partyMatch =
+    raw.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i) ||
+    raw.match(/\b(\d{1,3})\s+pessoas?\b/i) ||
+    raw.match(/\b(?:somos|vamos|seremos)\s+(?:em\s+)?(\d{1,3})(?!\s*h|\s*:)\b/i);
+  if (!partyMatch) return null;
+  const n = Number(partyMatch[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function shouldHandoffLargeGroup(text, workingState = {}) {
+  const fromText = extractPartySizeFromText(text);
+  if (Number.isFinite(fromText) && fromText > LARGE_GROUP_THRESHOLD) return true;
+  const fromState = Number(workingState?.quantidade_convidados);
+  return Number.isFinite(fromState) && fromState > LARGE_GROUP_THRESHOLD;
+}
+
+function extractMonthDayWithoutYear(text) {
+  const raw = String(text || '').trim();
+  if (/\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b/.test(raw)) return null;
+  if (/\b(19\d{2}|20\d{2})\b/.test(raw)) return null;
+  const match = raw.match(/\b(\d{1,2})[\/\-](\d{1,2})\b/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+}
+
+function formatIsoToBr(iso) {
+  const [year, month, day] = String(iso || '').slice(0, 10).split('-');
+  if (!year || !month || !day) return '';
+  return `${day}/${month}/${year}`;
+}
+
+function buildContactBirthConfirmQuestion(iso) {
+  const label = formatIsoToBr(iso);
+  if (!label) return 'A data de nascimento que tenho aqui está certa?';
+  return `A data de nascimento que tenho aqui é ${label} — tá certo?`;
+}
+
+function buildBirthYearQuestion(pendingMd) {
+  const match = String(pendingMd || '').match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+  if (!match) return 'De qual ano você nasceu?';
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const monthName = MONTHS_PT[month - 1];
+  if (!monthName) return 'De qual ano você nasceu?';
+  return `${day} de ${monthName} de qual ano você nasceu?`;
+}
+
+function composeBirthIsoFromMdAndYear(pendingMd, yearText) {
+  const md = String(pendingMd || '').match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+  const yearMatch = String(yearText || '').trim().match(/\b(19\d{2}|20\d{2})\b/);
+  if (!md || !yearMatch) return '';
+  const day = Number(md[1]);
+  const month = Number(md[2]);
+  const year = Number(yearMatch[1]);
+  const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return isAdultBirthIso(iso) ? iso : '';
+}
+
 function conversationHasReservationIntent(messageHistory = [], lookback = 12) {
   const slice = (messageHistory || []).slice(-lookback);
   for (const msg of slice) {
@@ -335,6 +416,21 @@ function buildNextFieldQuestion(workingState = {}, options = {}) {
   if (missing.length === 0) {
     return getStepPrompt(OBSERVATIONS_STEP);
   }
+  if (workingState.pending_birth_md && missing.includes('data_nascimento')) {
+    return buildBirthYearQuestion(workingState.pending_birth_md);
+  }
+  const operationalMissing = ['reservation_date', 'reservation_time', 'quantidade_convidados'].some(
+    (key) => missing.includes(key)
+  );
+  const firstIdentity = ['client_name', 'client_email', 'data_nascimento'].find((key) =>
+    missing.includes(key)
+  );
+  if (firstIdentity && !operationalMissing) {
+    if (firstIdentity === 'data_nascimento' && workingState.pending_contact_birth_iso) {
+      return buildContactBirthConfirmQuestion(workingState.pending_contact_birth_iso);
+    }
+    return MISSING_FIELD_PROMPTS[firstIdentity] || buildCollectBundlePrompt(workingState, options);
+  }
   if (missing.length >= 2 || missing.some((key) => BUNDLE_FIELD_ORDER.includes(key))) {
     return buildCollectBundlePrompt(workingState, options);
   }
@@ -395,15 +491,32 @@ function assistantAskedForClientName(messageHistory = []) {
   );
 }
 
-function assistantAskedForBirthDate(messageHistory = []) {
+function lastAssistantNormalized(messageHistory = []) {
   const lastAssistant = [...(messageHistory || [])]
     .reverse()
     .find((msg) => msg?.role === 'assistant');
-  const normalized = String(lastAssistant?.content || '')
+  return String(lastAssistant?.content || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  return /\bnascimento\b|\bdata de nasc|\bmaior de 18\b|\b\+18\b/.test(normalized);
+}
+
+function assistantAskedForBirthDate(messageHistory = []) {
+  const normalized = lastAssistantNormalized(messageHistory);
+  return /\bnascimento\b|\bdata de nasc|\bmaior de 18\b|\b\+18\b|\bqual ano\b.*\bnasceu\b|\bano voce nasceu\b/.test(
+    normalized
+  );
+}
+
+function assistantAskedForContactBirthConfirm(messageHistory = [], workingState = {}) {
+  const normalized = lastAssistantNormalized(messageHistory);
+  if (!normalized) return false;
+  const label = String(workingState.pending_contact_birth_label || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (label && normalized.includes(label)) return true;
+  return /nascimento que tenho|data de nascimento que tenho/.test(normalized);
 }
 
 function assistantAskedForOccasion(messageHistory = []) {
@@ -565,17 +678,30 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     patch.data_nascimento = compactBirth;
   }
 
-  const partyMatch =
-    text.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i) ||
-    text.match(/\b(\d{1,3})\s+pessoas?\b/i) ||
-    text.match(/\b(?:somos|vamos|seremos)\s+(?:em\s+)?(\d{1,3})(?!\s*h|\s*:)\b/i);
-  if (partyMatch) {
-    const n = Number(partyMatch[1]);
-    if (n > 0 && n <= 200) {
-      const currentParty = Number(workingState.quantidade_convidados);
-      if (!hasFieldValue(workingState, 'quantidade_convidados') || currentParty !== n) {
-        patch.quantidade_convidados = n;
-      }
+  const partySize = extractPartySizeFromText(text);
+  const partyMatch = partySize != null;
+  if (partySize && partySize <= 200) {
+    const currentParty = Number(workingState.quantidade_convidados);
+    if (!hasFieldValue(workingState, 'quantidade_convidados') || currentParty !== partySize) {
+      patch.quantidade_convidados = partySize;
+    }
+  }
+
+  const askedBirth = assistantAskedForBirthDate(messageHistory);
+  const birthMdOnly = extractMonthDayWithoutYear(text);
+  if (askedBirth && birthMdOnly && !hasFieldValue(workingState, 'data_nascimento')) {
+    patch.pending_birth_md = birthMdOnly;
+  }
+
+  if (
+    workingState.pending_birth_md &&
+    !hasFieldValue(workingState, 'data_nascimento') &&
+    askedBirth
+  ) {
+    const composedBirth = composeBirthIsoFromMdAndYear(workingState.pending_birth_md, text);
+    if (composedBirth) {
+      patch.data_nascimento = composedBirth;
+      patch.pending_birth_md = null;
     }
   }
 
@@ -586,12 +712,14 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const parsedYear = Number(dateParsed?.year);
   const birthCalendarDate =
     Number.isFinite(parsedYear) && parsedYear < new Date().getFullYear();
+  const skipDateAsBirthMonthDay = Boolean(askedBirth && birthMdOnly);
   const currentDate = String(workingState.reservation_date || '').slice(0, 10);
   if (
     dateParsed?.iso &&
     !informationalDateQuestion &&
     !emailMatch &&
     !birthCalendarDate &&
+    !skipDateAsBirthMonthDay &&
     (!hasFieldValue(workingState, 'reservation_date') || currentDate !== dateParsed.iso)
   ) {
     patch.reservation_date = dateParsed.iso;
@@ -601,13 +729,13 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   const birthParsed = parsePtBrDateFromText(text);
-  const birthContext =
-    /\bnasc/i.test(text) || Boolean(emailMatch) || assistantAskedForBirthDate(messageHistory);
+  const birthContext = /\bnasc/i.test(text) || Boolean(emailMatch) || askedBirth;
   if (
     birthParsed?.iso &&
     isAdultBirthIso(birthParsed.iso) &&
     birthContext &&
     !hasFieldValue(workingState, 'data_nascimento') &&
+    !skipDateAsBirthMonthDay &&
     String(birthParsed.iso).slice(0, 10) !==
       String(workingState.reservation_date || patch.reservation_date || '').slice(0, 10)
   ) {
@@ -631,7 +759,15 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
       .join(' ');
   }
 
-  if (isAffirmativeConfirmation(text) && workingState.pending_reservation_date_iso) {
+  if (
+    isAffirmativeConfirmation(text) &&
+    workingState.pending_contact_birth_iso &&
+    assistantAskedForContactBirthConfirm(messageHistory, workingState)
+  ) {
+    patch.data_nascimento = workingState.pending_contact_birth_iso;
+    patch.pending_contact_birth_iso = null;
+    patch.pending_contact_birth_label = null;
+  } else if (isAffirmativeConfirmation(text) && workingState.pending_reservation_date_iso) {
     patch.reservation_date = workingState.pending_reservation_date_iso;
     patch.reservation_date_confirmed = true;
     patch.pending_reservation_date_iso = null;
@@ -697,9 +833,16 @@ function mergeContactHintsIntoWorkingState(workingState = {}, contact = {}) {
   if (!hasFieldValue(next, 'client_name') && contactLooksLikePerson) {
     next.client_name = contactName;
   }
-  if (!hasFieldValue(next, 'data_nascimento') && contact?.birth_date) {
+  if (
+    !hasFieldValue(next, 'data_nascimento') &&
+    !next.pending_contact_birth_iso &&
+    contact?.birth_date
+  ) {
     const bd = String(contact.birth_date).slice(0, 10);
-    if (bd) next.data_nascimento = bd;
+    if (isAdultBirthIso(bd)) {
+      next.pending_contact_birth_iso = bd;
+      next.pending_contact_birth_label = formatIsoToBr(bd);
+    }
   }
   return next;
 }
@@ -937,4 +1080,9 @@ module.exports = {
   shouldAskOccasion,
   parseOccasionFromUserText,
   buildOccasionNotes,
+  shouldHandoffLargeGroup,
+  LARGE_GROUP_HANDOFF_REPLY,
+  LARGE_GROUP_THRESHOLD,
+  buildContactBirthConfirmQuestion,
+  assistantAskedForBirthDate,
 };
