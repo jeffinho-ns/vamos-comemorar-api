@@ -241,6 +241,9 @@ async function carregarDashboard(pool, options = {}) {
   ];
   const contactSql = contactWhere.length ? `WHERE ${contactWhere.join(' AND ')}` : '';
 
+  const { carregarOperacao } = require('./whatsappOperacao');
+  const operacaoP = carregarOperacao(pool, { inicio, fim, establishmentId: estab });
+
   const [
     conversas,
     conversasAnterior,
@@ -407,7 +410,8 @@ async function carregarDashboard(pool, options = {}) {
     porDia.set(row.date, atual);
   });
 
-  return montarDashboard({
+  const operacao = await operacaoP;
+  const dashboard = montarDashboard({
     periodo: { inicio, fim, anteriorInicio, anteriorFim },
     conversas: {
       total: soNumero(conversas.total),
@@ -450,13 +454,19 @@ async function carregarDashboard(pool, options = {}) {
     tempoConversaoHoras: tempoRow.horas == null ? null : soNumero(tempoRow.horas),
     contacts: { total: soNumero(contacts.total), optIn: soNumero(contacts.opt_in) },
   });
+  return { ...dashboard, operacao };
 }
 
 module.exports = {
   TZ,
-  periodoPadrao,
+  soNumero,
+  pct,
   rotuloOrigem,
   rotuloIntent,
+  periodoPadrao,
   montarDashboard,
   carregarDashboard,
+  filtrosTabela,
+  queryUm,
+  queryLista,
 };
