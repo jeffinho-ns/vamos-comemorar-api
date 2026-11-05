@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { canReadBiJustino } = require('../../services/biJustino/access');
+const { areaDoCaminhoBiJustino, canReadBiJustinoArea } = require('../../services/biJustino/access');
 const { gravarNaPlanilha } = require('../../services/biJustino/espelho/escrita');
 const { encontrarLeitura } = require('../../services/biJustino/espelho/catalogo');
 const { validarEnvio, validarApagar, validarFechamento } = require('../../services/biJustino/financeiro/envioMensal');
@@ -51,8 +51,8 @@ function logErro(mensagem, extra) {
 module.exports = (pool) => {
   const router = express.Router();
 
-  async function autorizado(req, res) {
-    const allowed = await canReadBiJustino(pool, req.user);
+  async function autorizado(req, res, area) {
+    const allowed = await canReadBiJustinoArea(pool, req.user, area);
     if (!allowed) res.status(403).json({ ok: false, error: 'acesso_negado' });
     return allowed;
   }
@@ -70,7 +70,7 @@ module.exports = (pool) => {
   function rota(caminho, contexto, handler) {
     router.post(caminho, async (req, res) => {
       try {
-        if (!(await autorizado(req, res))) return undefined;
+        if (!(await autorizado(req, res, areaDoCaminhoBiJustino(caminho)))) return undefined;
         return await handler(req, res);
       } catch (err) {
         logErro(`${contexto}: falha inesperada`, { message: err && err.message ? err.message : String(err) });

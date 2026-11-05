@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { criarProxy } = require('../../services/biJustino/marketing/proxy');
-const { canReadBiJustino } = require('../../services/biJustino/access');
+const { canReadBiJustinoArea } = require('../../services/biJustino/access');
 const { podeAprovarBiJustino } = require('../../services/biJustino/sistema/aprovacao');
 const { lerSobDemanda } = require('../../services/biJustino/sistema/sobDemanda');
 const { ROTAS } = require('../../services/biJustino/areas/eventos');
@@ -16,7 +16,7 @@ const ESTAB = 'Seu Justino';
 module.exports = (pool, deps) => {
   const router = express.Router();
   const options = deps || {};
-  const acesso = options.acesso || canReadBiJustino;
+  const acesso = options.acesso || ((db, user) => canReadBiJustinoArea(db, user, 'eventos'));
   const aprovar = options.aprovacao || podeAprovarBiJustino;
   const ler = options.lerSobDemanda || lerSobDemanda;
   const env = options.env || process.env;

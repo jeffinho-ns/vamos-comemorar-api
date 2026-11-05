@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { canReadBiJustino } = require('../../services/biJustino/access');
+const { areaDoCaminhoBiJustino, canReadBiJustinoArea } = require('../../services/biJustino/access');
 const { gravarNaPlanilha } = require('../../services/biJustino/espelho/escrita');
 const { ESCRITAS, chavesDe } = require('../../services/biJustino/operacao/escritas');
 const { podeAprovarBiJustino } = require('../../services/biJustino/sistema/aprovacao');
@@ -23,8 +23,8 @@ function logErro(mensagem, extra) {
 module.exports = (pool) => {
   const router = express.Router();
 
-  async function acesso(req, res, precisaAprovar) {
-    const allowed = await canReadBiJustino(pool, req.user);
+  async function acesso(req, res, precisaAprovar, area) {
+    const allowed = await canReadBiJustinoArea(pool, req.user, area);
     if (!allowed) {
       res.status(403).json({ ok: false, error: 'acesso_negado' });
       return false;
@@ -55,7 +55,7 @@ module.exports = (pool) => {
     const extras = def.multipart ? [uploadMiddleware(), erroMulter] : [];
     router.post(def.caminho, ...extras, async (req, res) => {
       try {
-        if (!(await acesso(req, res, def.aprovacao))) return undefined;
+        if (!(await acesso(req, res, def.aprovacao, areaDoCaminhoBiJustino(def.caminho)))) return undefined;
         const validado = def.validar(corpoEscrita(req, def));
         if (validado.erro) return res.status(400).json({ ok: false, error: validado.erro });
         const recoletar = chavesDe(def, validado.payload);
@@ -84,7 +84,7 @@ module.exports = (pool) => {
   // GET /api/bi/justino/operacao/permissoes → o front esconde botões de Diretoria
   router.get('/justino/operacao/permissoes', async (req, res) => {
     try {
-      if (!(await acesso(req, res, false))) return undefined;
+      if (!(await acesso(req, res, false, 'permissoes'))) return undefined;
       const diretoria = await podeAprovarBiJustino(pool, req.user);
       return res.json({ ok: true, diretoria });
     } catch (err) {
@@ -96,7 +96,7 @@ module.exports = (pool) => {
   function montarSobDemanda(caminho, action, campoId) {
     router.get(caminho, async (req, res) => {
       try {
-        if (!(await acesso(req, res, false))) return undefined;
+        if (!(await acesso(req, res, false, areaDoCaminhoBiJustino(caminho)))) return undefined;
         const forcar = String(req.query.forcar || '') === '1';
         const r = await lerSobDemanda(pool, process.env, { action, campoId, id: req.params.id, forcar });
         if (!r.ok) return res.status(r.erro === 'id_invalido' ? 400 : 502).json({ ok: false, error: r.erro });
@@ -116,7 +116,7 @@ module.exports = (pool) => {
   function montarPdf(base, qual, nomeArquivo) {
     router.get(`${base}/info`, async (req, res) => {
       try {
-        if (!(await acesso(req, res, false))) return undefined;
+        if (!(await acesso(req, res, false, areaDoCaminhoBiJustino(base)))) return undefined;
         const r = await infoPdf(pool, process.env, qual);
         if (!r.ok) return res.status(502).json({ ok: false, error: r.erro });
         return res.json({ ok: true, totalBytes: r.totalBytes, updatedAt: r.updatedAt, copia: r.copia, aviso: r.aviso });
@@ -127,7 +127,7 @@ module.exports = (pool) => {
     });
     router.get(`${base}/pdf`, async (req, res) => {
       try {
-        if (!(await acesso(req, res, false))) return undefined;
+        if (!(await acesso(req, res, false, areaDoCaminhoBiJustino(base)))) return undefined;
         const r = await obterPdf(pool, process.env, qual);
         if (!r.ok) return res.status(r.erro === 'pdf_grande_demais' ? 413 : 502).json({ ok: false, error: r.erro });
         res.setHeader('Content-Type', 'application/pdf');

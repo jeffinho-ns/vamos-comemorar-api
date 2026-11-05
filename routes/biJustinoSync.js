@@ -1,7 +1,7 @@
 const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const { requireSuperAdmin } = require('../middleware/requireSuperAdmin');
-const { canReadBiJustino } = require('../services/biJustino/access');
+const { canReadBiJustinoArea } = require('../services/biJustino/access');
 const { listSources, findSource } = require('../services/biJustino/sourceCatalog');
 const { readAction } = require('../services/biJustino/appsScriptClient');
 const { latestSnapshot, saveSnapshot } = require('../services/biJustino/snapshotStore');
@@ -112,7 +112,7 @@ module.exports = (pool) => {
 
   router.post('/justino/envio/marketing', async (req, res) => {
     try {
-      const allowed = await canReadBiJustino(pool, req.user);
+      const allowed = await canReadBiJustinoArea(pool, req.user, 'marketing');
       if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
       const gravado = await gravarEnvioMarketing(pool, req.body || {});
       if (!gravado.ok) return res.status(400).json({ ok: false, error: gravado.error });
@@ -133,7 +133,7 @@ module.exports = (pool) => {
 
   router.post('/justino/marketing/projecao', async (req, res) => {
     try {
-      const allowed = await canReadBiJustino(pool, req.user);
+      const allowed = await canReadBiJustinoArea(pool, req.user, 'marketing');
       if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
       const gravado = await gravarProjecaoMarketing(pool, req.body || {});
       if (!gravado.ok) return res.status(400).json({ ok: false, error: gravado.error });
@@ -147,7 +147,7 @@ module.exports = (pool) => {
 
   router.post('/justino/marketing/projecao/apagar', async (req, res) => {
     try {
-      const allowed = await canReadBiJustino(pool, req.user);
+      const allowed = await canReadBiJustinoArea(pool, req.user, 'marketing');
       if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
       const apagado = await apagarProjecaoMarketing(pool, req.body || {});
       if (!apagado.ok) return res.status(400).json({ ok: false, error: apagado.error });
@@ -161,7 +161,7 @@ module.exports = (pool) => {
 
   router.post('/justino/envio/operacao', async (req, res) => {
     try {
-      const allowed = await canReadBiJustino(pool, req.user);
+      const allowed = await canReadBiJustinoArea(pool, req.user, 'operacao');
       if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
       const gravado = await gravarEnvioOperacao(pool, req.body || {});
       if (!gravado.ok) return res.status(400).json({ ok: false, error: gravado.error });
@@ -182,7 +182,7 @@ module.exports = (pool) => {
 
   router.get('/justino/ao-vivo', async (req, res) => {
     try {
-      const allowed = await canReadBiJustino(pool, req.user);
+      const allowed = await canReadBiJustinoArea(pool, req.user, 'master');
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }

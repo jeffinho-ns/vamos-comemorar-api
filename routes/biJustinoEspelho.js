@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { requireSuperAdmin } = require('../middleware/requireSuperAdmin');
-const { canReadBiJustino } = require('../services/biJustino/access');
+const { canReadBiJustino, emailDoUsuario, filtrarChavesBiJustino } = require('../services/biJustino/access');
 const { lerEspelho, chavesSemCopia } = require('../services/biJustino/espelho/leitura');
 const { coletarEspelho } = require('../services/biJustino/espelho/coletor');
 const { listarLeituras } = require('../services/biJustino/espelho/catalogo');
@@ -26,8 +26,15 @@ module.exports = (pool) => {
     try {
       const allowed = await canReadBiJustino(pool, req.user);
       if (!allowed) return res.status(403).json({ ok: false, error: 'acesso_negado' });
-      const chaves = chavesDaQuery(req);
-      if (!chaves.length) return res.status(400).json({ ok: false, error: 'chaves_ausentes' });
+      const pedidas = chavesDaQuery(req);
+      const email = req.user && req.user.is_super_admin
+        ? ''
+        : await emailDoUsuario(pool, req.user);
+      const chaves = req.user && req.user.is_super_admin
+        ? pedidas
+        : filtrarChavesBiJustino(email, pedidas);
+      if (!pedidas.length) return res.status(400).json({ ok: false, error: 'chaves_ausentes' });
+      if (!chaves.length) return res.status(403).json({ ok: false, error: 'acesso_negado' });
       const dados = await lerEspelho(pool, chaves);
       const faltando = chaves.filter((c) => !dados[c]);
       if (faltando.length) {

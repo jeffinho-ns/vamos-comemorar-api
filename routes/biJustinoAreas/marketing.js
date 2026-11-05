@@ -13,6 +13,7 @@ const {
   validarRespostaDuvida,
   validarNovaDuvida,
 } = require('../../services/biJustino/marketing/diretoria');
+const { areaDoCaminhoBiJustino, canReadBiJustinoArea } = require('../../services/biJustino/access');
 
 /**
  * Rotas de escrita do BI Seu Justino — área Marketing (8 sub-abas) e página Diretoria.
@@ -51,7 +52,11 @@ const ROTAS = [
 module.exports = (pool, deps) => {
   const router = express.Router();
   ROTAS.forEach((rota) => {
-    router.post(rota.caminho, criarProxy(pool, rota, deps));
+    const area = areaDoCaminhoBiJustino(rota.caminho);
+    const acesso = (deps && deps.acesso)
+      ? deps.acesso
+      : (db, user) => canReadBiJustinoArea(db, user, area);
+    router.post(rota.caminho, criarProxy(pool, rota, { ...(deps || {}), acesso }));
   });
   return router;
 };
