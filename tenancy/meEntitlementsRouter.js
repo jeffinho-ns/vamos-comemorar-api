@@ -10,6 +10,7 @@
 const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const { resolveEntitlements } = require('./entitlements');
+const { ALLOWED_MENU_KEYS } = require('./menuAccess');
 const { listTrainingMaterialsForUser } = require('../billing/trainingService');
 
 module.exports = (pool) => {
@@ -24,7 +25,13 @@ module.exports = (pool) => {
       if (req.user?.is_super_admin === true) {
         return res.json({
           success: true,
-          data: { allowAll: true, modules: ['*'], permissions: ['*'], organizationId: null },
+          data: {
+            allowAll: true,
+            modules: ['*'],
+            permissions: ['*'],
+            organizationId: null,
+            menuAccess: [...ALLOWED_MENU_KEYS],
+          },
         });
       }
       // Não devolver um contrato vazio com HTTP 200: o painel escondia o menu inteiro

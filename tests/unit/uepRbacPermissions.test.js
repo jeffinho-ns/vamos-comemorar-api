@@ -51,6 +51,7 @@ test('resolveEntitlements mescla UEP com membership recepcao', async () => {
               can_view_operational_detail: false,
               can_create_operational_detail: false,
               can_edit_operational_detail: false,
+              menu_access: ['atendimento', 'logs', 'bi-justino'],
             },
           ],
         };
@@ -88,6 +89,7 @@ test('resolveEntitlements mescla UEP com membership recepcao', async () => {
 
   assert.ok(ent.permissions.includes('whatsapp:read'));
   assert.ok(ent.permissions.includes('whatsapp:update'));
+  assert.deepEqual(ent.menuAccess, ['atendimento', 'logs', 'bi-justino']);
   assert.equal(ent.legacyScoped, false);
   delete process.env.SAAS_MODE;
 });

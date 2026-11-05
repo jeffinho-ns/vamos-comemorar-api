@@ -5,6 +5,11 @@
  * Usado para unificar UEP legado com memberships SaaS.
  */
 
+const {
+  grantRbacFromMenuAccess,
+  unionMenuAccess,
+} = require('./menuAccess');
+
 function mergeUepRowIntoPermissionSet(perms, row) {
   const manageRes = !!row.can_manage_reservations;
   const createEditRes = row.can_create_edit_reservations !== false;
@@ -70,15 +75,17 @@ function mergeUepRowIntoPermissionSet(perms, row) {
   if (row.can_manage_rh_ideia || row.can_validate_rh_ideia) {
     perms.add('rh_ideia:update');
   }
+
+  grantRbacFromMenuAccess(perms, row);
 }
 
 /**
  * @param {import('pg').Pool} pool
  * @param {number} userId
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ permissions: string[], menuAccess: string[] }>}
  */
-async function loadUepRbacPermissions(pool, userId) {
-  if (!userId) return [];
+async function loadUepRbacAndMenuAccess(pool, userId) {
+  if (!userId) return { permissions: [], menuAccess: [] };
 
   const coreSelect = `
          can_manage_reservations,
@@ -106,39 +113,70 @@ async function loadUepRbacPermissions(pool, userId) {
          can_manage_rh_ideia,
          can_validate_rh_ideia`;
 
-  const run = async (withRh) => {
-    const { rows } = await pool.query(
-      `SELECT ${coreSelect}${withRh ? rhSelect : ''}
-         FROM user_establishment_permissions
-        WHERE user_id = $1 AND is_active = TRUE`,
-      [userId],
-    );
-    if (!rows.length) return [];
+  const menuSelect = `,
+         menu_access`;
+
+  const foldRows = (rows) => {
+    if (!rows.length) return { permissions: [], menuAccess: [] };
     const perms = new Set();
     for (const row of rows) {
       mergeUepRowIntoPermissionSet(perms, row);
     }
-    return [...perms];
+    return { permissions: [...perms], menuAccess: unionMenuAccess(rows) };
+  };
+
+  const run = async ({ withRh, withMenu }) => {
+    const { rows } = await pool.query(
+      `SELECT ${coreSelect}${withRh ? rhSelect : ''}${withMenu ? menuSelect : ''}
+         FROM user_establishment_permissions
+        WHERE user_id = $1 AND is_active = TRUE`,
+      [userId],
+    );
+    return foldRows(rows);
+  };
+
+  const missingCol = (err) => {
+    const msg = String(err && err.message ? err.message : err || '');
+    return {
+      rh: /column ["']?can_access_rh_ideia["']? does not exist|column ["']?can_manage_rh_ideia["']? does not exist|column ["']?can_validate_rh_ideia["']? does not exist/i.test(msg),
+      menu: /column ["']?menu_access["']? does not exist/i.test(msg),
+    };
   };
 
   try {
-    return await run(true);
+    return await run({ withRh: true, withMenu: true });
   } catch (err) {
-    // Produção pode ainda não ter as colunas Ideia RH — não engolir o UEP inteiro.
-    if (!/can_access_rh_ideia|can_manage_rh_ideia|can_validate_rh_ideia/i.test(String(err?.message || ''))) {
-      console.error('[uepToRbacPermissions] falha ao carregar UEP:', err.message || err);
-      return [];
+    const miss = missingCol(err);
+    if (!miss.rh && !miss.menu) {
+      console.error('[uepToRbacPermissions] falha ao carregar UEP:', {
+        userId,
+        message: err.message || err,
+      });
+      return { permissions: [], menuAccess: [] };
     }
     try {
-      return await run(false);
+      return await run({ withRh: !miss.rh, withMenu: !miss.menu });
     } catch (err2) {
-      console.error('[uepToRbacPermissions] falha ao carregar UEP (sem RH):', err2.message || err2);
-      return [];
+      try {
+        return await run({ withRh: false, withMenu: false });
+      } catch (err3) {
+        console.error('[uepToRbacPermissions] falha ao carregar UEP (sem extras):', {
+          userId,
+          message: err3.message || err3,
+        });
+        return { permissions: [], menuAccess: [] };
+      }
     }
   }
 }
 
+async function loadUepRbacPermissions(pool, userId) {
+  const { permissions } = await loadUepRbacAndMenuAccess(pool, userId);
+  return permissions;
+}
+
 module.exports = {
   loadUepRbacPermissions,
+  loadUepRbacAndMenuAccess,
   mergeUepRowIntoPermissionSet,
 };

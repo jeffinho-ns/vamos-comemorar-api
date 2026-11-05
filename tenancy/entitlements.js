@@ -10,7 +10,8 @@
 
 const { isSaasEnforced } = require('./featureFlags');
 const { loadUserScope } = require('./tenantScope');
-const { loadUepRbacPermissions } = require('./uepToRbacPermissions');
+const { loadUepRbacAndMenuAccess } = require('./uepToRbacPermissions');
+const { ALLOWED_MENU_KEYS } = require('./menuAccess');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
@@ -62,7 +63,14 @@ async function loadEstablishmentModuleKeys(pool, orgId, establishmentIds) {
  * @returns {{ allowAll: boolean, modules: string[], permissions: string[], organizationId: number|null }}
  */
 async function resolveEntitlements(pool, user) {
-  if (user?.is_super_admin === true) return { ...ALLOW_ALL, organizationId: null };
+  if (user?.is_super_admin === true) {
+    return { ...ALLOW_ALL, organizationId: null, menuAccess: [...ALLOWED_MENU_KEYS] };
+  }
+
+  const { permissions: uepPermissions, menuAccess } = await loadUepRbacAndMenuAccess(
+    pool,
+    user && user.id,
+  );
 
   const scope = await loadUserScope(pool, user);
   const hasTenant =
@@ -71,8 +79,8 @@ async function resolveEntitlements(pool, user) {
 
   // Sem tenant: operação legado (Highline pré-segunda org) ou anônimo de token.
   if (!hasTenant) {
-    if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null };
-    return { allowAll: false, modules: [], permissions: [], organizationId: null };
+    if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null, menuAccess };
+    return { allowAll: false, modules: [], permissions: [], organizationId: null, menuAccess };
   }
 
   const orgId = scope.organizationIds[0] || null;
@@ -85,9 +93,10 @@ async function resolveEntitlements(pool, user) {
         organizationId: null,
         establishmentIds: scope.establishmentIds || [],
         legacyScoped: true,
+        menuAccess,
       };
     }
-    return { allowAll: false, modules: [], permissions: [], organizationId: null };
+    return { allowAll: false, modules: [], permissions: [], organizationId: null, menuAccess };
   }
 
   try {
@@ -105,6 +114,7 @@ async function resolveEntitlements(pool, user) {
         organizationId: orgId,
         billingBlocked: true,
         subscriptionStatus: subStatus,
+        menuAccess,
       };
     }
   } catch (_) {
@@ -155,7 +165,6 @@ async function resolveEntitlements(pool, user) {
     Array.isArray(scope.establishmentIds) &&
     scope.establishmentIds.length > 0;
 
-  const uepPermissions = await loadUepRbacPermissions(pool, user.id);
   if (uepPermissions.length > 0) {
     permissions = [...new Set([...permissions, ...uepPermissions])];
   }
@@ -180,6 +189,7 @@ async function resolveEntitlements(pool, user) {
     establishmentIds: scope.establishmentIds || [],
     legacyScoped,
     isAccountAdmin,
+    menuAccess,
   };
 }
 

@@ -9,6 +9,8 @@
  * gerente.sjm@seujustino.com.br entra só em Gerente Operador, Documentos, Manual e Contatos.
  */
 
+const { canAccessBiJustinoFromUep } = require('../../tenancy/menuAccess');
+
 const BI_JUSTINO_EMAILS = new Set([
   'renatocury@ideiaum.com.br',
   'renato@seujustino.com.br',
@@ -264,4 +266,5 @@ module.exports = {
   emailDoUsuario,
   canReadBiJustino,
   canReadBiJustinoArea,
+  canAccessBiJustinoFromUep,
 };

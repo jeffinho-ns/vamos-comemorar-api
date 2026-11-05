@@ -31,6 +31,12 @@ const {
   isCoordinatorEmail,
   loadCoordinatorPlaces,
 } = require('../tenancy/coordinatorEstablishments');
+const { applyDerivedMenuFlags, sanitizeMenuAccess } = require('../tenancy/menuAccess');
+
+function withMenuAccess(row) {
+  if (!row) return row;
+  return { ...row, menu_access: sanitizeMenuAccess(row.menu_access) };
+}
 
 function filterEstablishmentPermissionsByEmail(email, rows) {
   const e = String(email || '').trim().toLowerCase();
@@ -57,6 +63,7 @@ async function ensureCoordinatorPermissions(pool, userId, email, rows) {
       can_view_os: true,
       can_download_os: true,
       can_view_operational_detail: true,
+      menu_access: [],
     }));
   return [...rows, ...missing];
 }
@@ -121,7 +128,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: result.rows,
+        data: result.rows.map(withMenuAccess),
         count: result.rows.length
       });
     } catch (error) {
@@ -172,7 +179,7 @@ module.exports = (pool) => {
 
       res.json({
         success: true,
-        data: rows,
+        data: rows.map(withMenuAccess),
         userEmail: userEmail || null
       });
     } catch (error) {
@@ -224,7 +231,7 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: result.rows[0]
+        data: withMenuAccess(result.rows[0])
       });
     } catch (error) {
       console.error('❌ Erro ao buscar permissão:', error);
@@ -267,6 +274,8 @@ module.exports = (pool) => {
         can_access_justino360,
         can_manage_justino360,
         can_validate_justino360,
+        can_access_rh_ideia,
+        menu_access,
         is_active
       } = req.body;
 
@@ -297,6 +306,27 @@ module.exports = (pool) => {
         });
       }
       
+      const { flags, menuAccess } = applyDerivedMenuFlags(
+        {
+          can_manage_reservations: can_manage_reservations || false,
+          can_create_edit_reservations:
+            can_create_edit_reservations !== undefined ? can_create_edit_reservations : true,
+          can_manage_checkins: can_manage_checkins || false,
+          can_manage_whatsapp:
+            can_manage_whatsapp != null
+              ? !!can_manage_whatsapp
+              : !!(can_manage_reservations || false),
+          can_view_cardapio: can_view_cardapio !== undefined ? can_view_cardapio : true,
+          can_create_cardapio: can_create_cardapio !== undefined ? can_create_cardapio : true,
+          can_edit_cardapio: can_edit_cardapio !== undefined ? can_edit_cardapio : true,
+          can_view_operational_detail:
+            can_view_operational_detail !== undefined ? can_view_operational_detail : true,
+          can_access_justino360: !!can_access_justino360,
+          can_access_rh_ideia: !!can_access_rh_ideia,
+        },
+        menu_access,
+      );
+
       const insertQuery = `
         INSERT INTO user_establishment_permissions (
           user_id, user_email, establishment_id,
@@ -308,9 +338,11 @@ module.exports = (pool) => {
           can_manage_whatsapp, can_configure_ia,
           can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
           can_access_justino360, can_manage_justino360, can_validate_justino360,
+          can_access_rh_ideia,
+          menu_access,
           is_active, created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26, $27
         ) RETURNING *
       `;
       
@@ -322,24 +354,24 @@ module.exports = (pool) => {
         can_edit_operational_detail || false,
         can_view_os !== undefined ? can_view_os : true,
         can_download_os !== undefined ? can_download_os : true,
-        can_view_operational_detail !== undefined ? can_view_operational_detail : true,
+        flags.can_view_operational_detail,
         can_create_os || false,
         can_create_operational_detail || false,
-        can_manage_reservations || false,
-        can_manage_checkins || false,
+        flags.can_manage_reservations,
+        flags.can_manage_checkins,
         can_view_reports || false,
-        can_create_edit_reservations !== undefined ? can_create_edit_reservations : true,
-        can_manage_whatsapp != null
-          ? !!can_manage_whatsapp
-          : !!(can_manage_reservations || false),
+        flags.can_create_edit_reservations,
+        flags.can_manage_whatsapp,
         !!can_configure_ia,
-        can_view_cardapio !== undefined ? can_view_cardapio : true,
-        can_create_cardapio !== undefined ? can_create_cardapio : true,
-        can_edit_cardapio !== undefined ? can_edit_cardapio : true,
+        flags.can_view_cardapio,
+        flags.can_create_cardapio,
+        flags.can_edit_cardapio,
         can_delete_cardapio !== undefined ? can_delete_cardapio : true,
-        !!can_access_justino360,
+        flags.can_access_justino360,
         !!can_manage_justino360,
         !!can_validate_justino360,
+        flags.can_access_rh_ideia,
+        JSON.stringify(menuAccess || []),
         is_active !== undefined ? is_active : true,
         req.user.id
       ];
@@ -369,11 +401,15 @@ module.exports = (pool) => {
       
       res.status(201).json({
         success: true,
-        data: result.rows[0],
+        data: withMenuAccess(result.rows[0]),
         message: 'Permissão criada com sucesso'
       });
     } catch (error) {
-      console.error('❌ Erro ao criar permissão:', error);
+      console.error('❌ Erro ao criar permissão:', {
+        user_id: req.body && req.body.user_id,
+        establishment_id: req.body && req.body.establishment_id,
+        message: error.message,
+      });
       res.status(500).json({
         success: false,
         error: 'Erro ao criar permissão',
@@ -429,8 +465,26 @@ module.exports = (pool) => {
         can_access_justino360,
         can_manage_justino360,
         can_validate_justino360,
+        can_access_rh_ideia,
+        menu_access,
         is_active
       } = req.body;
+
+      const { flags, menuAccess } = applyDerivedMenuFlags(
+        {
+          can_manage_reservations,
+          can_create_edit_reservations,
+          can_manage_checkins,
+          can_manage_whatsapp,
+          can_view_cardapio,
+          can_create_cardapio,
+          can_edit_cardapio,
+          can_view_operational_detail,
+          can_access_justino360,
+          can_access_rh_ideia,
+        },
+        menu_access,
+      );
       
       // Detectar mudanças
       const changes = {};
@@ -451,6 +505,9 @@ module.exports = (pool) => {
       }
       if (can_delete_cardapio !== undefined && can_delete_cardapio !== current.can_delete_cardapio) {
         changes.can_delete_cardapio = { from: current.can_delete_cardapio, to: can_delete_cardapio };
+      }
+      if (menuAccess !== undefined) {
+        changes.menu_access = { from: current.menu_access, to: menuAccess };
       }
       
       const updateQuery = `
@@ -475,10 +532,12 @@ module.exports = (pool) => {
           can_access_justino360 = COALESCE($18, can_access_justino360),
           can_manage_justino360 = COALESCE($19, can_manage_justino360),
           can_validate_justino360 = COALESCE($20, can_validate_justino360),
-          is_active = COALESCE($21, is_active),
-          updated_by = $22,
+          can_access_rh_ideia = COALESCE($21, can_access_rh_ideia),
+          menu_access = COALESCE($22::jsonb, menu_access),
+          is_active = COALESCE($23, is_active),
+          updated_by = $24,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $23
+        WHERE id = $25
         RETURNING *
       `;
       
@@ -487,22 +546,24 @@ module.exports = (pool) => {
         can_edit_operational_detail,
         can_view_os,
         can_download_os,
-        can_view_operational_detail,
+        flags.can_view_operational_detail,
         can_create_os,
         can_create_operational_detail,
-        can_manage_reservations,
-        can_manage_checkins,
+        flags.can_manage_reservations,
+        flags.can_manage_checkins,
         can_view_reports,
-        can_create_edit_reservations,
-        can_manage_whatsapp,
+        flags.can_create_edit_reservations,
+        flags.can_manage_whatsapp,
         can_configure_ia,
-        can_view_cardapio,
-        can_create_cardapio,
-        can_edit_cardapio,
+        flags.can_view_cardapio,
+        flags.can_create_cardapio,
+        flags.can_edit_cardapio,
         can_delete_cardapio,
-        can_access_justino360,
+        flags.can_access_justino360,
         can_manage_justino360,
         can_validate_justino360,
+        flags.can_access_rh_ideia,
+        menuAccess !== undefined ? JSON.stringify(menuAccess) : null,
         is_active,
         req.user.id,
         id
@@ -535,11 +596,14 @@ module.exports = (pool) => {
       
       res.json({
         success: true,
-        data: result.rows[0],
+        data: withMenuAccess(result.rows[0]),
         message: 'Permissão atualizada com sucesso'
       });
     } catch (error) {
-      console.error('❌ Erro ao atualizar permissão:', error);
+      console.error('❌ Erro ao atualizar permissão:', {
+        permission_id: req.params && req.params.id,
+        message: error.message,
+      });
       res.status(500).json({
         success: false,
         error: 'Erro ao atualizar permissão',

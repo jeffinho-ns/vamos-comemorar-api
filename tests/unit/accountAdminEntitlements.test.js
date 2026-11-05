@@ -72,6 +72,7 @@ test('resolveEntitlements org admin não recebe allowAll', async () => {
       if (/FROM meu_backup_db.establishments/i.test(sql)) {
         return { rows: [{ legacy_place_id: 16, legacy_bar_id: 13 }] };
       }
+      if (/user_establishment_permissions/i.test(sql)) return { rows: [] };
       throw new Error(`query: ${sql}`);
     },
   };
