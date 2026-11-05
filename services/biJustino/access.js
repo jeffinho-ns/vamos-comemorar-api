@@ -2,7 +2,8 @@
 
 /**
  * Leitura do BI do Seu Justino. Não abre para a equipe inteira.
- * renato@ideiaum.com.br fica de fora: é promoter de evento, não o Renato Cury.
+ * renatocury@ideiaum.com.br é o Renato Cury (dono/leitura do painel).
+ * renato@ideiaum.com.br fica de fora: é promoter de evento, outra pessoa.
  */
 
 const BI_JUSTINO_EMAILS = new Set([
