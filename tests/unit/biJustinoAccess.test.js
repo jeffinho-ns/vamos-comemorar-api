@@ -12,6 +12,7 @@ const {
 
 const CAROLLINE = 'carolline.moreira@ideiaum.com.br';
 const MENDA = 'gabrielmenda@ideiaum.com.br';
+const GERENTE = 'gerente.sjm@seujustino.com.br';
 const RENATO = 'renatocury@ideiaum.com.br';
 
 test('Renato, Paula, Luis Felipe, Menda e Carolline leem o BI', () => {
@@ -21,6 +22,7 @@ test('Renato, Paula, Luis Felipe, Menda e Carolline leem o BI', () => {
   assert.equal(isBiJustinoEmail('luisfelipe@ideiaum.com.br'), true);
   assert.equal(isBiJustinoEmail('gabrielmenda@ideiaum.com.br'), true);
   assert.equal(isBiJustinoEmail(CAROLLINE), true);
+  assert.equal(isBiJustinoEmail(GERENTE), true);
 });
 
 test('promoter e cliente com nome parecido ficam de fora', () => {
@@ -30,21 +32,24 @@ test('promoter e cliente com nome parecido ficam de fora', () => {
   assert.equal(isBiJustinoEmail(''), false);
 });
 
-test('Carolline só vê RH, Documentos, Manual e Contatos', () => {
-  assert.deepEqual(paginasBiJustino(CAROLLINE), ['rh', 'documentos', 'manual', 'contatos']);
+test('Carolline vê todo o BI menos a Diretoria', () => {
+  assert.deepEqual(paginasBiJustino(CAROLLINE), [
+    'operacao', 'marketing', 'financeiro', 'rh', 'cmv', 'eventos', 'reservas',
+    'auditoriaop', 'auditoria', 'documentos', 'manual', 'contatos',
+  ]);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'master'), false);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'operacao'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'marketing'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'financeiro'), true);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'rh'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'cmv'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'eventos'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'reservas'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoriaop'), true);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoria'), true);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'documentos'), true);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'manual'), true);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'contatos'), true);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'master'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'marketing'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'financeiro'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'operacao'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'cmv'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'eventos'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'reservas'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoriaop'), false);
-  assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoria'), false);
 });
 
 test('Menda só vê Marketing, Eventos, Reservas, Documentos, Manual e Contatos', () => {
@@ -94,6 +99,46 @@ test('Menda lê as chaves das áreas dele e não as da Diretoria, RH ou auditori
   ]);
 });
 
+test('gerente do Seu Justino só vê Operação, Documentos, Manual e Contatos', () => {
+  assert.deepEqual(paginasBiJustino(GERENTE), ['operacao', 'documentos', 'manual', 'contatos']);
+  assert.equal(podePaginaBiJustino(GERENTE, 'operacao'), true);
+  assert.equal(podePaginaBiJustino(GERENTE, 'documentos'), true);
+  assert.equal(podePaginaBiJustino(GERENTE, 'manual'), true);
+  assert.equal(podePaginaBiJustino(GERENTE, 'contatos'), true);
+  assert.equal(podePaginaBiJustino(GERENTE, 'master'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'marketing'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'financeiro'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'rh'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'cmv'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'eventos'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'reservas'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'auditoriaop'), false);
+  assert.equal(podePaginaBiJustino(GERENTE, 'auditoria'), false);
+});
+
+test('gerente lê a operação e os documentos, e não o financeiro nem a auditoria', () => {
+  const pedidas = [
+    'getEntries:operacao',
+    'getMeterReadings',
+    'getDocumentacoes',
+    'getManualPdfInfo',
+    'getContatosEmergencia',
+    'getEmployees',
+    'getSalaries',
+    'getRevenueOverview',
+    'getAuditLog',
+    'getEntries:financeiro',
+  ];
+  assert.deepEqual(filtrarChavesBiJustino(GERENTE, pedidas), [
+    'getEntries:operacao',
+    'getMeterReadings',
+    'getDocumentacoes',
+    'getManualPdfInfo',
+    'getContatosEmergencia',
+    'getEmployees',
+  ]);
+});
+
 test('Renato e quem não tem recorte vê todas as páginas', () => {
   const todas = paginasBiJustino(RENATO);
   assert.ok(todas.includes('master'));
@@ -118,7 +163,7 @@ test('rotas de escrita apontam para a área certa', () => {
   assert.equal(areaDoCaminhoBiJustino('/justino/operacao/permissoes'), 'permissoes');
 });
 
-test('Carolline lê só as chaves das áreas dela (e o apoio do RH)', () => {
+test('Carolline lê as áreas abertas e continua sem a Diretoria', () => {
   const pedidas = [
     'getEntries:rh',
     'getEmployees',
@@ -130,15 +175,11 @@ test('Carolline lê só as chaves das áreas dela (e o apoio do RH)', () => {
     'getMkReunioes',
     'getEventos',
     'getAuditoriaOpItens',
+    'getDreParaMes:2026-11',
+    'getCmvTeoricoParcial',
+    'getAuditLog',
   ];
-  assert.deepEqual(filtrarChavesBiJustino(CAROLLINE, pedidas), [
-    'getEntries:rh',
-    'getEmployees',
-    'getDocumentacoes',
-    'getManualPdfInfo',
-    'getContatosEmergencia',
-    'getRevenueOverview',
-    'getEntries:financeiro',
-  ]);
+  assert.deepEqual(filtrarChavesBiJustino(CAROLLINE, pedidas), pedidas);
+  assert.equal(podePaginaBiJustino(CAROLLINE, 'master'), false);
   assert.deepEqual(filtrarChavesBiJustino(RENATO, pedidas), pedidas);
 });

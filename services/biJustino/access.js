@@ -4,8 +4,9 @@
  * Leitura do BI do Seu Justino. Não abre para a equipe inteira.
  * renatocury@ideiaum.com.br é o Renato Cury (dono/leitura do painel).
  * renato@ideiaum.com.br fica de fora: é promoter de evento, outra pessoa.
- * carolline.moreira@ideiaum.com.br entra só em RH, Documentos, Manual e Contatos.
+ * carolline.moreira@ideiaum.com.br entra em tudo, menos na Diretoria.
  * gabrielmenda@ideiaum.com.br entra só em Marketing, Eventos, Reservas, Documentos, Manual e Contatos.
+ * gerente.sjm@seujustino.com.br entra só em Gerente Operador, Documentos, Manual e Contatos.
  */
 
 const BI_JUSTINO_EMAILS = new Set([
@@ -15,6 +16,7 @@ const BI_JUSTINO_EMAILS = new Set([
   'luisfelipe@ideiaum.com.br',
   'gabrielmenda@ideiaum.com.br',
   'carolline.moreira@ideiaum.com.br',
+  'gerente.sjm@seujustino.com.br',
 ]);
 
 const BI_JUSTINO_PAGINAS = [
@@ -34,14 +36,29 @@ const BI_JUSTINO_PAGINAS = [
 ];
 
 const BI_JUSTINO_ESCOPOS = {
-  'carolline.moreira@ideiaum.com.br': ['rh', 'documentos', 'manual', 'contatos'],
+  'carolline.moreira@ideiaum.com.br': BI_JUSTINO_PAGINAS.filter((id) => id !== 'master'),
   'gabrielmenda@ideiaum.com.br': ['marketing', 'eventos', 'reservas', 'documentos', 'manual', 'contatos'],
+  'gerente.sjm@seujustino.com.br': ['operacao', 'documentos', 'manual', 'contatos'],
 };
 
 const AREAS_LIVRES = new Set(['duvidas', 'permissoes']);
 
-/** Chaves do espelho que cada página precisa — inclui o apoio do RH e do Marketing. */
+/** Chaves do espelho que cada página precisa — inclui o apoio do RH, do Marketing e da Operação. */
 const CHAVES_POR_PAGINA = {
+  operacao: [
+    'getEntries:operacao',
+    'getFreelancerRequests',
+    'getEmployees',
+    'getSectorBase',
+    'getDailyAttendance',
+    'getMonthClosures:operacao',
+    'getZigHourly',
+    'getZigHourlyDetail',
+    'getReservations',
+    'getEventos',
+    'getMeterReadings',
+    'getDuvidas',
+  ],
   marketing: [
     'getEntries:marketing',
     'getEntries:financeiro',
@@ -87,6 +104,39 @@ const CHAVES_POR_PAGINA = {
     'getEventos',
     'getIgAtivacoes',
     'getMonthClosures:reservas',
+  ],
+  financeiro: [
+    'getEntries:financeiro',
+    'getEntries:marketing',
+    'getEntries:rh',
+    'getEntries:operacao',
+    'getEntries:cmv',
+    'getRevenueOverview',
+    'getZigRevenue',
+    'getDreBase',
+    'getDreFaturamentoHistorico',
+    'getMonthClosures:financeiro',
+    'getFreelancerRequests',
+    'getSalaries',
+    'getDuvidas',
+    'getDreParaMes:',
+  ],
+  cmv: [
+    'getCmvTeoricoParcial',
+    'getZigItemSalesRanking',
+    'getZigRevenue',
+    'getEntries:cmv',
+    'getMonthClosures:cmv',
+    'getDuvidas',
+  ],
+  auditoriaop: [
+    'getAuditoriaOpItens',
+    'getMonthClosures:auditoriaop',
+  ],
+  auditoria: [
+    'getAuditLog',
+    'getDeletionsLog',
+    'getUsersList',
   ],
   rh: [
     'getEntries:rh',

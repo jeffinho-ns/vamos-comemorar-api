@@ -184,12 +184,13 @@ module.exports = (pool) => {
     try {
       const veDiretoria = await canReadBiJustinoArea(pool, req.user, 'master');
       const veReservas = await canReadBiJustinoArea(pool, req.user, 'reservas');
-      if (!veDiretoria && !veReservas) {
+      const veOperacao = await canReadBiJustinoArea(pool, req.user, 'operacao');
+      if (!veDiretoria && !veReservas && !veOperacao) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
       const live = await loadLiveFacts(pool);
       delete live.placeIds;
-      if (!veDiretoria) {
+      if (!veDiretoria && !veOperacao) {
         return res.json({
           ok: true,
           updatedAt: new Date().toISOString(),
@@ -234,8 +235,8 @@ module.exports = (pool) => {
         ...live,
         zig,
         dre,
-        novidades,
-        mapa,
+        novidades: veDiretoria ? novidades : null,
+        mapa: veDiretoria ? mapa : [],
       });
     } catch (err) {
       console.error('[bi-justino] falha na leitura ao vivo', {
