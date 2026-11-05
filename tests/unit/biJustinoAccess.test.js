@@ -11,6 +11,7 @@ const {
 } = require('../../services/biJustino/access');
 
 const CAROLLINE = 'carolline.moreira@ideiaum.com.br';
+const MENDA = 'gabrielmenda@ideiaum.com.br';
 const RENATO = 'renatocury@ideiaum.com.br';
 
 test('Renato, Paula, Luis Felipe, Menda e Carolline leem o BI', () => {
@@ -44,6 +45,53 @@ test('Carolline só vê RH, Documentos, Manual e Contatos', () => {
   assert.equal(podePaginaBiJustino(CAROLLINE, 'reservas'), false);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoriaop'), false);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'auditoria'), false);
+});
+
+test('Menda só vê Marketing, Eventos, Reservas, Documentos, Manual e Contatos', () => {
+  assert.deepEqual(paginasBiJustino(MENDA), [
+    'marketing', 'eventos', 'reservas', 'documentos', 'manual', 'contatos',
+  ]);
+  assert.equal(podePaginaBiJustino(MENDA, 'marketing'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'eventos'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'reservas'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'documentos'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'manual'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'contatos'), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'master'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'operacao'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'financeiro'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'rh'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'cmv'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'auditoriaop'), false);
+  assert.equal(podePaginaBiJustino(MENDA, 'auditoria'), false);
+});
+
+test('Menda lê as chaves das áreas dele e não as da Diretoria, RH ou auditoria', () => {
+  const pedidas = [
+    'getMkPlans',
+    'getEventos',
+    'getReservations',
+    'getDocumentacoes',
+    'getManualPdfInfo',
+    'getContatosEmergencia',
+    'getRevenueOverview',
+    'getEmployees',
+    'getSalaries',
+    'getAuditLog',
+    'getAuditoriaOpItens',
+    'getEntries:cmv',
+    'getCmvTeoricoParcial',
+  ];
+  assert.deepEqual(filtrarChavesBiJustino(MENDA, pedidas), [
+    'getMkPlans',
+    'getEventos',
+    'getReservations',
+    'getDocumentacoes',
+    'getManualPdfInfo',
+    'getContatosEmergencia',
+    'getRevenueOverview',
+    'getEntries:cmv',
+  ]);
 });
 
 test('Renato e quem não tem recorte vê todas as páginas', () => {

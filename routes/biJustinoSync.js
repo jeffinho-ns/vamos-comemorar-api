@@ -182,11 +182,24 @@ module.exports = (pool) => {
 
   router.get('/justino/ao-vivo', async (req, res) => {
     try {
-      const allowed = await canReadBiJustinoArea(pool, req.user, 'master');
-      if (!allowed) {
+      const veDiretoria = await canReadBiJustinoArea(pool, req.user, 'master');
+      const veReservas = await canReadBiJustinoArea(pool, req.user, 'reservas');
+      if (!veDiretoria && !veReservas) {
         return res.status(403).json({ ok: false, error: 'acesso_negado' });
       }
       const live = await loadLiveFacts(pool);
+      delete live.placeIds;
+      if (!veDiretoria) {
+        return res.json({
+          ok: true,
+          updatedAt: new Date().toISOString(),
+          ...live,
+          zig: null,
+          dre: null,
+          novidades: null,
+          mapa: [],
+        });
+      }
       let [zig, dre, novidades] = await Promise.all([
         loadZigOverview(pool, process.env),
         loadDre(pool, process.env),
@@ -205,7 +218,6 @@ module.exports = (pool) => {
           loadNovidades(pool, process.env),
         ]);
       }
-      delete live.placeIds;
       const mapa = listDataMap();
       console.log('[bi-justino] leitura ao vivo', {
         establishment: 'Seu Justino',

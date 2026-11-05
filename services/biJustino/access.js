@@ -5,6 +5,7 @@
  * renatocury@ideiaum.com.br é o Renato Cury (dono/leitura do painel).
  * renato@ideiaum.com.br fica de fora: é promoter de evento, outra pessoa.
  * carolline.moreira@ideiaum.com.br entra só em RH, Documentos, Manual e Contatos.
+ * gabrielmenda@ideiaum.com.br entra só em Marketing, Eventos, Reservas, Documentos, Manual e Contatos.
  */
 
 const BI_JUSTINO_EMAILS = new Set([
@@ -34,12 +35,59 @@ const BI_JUSTINO_PAGINAS = [
 
 const BI_JUSTINO_ESCOPOS = {
   'carolline.moreira@ideiaum.com.br': ['rh', 'documentos', 'manual', 'contatos'],
+  'gabrielmenda@ideiaum.com.br': ['marketing', 'eventos', 'reservas', 'documentos', 'manual', 'contatos'],
 };
 
 const AREAS_LIVRES = new Set(['duvidas', 'permissoes']);
 
-/** Chaves do espelho que cada página precisa — inclui o apoio do RH (faturamento/pax). */
+/** Chaves do espelho que cada página precisa — inclui o apoio do RH e do Marketing. */
 const CHAVES_POR_PAGINA = {
+  marketing: [
+    'getEntries:marketing',
+    'getEntries:financeiro',
+    'getEntries:rh',
+    'getEntries:operacao',
+    'getEntries:cmv',
+    'getMkPlans',
+    'getMkReunioes',
+    'getIgAtivacoes',
+    'getIgRetorno',
+    'getInstagram',
+    'getGoogleAvaliacoes',
+    'getBandRanking',
+    'getBudgetAtracoesBase',
+    'getZigDelivery',
+    'get99Food',
+    'getDreFaturamentoHistorico',
+    'getZigRevenue',
+    'getRevenueOverview',
+    'getFaturamentoSemanas',
+    'getZigHourly',
+    'getZigHourlyDetail',
+    'getZigBilheteria',
+    'getFreelancerRequests',
+    'getMonthClosures:marketing',
+    'getReservations',
+    'getReservationEntries',
+    'getDuvidas',
+  ],
+  eventos: [
+    'getEventos',
+    'getEventoTarefas',
+    'getEventoCotacoes',
+    'getEventoPacotesPdfInfo',
+    'getMonthClosures:eventos',
+  ],
+  reservas: [
+    'getReservations',
+    'getReservationEntries',
+    'getCrmReservas',
+    'getCrmFunil',
+    'getCrmConfig',
+    'getEventos',
+    'getIgAtivacoes',
+    'getMonthClosures:reservas',
+  ],
   rh: [
     'getEntries:rh',
     'getEntries:financeiro',
