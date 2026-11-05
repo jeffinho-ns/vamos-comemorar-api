@@ -12,6 +12,7 @@ const { isSaasEnforced } = require('./featureFlags');
 const { loadUserScope } = require('./tenantScope');
 const { loadUepRbacAndMenuAccess } = require('./uepToRbacPermissions');
 const { ALLOWED_MENU_KEYS } = require('./menuAccess');
+const { BI_PAGE_KEYS } = require('./biMenuAccess');
 
 const ALLOW_ALL = Object.freeze({ allowAll: true, modules: ['*'], permissions: ['*'] });
 
@@ -64,10 +65,19 @@ async function loadEstablishmentModuleKeys(pool, orgId, establishmentIds) {
  */
 async function resolveEntitlements(pool, user) {
   if (user?.is_super_admin === true) {
-    return { ...ALLOW_ALL, organizationId: null, menuAccess: [...ALLOWED_MENU_KEYS] };
+    return {
+      ...ALLOW_ALL,
+      organizationId: null,
+      menuAccess: [...ALLOWED_MENU_KEYS],
+      biMenuAccess: [...BI_PAGE_KEYS],
+    };
   }
 
-  const { permissions: uepPermissions, menuAccess } = await loadUepRbacAndMenuAccess(
+  const {
+    permissions: uepPermissions,
+    menuAccess,
+    biMenuAccess = [],
+  } = await loadUepRbacAndMenuAccess(
     pool,
     user && user.id,
   );
@@ -79,8 +89,15 @@ async function resolveEntitlements(pool, user) {
 
   // Sem tenant: operação legado (Highline pré-segunda org) ou anônimo de token.
   if (!hasTenant) {
-    if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null, menuAccess };
-    return { allowAll: false, modules: [], permissions: [], organizationId: null, menuAccess };
+    if (!isSaasEnforced()) return { ...ALLOW_ALL, organizationId: null, menuAccess, biMenuAccess };
+    return {
+      allowAll: false,
+      modules: [],
+      permissions: [],
+      organizationId: null,
+      menuAccess,
+      biMenuAccess,
+    };
   }
 
   const orgId = scope.organizationIds[0] || null;
@@ -94,9 +111,17 @@ async function resolveEntitlements(pool, user) {
         establishmentIds: scope.establishmentIds || [],
         legacyScoped: true,
         menuAccess,
+        biMenuAccess,
       };
     }
-    return { allowAll: false, modules: [], permissions: [], organizationId: null, menuAccess };
+    return {
+      allowAll: false,
+      modules: [],
+      permissions: [],
+      organizationId: null,
+      menuAccess,
+      biMenuAccess,
+    };
   }
 
   try {
@@ -115,6 +140,7 @@ async function resolveEntitlements(pool, user) {
         billingBlocked: true,
         subscriptionStatus: subStatus,
         menuAccess,
+        biMenuAccess,
       };
     }
   } catch (_) {
@@ -190,6 +216,7 @@ async function resolveEntitlements(pool, user) {
     legacyScoped,
     isAccountAdmin,
     menuAccess,
+    biMenuAccess,
   };
 }
 

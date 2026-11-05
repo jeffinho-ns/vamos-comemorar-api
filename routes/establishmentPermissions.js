@@ -32,10 +32,19 @@ const {
   loadCoordinatorPlaces,
 } = require('../tenancy/coordinatorEstablishments');
 const { applyDerivedMenuFlags, sanitizeMenuAccess } = require('../tenancy/menuAccess');
+const {
+  sanitizeBiMenuAccess,
+  resolveStoredBiMenuAccess,
+  stripBiOutsideSeuJustino,
+} = require('../tenancy/biMenuAccess');
 
 function withMenuAccess(row) {
   if (!row) return row;
-  return { ...row, menu_access: sanitizeMenuAccess(row.menu_access) };
+  const menu_access = sanitizeMenuAccess(row.menu_access);
+  const bi_menu_access = menu_access.includes('bi-justino')
+    ? sanitizeBiMenuAccess(row.bi_menu_access)
+    : [];
+  return { ...row, menu_access, bi_menu_access };
 }
 
 function filterEstablishmentPermissionsByEmail(email, rows) {
@@ -64,6 +73,7 @@ async function ensureCoordinatorPermissions(pool, userId, email, rows) {
       can_download_os: true,
       can_view_operational_detail: true,
       menu_access: [],
+      bi_menu_access: [],
     }));
   return [...rows, ...missing];
 }
@@ -276,6 +286,7 @@ module.exports = (pool) => {
         can_validate_justino360,
         can_access_rh_ideia,
         menu_access,
+        bi_menu_access,
         is_active
       } = req.body;
 
@@ -327,6 +338,14 @@ module.exports = (pool) => {
         menu_access,
       );
 
+      const exclusive = stripBiOutsideSeuJustino(
+        establishment_id,
+        menuAccess || [],
+        resolveStoredBiMenuAccess(menuAccess || [], bi_menu_access) || [],
+      );
+      const storedMenuAccess = exclusive.menuAccess;
+      const storedBiMenuAccess = exclusive.biMenuAccess;
+
       const insertQuery = `
         INSERT INTO user_establishment_permissions (
           user_id, user_email, establishment_id,
@@ -339,10 +358,10 @@ module.exports = (pool) => {
           can_view_cardapio, can_create_cardapio, can_edit_cardapio, can_delete_cardapio,
           can_access_justino360, can_manage_justino360, can_validate_justino360,
           can_access_rh_ideia,
-          menu_access,
+          menu_access, bi_menu_access,
           is_active, created_by
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26, $27
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb, $26::jsonb, $27, $28
         ) RETURNING *
       `;
       
@@ -371,7 +390,8 @@ module.exports = (pool) => {
         !!can_manage_justino360,
         !!can_validate_justino360,
         flags.can_access_rh_ideia,
-        JSON.stringify(menuAccess || []),
+        JSON.stringify(storedMenuAccess),
+        JSON.stringify(storedBiMenuAccess),
         is_active !== undefined ? is_active : true,
         req.user.id
       ];
@@ -467,6 +487,7 @@ module.exports = (pool) => {
         can_validate_justino360,
         can_access_rh_ideia,
         menu_access,
+        bi_menu_access,
         is_active
       } = req.body;
 
@@ -485,6 +506,16 @@ module.exports = (pool) => {
         },
         menu_access,
       );
+
+      const rawMenuAccess =
+        menuAccess !== undefined ? menuAccess : sanitizeMenuAccess(current.menu_access);
+      const exclusive = stripBiOutsideSeuJustino(
+        current.establishment_id,
+        rawMenuAccess,
+        bi_menu_access !== undefined ? bi_menu_access : current.bi_menu_access,
+      );
+      const effectiveMenuAccess = exclusive.menuAccess;
+      const biMenuAccessForUpdate = exclusive.biMenuAccess;
       
       // Detectar mudanças
       const changes = {};
@@ -507,7 +538,10 @@ module.exports = (pool) => {
         changes.can_delete_cardapio = { from: current.can_delete_cardapio, to: can_delete_cardapio };
       }
       if (menuAccess !== undefined) {
-        changes.menu_access = { from: current.menu_access, to: menuAccess };
+        changes.menu_access = { from: current.menu_access, to: effectiveMenuAccess };
+      }
+      if (biMenuAccessForUpdate !== null) {
+        changes.bi_menu_access = { from: current.bi_menu_access, to: biMenuAccessForUpdate };
       }
       
       const updateQuery = `
@@ -534,10 +568,11 @@ module.exports = (pool) => {
           can_validate_justino360 = COALESCE($20, can_validate_justino360),
           can_access_rh_ideia = COALESCE($21, can_access_rh_ideia),
           menu_access = COALESCE($22::jsonb, menu_access),
-          is_active = COALESCE($23, is_active),
-          updated_by = $24,
+          bi_menu_access = COALESCE($23::jsonb, bi_menu_access),
+          is_active = COALESCE($24, is_active),
+          updated_by = $25,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $25
+        WHERE id = $26
         RETURNING *
       `;
       
@@ -563,7 +598,8 @@ module.exports = (pool) => {
         can_manage_justino360,
         can_validate_justino360,
         flags.can_access_rh_ideia,
-        menuAccess !== undefined ? JSON.stringify(menuAccess) : null,
+        menuAccess !== undefined ? JSON.stringify(effectiveMenuAccess) : null,
+        biMenuAccessForUpdate !== null ? JSON.stringify(biMenuAccessForUpdate) : null,
         is_active,
         req.user.id,
         id

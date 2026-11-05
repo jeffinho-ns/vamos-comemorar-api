@@ -9,7 +9,15 @@
  * gerente.sjm@seujustino.com.br entra só em Gerente Operador, Documentos, Manual e Contatos.
  */
 
-const { canAccessBiJustinoFromUep } = require('../../tenancy/menuAccess');
+const { canAccessBiJustinoFromUep, sanitizeMenuAccess } = require('../../tenancy/menuAccess');
+const {
+  BI_PAGE_KEYS,
+  sanitizeBiMenuAccess,
+  hasBiJustinoAccess,
+  unionBiMenuAccess,
+} = require('../../tenancy/biMenuAccess');
+
+const SEU_JUSTINO_ESTABLISHMENT_ID = 1;
 
 const BI_JUSTINO_EMAILS = new Set([
   'renatocury@ideiaum.com.br',
@@ -175,15 +183,29 @@ function temRecorteBiJustino(email) {
   return Object.prototype.hasOwnProperty.call(BI_JUSTINO_ESCOPOS, normalizeEmail(email));
 }
 
-function paginasBiJustino(email) {
+function paginasBiJustino(email, biMenuAccess) {
+  const fromUep = sanitizeBiMenuAccess(biMenuAccess);
+  if (fromUep.length > 0) return fromUep;
   const recorte = BI_JUSTINO_ESCOPOS[normalizeEmail(email)];
   return recorte ? recorte.slice() : BI_JUSTINO_PAGINAS.slice();
 }
 
-function podePaginaBiJustino(email, pagina) {
+function listaCompletaBi(paginas) {
+  return BI_JUSTINO_PAGINAS.every((id) => (paginas || []).includes(id));
+}
+
+function temRecorteBiJustinoEfetivo(email, biMenuAccess) {
+  const fromUep = sanitizeBiMenuAccess(biMenuAccess);
+  if (fromUep.length > 0) return !listaCompletaBi(fromUep);
+  return temRecorteBiJustino(email);
+}
+
+function podePaginaBiJustino(email, pagina, biMenuAccess) {
   const id = String(pagina || '').trim().toLowerCase();
-  if (AREAS_LIVRES.has(id)) return isBiJustinoEmail(email);
-  return paginasBiJustino(email).includes(id);
+  if (AREAS_LIVRES.has(id)) {
+    return isBiJustinoEmail(email) || sanitizeBiMenuAccess(biMenuAccess).length > 0;
+  }
+  return paginasBiJustino(email, biMenuAccess).includes(id);
 }
 
 function areaDoCaminhoBiJustino(caminho) {
@@ -205,17 +227,71 @@ function areaDoCaminhoBiJustino(caminho) {
   return null;
 }
 
-function chavePermitida(email, chave) {
-  if (!temRecorteBiJustino(email)) return true;
+function chavePermitida(email, chave, biMenuAccess) {
+  if (!temRecorteBiJustinoEfetivo(email, biMenuAccess)) return true;
   const pedida = String(chave || '');
-  return paginasBiJustino(email).some((pagina) => {
+  return paginasBiJustino(email, biMenuAccess).some((pagina) => {
     const prefixos = CHAVES_POR_PAGINA[pagina] || [];
     return prefixos.some((prefixo) => pedida === prefixo || pedida.startsWith(prefixo));
   });
 }
 
-function filtrarChavesBiJustino(email, chaves) {
-  return (chaves || []).filter((chave) => chavePermitida(email, chave));
+function filtrarChavesBiJustino(email, chaves, biMenuAccess) {
+  return (chaves || []).filter((chave) => chavePermitida(email, chave, biMenuAccess));
+}
+
+function escopoBiDoObjeto(user) {
+  if (!user) return null;
+  const hasMenu = user.menuAccess != null || user.menu_access != null;
+  const hasBi = user.biMenuAccess != null || user.bi_menu_access != null;
+  if (!hasMenu && !hasBi) return null;
+  return {
+    menuAccess: sanitizeMenuAccess(user.menuAccess || user.menu_access),
+    biMenuAccess: sanitizeBiMenuAccess(user.biMenuAccess || user.bi_menu_access),
+  };
+}
+
+async function loadUepBiScope(pool, user) {
+  const fromUser = escopoBiDoObjeto(user);
+  if (fromUser) return fromUser;
+  if (!pool || !user || !user.id) return { menuAccess: [], biMenuAccess: [] };
+  try {
+    const { rows } = await pool.query(
+      `SELECT menu_access, bi_menu_access
+         FROM user_establishment_permissions
+        WHERE user_id = $1 AND is_active = TRUE AND establishment_id = $2`,
+      [user.id, SEU_JUSTINO_ESTABLISHMENT_ID],
+    );
+    return {
+      menuAccess: sanitizeMenuAccess(rows[0] && rows[0].menu_access),
+      biMenuAccess: unionBiMenuAccess(rows),
+    };
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err || '');
+    if (/column ["']?bi_menu_access["']? does not exist/i.test(msg)) {
+      try {
+        const { rows } = await pool.query(
+          `SELECT menu_access
+             FROM user_establishment_permissions
+            WHERE user_id = $1 AND is_active = TRUE AND establishment_id = $2`,
+          [user.id, SEU_JUSTINO_ESTABLISHMENT_ID],
+        );
+        return {
+          menuAccess: sanitizeMenuAccess(rows[0] && rows[0].menu_access),
+          biMenuAccess: [],
+        };
+      } catch (_) {
+        return { menuAccess: [], biMenuAccess: [] };
+      }
+    }
+    return { menuAccess: [], biMenuAccess: [] };
+  }
+}
+
+async function escopoBiDoUsuario(pool, user) {
+  const email = await emailDoUsuario(pool, user);
+  const uep = await loadUepBiScope(pool, user);
+  return { email, ...uep };
 }
 
 async function emailDoUsuario(pool, user) {
@@ -232,6 +308,10 @@ async function canReadBiJustino(pool, user) {
   if (!user || !user.id) return false;
   if (user.is_super_admin === true) return true;
   if (isBiJustinoEmail(user.email)) return true;
+
+  const scope = await loadUepBiScope(pool, user);
+  if (hasBiJustinoAccess(scope.menuAccess, scope.biMenuAccess)) return true;
+
   if (!pool) return false;
   const { rows } = await pool.query(
     `SELECT email, COALESCE(is_super_admin, FALSE) AS is_super_admin
@@ -248,23 +328,27 @@ async function canReadBiJustino(pool, user) {
 async function canReadBiJustinoArea(pool, user, area) {
   if (!(await canReadBiJustino(pool, user))) return false;
   if (user && user.is_super_admin === true) return true;
-  const email = await emailDoUsuario(pool, user);
+  const { email, biMenuAccess } = await escopoBiDoUsuario(pool, user);
   if (AREAS_LIVRES.has(area)) return true;
-  if (!area) return !temRecorteBiJustino(email);
-  return podePaginaBiJustino(email, area);
+  if (!area) return !temRecorteBiJustinoEfetivo(email, biMenuAccess);
+  return podePaginaBiJustino(email, area, biMenuAccess);
 }
 
 module.exports = {
   BI_JUSTINO_EMAILS,
   BI_JUSTINO_PAGINAS,
   BI_JUSTINO_ESCOPOS,
+  BI_PAGE_KEYS,
   isBiJustinoEmail,
   paginasBiJustino,
   podePaginaBiJustino,
   areaDoCaminhoBiJustino,
   filtrarChavesBiJustino,
   emailDoUsuario,
+  escopoBiDoUsuario,
+  loadUepBiScope,
   canReadBiJustino,
   canReadBiJustinoArea,
   canAccessBiJustinoFromUep,
+  hasBiJustinoAccess,
 };

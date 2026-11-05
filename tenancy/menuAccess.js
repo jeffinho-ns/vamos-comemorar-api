@@ -127,6 +127,7 @@ function canAccessBiJustinoFromUep(row) {
 module.exports = {
   ALLOWED_MENU_KEYS,
   BLOCKED_MENU_KEYS,
+  parseMenuAccessInput,
   sanitizeMenuAccess,
   deriveLegacyFlagsFromMenuAccess,
   applyDerivedMenuFlags,

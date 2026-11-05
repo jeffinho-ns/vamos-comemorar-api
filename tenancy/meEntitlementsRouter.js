@@ -11,6 +11,7 @@ const express = require('express');
 const authenticateToken = require('../middleware/auth');
 const { resolveEntitlements } = require('./entitlements');
 const { ALLOWED_MENU_KEYS } = require('./menuAccess');
+const { BI_PAGE_KEYS } = require('./biMenuAccess');
 const { listTrainingMaterialsForUser } = require('../billing/trainingService');
 
 module.exports = (pool) => {
@@ -31,6 +32,7 @@ module.exports = (pool) => {
             permissions: ['*'],
             organizationId: null,
             menuAccess: [...ALLOWED_MENU_KEYS],
+            biMenuAccess: [...BI_PAGE_KEYS],
           },
         });
       }

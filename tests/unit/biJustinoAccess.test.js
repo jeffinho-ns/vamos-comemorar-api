@@ -8,6 +8,8 @@ const {
   podePaginaBiJustino,
   areaDoCaminhoBiJustino,
   filtrarChavesBiJustino,
+  canReadBiJustino,
+  canReadBiJustinoArea,
 } = require('../../services/biJustino/access');
 
 const CAROLLINE = 'carolline.moreira@ideiaum.com.br';
@@ -182,4 +184,53 @@ test('Carolline lê as áreas abertas e continua sem a Diretoria', () => {
   assert.deepEqual(filtrarChavesBiJustino(CAROLLINE, pedidas), pedidas);
   assert.equal(podePaginaBiJustino(CAROLLINE, 'master'), false);
   assert.deepEqual(filtrarChavesBiJustino(RENATO, pedidas), pedidas);
+});
+
+test('paginas e chaves do UEP prevalecem sobre o recorte de e-mail', () => {
+  assert.deepEqual(paginasBiJustino(MENDA, ['operacao', 'cmv']), ['operacao', 'cmv']);
+  assert.equal(podePaginaBiJustino(MENDA, 'operacao', ['operacao', 'cmv']), true);
+  assert.equal(podePaginaBiJustino(MENDA, 'marketing', ['operacao', 'cmv']), false);
+  assert.deepEqual(
+    filtrarChavesBiJustino(MENDA, ['getEntries:operacao', 'getMkPlans', 'getCmvTeoricoParcial'], ['operacao', 'cmv']),
+    ['getEntries:operacao', 'getCmvTeoricoParcial'],
+  );
+});
+
+function poolUep(row) {
+  return {
+    async query(sql) {
+      if (/FROM users/i.test(sql)) {
+        return { rows: [{ email: 'colaborador@seujustino.test', is_super_admin: false }] };
+      }
+      if (/user_establishment_permissions/i.test(sql)) {
+        return { rows: row ? [row] : [] };
+      }
+      throw new Error(`query inesperada: ${sql}`);
+    },
+  };
+}
+
+test('canReadBiJustino libera UEP com bi-justino e páginas, mesmo fora da allowlist', async () => {
+  const user = { id: 44, email: 'colaborador@seujustino.test' };
+  const pool = poolUep({
+    menu_access: ['bi-justino'],
+    bi_menu_access: ['marketing', 'eventos'],
+  });
+  assert.equal(await canReadBiJustino(pool, user), true);
+  assert.equal(await canReadBiJustinoArea(pool, user, 'marketing'), true);
+  assert.equal(await canReadBiJustinoArea(pool, user, 'master'), false);
+});
+
+test('canReadBiJustino nega UEP com bi-justino mas sem páginas', async () => {
+  const user = { id: 45, email: 'colaborador@seujustino.test' };
+  const pool = poolUep({ menu_access: ['bi-justino'], bi_menu_access: [] });
+  assert.equal(await canReadBiJustino(pool, user), false);
+});
+
+test('canReadBiJustino Area usa fallback de e-mail quando não há páginas UEP', async () => {
+  const user = { id: 7, email: MENDA };
+  const pool = poolUep(null);
+  assert.equal(await canReadBiJustino(pool, user), true);
+  assert.equal(await canReadBiJustinoArea(pool, user, 'marketing'), true);
+  assert.equal(await canReadBiJustinoArea(pool, user, 'master'), false);
 });

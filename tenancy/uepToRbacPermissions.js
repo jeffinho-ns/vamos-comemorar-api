@@ -9,6 +9,7 @@ const {
   grantRbacFromMenuAccess,
   unionMenuAccess,
 } = require('./menuAccess');
+const { unionBiMenuAccess } = require('./biMenuAccess');
 
 function mergeUepRowIntoPermissionSet(perms, row) {
   const manageRes = !!row.can_manage_reservations;
@@ -82,10 +83,10 @@ function mergeUepRowIntoPermissionSet(perms, row) {
 /**
  * @param {import('pg').Pool} pool
  * @param {number} userId
- * @returns {Promise<{ permissions: string[], menuAccess: string[] }>}
+ * @returns {Promise<{ permissions: string[], menuAccess: string[], biMenuAccess: string[] }>}
  */
 async function loadUepRbacAndMenuAccess(pool, userId) {
-  if (!userId) return { permissions: [], menuAccess: [] };
+  if (!userId) return { permissions: [], menuAccess: [], biMenuAccess: [] };
 
   const coreSelect = `
          can_manage_reservations,
@@ -116,18 +117,27 @@ async function loadUepRbacAndMenuAccess(pool, userId) {
   const menuSelect = `,
          menu_access`;
 
+  const biSelect = `,
+         bi_menu_access`;
+
+  const emptyUep = () => ({ permissions: [], menuAccess: [], biMenuAccess: [] });
+
   const foldRows = (rows) => {
-    if (!rows.length) return { permissions: [], menuAccess: [] };
+    if (!rows.length) return emptyUep();
     const perms = new Set();
     for (const row of rows) {
       mergeUepRowIntoPermissionSet(perms, row);
     }
-    return { permissions: [...perms], menuAccess: unionMenuAccess(rows) };
+    return {
+      permissions: [...perms],
+      menuAccess: unionMenuAccess(rows),
+      biMenuAccess: unionBiMenuAccess(rows),
+    };
   };
 
-  const run = async ({ withRh, withMenu }) => {
+  const run = async ({ withRh, withMenu, withBi }) => {
     const { rows } = await pool.query(
-      `SELECT ${coreSelect}${withRh ? rhSelect : ''}${withMenu ? menuSelect : ''}
+      `SELECT ${coreSelect}${withRh ? rhSelect : ''}${withMenu ? menuSelect : ''}${withBi ? biSelect : ''}
          FROM user_establishment_permissions
         WHERE user_id = $1 AND is_active = TRUE`,
       [userId],
@@ -140,31 +150,32 @@ async function loadUepRbacAndMenuAccess(pool, userId) {
     return {
       rh: /column ["']?can_access_rh_ideia["']? does not exist|column ["']?can_manage_rh_ideia["']? does not exist|column ["']?can_validate_rh_ideia["']? does not exist/i.test(msg),
       menu: /column ["']?menu_access["']? does not exist/i.test(msg),
+      bi: /column ["']?bi_menu_access["']? does not exist/i.test(msg),
     };
   };
 
   try {
-    return await run({ withRh: true, withMenu: true });
+    return await run({ withRh: true, withMenu: true, withBi: true });
   } catch (err) {
     const miss = missingCol(err);
-    if (!miss.rh && !miss.menu) {
+    if (!miss.rh && !miss.menu && !miss.bi) {
       console.error('[uepToRbacPermissions] falha ao carregar UEP:', {
         userId,
         message: err.message || err,
       });
-      return { permissions: [], menuAccess: [] };
+      return emptyUep();
     }
     try {
-      return await run({ withRh: !miss.rh, withMenu: !miss.menu });
+      return await run({ withRh: !miss.rh, withMenu: !miss.menu, withBi: !miss.bi });
     } catch (err2) {
       try {
-        return await run({ withRh: false, withMenu: false });
+        return await run({ withRh: false, withMenu: false, withBi: false });
       } catch (err3) {
         console.error('[uepToRbacPermissions] falha ao carregar UEP (sem extras):', {
           userId,
           message: err3.message || err3,
         });
-        return { permissions: [], menuAccess: [] };
+        return emptyUep();
       }
     }
   }
