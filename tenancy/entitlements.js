@@ -122,8 +122,12 @@ async function resolveEntitlements(pool, user) {
       [orgId],
     );
     modules = rows.map((r) => r.key);
-  } catch (_) {
-    modules = [];
+  } catch (err) {
+    console.error('[entitlements] falha ao ler módulos da organização', {
+      organizationId: orgId,
+      message: err && err.message ? err.message : String(err),
+    });
+    throw err;
   }
 
   // Permissões via roles do usuário naquela organização

@@ -27,15 +27,11 @@ module.exports = (pool) => {
           data: { allowAll: true, modules: ['*'], permissions: ['*'], organizationId: null },
         });
       }
-      return res.json({
-        success: true,
-        data: {
-          allowAll: false,
-          modules: [],
-          permissions: [],
-          organizationId: null,
-          establishmentIds: [],
-        },
+      // Não devolver um contrato vazio com HTTP 200: o painel escondia o menu inteiro
+      // como se o usuário não tivesse permissão. 503 deixa o front tentar de novo.
+      return res.status(503).json({
+        success: false,
+        error: 'entitlements_indisponiveis',
       });
     }
   });
