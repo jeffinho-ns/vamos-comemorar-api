@@ -52,6 +52,9 @@ function resolveReservationPhone({ waId, clientPhone, cliente = {} } = {}) {
   const fromState = normalizeBrPhone(clientPhone);
   if (fromState) return fromState;
   if (isInstagramWaId(waId)) return null;
+  const { parseScopedWaId } = require('../whatsapp/whatsappPhoneLineService');
+  const scoped = parseScopedWaId(waId);
+  if (scoped) return scoped.customer;
   return normalizeBrPhone(waId) || String(waId || '').replace(/\D/g, '') || null;
 }
 

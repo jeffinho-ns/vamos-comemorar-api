@@ -19,9 +19,9 @@ function isTransientWhatsAppFailure(status, responseBody) {
   return [1, 2, 4, 17, 32, 341].includes(Number(error?.code));
 }
 
-async function postGraphMessage(payload, failureLabel) {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+async function postGraphMessage(payload, failureLabel, line = {}) {
+  const accessToken = line.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = line.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
   if (!accessToken) {
     throw new Error('WHATSAPP_ACCESS_TOKEN não definido no ambiente.');
@@ -112,6 +112,18 @@ function isWhatsAppTransientError(error) {
   return error instanceof WhatsAppApiError && error.isTransient;
 }
 
+function outboundLineFor(to) {
+  const { parseScopedWaId } = require('./whatsapp/whatsappPhoneLineService');
+  const { currentWhatsappLine } = require('./whatsapp/whatsappLineContext');
+  const scoped = parseScopedWaId(to);
+  const current = currentWhatsappLine();
+  return {
+    to: scoped?.customer || to,
+    phoneNumberId: current?.phoneNumberId || scoped?.phoneNumberId || null,
+    accessToken: current?.accessToken || null,
+  };
+}
+
 async function sendMessage(to, text) {
   if (!to || typeof to !== 'string') {
     throw new Error('Parâmetro "to" inválido para envio de mensagem.');
@@ -127,16 +139,18 @@ async function sendMessage(to, text) {
     return sendInstagramMessage(to, text);
   }
 
+  const line = outboundLineFor(to);
   return postGraphMessage(
     {
       messaging_product: 'whatsapp',
-      to,
+      to: line.to,
       type: 'text',
       text: {
         body: text,
       },
     },
-    'Falha ao enviar mensagem no WhatsApp'
+    'Falha ao enviar mensagem no WhatsApp',
+    line,
   );
 }
 
@@ -149,14 +163,16 @@ async function sendTemplateMessage(to, template) {
     throw new Error('Parâmetro "template" inválido para envio de template.');
   }
 
+  const line = outboundLineFor(to);
   return postGraphMessage(
     {
       messaging_product: 'whatsapp',
-      to,
+      to: line.to,
       type: 'template',
       template,
     },
-    'Falha ao enviar template no WhatsApp'
+    'Falha ao enviar template no WhatsApp',
+    line,
   );
 }
 
@@ -169,14 +185,16 @@ async function sendSticker(to, { mediaId, link } = {}) {
     throw new Error('Figurinha sem media_id nem URL.');
   }
 
+  const line = outboundLineFor(to);
   return postGraphMessage(
     {
       messaging_product: 'whatsapp',
-      to,
+      to: line.to,
       type: 'sticker',
       sticker,
     },
-    'Falha ao enviar figurinha no WhatsApp'
+    'Falha ao enviar figurinha no WhatsApp',
+    line,
   );
 }
 
@@ -192,14 +210,16 @@ async function sendImage(to, { mediaId, link, caption } = {}) {
     image.caption = String(caption).trim();
   }
 
+  const line = outboundLineFor(to);
   return postGraphMessage(
     {
       messaging_product: 'whatsapp',
-      to,
+      to: line.to,
       type: 'image',
       image,
     },
-    'Falha ao enviar imagem no WhatsApp'
+    'Falha ao enviar imagem no WhatsApp',
+    line,
   );
 }
 

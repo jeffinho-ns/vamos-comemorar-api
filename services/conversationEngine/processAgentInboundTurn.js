@@ -191,6 +191,7 @@ async function processAgentInboundTurn({
   incomingMessageText,
   waId,
   hintedEstablishmentId = null,
+  pinnedEstablishmentId = null,
 }) {
   const incomingText = String(incomingMessageText || '').trim();
   if (!incomingText) {
@@ -326,6 +327,8 @@ async function processAgentInboundTurn({
 
   const historyPlainText = messageHistory.map((m) => m?.content || '').join(' ');
   const defaultWhatsappEstablishmentId = getWhatsappDefaultEstablishmentId();
+  const phonePinned = Number(pinnedEstablishmentId);
+  const housePinnedByLine = Number.isFinite(phonePinned) && phonePinned > 0;
 
   const mentionedHouses = listMentionedEstablishments(
     incomingText,
@@ -337,7 +340,7 @@ async function processAgentInboundTurn({
     mentionedId: mentionedHouses.length === 1 ? mentionedHouses[0] : null,
   });
 
-  if (mentionedHouses.length > 1) {
+  if (!housePinnedByLine && mentionedHouses.length > 1) {
     const choiceReply = buildHouseChoiceQuestion(incomingText, catalog.establishments || []);
     const nextState = { ...(memory.workingState || {}) };
     delete nextState.establishment_id;
@@ -361,8 +364,9 @@ async function processAgentInboundTurn({
     conversationEstablishmentId,
     collectedFields: memory.workingState || {},
   });
-  const lockedEstablishmentId =
-    resolvedEstablishmentId ||
+  const lockedEstablishmentId = housePinnedByLine
+    ? phonePinned
+    : resolvedEstablishmentId ||
     detectEstablishmentFromText(incomingText, catalog.establishments || []) ||
     detectEstablishmentFromText(historyPlainText, catalog.establishments || []) ||
     Number(memory.workingState?.establishment_id) ||

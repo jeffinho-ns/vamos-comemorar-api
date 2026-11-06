@@ -36,6 +36,12 @@ function extractSenderNumber(payload) {
   return firstMessage?.from || firstContact?.wa_id || null;
 }
 
+function extractPhoneNumberId(payload) {
+  const entry = payload?.entry?.[0];
+  const change = entry?.changes?.[0];
+  return change?.value?.metadata?.phone_number_id || null;
+}
+
 function extractMessageId(payload) {
   const entry = payload?.entry?.[0];
   const change = entry?.changes?.[0];
@@ -99,7 +105,33 @@ module.exports = (pool, app) => {
     }
 
     const incomingMessageText = extractMessageText(payload);
-    const waId = extractSenderNumber(payload);
+    const customerWaId = extractSenderNumber(payload);
+    const metaPhoneNumberId = extractPhoneNumberId(payload);
+    let phoneLine = null;
+    if (metaPhoneNumberId) {
+      try {
+        const { findActiveByPhoneNumberId } = require('../services/whatsapp/whatsappPhoneLineService');
+        phoneLine = await findActiveByPhoneNumberId(pool, metaPhoneNumberId);
+      } catch (lineError) {
+        console.warn('[WhatsApp webhook] linha da casa indisponível:', lineError.message);
+      }
+    }
+    const { scopeCustomerWaId, toLineContext } = require('../services/whatsapp/whatsappPhoneLineService');
+    const { runWithWhatsappLine } = require('../services/whatsapp/whatsappLineContext');
+    const lineContext = toLineContext(phoneLine);
+    const waId = customerWaId
+      ? scopeCustomerWaId(
+          customerWaId,
+          lineContext?.phoneNumberId || null,
+          process.env.WHATSAPP_PHONE_NUMBER_ID,
+        )
+      : null;
+    const pinnedEstablishmentId = lineContext?.establishmentId || null;
+    if (pinnedEstablishmentId) {
+      console.log(
+        `[WhatsApp webhook] número da casa establishment_id=${pinnedEstablishmentId} phone_number_id=${lineContext.phoneNumberId}`,
+      );
+    }
     const wamid = extractMessageId(payload);
     const statusEvent = extractDeliveryStatus(payload);
 
@@ -158,6 +190,9 @@ module.exports = (pool, app) => {
           wamid,
           payload,
           incomingMessageText,
+          hintedEstablishmentId: pinnedEstablishmentId,
+          pinnedEstablishmentId,
+          phoneNumberId: lineContext?.phoneNumberId || null,
         });
         if (enqueueResult.enqueued) {
           console.log(
@@ -171,15 +206,19 @@ module.exports = (pool, app) => {
       }
 
       const startedAt = Date.now();
-      await withConversationLock(pool, waId, async () => {
-        await processInboundTurn({
-          pool,
-          app,
-          payload,
-          incomingMessageText,
-          waId,
-        });
-      });
+      await runWithWhatsappLine(lineContext, () =>
+        withConversationLock(pool, waId, async () => {
+          await processInboundTurn({
+            pool,
+            app,
+            payload,
+            incomingMessageText,
+            waId,
+            hintedEstablishmentId: pinnedEstablishmentId,
+            pinnedEstablishmentId,
+          });
+        }),
+      );
       console.log(
         `[WhatsApp webhook] turno inline concluído waId=${waId} wamid=${wamid || 'sem-id'} ms=${Date.now() - startedAt}`
       );

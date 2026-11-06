@@ -56,17 +56,30 @@ function startQueueWorkers(pool, app) {
   registerWorker(
     queueNames.INBOUND_TURN,
     async (job) => {
-      const { waId, payload, incomingMessageText, hintedEstablishmentId } = job.data;
-      await withConversationLock(pool, waId, async () => {
-        await processInboundTurn({
-          pool,
-          app: runtimeApp,
-          payload,
-          incomingMessageText,
-          waId,
-          hintedEstablishmentId,
-        });
-      });
+      const { waId, payload, incomingMessageText, hintedEstablishmentId, pinnedEstablishmentId, phoneNumberId } = job.data;
+      const { findActiveByPhoneNumberId, toLineContext } = require('../services/whatsapp/whatsappPhoneLineService');
+      const { runWithWhatsappLine } = require('../services/whatsapp/whatsappLineContext');
+      let lineContext = null;
+      if (phoneNumberId) {
+        try {
+          lineContext = toLineContext(await findActiveByPhoneNumberId(pool, phoneNumberId));
+        } catch (lineError) {
+          console.warn('[queue:inbound] linha da casa indisponível:', lineError.message);
+        }
+      }
+      await runWithWhatsappLine(lineContext, () =>
+        withConversationLock(pool, waId, async () => {
+          await processInboundTurn({
+            pool,
+            app: runtimeApp,
+            payload,
+            incomingMessageText,
+            waId,
+            hintedEstablishmentId,
+            pinnedEstablishmentId,
+          });
+        }),
+      );
     },
     { concurrency: Number(process.env.BULLMQ_INBOUND_CONCURRENCY || 4) }
   );
@@ -80,8 +93,18 @@ function startQueueWorkers(pool, app) {
   registerWorker(
     queueNames.WHATSAPP_OUTBOUND,
     async (job) => {
-      const { to, text } = job.data;
-      await sendMessage(to, text);
+      const { to, text, phoneNumberId } = job.data;
+      const { findActiveByPhoneNumberId, toLineContext } = require('../services/whatsapp/whatsappPhoneLineService');
+      const { runWithWhatsappLine } = require('../services/whatsapp/whatsappLineContext');
+      let lineContext = null;
+      if (phoneNumberId) {
+        try {
+          lineContext = toLineContext(await findActiveByPhoneNumberId(pool, phoneNumberId));
+        } catch (lineError) {
+          console.warn('[queue:outbound] linha da casa indisponível:', lineError.message);
+        }
+      }
+      await runWithWhatsappLine(lineContext, () => sendMessage(to, text));
     },
     { concurrency: Number(process.env.BULLMQ_WHATSAPP_CONCURRENCY || 6) }
   );

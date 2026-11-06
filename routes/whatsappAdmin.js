@@ -771,15 +771,25 @@ module.exports = (pool, app) => {
       // Envio pelo painel = atendimento humano: pausa a IA para não haver resposta dupla.
       let sendResult;
       try {
-        sendResult = await sendMessage(normalizedTo, text);
+        const { findActiveByEstablishmentId, toLineContext } = require('../services/whatsapp/whatsappPhoneLineService');
+        const { runWithWhatsappLine } = require('../services/whatsapp/whatsappLineContext');
+        let lineContext = null;
+        try {
+          lineContext = toLineContext(await findActiveByEstablishmentId(pool, conv.establishment_id));
+        } catch (lineError) {
+          console.warn('[whatsappAdmin] linha da casa indisponível:', lineError.message);
+        }
+        sendResult = await runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text));
       } catch (sendError) {
         if (!isWhatsAppTransientError(sendError)) {
           throw sendError;
         }
 
+        const { parseScopedWaId } = require('../services/whatsapp/whatsappPhoneLineService');
         const queuedFallback = await enqueueWhatsAppOutbound({
           to: normalizedTo,
           text,
+          phoneNumberId: parseScopedWaId(normalizedTo)?.phoneNumberId || null,
           meta: {
             source: 'admin_manual_send_transient_fallback',
             user_id: req.user?.id || null,

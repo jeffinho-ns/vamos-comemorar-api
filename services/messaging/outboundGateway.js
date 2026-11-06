@@ -4,12 +4,17 @@ const { isQueueEnabled } = require('../../infrastructure/queue/redisConnection')
 
 async function sendText(to, text, meta = {}) {
   if (!to || !text) return { delivered: false, reason: 'invalid_payload' };
+  const { currentWhatsappLine } = require('../whatsapp/whatsappLineContext');
+  const { parseScopedWaId } = require('../whatsapp/whatsappPhoneLineService');
+  const phoneNumberId =
+    currentWhatsappLine()?.phoneNumberId || parseScopedWaId(to)?.phoneNumberId || null;
 
   if (isQueueEnabled() && process.env.BULLMQ_WHATSAPP_INLINE !== 'true') {
     const result = await enqueueWhatsAppOutbound({
       to,
       text,
       meta,
+      phoneNumberId,
     });
     if (result.enqueued) {
       return { delivered: true, mode: 'queued', jobId: result.jobId };
