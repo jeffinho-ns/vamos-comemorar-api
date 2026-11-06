@@ -15,7 +15,6 @@ const OPTIONAL_BAR_COLUMNS = [
 ];
 
 const SITIO_ILHA_BAR_ID = 15;
-const SITIO_ILHA_CONFIG_EMAIL = 'jeffinho_ns@hotmail.com';
 
 function normalizeHouseKey(value) {
   return String(value || '')
@@ -32,8 +31,8 @@ function isSitioIlhaBar(bar) {
   return name.includes('sitio') && name.includes('ilha');
 }
 
-function canViewSitioIlhaConfig(email) {
-  return String(email || '').trim().toLowerCase() === SITIO_ILHA_CONFIG_EMAIL;
+function canViewSitioIlhaConfig(_email) {
+  return true;
 }
 
 async function actorEmail(pool, req) {

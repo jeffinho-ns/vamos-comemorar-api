@@ -11,9 +11,8 @@ test('reconhece o Sítio Ilha pelo id, slug ou nome', () => {
   assert.equal(isSitioIlhaBar({ id: 1, name: 'Seu Justino', slug: 'justino' }), false);
 });
 
-test('só o e-mail do Jeffinho vê o Sítio Ilha na configuração', () => {
+test('o cardápio do Sítio Ilha não fica preso a um único e-mail', () => {
+  assert.equal(canViewSitioIlhaConfig('sitioilharj@gmail.com'), true);
+  assert.equal(canViewSitioIlhaConfig('thiago@sitioilha.com.br'), true);
   assert.equal(canViewSitioIlhaConfig('jeffinho_ns@hotmail.com'), true);
-  assert.equal(canViewSitioIlhaConfig('Jeffinho_NS@hotmail.com'), true);
-  assert.equal(canViewSitioIlhaConfig(' renatocury@ideiaum.com.br '), false);
-  assert.equal(canViewSitioIlhaConfig(''), false);
 });
