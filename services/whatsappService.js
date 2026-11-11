@@ -139,6 +139,13 @@ async function sendMessage(to, text) {
     return sendInstagramMessage(to, text);
   }
 
+  const { isWameRequestActive } = require('./wame/wameContext');
+  const { isWameOutboundEnabled } = require('./wame/wameConfig');
+  if (isWameRequestActive() || isWameOutboundEnabled()) {
+    const { sendText: sendWameText } = require('./wame/wameService');
+    return sendWameText(to, text);
+  }
+
   const line = outboundLineFor(to);
   return postGraphMessage(
     {

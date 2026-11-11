@@ -59,6 +59,7 @@ function buildHealthPayload() {
     process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
   );
   const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+  const { isWameConfigured, isWameOutboundEnabled } = require('./services/wame/wameConfig');
 
   return {
     status: applicationBootComplete ? 'OK' : 'starting',
@@ -67,9 +68,11 @@ function buildHealthPayload() {
     bootComplete: applicationBootComplete,
     whatsapp: {
       webhookReady: hasVerifyToken && hasAppSecret,
-      outboundReady: hasOutboundConfig,
+      outboundReady: hasOutboundConfig || isWameConfigured(),
       aiReady: hasOpenAi,
       queueEnabled: Boolean(process.env.REDIS_URL || process.env.REDIS_HOST),
+      wameConfigured: isWameConfigured(),
+      wameOutbound: isWameOutboundEnabled(),
     },
     saas: {
       mode: saasMode(),
@@ -169,6 +172,13 @@ app.use(
     return next();
   },
   whatsappWebhookRoutes(pool, app)
+);
+
+const wameWebhookRoutes = require('./routes/wameWebhook');
+app.use(
+  '/api/webhooks/wame',
+  express.json({ limit: '5mb' }),
+  wameWebhookRoutes(pool, app)
 );
 
 app.use(
