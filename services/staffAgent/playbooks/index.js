@@ -211,10 +211,13 @@ const PLAYBOOKS = [
       'Confirmar. O dia/faixa fica marcado no calendário; dá para liberar depois pelos detalhes do bloqueio.',
     ],
     tips: [
-      'Bloquear UM dia (ou uma área/horário simples) → preferir o chat do Agent (“bloqueia o dia 20/09”).',
+      'Bloquear UM dia (ou uma área/horário simples) → preferir o chat do Agent (“bloqueia o Rooftop no dia 20/09 das 18h às 22h”).',
+      'O Agent também registra o aviso em Informações adicionais para a IA SOL.',
       'Bloquear NÃO cancela reservas já feitas — só impede novas.',
+      'Casas sem módulo reservas ativo não aceitam bloqueio pelo Agent.',
     ],
-    agentInstead: 'Dia único / área / faixa simples → Agent com bloquear_dia_agenda.',
+    agentInstead:
+      'Dia/área/horário (e faixa de datas) → Agent com listar_areas_reserva + bloquear_dia_agenda.',
   },
   {
     id: 'enviar_whatsapp',

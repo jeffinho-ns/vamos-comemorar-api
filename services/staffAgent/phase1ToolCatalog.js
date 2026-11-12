@@ -245,9 +245,27 @@ const PHASE1_TOOLS = [
     ],
   },
   {
+    name: 'listar_areas_reserva',
+    description:
+      'Lista as áreas ativas do Sistema de Reservas da casa da sessão (ex.: Rooftop/Terraço, Deck, Camarotes). Use antes de bloquear uma área se o nome estiver incerto.',
+    args: [],
+    requiresConfirmation: false,
+    isWrite: false,
+    risk: 'low',
+    minRbac: ['reservas:read'],
+    minUepAny: ['can_view_reservations', 'can_edit_reservations', 'can_create_reservations'],
+    minRoles: ['recepcao', 'gerente', 'admin', 'account_admin', 'promoter'],
+    apiHint: 'SELECT restaurant_areas (escopo da casa)',
+    exampleUtterances: [
+      'Quais áreas de reserva temos?',
+      'Lista as áreas do Rooftop',
+      'Quais áreas posso bloquear?',
+    ],
+  },
+  {
     name: 'listar_bloqueios_agenda',
     description:
-      'Lista dias bloqueados para reservas (futuros, ou de uma data específica). Use antes de bloquear/liberar.',
+      'Lista dias bloqueados para reservas (futuros, ou de uma data específica). Use antes de bloquear/liberar. Só em casas com módulo reservas ativo.',
     args: [
       { name: 'date', type: 'string', description: 'Data (YYYY-MM-DD, DD/MM, hoje, amanhã). Vazio = próximos bloqueios', required: false },
     ],
@@ -266,13 +284,17 @@ const PHASE1_TOOLS = [
   {
     name: 'bloquear_dia_agenda',
     description:
-      'Bloqueia UM dia para novas reservas. Sem área = casa inteira; sem horários = dia inteiro. Não cancela reservas existentes. Preview obrigatório.',
+      'Bloqueia agenda para novas reservas (área e/ou horário). Sem área = casa inteira; sem horários = dia inteiro. ' +
+      'Também registra aviso em Informações adicionais (Config IA) para a IA SOL não oferecer essas áreas. ' +
+      'Não cancela reservas existentes. Preview obrigatório. Só em casas com Sistema de Reservas ativo.',
     args: [
-      { name: 'date', type: 'string', description: 'Data do bloqueio (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
-      { name: 'reason', type: 'string', description: 'Motivo do bloqueio (ex.: evento privado, manutenção)', required: false },
-      { name: 'area_name', type: 'string', description: 'Nome da área (ex.: Rooftop). Vazio = casa inteira', required: false },
+      { name: 'date', type: 'string', description: 'Data inicial do bloqueio (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
+      { name: 'end_date', type: 'string', description: 'Data final (opcional). Se vazia, bloqueia só o dia de date', required: false },
+      { name: 'reason', type: 'string', description: 'Motivo do bloqueio (ex.: evento particular, manutenção)', required: false },
+      { name: 'area_name', type: 'string', description: 'Nome da área (ex.: Rooftop, Terraço, Deck). Vazio = casa inteira', required: false },
       { name: 'start_time', type: 'string', description: 'Início da faixa, HH:MM (ex.: 18:00). Vazio = dia inteiro', required: false },
       { name: 'end_time', type: 'string', description: 'Fim da faixa, HH:MM (ex.: 22:00)', required: false },
+      { name: 'notify_sol', type: 'string', description: 'Se false, não grava aviso na Base de Conhecimento. Default true', required: false },
     ],
     requiresConfirmation: true,
     isWrite: true,
@@ -280,17 +302,19 @@ const PHASE1_TOOLS = [
     minRbac: ['reservas:update'],
     minUepAny: ['can_edit_reservations'],
     minRoles: ['gerente', 'admin', 'account_admin'],
-    apiHint: 'POST /api/restaurant-reservation-blocks (dia inteiro, area_id NULL)',
+    apiHint: 'POST /api/restaurant-reservation-blocks + upsert establishment_faq',
     exampleUtterances: [
       'Bloqueia o dia 15/09',
       'Fecha a agenda de amanhã por evento privado',
-      'Bloqueia o Rooftop no dia 20/09 das 18h às 22h',
+      'Bloqueia o Rooftop no dia 20/09 das 18h às 22h por evento particular',
+      'Bloqueia as áreas do Rooftop de sexta a sábado',
     ],
   },
   {
     name: 'liberar_dia_agenda',
     description:
-      'Remove o bloqueio de UM dia, reabrindo a agenda para reservas. Com area_name, remove só o bloqueio daquela área. Preview obrigatório.',
+      'Remove o bloqueio de UM dia, reabrindo a agenda para reservas. Com area_name, remove só o bloqueio daquela área. ' +
+      'Também desativa o aviso correspondente nas Informações adicionais. Preview obrigatório.',
     args: [
       { name: 'date', type: 'string', description: 'Data a liberar (YYYY-MM-DD, DD/MM, hoje, amanhã)', required: true },
       { name: 'area_name', type: 'string', description: 'Nome da área. Vazio = todos os bloqueios do dia', required: false },
@@ -301,10 +325,11 @@ const PHASE1_TOOLS = [
     minRbac: ['reservas:update'],
     minUepAny: ['can_edit_reservations'],
     minRoles: ['gerente', 'admin', 'account_admin'],
-    apiHint: 'DELETE /api/restaurant-reservation-blocks/:id',
+    apiHint: 'DELETE /api/restaurant-reservation-blocks/:id + deactivate FAQ',
     exampleUtterances: [
       'Libera o dia 15/09',
       'Desbloqueia a agenda de amanhã',
+      'Libera o Rooftop no dia 20/09',
     ],
   },
   {

@@ -8,6 +8,16 @@
 const { parseFlexibleDate, formatBr } = require('./dateUtils');
 const { areasFilterForEstablishment } = require('../establishmentRules');
 
+/** Aliases comuns → nomes/trechos que podem aparecer em restaurant_areas. */
+const AREA_ALIAS_GROUPS = [
+  ['rooftop', 'roof top', 'terraco', 'terraço', 'cobertura', 'roof'],
+  ['deck', 'area descoberta', 'área descoberta', 'bar central', 'balada'],
+  ['vip', 'area vip', 'área vip', 'lounge vip'],
+  ['camarote', 'camarotes'],
+  ['pista', 'pista de danca', 'pista de dança'],
+  ['salao', 'salão', 'salao principal', 'salão principal'],
+];
+
 function normalize(text) {
   return String(text || '')
     .trim()
@@ -30,16 +40,19 @@ function parseTimeHHMM(input) {
 
 /**
  * Janela do bloqueio. Sem horários = dia inteiro.
- * Fim antes do início (ex.: 22h → 02h) fecha no fim do dia, sem virar madrugada.
+ * Com endDateIso, atravessa vários dias (um único block contínuo).
+ * Fim antes do início no mesmo dia fecha no fim do dia, sem virar madrugada.
  */
-function blockBounds(dateIso, startTime, endTime) {
+function blockBounds(dateIso, startTime, endTime, endDateIso = null) {
   const start = startTime || '00:00:00';
   let end = endTime || '23:59:59';
-  if (end <= start) end = '23:59:59';
+  const endDate = endDateIso && endDateIso >= dateIso ? endDateIso : dateIso;
+  if (endDate === dateIso && end <= start) end = '23:59:59';
   return {
     start: `${dateIso} ${start}`,
-    end: `${dateIso} ${end}`,
+    end: `${endDate} ${end}`,
     fullDay: !startTime && !endTime,
+    endDateIso: endDate,
   };
 }
 
@@ -54,11 +67,59 @@ function normalizeAreaName(name) {
   return normalize(name).replace(/\s+/g, ' ');
 }
 
-/** Resolve área pelo nome dentro do escopo da casa. */
-async function resolveArea(pool, establishmentId, areaName) {
-  const wanted = normalizeAreaName(areaName);
-  if (!wanted) return { area: null, options: [] };
+function aliasGroupFor(wanted) {
+  const n = normalizeAreaName(wanted);
+  if (!n) return null;
+  return (
+    AREA_ALIAS_GROUPS.find((group) =>
+      group.some((alias) => n === alias || n.includes(alias) || alias.includes(n))
+    ) || null
+  );
+}
 
+function matchByAliasGroup(options, wanted) {
+  const group = aliasGroupFor(wanted);
+  if (!group) return [];
+  return options.filter((o) => {
+    const name = normalizeAreaName(o.name);
+    return group.some((alias) => name === alias || name.includes(alias) || alias.includes(name));
+  });
+}
+
+/**
+ * Highline: Rooftop (legado Terraço = area_id 5) e Deck (area_id 2).
+ * Só aplica quando a casa é Highline e o id está nas opções.
+ */
+function matchHighlineCanonicalArea(establishmentId, options, wanted) {
+  let isHighline = Number(establishmentId) === 7;
+  let rooftopId = 5;
+  let deckId = 2;
+  try {
+    const highline = require('../agent/highlineReservationAreas');
+    if (typeof highline.isHighlineEstablishment === 'function') {
+      isHighline = highline.isHighlineEstablishment(establishmentId);
+    }
+    const subs = Array.isArray(highline.HIGHLINE_SUBAREAS) ? highline.HIGHLINE_SUBAREAS : [];
+    const roof = subs.find((s) => String(s.zone || '').toUpperCase() === 'ROOFTOP');
+    const deck = subs.find((s) => String(s.zone || '').toUpperCase() === 'DECK');
+    if (roof?.area_id) rooftopId = Number(roof.area_id);
+    if (deck?.area_id) deckId = Number(deck.area_id);
+  } catch (_) {
+    /* catálogo opcional */
+  }
+  if (!isHighline) return null;
+  const n = normalizeAreaName(wanted);
+  const pick = (id) => options.find((o) => Number(o.id) === Number(id)) || null;
+  if (['rooftop', 'terraco', 'cobertura', 'roof'].some((a) => n === a || n.includes(a))) {
+    return pick(rooftopId);
+  }
+  if (['deck', 'bar central', 'area descoberta', 'balada'].some((a) => n === a || n.includes(a))) {
+    return pick(deckId);
+  }
+  return null;
+}
+
+async function listAreasForEstablishment(pool, establishmentId) {
   const scopeSql = await areasFilterForEstablishment(pool, establishmentId);
   const { rows } = await pool.query(
     `SELECT ra.id, ra.name
@@ -67,10 +128,24 @@ async function resolveArea(pool, establishmentId, areaName) {
         AND ${scopeSql}
       ORDER BY ra.name`
   );
+  return rows.map((r) => ({ id: r.id, name: r.name }));
+}
 
-  const options = rows.map((r) => ({ id: r.id, name: r.name }));
+/** Resolve área pelo nome dentro do escopo da casa (com aliases). */
+async function resolveArea(pool, establishmentId, areaName) {
+  const wanted = normalizeAreaName(areaName);
+  if (!wanted) return { area: null, options: [] };
+
+  const options = await listAreasForEstablishment(pool, establishmentId);
   const exact = options.find((o) => normalizeAreaName(o.name) === wanted);
   if (exact) return { area: exact, options };
+
+  const highlineHit = matchHighlineCanonicalArea(establishmentId, options, wanted);
+  if (highlineHit) return { area: highlineHit, options };
+
+  const aliasHits = matchByAliasGroup(options, wanted);
+  if (aliasHits.length === 1) return { area: aliasHits[0], options };
+  if (aliasHits.length > 1) return { area: null, options, ambiguous: aliasHits };
 
   const partial = options.filter(
     (o) => normalizeAreaName(o.name).includes(wanted) || wanted.includes(normalizeAreaName(o.name))
@@ -78,6 +153,48 @@ async function resolveArea(pool, establishmentId, areaName) {
   if (partial.length === 1) return { area: partial[0], options };
 
   return { area: null, options, ambiguous: partial.length > 1 ? partial : null };
+}
+
+/**
+ * Casa com módulo reservas ativo (org ∩ establishment_modules).
+ * Fallback legado: se já tem áreas ativas no escopo, considera operacional.
+ */
+async function establishmentHasReservasModule(pool, establishmentId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1
+         FROM meu_backup_db.establishments e
+         JOIN meu_backup_db.organization_modules om
+           ON om.organization_id = e.organization_id
+          AND om.module_key = 'reservas'
+          AND COALESCE(om.is_enabled, TRUE) = TRUE
+        WHERE (e.legacy_place_id = $1 OR e.id = $1)
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM meu_backup_db.establishment_modules em0
+               WHERE em0.establishment_id = e.id
+            )
+            OR EXISTS (
+              SELECT 1 FROM meu_backup_db.establishment_modules em
+               WHERE em.establishment_id = e.id
+                 AND em.module_key = 'reservas'
+                 AND COALESCE(em.is_enabled, TRUE) = TRUE
+            )
+          )
+        LIMIT 1`,
+      [establishmentId]
+    );
+    if (rows.length) return true;
+  } catch (e) {
+    console.warn('[staffAgent] check módulo reservas:', e.message);
+  }
+
+  try {
+    const areas = await listAreasForEstablishment(pool, establishmentId);
+    return areas.length > 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 function describeScope(areaName, startDatetime, endDatetime) {
@@ -121,7 +238,10 @@ module.exports = {
   blockBounds,
   formatBr,
   formatTimeRange,
+  normalizeAreaName,
   resolveArea,
+  listAreasForEstablishment,
+  establishmentHasReservasModule,
   describeScope,
   findBlocksOnDate,
   conflictingBlocks,

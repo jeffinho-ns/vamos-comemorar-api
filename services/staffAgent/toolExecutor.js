@@ -9,6 +9,7 @@ const establishmentRules = require('../establishmentRules');
 
 const { todayIsoSp, parseDateOrToday } = require('./dateUtils');
 const {
+  listarAreasReserva,
   listarBloqueiosAgenda,
   bloquearDiaAgenda,
   liberarDiaAgenda,
@@ -539,6 +540,8 @@ async function executeTool(pool, { toolName, args, establishmentId, mode, userId
           args: a,
           mode: mode === 'apply' ? 'apply' : 'preview',
         });
+      case 'listar_areas_reserva':
+        return await listarAreasReserva(pool, { establishmentId });
       case 'listar_bloqueios_agenda':
         return await listarBloqueiosAgenda(pool, { establishmentId, args: a });
       case 'bloquear_dia_agenda':

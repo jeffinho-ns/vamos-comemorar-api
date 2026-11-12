@@ -1,14 +1,6 @@
 'use strict';
 
-/**
- * Staff Agent Fase 2 — bloquear / liberar dia na agenda de reservas.
- *
- * Reusa a tabela restaurant_reservation_blocks (mesma de /api/restaurant-reservation-blocks),
- * então o bloqueio criado aqui aparece no painel e bloqueia a página /reservar.
- *
- * Fase 2: um dia por vez. Opcionalmente restrito a uma área e/ou faixa de horário.
- * Sem recorrência.
- */
+/** Staff Agent — bloquear/liberar agenda + aviso SOL (casas com módulo reservas). */
 
 const { queryWithRlsContext } = require('../../tenancy/scopedQuery');
 const {
@@ -22,19 +14,23 @@ const {
   formatBr,
   formatTimeRange,
   resolveArea,
+  listAreasForEstablishment,
+  establishmentHasReservasModule,
   describeScope,
   findBlocksOnDate,
   conflictingBlocks,
 } = require('./agendaBlockHelpers');
+const { upsertBlockAiNote, deactivateBlockAiNotes } = require('./agendaBlockAiNote');
 
 const DEFAULT_REASON = 'Bloqueio manual (Staff Agent)';
+const NO_RESERVAS_MSG =
+  'Esta casa não tem o Sistema de Reservas ativo. Ative o módulo reservas na organização/estabelecimento para bloquear a agenda.';
 
 async function rlsCtxFor(pool, establishmentId) {
   const organizationId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
   return organizationId ? { organizationId } : { isAdmin: true };
 }
 
-/** Realtime é opcional: nunca deve derrubar a aplicação do bloqueio. */
 function emitBlockChange(params) {
   try {
     require('../../utils/agendaRealtime').emitReservationBlockChanged(params);
@@ -43,8 +39,42 @@ function emitBlockChange(params) {
   }
 }
 
+async function assertReservasModule(pool, establishmentId) {
+  if (await establishmentHasReservasModule(pool, establishmentId)) return null;
+  return { ok: false, message: NO_RESERVAS_MSG };
+}
+
+function wantsAiNote(args) {
+  if (args?.notify_sol === undefined || args?.notify_sol === null) return true;
+  const raw = String(args.notify_sol).trim().toLowerCase();
+  return !['0', 'false', 'nao', 'não', 'no', 'off'].includes(raw);
+}
+
+async function listarAreasReserva(pool, { establishmentId }) {
+  const denied = await assertReservasModule(pool, establishmentId);
+  if (denied) return denied;
+
+  const areas = await listAreasForEstablishment(pool, establishmentId);
+  if (!areas.length) {
+    return {
+      ok: false,
+      message: 'Não encontrei áreas ativas de reserva nesta casa.',
+    };
+  }
+
+  const lines = areas.map((a) => `#${a.id} ${a.name}`);
+  return {
+    ok: true,
+    count: areas.length,
+    areas,
+    message: `Áreas de reserva nesta casa (${areas.length}):\n${lines.join('\n')}`,
+  };
+}
 
 async function listarBloqueiosAgenda(pool, { establishmentId, args }) {
+  const denied = await assertReservasModule(pool, establishmentId);
+  if (denied) return denied;
+
   const dateIso = args.date ? parseFlexibleDate(args.date) : null;
 
   if (args.date && !dateIso) {
@@ -93,12 +123,24 @@ async function listarBloqueiosAgenda(pool, { establishmentId, args }) {
 }
 
 async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) {
+  const denied = await assertReservasModule(pool, establishmentId);
+  if (denied) return denied;
+
   const dateIso = parseFlexibleDate(args.date);
   if (!dateIso) {
     return { ok: false, message: 'Preciso da data do bloqueio. Ex.: "bloqueia o dia 15/09".' };
   }
 
+  const endDateIso = args.end_date ? parseFlexibleDate(args.end_date) : null;
+  if (args.end_date && !endDateIso) {
+    return { ok: false, message: `Não entendi a data final "${args.end_date}". Use DD/MM ou YYYY-MM-DD.` };
+  }
+  if (endDateIso && endDateIso < dateIso) {
+    return { ok: false, message: 'A data final não pode ser anterior à data inicial.' };
+  }
+
   const reason = String(args.reason || '').trim() || DEFAULT_REASON;
+  const registerAiNote = wantsAiNote(args);
 
   let area = null;
   if (args.area_name) {
@@ -109,7 +151,7 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
         ok: false,
         message: resolved.ambiguous
           ? `"${args.area_name}" ficou ambíguo. Qual delas: ${names}?`
-          : `Não achei a área "${args.area_name}" nesta casa. Disponíveis: ${names || 'nenhuma'}.`,
+          : `Não achei a área "${args.area_name}" nesta casa. Disponíveis: ${names || 'nenhuma'}. Se quiser, peça para eu listar as áreas.`,
       };
     }
     area = resolved.area;
@@ -121,7 +163,12 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     return { ok: false, message: 'Não entendi o horário. Use algo como 18:00 e 22:00.' };
   }
 
-  const { start, end } = blockBounds(dateIso, startTime, endTime);
+  const { start, end, endDateIso: resolvedEndDate } = blockBounds(
+    dateIso,
+    startTime,
+    endTime,
+    endDateIso
+  );
   const existing = await findBlocksOnDate(pool, establishmentId, dateIso);
   const conflicts = conflictingBlocks(existing, { areaId: area?.id ?? null, start, end });
 
@@ -135,6 +182,11 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
 
   const reservationParams = [establishmentId, dateIso];
   let areaFilter = '';
+  let dateFilter = 'AND reservation_date = $2';
+  if (resolvedEndDate && resolvedEndDate !== dateIso) {
+    reservationParams.push(resolvedEndDate);
+    dateFilter = 'AND reservation_date >= $2 AND reservation_date <= $3';
+  }
   if (area) {
     reservationParams.push(area.id);
     areaFilter = ` AND area_id = $${reservationParams.length}`;
@@ -143,32 +195,42 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     `SELECT COUNT(*)::int AS total
        FROM restaurant_reservations
       WHERE establishment_id = $1
-        AND reservation_date = $2
+        ${dateFilter}
         AND COALESCE(UPPER(status::text), '') NOT IN ('CANCELADA', 'CANCELLED', 'CANCELED')
         ${areaFilter}`,
     reservationParams
   );
   const affectedReservations = reservationRows[0]?.total || 0;
 
+  const dateLabel =
+    resolvedEndDate && resolvedEndDate !== dateIso
+      ? `${formatBr(dateIso)} a ${formatBr(resolvedEndDate)}`
+      : formatBr(dateIso);
+
   const preview = {
     date: dateIso,
+    end_date: resolvedEndDate,
     reason,
     area_id: area?.id ?? null,
     area_name: area?.name ?? null,
     start_datetime: start,
     end_datetime: end,
     affected_reservations: affectedReservations,
+    notify_sol: registerAiNote,
   };
 
   if (mode === 'preview') {
     const warn = affectedReservations
       ? ` Atenção: já existem ${affectedReservations} reserva(s) nesse escopo — elas não são canceladas automaticamente.`
       : '';
+    const solNote = registerAiNote
+      ? ' Também vou registrar o aviso em Informações adicionais para a IA SOL não oferecer essas áreas.'
+      : '';
     return {
       ok: true,
       needs_confirmation: true,
       preview,
-      message: `Vou bloquear ${formatBr(dateIso)} em ${describeScope(area?.name, start, end)} para novas reservas (motivo: ${reason}).${warn} Confirmar?`,
+      message: `Vou bloquear ${dateLabel} em ${describeScope(area?.name, start, end)} para novas reservas (motivo: ${reason}).${solNote}${warn} Confirmar?`,
     };
   }
 
@@ -194,15 +256,44 @@ async function bloquearDiaAgenda(pool, { establishmentId, args, mode, userId }) 
     reason,
   });
 
+  let aiNote = null;
+  if (registerAiNote) {
+    try {
+      aiNote = await upsertBlockAiNote(pool, {
+        establishmentId,
+        dateIso,
+        endDateIso: resolvedEndDate,
+        areaId: area?.id ?? null,
+        areaName: area?.name ?? null,
+        startDatetime: start,
+        endDatetime: end,
+        reason,
+      });
+    } catch (e) {
+      console.warn('[staffAgent] FAQ bloqueio agenda:', e.message);
+      aiNote = { ok: false, error: e.message };
+    }
+  }
+
+  const solMsg =
+    registerAiNote && aiNote?.ok
+      ? ' Aviso também registrado nas Informações adicionais para a IA SOL.'
+      : registerAiNote
+        ? ' (O bloqueio na agenda foi criado; o aviso na Base de Conhecimento falhou — confira manualmente.)'
+        : '';
+
   return {
     ok: true,
     applied: true,
-    preview: { ...preview, block_id: rows[0]?.id },
-    message: `${formatBr(dateIso)} bloqueado em ${describeScope(area?.name, start, end)} (#${rows[0]?.id}).`,
+    preview: { ...preview, block_id: rows[0]?.id, ai_note: aiNote },
+    message: `${dateLabel} bloqueado em ${describeScope(area?.name, start, end)} (#${rows[0]?.id}).${solMsg}`,
   };
 }
 
 async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
+  const denied = await assertReservasModule(pool, establishmentId);
+  if (denied) return denied;
+
   const dateIso = parseFlexibleDate(args.date);
   if (!dateIso) {
     return { ok: false, message: 'Preciso da data. Ex.: "libera o dia 15/09".' };
@@ -214,6 +305,7 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
   }
 
   let existing = allOnDate;
+  let resolvedArea = null;
   if (args.area_name) {
     const resolved = await resolveArea(pool, establishmentId, args.area_name);
     if (!resolved.area) {
@@ -223,6 +315,7 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
         message: `Não achei a área "${args.area_name}" nesta casa. Disponíveis: ${names || 'nenhuma'}.`,
       };
     }
+    resolvedArea = resolved.area;
     existing = allOnDate.filter((b) => Number(b.area_id) === Number(resolved.area.id));
     if (!existing.length) {
       return {
@@ -249,7 +342,7 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
       ok: true,
       needs_confirmation: true,
       preview,
-      message: `Vou liberar ${formatBr(dateIso)} removendo ${existing.length} bloqueio(s): ${detail}. Confirmar?`,
+      message: `Vou liberar ${formatBr(dateIso)} removendo ${existing.length} bloqueio(s): ${detail}. Também desativo o aviso correspondente nas Informações adicionais. Confirmar?`,
     };
   }
 
@@ -270,6 +363,17 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
     date: dateIso,
   });
 
+  try {
+    await deactivateBlockAiNotes(pool, {
+      establishmentId,
+      dateIso,
+      areaId: resolvedArea?.id ?? null,
+      areaName: resolvedArea?.name ?? null,
+    });
+  } catch (e) {
+    console.warn('[staffAgent] desativar FAQ bloqueio:', e.message);
+  }
+
   return {
     ok: true,
     applied: true,
@@ -281,6 +385,7 @@ async function liberarDiaAgenda(pool, { establishmentId, args, mode }) {
 }
 
 module.exports = {
+  listarAreasReserva,
   listarBloqueiosAgenda,
   bloquearDiaAgenda,
   liberarDiaAgenda,

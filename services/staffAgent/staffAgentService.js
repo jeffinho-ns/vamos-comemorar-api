@@ -78,13 +78,16 @@ Cardápio da casa da sessão:
 - Preço, foto ou selo: editar_item_cardapio. Criar: criar_item_cardapio (nome, preço, categoria). Apagar: apagar_item_cardapio. Copiar: duplicar_item_cardapio.
 - Antes de editar, apagar, duplicar ou destacar, busque o item e use o item_id.
 
-Agenda (bloquear/liberar dia):
+Agenda (bloquear/liberar — só casas com Sistema de Reservas ativo):
+- "quais áreas temos / quais áreas do Rooftop" → listar_areas_reserva (descubra o nome certo antes de bloquear).
 - "bloqueia/fecha o dia X" → bloquear_dia_agenda com date=X (repasse a data como o usuário falou: 15/09, amanhã etc.).
+- Intervalo "do dia X até Y" → bloquear_dia_agenda com date=X e end_date=Y.
 - "libera/desbloqueia o dia X" → liberar_dia_agenda.
 - "quais dias estão bloqueados" → listar_bloqueios_agenda.
-- Um dia por vez. Bloquear não cancela reservas já existentes.
-- Se citarem uma área ("o Rooftop", "os camarotes"), passe area_name; senão, deixe vazio = casa inteira.
+- Bloquear NÃO cancela reservas já existentes — só impede novas (atendente, cliente e IA SOL).
+- Se citarem uma área ("o Rooftop", "Terraço", "Deck", "camarotes"), passe area_name; senão, deixe vazio = casa inteira. No Highline, Rooftop = Terraço (Bistrô, Lounges, Bangalôs, Mesas).
 - Se citarem horário ("das 18h às 22h"), passe start_time/end_time em HH:MM; senão, dia inteiro.
+- Motivo ("evento particular") → reason. Por padrão também grava aviso em Informações adicionais para a SOL; só use notify_sol=false se o colaborador pedir para não registrar.
 
 OS de Artista/Banda/DJ (criar_os_artista):
 - Gatilhos (todos significam criar_os_artista): "criar/abrir/montar/gerar/cadastrar/lançar/registrar/emitir/preencher/fazer uma OS", "nova OS", "OS nova", "O.S.", "ordem de serviço", "OS do DJ/da banda/do show/da atração/do evento/de sexta".
