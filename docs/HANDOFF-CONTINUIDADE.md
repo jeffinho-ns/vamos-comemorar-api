@@ -1,100 +1,144 @@
-# Handoff de continuidade — 6 nov 2026
+# Handoff de continuidade — 12 nov 2026
 
-Documento para retomar o trabalho em outro computador. Sem senhas, tokens nem connection strings.
+Documento para retomar em outro computador. Sem senhas, tokens nem connection strings.
 
-Repos: `vamos-comemorar-api` (branch `master`) e `vamos-comemorar-next` (branch `main`). Remotes: `jeffinho-ns/vamos-comemorar-api` e `jeffinho-ns/vamos-comemorar-next`.
+Repos: `vamos-comemorar-api` (branch `master`) e `vamos-comemorar-next` (branch `main`).  
+Remotes: `jeffinho-ns/vamos-comemorar-api` e `jeffinho-ns/vamos-comemorar-next`.
 
----
-
-## 1. WhatsApp / Meta — Provedor de Tecnologia (ativo agora)
-
-### Decisão de produto
-- Objetivo: cada casa com o próprio número WhatsApp, IA respondendo por esse número, **modo espelho** (WhatsApp Business no celular + Cloud API no mesmo número).
-- **Não** usar “Adicionar número” da API pura: isso tira o app do celular e apaga o histórico. Serviço 24/7; usuário rejeitou.
-- Até o espelho existir, staff e IA podem responder no mesmo chat (aceito).
-- Número **central** `11 91109-1838` (phone_number_id `1072961792566436`) fica como número geral da API. Display name Meta: Central Agilizaiapp. **Não** cadastrar esse número como linha de uma casa.
-- Números das casas (ainda não conectados no modo espelho):
-  - Seu Justino `11 5200-3650`
-  - Pracinha `11 2305-0938`
-  - Highline `11 3032-2934`
-  - Reserva Rooftop e Reserva Pinheiros compartilham `11 4280-3345` (um Meta number → uma casa só no cadastro)
-
-### Onde o usuário está no Meta
-1. **Verificação da empresa**: concluída (Central de Segurança mostra JEFFERSON TEIXEIRA DE LIMA como Verificada). Caso de uso: “O app exige acesso e permissões no Meta for Developers” — manter.
-2. Tela **Torne-se um Provedor de Tecnologia**: etapa 1 pode ainda parecer “Em análise” por atraso de UI; na Central de Segurança já está Verificada.
-3. **Análise do app**: usuário chegou no formulário (`Não enviado` → `Avançar` → checklist).
-   - Verificação e Configurações do app: ok.
-   - Faltam: Uso permitido, Tratamento de dados, Instruções da análise.
-4. Vídeos obrigatórios (dois, separados):
-   - `whatsapp_business_messaging`: Agilizaiapp enviando mensagem + WhatsApp (celular/web) recebendo.
-   - `whatsapp_business_management`: criação de template de mensagem.
-5. Onde anexar: **não** é “Mostrar instruções”. É no formulário de cada permissão (campo Arraste/Carregar arquivo), acessível via **Editar análise do app** → **Avançar** → formulários. Cuidado: formulário de `business_management` (Business Manager) ≠ `whatsapp_business_messaging`.
-6. Avisos vermelhos da Central de Segurança (domínio, passkey, 2FA) **não** bloqueiam WhatsApp.
-
-### Bloqueio atual para gravar o vídeo de envio
-- No Atendimento (`/admin/whatsapp?tab=atendimento`), conversa “Jefferson” (`5511943583697`) está **fora da janela de 24h** da Meta. Texto livre pelo painel é recusado até o cliente mandar mensagem recente.
-- Teste: outro telefone → `11 91109-1838`. Webhook no Meta está com URL `https://api.agilizaiapp.com.br/api/webhooks/whatsapp` e campo **messages** habilitado.
-- Diagnóstico de produção (6 nov ~16h–21h BRT):
-  - Endpoint do webhook responde (GET sem challenge → 403 = rota viva).
-  - Tabela `whatsapp_message_dedup`: último receipt em **2026-11-04**. Nada nas últimas horas do teste.
-  - `whatsapp_messages`: último inbound antigo (ago/2026 no schema consultado); conversas recentes de out/nov aparecem no UI mas o receipt Meta via dedup parou em 4 nov.
-  - Conclusão: Meta **não está entregando** o inbound ao servidor neste momento, ou o payload não está chegando como mensagem de texto processável. Não é a faixa vermelha da janela 24h.
-- Próximo check manual no Meta:
-  - Na Configuração da API, número “De” tem que ser **+55 11 91109-1838**, não número de teste +1 555.
-  - No celular do teste: 1 check = não entregou à empresa; 2 checks = chegou no app do celular (coexistência/espelho ainda inexistente) e não na API.
-- Depois que inbound voltar: mandar “oi” do número de teste → conversa nova no inbox (não reutilizar Jefferson antigo) → responder pelo painel → gravar vídeo → anexar em `whatsapp_business_messaging`.
-- Depois da aprovação Advanced Access das duas permissões WhatsApp: implementar botão Embedded Signup (`featureType` whatsapp_business_app_onboarding), webhook fields extras `account_update`, `history`, `smb_app_state_sync`, `smb_message_echoes`. Piloto sugerido: Pracinha. Central intocada.
-
-### Código WhatsApp já em produção (commits anteriores)
-- API: linhas por casa (`whatsapp_phone_lines`), webhook com `phone_number_id`, escopo `waba:{phoneNumberId}:{customer}` para números ≠ env.
-- Next: aba “WhatsApp linha” em Configurações de IA.
-- Isso **não** é o modo espelho; é API-only por número.
+**Prazo crítico:** sistema antigo de atendimento das casas encerra em **14 nov 2026**. Ponte temporária = **Wame**. Destino final = app Meta próprio + espelho.
 
 ---
 
-## 2. Sítio Ilha — cardápio (feito nesta sessão)
+## 0. O que fazer amanhã (checklist)
 
-### Contexto
-- Organização própria: id **9**, slug `sitio-ilha`, ativa.
-- Establishment id **17**, legacy_place_id **18**, legacy_bar_id **15**.
-- Duplicata Grupo Ideia (establishment 6 / place 10) permanece arquivada/oculta.
-- Cardápio público/admin do Sítio Ilha foi reexibido (código + UEP users thiago@sitioilha.com.br e sitioilharj@gmail.com). Commits já publicados: Next `45dce0a0`, API `1b71e11`.
-- `filterEstablishmentListForUser(..., { includeSitioIlha: true })` só no cardápio; reservas/home do Grupo Ideia continuam sem Sítio Ilha.
-
-### Itens do PDF “Drinks e petiscos da noite final”
-Inseridos em produção no bar **15** / org **9** (não commitados no git — é dado de banco):
-
-**Já existiam (não duplicar):** Isca de Tilápia 69,90; Contra Filé com Fritas 69,90; Frango Crocante com Fritas 49,90; Fritas Crocantes 29,90. Placeholder `[Nova Subcategoria] Petiscos` permanece oculto.
-
-**Petiscos adicionados** (categoria 92, subcategory `Petiscos`): Camarão Crocante 74,90; Lula à Dorê 64,90; Iscas de Tilápia com Fritas 64,90; Bolinho de Salmão 48,90 (6 un); Bolinho de Tilápia 39,90 (6 un); Croquete de Costela 39,90 (6 un); Pastel de Camarão 39,90 (4 un). IDs aprox. 3064–3070.
-
-**Bebidas adicionadas** (categoria 72):
-- `Especiais da Casa`: Aperol Spritz 33,60; Caipisaquê Ilha 26,80; Gin Sunset 29,90; Tinto de Verano 25,90.
-- `Tradicionais`: Soda Italiana 19,90; Gin tropical 29,90; Caipirinha 21,90; Caipvodka 23,90; Caipifruta 25,90.
-- IDs aprox. 3071–3079. Sem foto ainda.
+1. `git pull` nos dois repos.
+2. Confirmar no Render: deploy do commit `a89ebf72` (ou posterior) + env Wame (abaixo).
+3. `GET https://api.agilizaiapp.com.br/api/webhooks/wame` → deve retornar `{ ok: true, provider: "wame" }`.
+4. No painel Wame: alinhar `WAME_SERVER_URL` do Render com o **Server** exibido na instância (já apareceu `v5.api.wame.pro`, `v5.api-wa.me`, `us.api-wa.me` — usar o da tela atual).
+5. Conectar **uma casa** via Embedded Signup (Pracinha primeiro) — ver seção 3.
+6. Testar “oi” no número conectado → Sol deve responder.
+7. Repetir para as outras casas.
+8. Acompanhar análise Meta do app **Agilizaiapp Atendimento** (e-mail do admin).
 
 ---
 
-## 3. O que NÃO fazer
+## 1. Meta — app novo (destino final)
+
+### Portfólio e app
+- Portfólio: **Jefferson Teixeira de Lima - Agilizaiapp** (CNPJ `52.891.095/0001-84`, EI do Jefferson; empresa **Verificada**).
+- **Não** usar portfólio **Ideiaum** (WABA/central antigas **banidas** permanentemente — spam/comunicação proibida; análise negada).
+- Número antigo central `11 91109-1838` / Central AgilizaiApp: **perdido** (ban). Não reutilizar.
+- App: **Agilizaiapp Atendimento** (caso de uso WhatsApp).
+- Número de teste Meta: `+1 555 151 8277` / phone_number_id `1393069580557278` / WABA `1688909189608151` — só teste do app, **não** é número de casa.
+
+### Análise do app
+- **Status:** enviada — **Análise em andamento** (alerta ~9–10 nov).
+- Permissões pedidas: `whatsapp_business_messaging`, `whatsapp_business_management`, `public_profile`.
+- `business_management` **foi tirada** da solicitação (contador 0/1 não atualizava após 24h+). Pedir de novo depois, se Tech Provider exigir.
+- Prazo Meta típico: até ~20 dias.
+- Vídeos já gravados e anexados (messaging + template).
+
+### Objetivo de produto (quando Meta aprovar)
+- Cada casa com próprio WhatsApp, Sol respondendo, **modo espelho** (app no celular + Cloud API).
+- **Não** “Adicionar número” API puro (tira o celular).
+- Embedded Signup `whatsapp_business_app_onboarding`; piloto **Pracinha**.
+- Número **central** novo: só **depois** das casas.
+- Até lá: só **responder** clientes (janela 24h); **zero campanha** (empresa avisada).
+
+### Números das casas (referência)
+- Seu Justino `11 5200-3650`
+- Pracinha `11 2305-0938`
+- Highline `11 3032-2934`
+- Reserva Rooftop / Pinheiros compartilham `11 4280-3345` (um Meta number → uma casa no cadastro)
+
+---
+
+## 2. Ponte Wame (ativo agora — urgência 14/11)
+
+### Por quê
+App Agilizaiapp ainda sem Advanced Access; não dá para atender produção das casas pelo app próprio. Wame é **Meta Business Partner** → Embedded Signup sob a aprovação deles, sem esperar nossa análise.
+
+### Código (API) — já no `master`
+Commit: `a89ebf72` — `feat: ponte Wame Cloud API para a Sol enquanto a Meta analisa o app`
+
+- Rota: `POST/GET /api/webhooks/wame`
+- Arquivos: `routes/wameWebhook.js`, `services/wame/*`, ajuste em `whatsappService.js` + `server.js`
+- Testes: `tests/unit/wameService.test.js`
+
+### Env no Render (sem colar valores no git)
+```
+WAME_SERVER_URL=<igual ao "Server" do painel Wame da instância>
+WAME_API_KEY=<Key da instância no painel>
+WHATSAPP_OUTBOUND_PROVIDER=wame
+```
+Opcional: `WAME_WEBHOOK_TOKEN`, `WAME_DEFAULT_ESTABLISHMENT_ID`.
+
+**Manter** as vars Meta (`WHATSAPP_ACCESS_TOKEN`, `PHONE_NUMBER_ID`, secrets, etc.) — voltam quando desligar a ponte.
+
+### Webhook no painel Wame
+- Formato: **Meta** (instância oficial).
+- URL (mensagem recebida e demais, se quiser):  
+  `https://api.agilizaiapp.com.br/api/webhooks/wame`  
+  Com token opcional: `...?token=SEU_WAME_WEBHOOK_TOKEN`
+- QR / Histórico indisponíveis na oficial — ok.
+
+### Comportamento
+- Inbound Wame → mesmo motor da Sol (`processInboundTurn`).
+- Com `WHATSAPP_OUTBOUND_PROVIDER=wame` (ou contexto do webhook), respostas saem pela API Wame (`POST /{key}/message/text`), não pelo Graph do app Agilizaiapp.
+
+---
+
+## 3. Como conectar número de casa na Wame (passo a passo)
+
+**Situação real:** casas têm WhatsApp Business **no celular**, em geral **sem** número já vinculado a um Business Manager Meta. Instagram da casa **não** serve. O Embedded Signup **cria** o vínculo.
+
+Para **cada** casa (piloto Pracinha):
+
+1. Painel Wame → **Canais** → instância oficial → **WhatsApp Business** (tag **Coexistência** se disponível).
+2. Login Facebook/Meta de quem administra aquela casa **ou** Conta Meta gerenciada — **não** Ideiaum banida.
+3. Alguém com o **celular do WhatsApp da casa** na mão (OTP/SMS).
+4. Fluxo Meta: criar/escolher negócio (nome da casa) → número da casa → código → coexistência.
+5. Canais deixa de ficar **Desconectado**; aparece `+55…`.
+6. Teste: mandar “oi” **para esse número** (não para o `+1 555` de teste).
+
+Texto curto para o gerente da casa:
+
+> Precisamos de 10 minutos com o celular do WhatsApp da casa e um Facebook do responsável. Vamos autorizar o número na API oficial sem tirar o WhatsApp do celular. Não precisamos da senha do Instagram.
+
+---
+
+## 4. O que NÃO fazer
+
 - Não desconectar WhatsApp Business do celular das casas.
-- Não registrar o central `11 91109-1838` como linha de estabelecimento.
-- Não commitar scripts `_tmp_*`, `.env`, nem `scripts/extrair-bi-justino.js` / `tsc-bi.txt` (next).
-- Não mexer em reservas Highline “por acidente” neste handoff.
-- Modelo de IA de produção: `gpt-5.5` (não downgrade). Agente novo: `services/agent/*`.
+- Não cadastrar números de casa no app Agilizaiapp via “Adicionar número” API puro.
+- Não reutilizar `11 91109-1838` / Ideiaum.
+- Não disparar campanha / marketing enquanto a operação está frágil.
+- Não colar API keys / tokens em chat ou no git.
+- Não usar conexão Wame **não oficial** (QR / código 8 dígitos) para produção das casas — risco de ban; preferir **oficial + coexistência**.
 
 ---
 
-## 4. Próximos passos sugeridos (ordem)
-1. Destravar inbound do central `11 91109-1838` (número “De” na API + status da mensagem no celular + logs Render do webhook).
-2. Gravar e anexar os 2 vídeos; completar Uso permitido / Tratamento de dados / Instruções; enviar Análise do App.
-3. Aguardar Advanced Access; só então Embedded Signup / espelho (piloto Pracinha).
-4. Fotos dos novos itens do Sítio Ilha, se o usuário pedir.
-5. Há alterações locais **não relacionadas** neste handoff (BI menu access / UserMenuAccessFields) em working tree dos dois repos — **não misturar** com este commit de documentação.
+## 5. Depois que a Meta aprovar Advanced Access
+
+1. Advanced Access em messaging + management.
+2. Provedor de Tecnologia no app Agilizaiapp → Embedded Signup espelho (piloto Pracinha).
+3. Webhook Meta de volta para `/api/webhooks/whatsapp`.
+4. Render: remover ou desligar `WHATSAPP_OUTBOUND_PROVIDER=wame` (voltar Meta).
+5. Desligar / cancelar Wame quando estável.
+6. Central de atendimento (número novo) por último.
 
 ---
 
-## 5. Referências rápidas
-- Webhook: `https://api.agilizaiapp.com.br/api/webhooks/whatsapp`
-- Docs Meta Tech Provider: https://developers.facebook.com/documentation/business-messaging/whatsapp/solution-providers/get-started-for-tech-providers/
-- Sample App Review: https://developers.facebook.com/docs/whatsapp/solution-providers/app-review/sample-submission/
-- Chat Cursor anterior (contexto longo): transcript local em agent-transcripts do projeto next.
+## 6. Referências rápidas
+
+- Webhook Agilizaiapp (Meta): `https://api.agilizaiapp.com.br/api/webhooks/whatsapp`
+- Webhook ponte Wame: `https://api.agilizaiapp.com.br/api/webhooks/wame`
+- Painel Wame: `https://dash.wame.api.br`
+- Docs Wame: `https://wame.api.br/docs` · AI context: `https://wame.api.br/llms.txt`
+- Health API: `https://api.agilizaiapp.com.br/health` (campos `whatsapp.wameConfigured` / `wameOutbound` após deploy)
+
+---
+
+## 7. Sítio Ilha / outros (contexto antigo, já feito)
+
+Cardápio Sítio Ilha (org 9, est. 17) e itens do PDF já tratados em sessão anterior. Não misturar com este handoff de WhatsApp.
