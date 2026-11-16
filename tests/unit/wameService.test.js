@@ -3,7 +3,8 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { normalizeRecipient } = require('../../services/wame/wameService');
+const { normalizeRecipient, sendText } = require('../../services/wame/wameService');
+const { runWithWame } = require('../../services/wame/wameContext');
 const { establishmentFromDisplayPhone } = require('../../services/wame/wameHouse');
 const {
   isWameConfigured,
@@ -19,6 +20,35 @@ describe('wameService', () => {
 
   it('rejeita destinatário curto', () => {
     assert.throws(() => normalizeRecipient('119999'), /inválido/i);
+  });
+
+  it('envia pela chave da instância e tenta outro servidor se o primeiro cair', async () => {
+    const prevKey = process.env.WAME_API_KEY;
+    const prevServer = process.env.WAME_SERVER_URL;
+    process.env.WAME_API_KEY = 'env-key';
+    process.env.WAME_SERVER_URL = 'https://dead.example';
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('dead.example')) {
+        throw new TypeError('fetch failed');
+      }
+      return { ok: true, json: async () => ({ status: 200 }) };
+    };
+    try {
+      await runWithWame({ enabled: true, instanceId: 'abc123key' }, () =>
+        sendText('5511999998888', 'oi')
+      );
+      assert.match(calls[0], /^https:\/\/dead\.example\/abc123key\/message\/text$/);
+      assert.match(calls.at(-1), /^https:\/\/us\.api-wa\.me\/abc123key\/message\/text$/);
+    } finally {
+      global.fetch = originalFetch;
+      if (prevKey == null) delete process.env.WAME_API_KEY;
+      else process.env.WAME_API_KEY = prevKey;
+      if (prevServer == null) delete process.env.WAME_SERVER_URL;
+      else process.env.WAME_SERVER_URL = prevServer;
+    }
   });
 });
 

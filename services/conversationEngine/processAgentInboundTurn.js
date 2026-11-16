@@ -153,10 +153,10 @@ async function sendOfflineKnowledgeFallback({
   });
 
   if (offlineResult.ok) {
+    await outboundGateway.sendText(waId, offlineResult.text);
     if (takeoverOnSuccess) {
       await activateHumanTakeover(pool, waId, 48);
     }
-    await outboundGateway.sendText(waId, offlineResult.text);
     await persistOutbound(offlineResult.text, 'OFFLINE_KNOWLEDGE', {
       source: 'offline_knowledge',
       topic: offlineResult.topic,
@@ -171,8 +171,8 @@ async function sendOfflineKnowledgeFallback({
   }
 
   if (handoffOnFailure) {
-    await activateHumanTakeover(pool, waId, 48);
     await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
+    await activateHumanTakeover(pool, waId, 48);
     await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
       source: 'offline_handoff',
       offlineReason: offlineResult.reason,
@@ -263,6 +263,9 @@ async function processAgentInboundTurn({
   // respondendo no próximo turno (bug do Luccas, conv=716).
   if (isExplicitHumanRequest(incomingText)) {
     try {
+      const handoffReply =
+        'Claro! Já chamei alguém da equipe pra continuar com você por aqui. Em instantes você vai ser atendido por uma pessoa, beleza?';
+      await outboundGateway.sendText(waId, handoffReply);
       const result = await pool.query(
         `UPDATE whatsapp_conversations
             SET human_takeover_until = NOW() + interval '48 hours',
@@ -274,9 +277,6 @@ async function processAgentInboundTurn({
       console.log(
         `[agentEngine] takeover humano ativado por pedido explícito waId=${waId} conv=${result.rows[0]?.id || '?'}`
       );
-      const handoffReply =
-        'Claro! Já chamei alguém da equipe pra continuar com você por aqui. Em instantes você vai ser atendido por uma pessoa, beleza?';
-      await outboundGateway.sendText(waId, handoffReply);
       await persistOutbound(handoffReply, 'HUMAN_REQUESTED');
     } catch (handoffError) {
       console.error('[agentEngine] falha ao ativar takeover humano:', handoffError.message);
@@ -509,8 +509,8 @@ async function processAgentInboundTurn({
         workingState: workingStateForTurn,
         contextSummary: memory.contextSummary || null,
       }).catch(() => {});
-      await activateHumanTakeover(pool, waId, 48);
       await outboundGateway.sendText(waId, LARGE_GROUP_HANDOFF_REPLY);
+      await activateHumanTakeover(pool, waId, 48);
       await persistOutbound(LARGE_GROUP_HANDOFF_REPLY, 'LARGE_GROUP_HANDOFF');
       console.log(
         `[agentEngine] handoff grupo grande waId=${waId} qty=${workingStateForTurn.quantidade_convidados}`
@@ -549,10 +549,10 @@ async function processAgentInboundTurn({
         workingState: workingStateForTurn,
         contextSummary: memory.contextSummary || null,
       }).catch(() => {});
+      await outboundGateway.sendText(waId, behavior.replyText);
       if (behavior.action === 'handoff') {
         await activateHumanTakeover(pool, waId, 48);
       }
-      await outboundGateway.sendText(waId, behavior.replyText);
       await persistOutbound(
         behavior.replyText,
         behavior.action === 'handoff' ? 'HUMAN_REQUESTED' : 'AGENT_BEHAVIOR',
@@ -873,8 +873,8 @@ async function processAgentInboundTurn({
       }
 
       if (shouldEscalateToHuman) {
-        await activateHumanTakeover(pool, waId, 48);
         await outboundGateway.sendText(waId, customHandoff || NEUTRAL_HANDOFF_REPLY);
+        await activateHumanTakeover(pool, waId, 48);
         await persistOutbound(customHandoff || NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
           source: 'agent_error_guard',
           recentAgentErrors,

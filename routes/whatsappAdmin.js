@@ -608,7 +608,11 @@ module.exports = (pool, app) => {
         const lastInbound = [...messages].reverse().find((row) => row.direction === 'inbound');
         const last = messages[messages.length - 1];
         if (lastInbound?.body && last?.direction === 'inbound') {
-          await runWithWame({ enabled: true }, () =>
+          const instanceId =
+            lastInbound.raw_payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ||
+            lastInbound.raw_payload?.instance ||
+            null;
+          await runWithWame({ enabled: true, instanceId: instanceId ? String(instanceId) : null }, () =>
             processInboundTurn({
               pool,
               app,

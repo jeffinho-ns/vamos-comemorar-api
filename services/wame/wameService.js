@@ -5,6 +5,13 @@ const {
   getWameServerUrl,
   isWameConfigured,
 } = require('./wameConfig');
+const { currentWame } = require('./wameContext');
+
+const FALLBACK_SERVERS = [
+  'https://us.api-wa.me',
+  'https://server.api-wa.me',
+  'https://server.wame.api.br',
+];
 
 function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '');
@@ -21,20 +28,24 @@ function normalizeRecipient(to) {
   return digits;
 }
 
-async function sendText(to, text) {
-  if (!isWameConfigured()) {
-    throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
-  }
-  if (!text || typeof text !== 'string') {
-    throw new Error('Texto inválido para envio via Wame.');
-  }
+function resolveApiKey() {
+  const fromContext = String(currentWame()?.instanceId || '').trim();
+  if (fromContext && /[a-z]/i.test(fromContext)) return fromContext;
+  return getWameApiKey();
+}
 
-  const key = getWameApiKey();
-  const server = getWameServerUrl();
-  const recipient = normalizeRecipient(to);
-  const url = `${server}/${encodeURIComponent(key)}/message/text`;
+function serverCandidates() {
+  const primary = getWameServerUrl();
+  return [...new Set([primary, ...FALLBACK_SERVERS])];
+}
 
-  const response = await fetch(url, {
+function isRetryableSendError(error) {
+  const message = String(error?.message || '');
+  return /fetch failed|enotfound|econnrefused|timed out|network/i.test(message);
+}
+
+async function postText(server, key, recipient, text) {
+  const response = await fetch(`${server}/${encodeURIComponent(key)}/message/text`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -44,14 +55,43 @@ async function sendText(to, text) {
       linkPreview: false,
     }),
   });
-
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = typeof body === 'object' ? JSON.stringify(body) : String(body || '');
-    throw new Error(`Falha ao enviar via Wame: ${response.status} ${detail}`);
+    const error = new Error(`Falha ao enviar via Wame: ${response.status} ${detail}`);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+async function sendText(to, text) {
+  if (!isWameConfigured() && !resolveApiKey()) {
+    throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
+  }
+  if (!text || typeof text !== 'string') {
+    throw new Error('Texto inválido para envio via Wame.');
   }
 
-  return body;
+  const key = resolveApiKey();
+  if (!key) {
+    throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
+  }
+  const recipient = normalizeRecipient(to);
+  let lastError = null;
+
+  for (const server of serverCandidates()) {
+    try {
+      return await postText(server, key, recipient, text);
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('Falha ao enviar via Wame.');
 }
 
 module.exports = {
