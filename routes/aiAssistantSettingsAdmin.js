@@ -9,6 +9,11 @@ const {
   getSettingsForAdmin,
   invalidateSettingsCache,
 } = require('../services/agent/assistantSettingsService');
+const {
+  didEnableHouseAi,
+  releaseAutomaticHousePauses,
+  answerUnansweredHouseConversations,
+} = require('../services/whatsapp/resumeHouseAi');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 
@@ -97,7 +102,7 @@ function buildPayload(body, current) {
   };
 }
 
-module.exports = (pool) => {
+module.exports = (pool, app) => {
   const router = express.Router({ mergeParams: true });
 
   router.get(
@@ -197,7 +202,31 @@ module.exports = (pool) => {
         );
 
         invalidateSettingsCache(establishmentId);
-        return res.json({ success: true, data: result.rows[0] });
+        const turnedOn = didEnableHouseAi(
+          current.ai_globally_enabled === true,
+          payload.ai_globally_enabled === true
+        );
+        if (turnedOn) {
+          try {
+            const released = await releaseAutomaticHousePauses(pool, establishmentId);
+            if (released.length) {
+              console.log(
+                `[ai-settings] pausa automática liberada establishment_id=${establishmentId} waIds=${released.join(',')}`
+              );
+            }
+          } catch (releaseError) {
+            console.error('[ai-settings] falha ao liberar pausa automática:', releaseError.message);
+          }
+        }
+        res.json({ success: true, data: result.rows[0] });
+        if (turnedOn) {
+          setImmediate(() => {
+            answerUnansweredHouseConversations(pool, app, establishmentId).catch((error) => {
+              console.error('[ai-settings] falha ao retomar respostas:', error.message);
+            });
+          });
+        }
+        return;
       } catch (error) {
         console.error('[ai-settings] update:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao salvar configurações da IA.' });

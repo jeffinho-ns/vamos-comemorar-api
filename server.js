@@ -340,7 +340,7 @@ app.use('/api/admin', guestListsAdminRoutes(pool, checkAndAwardGifts));
 app.use('/api/admin/whatsapp', whatsappAdminRoutes(pool, app));
 app.use('/api/admin/conversation-metrics', conversationMetricsRoutes(pool));
 app.use('/api/admin', establishmentFaqsAdminRoutes(pool));
-app.use('/api/admin', aiAssistantSettingsAdminRoutes(pool));
+app.use('/api/admin', aiAssistantSettingsAdminRoutes(pool, app));
 app.use('/api/admin', instagramAccountsAdminRoutes(pool));
 app.use('/api/admin', whatsappPhoneLinesAdminRoutes(pool));
 app.use('/api/admin', aiAssistantConfigAdminRoutes(pool));
