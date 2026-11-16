@@ -2040,5 +2040,49 @@ module.exports = (pool, app) => {
     }
   });
 
+  router.post('/wame/import-history', async (req, res) => {
+    const establishmentId = Number(req.body?.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+      return res.status(400).json({ message: 'establishment_id inválido' });
+    }
+    try {
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const {
+        findInstanceId,
+        startWameHistoryImport,
+      } = require('../services/wame/wameHistoryImport');
+      const instanceId = await findInstanceId(pool, establishmentId);
+      if (!instanceId) {
+        return res.status(400).json({ message: 'Instância Wame desta casa não encontrada.' });
+      }
+      const job = startWameHistoryImport(pool, { establishmentId, instanceId });
+      return res.json({ ok: true, job });
+    } catch (error) {
+      console.error('[whatsappAdmin] wame import:', error);
+      return res.status(500).json({ message: 'Erro ao iniciar a importação do histórico' });
+    }
+  });
+
+  router.get('/wame/import-history', async (req, res) => {
+    const establishmentId = Number(req.query?.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+      return res.status(400).json({ message: 'establishment_id inválido' });
+    }
+    try {
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const { getWameHistoryImport } = require('../services/wame/wameHistoryImport');
+      return res.json({ ok: true, job: getWameHistoryImport(establishmentId) });
+    } catch (error) {
+      console.error('[whatsappAdmin] wame import status:', error);
+      return res.status(500).json({ message: 'Erro ao consultar a importação' });
+    }
+  });
+
   return router;
 };

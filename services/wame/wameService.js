@@ -119,9 +119,35 @@ function instanceIdFromStoredPayload(raw) {
   return String(id);
 }
 
+async function requestJson(key, pathAndQuery) {
+  if (!key) throw new Error('Instância Wame não informada.');
+  let lastError = null;
+  for (const server of serverCandidates()) {
+    try {
+      const response = await fetch(`${server}/${encodeURIComponent(key)}/${pathAndQuery}`, {
+        signal: AbortSignal.timeout(20000),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(`Falha ao consultar a Wame: ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return body;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
+      throw error;
+    }
+  }
+  throw lastError || new Error('Falha ao consultar a Wame.');
+}
+
 module.exports = {
   sendText,
   normalizeRecipient,
   providerMessageId,
   instanceIdFromStoredPayload,
+  requestJson,
 };

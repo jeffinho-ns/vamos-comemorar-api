@@ -223,6 +223,59 @@ async function insertMessage(
   return r.rows[0];
 }
 
+async function insertHistoryMessage(
+  pool,
+  { conversationId, direction, body, rawPayload, messageType, createdAt }
+) {
+  const organizationId = await resolveOrganizationIdForConversation(pool, conversationId);
+  const result = await pool.query(
+    `INSERT INTO whatsapp_messages
+       (conversation_id, direction, body, intent, raw_payload, message_type, organization_id, created_at)
+     VALUES ($1, $2, $3, 'WAME_HISTORY', $4, $5, $6, $7)
+     RETURNING id`,
+    [
+      conversationId,
+      direction,
+      body,
+      rawPayload || null,
+      messageType || 'text',
+      organizationId,
+      createdAt,
+    ]
+  );
+  return result.rows[0];
+}
+
+async function alignConversationActivity(pool, conversationId) {
+  await pool.query(
+    `UPDATE whatsapp_conversations c
+        SET updated_at = sub.max_at
+       FROM (
+         SELECT MAX(created_at) AS max_at
+           FROM whatsapp_messages
+          WHERE conversation_id = $1
+       ) sub
+      WHERE c.id = $1
+        AND sub.max_at IS NOT NULL`,
+    [conversationId]
+  );
+}
+
+async function hasMessageWithWameId(pool, conversationId, wameMessageId) {
+  const result = await pool.query(
+    `SELECT 1
+       FROM whatsapp_messages
+      WHERE conversation_id = $1
+        AND (
+          raw_payload->>'wame_message_id' = $2
+          OR raw_payload->'entry'->0->'changes'->0->'value'->'messages'->0->>'id' = $2
+        )
+      LIMIT 1`,
+    [conversationId, wameMessageId]
+  );
+  return result.rowCount > 0;
+}
+
 async function updateInboundAiFields(pool, messageId, { intent, suggestedReply }) {
   await pool.query(
     `UPDATE whatsapp_messages SET intent = $2, suggested_reply = $3 WHERE id = $1`,
@@ -1347,6 +1400,9 @@ module.exports = {
   updateConversationStatus,
   assignConversation,
   insertMessage,
+  insertHistoryMessage,
+  alignConversationActivity,
+  hasMessageWithWameId,
   updateInboundAiFields,
   upsertContact,
   getRecentMessagesForContext,
