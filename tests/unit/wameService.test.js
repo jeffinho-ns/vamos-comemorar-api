@@ -4,6 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { normalizeRecipient } = require('../../services/wame/wameService');
+const { establishmentFromDisplayPhone } = require('../../services/wame/wameHouse');
 const {
   isWameConfigured,
   isWameOutboundEnabled,
@@ -18,6 +19,14 @@ describe('wameService', () => {
 
   it('rejeita destinatário curto', () => {
     assert.throws(() => normalizeRecipient('119999'), /inválido/i);
+  });
+});
+
+describe('wameHouse', () => {
+  it('amarra o telefone da Pracinha na casa 8', () => {
+    assert.equal(establishmentFromDisplayPhone('551123050938'), 8);
+    assert.equal(establishmentFromDisplayPhone('+55 11 2305-0938'), 8);
+    assert.equal(establishmentFromDisplayPhone('5511999999999'), null);
   });
 });
 

@@ -368,6 +368,7 @@ async function processLegacyInboundTurn({
   incomingMessageText,
   waId,
   proactiveResume = false,
+  skipInboundPersist = false,
 }) {
   const establishmentToken = extractEstablishmentToken(incomingMessageText);
   const messageText =
@@ -393,7 +394,7 @@ async function processLegacyInboundTurn({
       contactName,
       establishmentId: linkedEstablishment?.id || null,
     });
-    if (!proactiveResume) {
+    if (!proactiveResume && !skipInboundPersist) {
       inboundRow = await inbox.insertMessage(pool, {
         conversationId: conversation.id,
         direction: 'inbound',

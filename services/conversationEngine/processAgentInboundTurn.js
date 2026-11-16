@@ -192,6 +192,7 @@ async function processAgentInboundTurn({
   waId,
   hintedEstablishmentId = null,
   pinnedEstablishmentId = null,
+  skipInboundPersist = false,
 }) {
   const incomingText = String(incomingMessageText || '').trim();
   if (!incomingText) {
@@ -208,12 +209,14 @@ async function processAgentInboundTurn({
       contactName,
       establishmentId: Number(hintedEstablishmentId) || null,
     });
-    inboundRow = await inbox.insertMessage(pool, {
-      conversationId: conversation.id,
-      direction: 'inbound',
-      body: incomingText,
-      rawPayload: payload,
-    });
+    if (!skipInboundPersist) {
+      inboundRow = await inbox.insertMessage(pool, {
+        conversationId: conversation.id,
+        direction: 'inbound',
+        body: incomingText,
+        rawPayload: payload,
+      });
+    }
     await inbox.upsertContact(pool, {
       waId,
       contactName,

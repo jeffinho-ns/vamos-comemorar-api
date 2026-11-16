@@ -28,6 +28,8 @@ const {
 } = require('../services/campaignDeliveryService');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
+const { processInboundTurn } = require('../services/conversationEngine/processInboundTurn');
+const { runWithWame } = require('../services/wame/wameContext');
 const {
   getWhatsappHighlineOnlyEstablishmentIds,
 } = require('../config/whatsappHighlineAccess');
@@ -573,6 +575,85 @@ module.exports = (pool, app) => {
     } catch (e) {
       console.error('[whatsappAdmin] stuck resolve batch:', e);
       return res.status(500).json({ message: 'Erro ao retomar conversas travadas' });
+    }
+  });
+
+  router.post('/conversations/:waId/establishment', async (req, res) => {
+    const { waId } = req.params;
+    const establishmentId = Number(req.body?.establishment_id);
+    const reply = req.body?.reply === true;
+    try {
+      if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+        return res.status(400).json({ message: 'establishment_id inválido' });
+      }
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const existing = await inbox.getConversationByWaId(pool, waId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Conversa não encontrada' });
+      }
+      const conversation = await inbox.setConversationEstablishment(pool, waId, establishmentId);
+      await inbox.upsertContact(pool, {
+        waId,
+        contactName: existing.contact_name || null,
+        lastEstablishmentId: establishmentId,
+        grantMarketingOptIn: false,
+      });
+
+      let replied = false;
+      if (reply) {
+        const messages = await inbox.listMessages(pool, existing.id, 20);
+        const lastInbound = [...messages].reverse().find((row) => row.direction === 'inbound');
+        const last = messages[messages.length - 1];
+        if (lastInbound?.body && last?.direction === 'inbound') {
+          await runWithWame({ enabled: true }, () =>
+            processInboundTurn({
+              pool,
+              app,
+              payload: {
+                object: 'whatsapp_business_account',
+                entry: [
+                  {
+                    changes: [
+                      {
+                        field: 'messages',
+                        value: {
+                          contacts: [{ profile: { name: existing.contact_name || null }, wa_id: waId }],
+                          messages: [
+                            {
+                              from: waId,
+                              id: `replay-${existing.id}-${Date.now()}`,
+                              text: { body: lastInbound.body },
+                              type: 'text',
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+              incomingMessageText: lastInbound.body,
+              waId,
+              hintedEstablishmentId: establishmentId,
+              pinnedEstablishmentId: establishmentId,
+              skipInboundPersist: true,
+            }),
+          );
+          replied = true;
+        }
+      }
+
+      return res.json({
+        ok: true,
+        conversation,
+        replied,
+      });
+    } catch (e) {
+      console.error('[whatsappAdmin] move establishment:', e);
+      return res.status(500).json({ message: 'Erro ao mover a conversa de casa' });
     }
   });
 

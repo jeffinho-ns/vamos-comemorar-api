@@ -7,6 +7,7 @@ const { processInboundTurn } = require('../services/conversationEngine/processIn
 const { isQueueEnabled } = require('../infrastructure/queue/redisConnection');
 const { getWameWebhookToken, isWameConfigured } = require('../services/wame/wameConfig');
 const { runWithWame } = require('../services/wame/wameContext');
+const { resolveWameEstablishmentId } = require('../services/wame/wameHouse');
 
 function firstChange(payload) {
   return payload?.entry?.[0]?.changes?.[0] || null;
@@ -124,7 +125,7 @@ module.exports = (pool, app) => {
     }
 
     const waId = customerWaId;
-    const hintedEstablishmentId = Number(process.env.WAME_DEFAULT_ESTABLISHMENT_ID) || null;
+    const hintedEstablishmentId = await resolveWameEstablishmentId(pool, payload);
 
     try {
       const dedupResult = await messageDedup.claimInboundMessage(pool, wamid, waId);
