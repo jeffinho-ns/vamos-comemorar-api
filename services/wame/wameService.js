@@ -94,7 +94,34 @@ async function sendText(to, text) {
   throw lastError || new Error('Falha ao enviar via Wame.');
 }
 
+function providerMessageId(result) {
+  if (!result || typeof result !== 'object') return null;
+  const metaId = result.messages?.[0]?.id;
+  if (metaId) return String(metaId);
+  const wameId =
+    result.data?.key?.id ||
+    result.key?.id ||
+    result.data?.messageId ||
+    result.messageId ||
+    null;
+  if (wameId) return String(wameId);
+  if (Number(result.status) === 200) return `wame-${Date.now()}`;
+  return null;
+}
+
+function instanceIdFromStoredPayload(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id =
+    raw.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ||
+    raw.instance ||
+    null;
+  if (!id || !/[a-z]/i.test(String(id))) return null;
+  return String(id);
+}
+
 module.exports = {
   sendText,
   normalizeRecipient,
+  providerMessageId,
+  instanceIdFromStoredPayload,
 };

@@ -3,7 +3,11 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { normalizeRecipient, sendText } = require('../../services/wame/wameService');
+const {
+  normalizeRecipient,
+  sendText,
+  providerMessageId,
+} = require('../../services/wame/wameService');
 const { runWithWame } = require('../../services/wame/wameContext');
 const { establishmentFromDisplayPhone } = require('../../services/wame/wameHouse');
 const {
@@ -16,6 +20,16 @@ describe('wameService', () => {
   it('normaliza destinatário BR com DDI', () => {
     assert.equal(normalizeRecipient('5511999998888'), '5511999998888');
     assert.equal(normalizeRecipient('waba:123:5511999998888'), '5511999998888');
+  });
+
+  it('aceita o id da Wame no lugar do id da Meta', () => {
+    assert.equal(
+      providerMessageId({ status: 200, data: { key: { id: '3EB0A1' } } }),
+      '3EB0A1',
+    );
+    assert.equal(providerMessageId({ messages: [{ id: 'wamid.1' }] }), 'wamid.1');
+    assert.match(providerMessageId({ status: 200 }), /^wame-/);
+    assert.equal(providerMessageId({ status: 400 }), null);
   });
 
   it('rejeita destinatário curto', () => {

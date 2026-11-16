@@ -30,6 +30,11 @@ const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
 const { processInboundTurn } = require('../services/conversationEngine/processInboundTurn');
 const { runWithWame } = require('../services/wame/wameContext');
+const { isWameOutboundEnabled } = require('../services/wame/wameConfig');
+const {
+  providerMessageId,
+  instanceIdFromStoredPayload,
+} = require('../services/wame/wameService');
 const {
   getWhatsappHighlineOnlyEstablishmentIds,
 } = require('../config/whatsappHighlineAccess');
@@ -855,6 +860,7 @@ module.exports = (pool, app) => {
 
       // Envio pelo painel = atendimento humano: pausa a IA para não haver resposta dupla.
       let sendResult;
+      let sentViaWame = false;
       try {
         const { findActiveByEstablishmentId, toLineContext } = require('../services/whatsapp/whatsappPhoneLineService');
         const { runWithWhatsappLine } = require('../services/whatsapp/whatsappLineContext');
@@ -864,7 +870,22 @@ module.exports = (pool, app) => {
         } catch (lineError) {
           console.warn('[whatsappAdmin] linha da casa indisponível:', lineError.message);
         }
-        sendResult = await runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text));
+        const recentPayloads = await pool.query(
+          `SELECT raw_payload
+             FROM whatsapp_messages
+            WHERE conversation_id = $1
+              AND raw_payload IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 8`,
+          [conv.id]
+        );
+        const instanceId = recentPayloads.rows
+          .map((row) => instanceIdFromStoredPayload(row.raw_payload))
+          .find(Boolean) || null;
+        sentViaWame = isWameOutboundEnabled() || Boolean(instanceId);
+        sendResult = await runWithWame({ enabled: sentViaWame, instanceId }, () =>
+          runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text))
+        );
       } catch (sendError) {
         if (!isWhatsAppTransientError(sendError)) {
           throw sendError;
@@ -893,12 +914,12 @@ module.exports = (pool, app) => {
         }
       }
 
-      const metaMessageId = sendResult?.messages?.[0]?.id
-        ? String(sendResult.messages[0].id)
-        : null;
+      const metaMessageId = providerMessageId(sendResult);
       if (!sendResult?.queued && !metaMessageId) {
         throw new Error(
-          'A Meta não confirmou o envio (sem ID de mensagem). A mensagem não foi entregue ao cliente.',
+          sentViaWame
+            ? 'A Wame não confirmou o envio. A mensagem não foi entregue ao cliente.'
+            : 'A Meta não confirmou o envio (sem ID de mensagem). A mensagem não foi entregue ao cliente.',
         );
       }
 
