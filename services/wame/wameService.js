@@ -107,7 +107,8 @@ async function sendText(to, text, options = {}) {
     throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
   }
   const recipient = normalizeRecipient(to);
-  const quotedMessageId = String(options.quotedMessageId || '').trim() || null;
+  const quotedMessageId =
+    String(options.quotedMessageId || currentWame()?.quotedMessageId || '').trim() || null;
   let lastError = null;
 
   for (const server of serverCandidates()) {

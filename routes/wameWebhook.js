@@ -147,7 +147,15 @@ module.exports = (pool, app) => {
       console.warn('[Wame webhook] deduplicação indisponível:', dedupError.message);
     }
 
-    const wameCtx = { enabled: true, instanceId: instanceId ? String(instanceId) : null };
+    const wameCtx = {
+      enabled: true,
+      instanceId: instanceId ? String(instanceId) : null,
+      quotedMessageId: wamid || null,
+    };
+    if (instanceId && /[a-z]/i.test(String(instanceId)) && Number.isFinite(hintedEstablishmentId)) {
+      const { rememberEstablishmentInstance } = require('../services/wame/wameService');
+      rememberEstablishmentInstance(hintedEstablishmentId, instanceId);
+    }
 
     try {
       if (isQueueEnabled() && process.env.BULLMQ_WEBHOOK_INLINE !== 'true') {

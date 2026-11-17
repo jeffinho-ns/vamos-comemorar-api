@@ -21,7 +21,10 @@ async function sendText(to, text, meta = {}) {
     }
   }
 
-  const response = await sendMessage(to, text);
+  const { currentWame } = require('../wame/wameContext');
+  const response = await sendMessage(to, text, {
+    quotedMessageId: currentWame()?.quotedMessageId || null,
+  });
   return { delivered: true, mode: 'inline', response };
 }
 
