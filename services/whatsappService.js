@@ -124,7 +124,7 @@ function outboundLineFor(to) {
   };
 }
 
-async function sendMessage(to, text) {
+async function sendMessage(to, text, options = {}) {
   if (!to || typeof to !== 'string') {
     throw new Error('Parâmetro "to" inválido para envio de mensagem.');
   }
@@ -143,7 +143,7 @@ async function sendMessage(to, text) {
   const { isWameOutboundEnabled } = require('./wame/wameConfig');
   if (isWameRequestActive() || isWameOutboundEnabled()) {
     const { sendText: sendWameText } = require('./wame/wameService');
-    return sendWameText(to, text);
+    return sendWameText(to, text, options);
   }
 
   const line = outboundLineFor(to);

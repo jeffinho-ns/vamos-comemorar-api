@@ -82,6 +82,42 @@ describe('wameService', () => {
       else process.env.WAME_SERVER_URL = prevServer;
     }
   });
+
+  it('cita a última mensagem do cliente quando a janela da Meta recusa o texto livre', async () => {
+    const prevKey = process.env.WAME_API_KEY;
+    const prevServer = process.env.WAME_SERVER_URL;
+    process.env.WAME_API_KEY = 'justinoKey1';
+    process.env.WAME_SERVER_URL = 'https://us.api-wa.me';
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      calls.push({ url: String(url), body: JSON.parse(opts.body) });
+      if (String(url).includes('/message/text')) {
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ status: 409, message: 'Janela de atendimento de 24h fechada' }),
+        };
+      }
+      return { ok: true, json: async () => ({ status: 200, data: { key: { id: 'out1' } } }) };
+    };
+    try {
+      const result = await runWithWame({ enabled: true, instanceId: 'justinoKey1' }, () =>
+        sendText('5511913587834', 'Sim, fica no externo', {
+          quotedMessageId: 'wamid.HBgNINBOUND',
+        })
+      );
+      assert.equal(calls[0].url, 'https://us.api-wa.me/justinoKey1/message/wamid.HBgNINBOUND/text');
+      assert.equal(calls[0].body.quotedId, 'wamid.HBgNINBOUND');
+      assert.equal(result.status, 200);
+    } finally {
+      global.fetch = originalFetch;
+      if (prevKey == null) delete process.env.WAME_API_KEY;
+      else process.env.WAME_API_KEY = prevKey;
+      if (prevServer == null) delete process.env.WAME_SERVER_URL;
+      else process.env.WAME_SERVER_URL = prevServer;
+    }
+  });
 });
 
 describe('wameHouse', () => {

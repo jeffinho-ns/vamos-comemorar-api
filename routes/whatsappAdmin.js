@@ -34,6 +34,7 @@ const { isWameOutboundEnabled } = require('../services/wame/wameConfig');
 const {
   providerMessageId,
   instanceIdFromStoredPayload,
+  quotedMessageIdFromPayload,
   findEstablishmentWameInstanceId,
 } = require('../services/wame/wameService');
 const {
@@ -884,9 +885,22 @@ module.exports = (pool, app) => {
           .map((row) => instanceIdFromStoredPayload(row.raw_payload))
           .find(Boolean)
           || await findEstablishmentWameInstanceId(pool, conv.establishment_id);
+        const inboundPayloads = await pool.query(
+          `SELECT raw_payload
+             FROM whatsapp_messages
+            WHERE conversation_id = $1
+              AND direction = 'inbound'
+              AND raw_payload IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 8`,
+          [conv.id]
+        );
+        const quotedMessageId = inboundPayloads.rows
+          .map((row) => quotedMessageIdFromPayload(row.raw_payload))
+          .find(Boolean) || null;
         sentViaWame = isWameOutboundEnabled() || Boolean(instanceId);
         sendResult = await runWithWame({ enabled: sentViaWame, instanceId }, () =>
-          runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text))
+          runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text, { quotedMessageId }))
         );
       } catch (sendError) {
         if (!isWhatsAppTransientError(sendError)) {

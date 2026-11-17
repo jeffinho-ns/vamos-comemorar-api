@@ -44,28 +44,57 @@ function isRetryableSendError(error) {
   return /fetch failed|enotfound|econnrefused|timed out|network/i.test(message);
 }
 
-async function postText(server, key, recipient, text) {
-  const response = await fetch(`${server}/${encodeURIComponent(key)}/message/text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: recipient,
-      text,
-      provider: 'whatsapp',
-      linkPreview: false,
-    }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body || '');
-    const error = new Error(`Falha ao enviar via Wame: ${response.status} ${detail}`);
-    error.status = response.status;
-    throw error;
-  }
-  return body;
+function isClosedWindowError(error) {
+  return Number(error?.status) === 409 || /janela de atendimento de 24h/i.test(String(error?.message || ''));
 }
 
-async function sendText(to, text) {
+function quotedMessageIdFromPayload(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id =
+    raw.wame_message_id ||
+    raw.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id ||
+    null;
+  if (!id) return null;
+  const value = String(id).trim();
+  return value ? value : null;
+}
+
+async function postText(server, key, recipient, text, quotedMessageId) {
+  const payload = {
+    to: recipient,
+    text,
+    provider: 'whatsapp',
+    linkPreview: false,
+  };
+  if (quotedMessageId) {
+    payload.quotedId = quotedMessageId;
+    payload.context = { message_id: quotedMessageId };
+  }
+  const paths = quotedMessageId
+    ? [
+        `${server}/${encodeURIComponent(key)}/message/${encodeURIComponent(quotedMessageId)}/text`,
+        `${server}/${encodeURIComponent(key)}/message/text`,
+      ]
+    : [`${server}/${encodeURIComponent(key)}/message/text`];
+
+  let lastError = null;
+  for (const url of paths) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) return body;
+    const detail = typeof body === 'object' ? JSON.stringify(body) : String(body || '');
+    lastError = new Error(`Falha ao enviar via Wame: ${response.status} ${detail}`);
+    lastError.status = response.status;
+    if (response.status !== 404 && response.status !== 409) throw lastError;
+  }
+  throw lastError;
+}
+
+async function sendText(to, text, options = {}) {
   if (!isWameConfigured() && !resolveApiKey()) {
     throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
   }
@@ -78,11 +107,12 @@ async function sendText(to, text) {
     throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
   }
   const recipient = normalizeRecipient(to);
+  const quotedMessageId = String(options.quotedMessageId || '').trim() || null;
   let lastError = null;
 
   for (const server of serverCandidates()) {
     try {
-      return await postText(server, key, recipient, text);
+      return await postText(server, key, recipient, text, quotedMessageId);
     } catch (error) {
       lastError = error;
       const status = Number(error?.status || 0);
@@ -185,7 +215,9 @@ module.exports = {
   normalizeRecipient,
   providerMessageId,
   instanceIdFromStoredPayload,
+  quotedMessageIdFromPayload,
   findEstablishmentWameInstanceId,
   rememberEstablishmentInstance,
+  isClosedWindowError,
   requestJson,
 };
