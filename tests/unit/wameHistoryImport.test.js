@@ -15,6 +15,7 @@ describe('wameHistoryImport', () => {
     assert.equal(messageBody({ type: 'image' }), '[image]');
     assert.equal(customerPhone('5511943501097'), '5511943501097');
     assert.equal(customerPhone('551123050938'), null);
+    assert.equal(customerPhone('551152003650'), null);
   });
 
   it('guarda o nome do contato e a data original', () => {

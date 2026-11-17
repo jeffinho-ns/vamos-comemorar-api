@@ -37,7 +37,7 @@ function contactName(chat, phone) {
 function customerPhone(chatId) {
   const digits = String(chatId || '').replace(/\D/g, '');
   if (digits.length < 10 || digits.length > 20) return null;
-  if (digits === '551123050938') return null;
+  if (digits === '551123050938' || digits === '551152003650') return null;
   return digits;
 }
 

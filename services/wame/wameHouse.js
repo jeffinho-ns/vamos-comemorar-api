@@ -7,6 +7,7 @@
  */
 const DISPLAY_PHONE_TO_ESTABLISHMENT = {
   '551123050938': 8,
+  '551152003650': 1,
 };
 
 function digitsOnly(value) {

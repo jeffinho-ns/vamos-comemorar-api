@@ -2054,7 +2054,10 @@ module.exports = (pool, app) => {
         findInstanceId,
         startWameHistoryImport,
       } = require('../services/wame/wameHistoryImport');
-      const instanceId = await findInstanceId(pool, establishmentId);
+      const requestedInstance = String(req.body?.instance_id || '').trim();
+      const instanceId = /^[a-z0-9]{8,40}$/i.test(requestedInstance)
+        ? requestedInstance
+        : await findInstanceId(pool, establishmentId);
       if (!instanceId) {
         return res.status(400).json({ message: 'Instância Wame desta casa não encontrada.' });
       }

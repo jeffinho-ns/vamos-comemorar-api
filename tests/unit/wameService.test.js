@@ -70,6 +70,8 @@ describe('wameHouse', () => {
   it('amarra o telefone da Pracinha na casa 8', () => {
     assert.equal(establishmentFromDisplayPhone('551123050938'), 8);
     assert.equal(establishmentFromDisplayPhone('+55 11 2305-0938'), 8);
+    assert.equal(establishmentFromDisplayPhone('551152003650'), 1);
+    assert.equal(establishmentFromDisplayPhone('+55 11 5200-3650'), 1);
     assert.equal(establishmentFromDisplayPhone('5511999999999'), null);
   });
 });
