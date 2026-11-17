@@ -1,9 +1,14 @@
 'use strict';
 
 const inbox = require('../whatsappInboxRepository');
-const { resolveWameEstablishmentId, normalizeDisplayPhone, displayPhoneFromPayload } = require('./wameHouse');
+const {
+  DISPLAY_PHONE_TO_ESTABLISHMENT,
+  resolveWameEstablishmentId,
+  normalizeDisplayPhone,
+  displayPhoneFromPayload,
+} = require('./wameHouse');
 
-const HOUSE_PHONES = new Set(['551123050938', '551152003650']);
+const HOUSE_PHONES = new Set(Object.keys(DISPLAY_PHONE_TO_ESTABLISHMENT));
 
 function firstChange(payload) {
   return payload?.entry?.[0]?.changes?.[0] || null;

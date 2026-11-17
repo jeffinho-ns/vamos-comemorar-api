@@ -68,19 +68,23 @@ Commit: `a89ebf72` — `feat: ponte Wame Cloud API para a Sol enquanto a Meta an
 ### Env no Render (sem colar valores no git)
 ```
 WAME_SERVER_URL=<igual ao "Server" do painel Wame da instância>
-WAME_API_KEY=<Key da instância no painel>
+WAME_API_KEY=<Key de UMA instância (fallback); outbound por casa usa a key do webhook>
 WHATSAPP_OUTBOUND_PROVIDER=wame
 ```
-Opcional: `WAME_WEBHOOK_TOKEN`, `WAME_DEFAULT_ESTABLISHMENT_ID`.
+Opcional: `WAME_WEBHOOK_TOKEN`, `WAME_DEFAULT_ESTABLISHMENT_ID`,  
+`WAME_INSTANCE_BY_ESTABLISHMENT={"1":"<key Justino>","8":"<key Pracinha>","9":"<key Rooftop>"}`.
+
+**Várias instâncias Wame:** cada casa tem a própria Key. O webhook grava a key por `establishment_id`. Histórico: `POST /api/admin/whatsapp/wame/import-history` com `{ "establishment_id": 9, "instance_id": "<key da instância Rooftop>" }`.
 
 **Manter** as vars Meta (`WHATSAPP_ACCESS_TOKEN`, `PHONE_NUMBER_ID`, secrets, etc.) — voltam quando desligar a ponte.
 
-### Webhook no painel Wame
+### Webhook no painel Wame (cada instância)
 - Formato: **Meta** (instância oficial).
 - URL (mensagem recebida e demais, se quiser):  
   `https://api.agilizaiapp.com.br/api/webhooks/wame`  
   Com token opcional: `...?token=SEU_WAME_WEBHOOK_TOKEN`
-- QR / Histórico indisponíveis na oficial — ok.
+- Reserva Rooftop: telefone `11 4280-3345` → casa `establishment_id` **9** no Agilizaiapp.
+- QR / Histórico: na oficial pode ficar limitado; import via API admin acima.
 
 ### Comportamento
 - Inbound Wame → mesmo motor da Sol (`processInboundTurn`).

@@ -17,9 +17,14 @@ async function resolveOrganizationIdForEstablishment(pool, establishmentId) {
   return Number.isFinite(org) && org > 0 ? org : null;
 }
 
-async function upsertConversation(pool, { waId, contactName, establishmentId = null }) {
+async function upsertConversation(
+  pool,
+  { waId, contactName, establishmentId = null, touchUpdatedAt = true },
+) {
   const name = contactName || null;
   const orgId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
+  // Histórico Wame: não pode jogar updated_at=NOW() em massa, senão conversas
+  // antigas sobem no inbox e o painel trata tudo como fora da janela de 24h.
   const r = await pool.query(
     `INSERT INTO whatsapp_conversations (wa_id, contact_name, establishment_id, organization_id, updated_at)
      VALUES ($1, $2, $3, $4, NOW())
@@ -32,9 +37,12 @@ async function upsertConversation(pool, { waId, contactName, establishmentId = n
          whatsapp_conversations.organization_id,
          EXCLUDED.organization_id
        ),
-       updated_at = NOW()
+       updated_at = CASE
+         WHEN $5::boolean THEN NOW()
+         ELSE whatsapp_conversations.updated_at
+       END
      RETURNING id, wa_id, contact_name, establishment_id, organization_id, status, assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
-    [waId, name, establishmentId, orgId]
+    [waId, name, establishmentId, orgId, touchUpdatedAt !== false]
   );
   return r.rows[0];
 }
@@ -247,16 +255,20 @@ async function insertHistoryMessage(
 }
 
 async function alignConversationActivity(pool, conversationId) {
+  // Preferência: último inbound (janela Meta 24h). Senão, qualquer mensagem.
+  // Nunca deixa updated_at = NOW() só porque o histórico passou pela conversa.
   await pool.query(
     `UPDATE whatsapp_conversations c
-        SET updated_at = sub.max_at
+        SET updated_at = COALESCE(sub.last_inbound, sub.last_any)
        FROM (
-         SELECT MAX(created_at) AS max_at
+         SELECT
+           MAX(created_at) FILTER (WHERE direction = 'inbound') AS last_inbound,
+           MAX(created_at) AS last_any
            FROM whatsapp_messages
           WHERE conversation_id = $1
        ) sub
       WHERE c.id = $1
-        AND sub.max_at IS NOT NULL`,
+        AND COALESCE(sub.last_inbound, sub.last_any) IS NOT NULL`,
     [conversationId]
   );
 }

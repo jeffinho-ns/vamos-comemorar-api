@@ -2,11 +2,18 @@
 
 const inbox = require('../whatsappInboxRepository');
 const { getWameApiKey } = require('./wameConfig');
-const { instanceIdFromStoredPayload, requestJson } = require('./wameService');
+const { isHouseDisplayPhone } = require('./wameHouse');
+const { requestJson } = require('./wameService');
 
 const jobs = new Map();
 
 function messageTimestamp(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'string' && /[T-]/.test(value)) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   const ms = n > 1e12 ? n : n * 1000;
@@ -34,28 +41,35 @@ function contactName(chat, phone) {
   return name.slice(0, 255);
 }
 
+function isFromMe(message) {
+  return message?.from_me === true || message?.fromMe === true;
+}
+
 function customerPhone(chatId) {
   const digits = String(chatId || '').replace(/\D/g, '');
   if (digits.length < 10 || digits.length > 20) return null;
-  if (digits === '551123050938' || digits === '551152003650') return null;
+  if (isHouseDisplayPhone(digits)) return null;
   return digits;
 }
 
 async function findInstanceId(pool, establishmentId) {
-  const result = await pool.query(
-    `SELECT m.raw_payload
-       FROM whatsapp_messages m
-       JOIN whatsapp_conversations c ON c.id = m.conversation_id
-      WHERE c.establishment_id = $1
-        AND m.raw_payload IS NOT NULL
-      ORDER BY m.created_at DESC
-      LIMIT 30`,
-    [establishmentId]
-  );
-  for (const row of result.rows) {
-    const id = instanceIdFromStoredPayload(row.raw_payload);
-    if (id) return id;
+  const { findEstablishmentWameInstanceId } = require('./wameService');
+  const remembered = await findEstablishmentWameInstanceId(pool, establishmentId);
+  if (remembered) return remembered;
+
+  const byEstEnv = String(process.env.WAME_INSTANCE_BY_ESTABLISHMENT || '').trim();
+  if (byEstEnv) {
+    try {
+      const map = JSON.parse(byEstEnv);
+      const keyed = map?.[String(establishmentId)] || map?.[establishmentId];
+      if (keyed && /^[a-z0-9]{8,40}$/i.test(String(keyed))) return String(keyed);
+    } catch (_) {
+      /* ignore JSON inválido */
+    }
   }
+
+  // Fallback só quando há uma única instância no Render.
+  // Com várias casas Wame, passe instance_id no POST /wame/import-history.
   return getWameApiKey() || null;
 }
 
@@ -79,10 +93,13 @@ async function importChat(pool, { chat, establishmentId, instanceId, maxPages = 
   const phone = customerPhone(chat.chatId);
   if (!phone) return { skipped: true };
   const name = contactName(chat, phone);
+  // touchUpdatedAt:false — histórico não pode subir conversa antiga no topo do inbox
+  // nem parecer "ativa" sem inbound real nas últimas 24h.
   const conversation = await inbox.upsertConversation(pool, {
     waId: phone,
     contactName: name,
     establishmentId,
+    touchUpdatedAt: false,
   });
   await inbox.upsertContact(pool, {
     waId: phone,
@@ -97,12 +114,17 @@ async function importChat(pool, { chat, establishmentId, instanceId, maxPages = 
   for (const message of messages) {
     const wameId = message?.id ? String(message.id) : '';
     const body = messageBody(message);
-    const createdAt = messageTimestamp(message.timestamp);
+    const createdAt =
+      messageTimestamp(message.timestamp) ||
+      messageTimestamp(message.messageTimestamp) ||
+      messageTimestamp(message.date) ||
+      messageTimestamp(message.created_at);
     if (!wameId || !body || !createdAt) continue;
     if (await inbox.hasMessageWithWameId(pool, conversation.id, wameId)) continue;
+    const fromMe = isFromMe(message);
     await inbox.insertHistoryMessage(pool, {
       conversationId: conversation.id,
-      direction: message.from_me === true ? 'outbound' : 'inbound',
+      direction: fromMe ? 'outbound' : 'inbound',
       body,
       messageType: String(message.type || 'text').slice(0, 32),
       createdAt,
@@ -110,7 +132,7 @@ async function importChat(pool, { chat, establishmentId, instanceId, maxPages = 
         source: 'wame_history',
         instance: instanceId,
         wame_message_id: wameId,
-        from_me: message.from_me === true,
+        from_me: fromMe,
         status: message.status || null,
       },
     });
@@ -141,10 +163,36 @@ async function runImport(pool, { establishmentId, instanceId, latestOnly = false
     job.inserted = inserted;
     job.failed = failed;
   }
+  // Corrige conversas desta casa que o import antigo empurrou com updated_at=NOW()
+  // sem inbound recente (parece ativa, mas o painel bloqueia por janela 24h).
+  try {
+    const fixed = await pool.query(
+      `UPDATE whatsapp_conversations c
+          SET updated_at = COALESCE(sub.last_inbound, sub.last_any)
+         FROM (
+           SELECT m.conversation_id,
+                  MAX(m.created_at) FILTER (WHERE m.direction = 'inbound') AS last_inbound,
+                  MAX(m.created_at) AS last_any
+             FROM whatsapp_messages m
+             JOIN whatsapp_conversations cx ON cx.id = m.conversation_id
+            WHERE cx.establishment_id = $1
+            GROUP BY m.conversation_id
+         ) sub
+        WHERE c.id = sub.conversation_id
+          AND c.establishment_id = $1
+          AND COALESCE(sub.last_inbound, sub.last_any) IS NOT NULL
+          AND c.updated_at > COALESCE(sub.last_inbound, sub.last_any) + INTERVAL '1 minute'`,
+      [establishmentId]
+    );
+    job.realigned = fixed.rowCount || 0;
+  } catch (error) {
+    console.warn('[wameHistory] realinhamento pós-import:', error.message);
+  }
+
   job.status = 'done';
   job.finishedAt = new Date().toISOString();
   console.log(
-    `[wameHistory] casa ${establishmentId} conversas=${job.done}/${job.total} mensagens=${inserted} falhas=${failed}`
+    `[wameHistory] casa ${establishmentId} conversas=${job.done}/${job.total} mensagens=${inserted} falhas=${failed} realinhadas=${job.realigned || 0}`
   );
 }
 

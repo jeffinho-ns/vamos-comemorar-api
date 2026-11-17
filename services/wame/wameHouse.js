@@ -4,10 +4,14 @@
  * Casa da linha oficial conectada na Wame.
  * O id da instância Wame não é o phone_number_id numérico da Meta,
  * então a casa sai do telefone exibido no webhook.
+ *
+ * Valores = legacy_place_id usado em whatsapp_conversations.establishment_id.
  */
 const DISPLAY_PHONE_TO_ESTABLISHMENT = {
-  '551123050938': 8,
-  '551152003650': 1,
+  '551123050938': 8, // Pracinha
+  '551152003650': 1, // Seu Justino
+  '551142803345': 9, // Reserva Rooftop (mesmo número também atende Pinheiros no Meta;
+  // no Agilizaiapp a linha fica na casa Rooftop — uma casa por número)
 };
 
 function digitsOnly(value) {
@@ -21,6 +25,11 @@ function normalizeDisplayPhone(value) {
     return `55${digits}`;
   }
   return digits;
+}
+
+function isHouseDisplayPhone(value) {
+  const normalized = normalizeDisplayPhone(value);
+  return Boolean(DISPLAY_PHONE_TO_ESTABLISHMENT[normalized]);
 }
 
 function establishmentFromDisplayPhone(displayPhone) {
@@ -71,6 +80,7 @@ async function resolveWameEstablishmentId(pool, payload) {
 module.exports = {
   DISPLAY_PHONE_TO_ESTABLISHMENT,
   normalizeDisplayPhone,
+  isHouseDisplayPhone,
   establishmentFromDisplayPhone,
   displayPhoneFromPayload,
   resolveWameEstablishmentId,
