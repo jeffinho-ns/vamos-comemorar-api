@@ -115,6 +115,39 @@ async function isWithinSessionWindow(pool, waId, options = {}) {
   return r.rows.length > 0;
 }
 
+function formatSaoPauloShort(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+async function closedWindowMessage(pool, conversationId) {
+  const id = Number(conversationId);
+  if (!pool || !Number.isFinite(id) || id <= 0) {
+    return 'O cliente não falou nas últimas 24 horas. A Meta só deixa o painel responder dentro desse prazo. Pelo celular do estabelecimento a resposta sai.';
+  }
+  const result = await pool.query(
+    `SELECT created_at
+       FROM whatsapp_messages
+      WHERE conversation_id = $1
+        AND direction = 'inbound'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [id]
+  );
+  const when = formatSaoPauloShort(result.rows[0]?.created_at);
+  if (!when) {
+    return 'Não há mensagem deste cliente nas últimas 24 horas. A Meta só deixa o painel responder dentro desse prazo. Pelo celular do estabelecimento a resposta sai.';
+  }
+  return `O cliente falou pela última vez em ${when}. Já passou de 24 horas, então a Meta não deixa o painel enviar texto. A resposta sai pelo celular do estabelecimento.`;
+}
+
 /**
  * Define session vs template. Bases importadas / sem conversa recente exigem template Meta.
  * @returns {Promise<'session'|'template'>}
@@ -298,6 +331,7 @@ module.exports = {
   resolveEffectiveDeliveryMode,
   formatCampaignDeliveryError,
   isWithinSessionWindow,
+  closedWindowMessage,
   campaignPreviewText,
   buildMetaTemplatePayload,
   sanitizeTemplateParameterText,

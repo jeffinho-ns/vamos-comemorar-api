@@ -25,6 +25,7 @@ const {
   defaultTemplateLanguage,
   formatCampaignDeliveryError,
   isWithinSessionWindow,
+  closedWindowMessage,
 } = require('../services/campaignDeliveryService');
 const stateManager = require('../services/stateManager/stateManager');
 const { processStuckConversationBatch } = require('../services/recoveryEngine/stuckConversationResolver');
@@ -835,9 +836,9 @@ module.exports = (pool, app) => {
     try {
       const scope = await loadUserScope(req.user);
       let conv =
-        (await inbox.getConversationByWaId(pool, normalizedTo)) ||
+        (await inbox.getConversationByWaId(pool, rawWaId)) ||
         (rawWaId !== normalizedTo
-          ? await inbox.getConversationByWaId(pool, rawWaId)
+          ? await inbox.getConversationByWaId(pool, normalizedTo)
           : null);
       if (!conv) {
         if (!scope.isAdmin) {
@@ -859,8 +860,7 @@ module.exports = (pool, app) => {
       if (!inSessionWindow) {
         return res.status(400).json({
           code: 'OUTSIDE_24H_WINDOW',
-          message:
-            'Este cliente está fora da janela de 24h da Meta. Para receber texto livre, ele precisa ter enviado uma mensagem nas últimas 24 horas. Peça para ele mandar um "oi" no WhatsApp ou use campanha com template aprovado.',
+          message: await closedWindowMessage(pool, conv.id),
         });
       }
 
@@ -1004,9 +1004,9 @@ module.exports = (pool, app) => {
       try {
         const scope = await loadUserScope(req.user);
         let conv =
-          (await inbox.getConversationByWaId(pool, normalizedTo)) ||
+          (await inbox.getConversationByWaId(pool, rawWaId)) ||
           (rawWaId !== normalizedTo
-            ? await inbox.getConversationByWaId(pool, rawWaId)
+            ? await inbox.getConversationByWaId(pool, normalizedTo)
             : null);
         if (!conv) {
           if (!scope.isAdmin) {
@@ -1028,8 +1028,7 @@ module.exports = (pool, app) => {
         if (!inSessionWindow) {
           return res.status(400).json({
             code: 'OUTSIDE_24H_WINDOW',
-            message:
-              'Este cliente está fora da janela de 24h da Meta. Para receber mídia livre, ele precisa ter enviado uma mensagem nas últimas 24 horas.',
+            message: await closedWindowMessage(pool, conv.id),
           });
         }
 

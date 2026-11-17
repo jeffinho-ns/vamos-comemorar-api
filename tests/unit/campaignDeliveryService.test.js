@@ -94,6 +94,17 @@ test('formatCampaignDeliveryError traduz template inexistente', () => {
   assert.match(msg, /Template Meta não encontrado/);
 });
 
+test('closedWindowMessage cita o horário da última fala do cliente', async () => {
+  const { closedWindowMessage } = require('../../services/campaignDeliveryService');
+  const pool = {
+    query: async () => ({ rows: [{ created_at: '2026-11-14T17:11:54.000Z' }] }),
+  };
+  const message = await closedWindowMessage(pool, 10);
+  assert.match(message, /14\/11/);
+  assert.match(message, /14:11/);
+  assert.match(message, /celular/);
+});
+
 test('isWithinSessionWindow usa conversation_id quando informado', async () => {
   const calls = [];
   const pool = {
