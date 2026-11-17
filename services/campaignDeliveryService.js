@@ -171,6 +171,12 @@ function formatCampaignDeliveryError(error) {
       detail
     );
   }
+  if (/janela de atendimento de 24h/i.test(detail)) {
+    return (
+      'A Wame não entregou: a janela de 24h está fechada neste número. ' +
+      'Se o cliente acabou de escrever, tente de novo. Se a conversa for antiga, responda pelo celular do estabelecimento.'
+    );
+  }
   if (code === 131047 || code === 131026) {
     return (
       'A Meta bloqueou o envio: contato fora da janela de 24h ou número inválido. ' +

@@ -32,6 +32,24 @@ describe('wameService', () => {
     assert.equal(providerMessageId({ status: 400 }), null);
   });
 
+  it('acha a instância da casa quando a conversa só tem histórico', async () => {
+    const { findEstablishmentWameInstanceId } = require('../../services/wame/wameService');
+    const pool = {
+      query: async () => ({
+        rows: [{
+          raw_payload: {
+            entry: [{
+              changes: [{
+                value: { metadata: { phone_number_id: 'justinoKey1' } },
+              }],
+            }],
+          },
+        }],
+      }),
+    };
+    assert.equal(await findEstablishmentWameInstanceId(pool, 1), 'justinoKey1');
+  });
+
   it('rejeita destinatário curto', () => {
     assert.throws(() => normalizeRecipient('119999'), /inválido/i);
   });

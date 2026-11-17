@@ -108,6 +108,7 @@ async function importChat(pool, { chat, establishmentId, instanceId }) {
       createdAt,
       rawPayload: {
         source: 'wame_history',
+        instance: instanceId,
         wame_message_id: wameId,
         from_me: message.from_me === true,
         status: message.status || null,

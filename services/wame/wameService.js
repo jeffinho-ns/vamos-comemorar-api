@@ -119,6 +119,42 @@ function instanceIdFromStoredPayload(raw) {
   return String(id);
 }
 
+const establishmentInstanceCache = new Map();
+
+function rememberEstablishmentInstance(establishmentId, instanceId) {
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0 || !instanceId) return;
+  establishmentInstanceCache.set(id, {
+    value: String(instanceId),
+    expires: Date.now() + 10 * 60 * 1000,
+  });
+}
+
+async function findEstablishmentWameInstanceId(pool, establishmentId) {
+  const id = Number(establishmentId);
+  if (!pool || !Number.isFinite(id) || id <= 0) return null;
+  const cached = establishmentInstanceCache.get(id);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const result = await pool.query(
+    `SELECT m.raw_payload
+       FROM whatsapp_messages m
+       JOIN whatsapp_conversations c ON c.id = m.conversation_id
+      WHERE c.establishment_id = $1
+        AND m.raw_payload IS NOT NULL
+        AND (
+          COALESCE(m.raw_payload->'entry'->0->'changes'->0->'value'->'metadata'->>'phone_number_id', '') ~ '[A-Za-z]'
+          OR COALESCE(m.raw_payload->>'instance', '') ~ '[A-Za-z]'
+        )
+      ORDER BY m.created_at DESC
+      LIMIT 1`,
+    [id],
+  );
+  const instanceId = instanceIdFromStoredPayload(result.rows[0]?.raw_payload);
+  if (instanceId) rememberEstablishmentInstance(id, instanceId);
+  return instanceId;
+}
+
 async function requestJson(key, pathAndQuery) {
   if (!key) throw new Error('Instância Wame não informada.');
   let lastError = null;
@@ -149,5 +185,7 @@ module.exports = {
   normalizeRecipient,
   providerMessageId,
   instanceIdFromStoredPayload,
+  findEstablishmentWameInstanceId,
+  rememberEstablishmentInstance,
   requestJson,
 };

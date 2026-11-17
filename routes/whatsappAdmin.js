@@ -34,6 +34,7 @@ const { isWameOutboundEnabled } = require('../services/wame/wameConfig');
 const {
   providerMessageId,
   instanceIdFromStoredPayload,
+  findEstablishmentWameInstanceId,
 } = require('../services/wame/wameService');
 const {
   getWhatsappHighlineOnlyEstablishmentIds,
@@ -881,7 +882,8 @@ module.exports = (pool, app) => {
         );
         const instanceId = recentPayloads.rows
           .map((row) => instanceIdFromStoredPayload(row.raw_payload))
-          .find(Boolean) || null;
+          .find(Boolean)
+          || await findEstablishmentWameInstanceId(pool, conv.establishment_id);
         sentViaWame = isWameOutboundEnabled() || Boolean(instanceId);
         sendResult = await runWithWame({ enabled: sentViaWame, instanceId }, () =>
           runWithWhatsappLine(lineContext, () => sendMessage(normalizedTo, text))
