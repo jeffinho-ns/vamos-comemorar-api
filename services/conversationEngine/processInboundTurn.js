@@ -428,6 +428,25 @@ async function processLegacyInboundTurn({
     linkedEstablishment?.id ||
     (Number.isFinite(Number(conversation?.establishment_id)) ? Number(conversation.establishment_id) : null);
 
+  if (usedPersistence && conversation?.id && !proactiveResume) {
+    try {
+      const { shouldSilenceParkedCustomer } = require('../whatsapp/newCustomerAiGate');
+      if (
+        await shouldSilenceParkedCustomer(pool, {
+          establishmentId: lockedEstablishmentId,
+          conversationId: conversation.id,
+        })
+      ) {
+        console.log(
+          `[conversationEngine] conversa anterior ao corte establishment_id=${lockedEstablishmentId || 'n/a'} waId=${waId} — IA só atende número novo.`
+        );
+        return;
+      }
+    } catch (parkedError) {
+      console.warn('[conversationEngine] falha ao avaliar conversa parada:', parkedError.message);
+    }
+  }
+
   if (usedPersistence && conversation?.id) {
     try {
       conversationState = await stateManager.ensureSession(pool, {

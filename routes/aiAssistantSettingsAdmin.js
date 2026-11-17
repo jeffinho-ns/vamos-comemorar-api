@@ -9,11 +9,7 @@ const {
   getSettingsForAdmin,
   invalidateSettingsCache,
 } = require('../services/agent/assistantSettingsService');
-const {
-  didEnableHouseAi,
-  releaseAutomaticHousePauses,
-  answerUnansweredHouseConversations,
-} = require('../services/whatsapp/resumeHouseAi');
+const { didEnableHouseAi } = require('../services/whatsapp/resumeHouseAi');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 
@@ -207,26 +203,27 @@ module.exports = (pool, app) => {
           payload.ai_globally_enabled === true
         );
         if (turnedOn) {
-          try {
-            const released = await releaseAutomaticHousePauses(pool, establishmentId);
-            if (released.length) {
-              console.log(
-                `[ai-settings] pausa automática liberada establishment_id=${establishmentId} waIds=${released.join(',')}`
-              );
-            }
-          } catch (releaseError) {
-            console.error('[ai-settings] falha ao liberar pausa automática:', releaseError.message);
-          }
+          const cutoff = new Date().toISOString();
+          await pool.query(
+            `UPDATE ai_assistant_settings
+                SET behavior_config = COALESCE(behavior_config, '{}'::jsonb) || $2::jsonb,
+                    updated_at = NOW()
+              WHERE establishment_id = $1`,
+            [
+              establishmentId,
+              JSON.stringify({
+                responder_apenas_numeros_novos: true,
+                ai_reply_after: cutoff,
+              }),
+            ]
+          );
+          invalidateSettingsCache(establishmentId);
+          console.log(
+            `[ai-settings] IA ligada só para números novos establishment_id=${establishmentId} after=${cutoff}`
+          );
         }
-        res.json({ success: true, data: result.rows[0] });
-        if (turnedOn) {
-          setImmediate(() => {
-            answerUnansweredHouseConversations(pool, app, establishmentId).catch((error) => {
-              console.error('[ai-settings] falha ao retomar respostas:', error.message);
-            });
-          });
-        }
-        return;
+        const saved = await getSettingsForAdmin(pool, establishmentId);
+        return res.json({ success: true, data: saved });
       } catch (error) {
         console.error('[ai-settings] update:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao salvar configurações da IA.' });

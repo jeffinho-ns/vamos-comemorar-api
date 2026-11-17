@@ -436,6 +436,18 @@ async function processAgentInboundTurn({
         );
         return;
       }
+      const { shouldSilenceParkedCustomer } = require('../whatsapp/newCustomerAiGate');
+      if (
+        await shouldSilenceParkedCustomer(pool, {
+          establishmentId: lockedEstablishmentId,
+          conversationId: conversation?.id,
+        })
+      ) {
+        console.log(
+          `[agentEngine] conversa anterior ao corte establishment_id=${lockedEstablishmentId} waId=${senderDigits} — IA só atende número novo.`
+        );
+        return;
+      }
     } catch (gateError) {
       console.warn('[agentEngine] falha ao avaliar gate de IA:', gateError.message);
     }
