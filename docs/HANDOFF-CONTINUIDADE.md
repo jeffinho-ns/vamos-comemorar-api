@@ -74,7 +74,13 @@ WHATSAPP_OUTBOUND_PROVIDER=wame
 Opcional: `WAME_WEBHOOK_TOKEN`, `WAME_DEFAULT_ESTABLISHMENT_ID`,  
 `WAME_INSTANCE_BY_ESTABLISHMENT={"1":"<key Justino>","8":"<key Pracinha>","9":"<key Rooftop>"}`.
 
-**Várias instâncias Wame:** cada casa tem a própria Key. O webhook grava a key por `establishment_id`. Histórico: `POST /api/admin/whatsapp/wame/import-history` com `{ "establishment_id": 9, "instance_id": "<key da instância Rooftop>" }`.
+**Várias instâncias Wame:** cada casa tem a própria Key. O webhook grava a key por `establishment_id`.
+
+**Histórico (oficial/coexistência):** conectar o número **não** traz o passado sozinho. Em até ~24h do onboarding:
+1. `POST /api/admin/whatsapp/wame/official-sync` com `{ "establishment_id": 9, "instance_id": "<key Rooftop>" }`  
+   (ou na Wame: `POST /{key}/instance/official/sync`)
+2. A Meta manda lotes no webhook (`field=history`) — o Agilizaiapp grava sem acionar a Sol.
+3. Depois: `POST /api/admin/whatsapp/wame/import-history` com a mesma key para espelhar o que a Wame já armazenou.
 
 **Manter** as vars Meta (`WHATSAPP_ACCESS_TOKEN`, `PHONE_NUMBER_ID`, secrets, etc.) — voltam quando desligar a ponte.
 

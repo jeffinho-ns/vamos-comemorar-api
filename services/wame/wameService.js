@@ -211,6 +211,52 @@ async function requestJson(key, pathAndQuery) {
   throw lastError || new Error('Falha ao consultar a Wame.');
 }
 
+async function postJson(key, pathAndQuery, body = {}) {
+  if (!key) throw new Error('Instância Wame não informada.');
+  let lastError = null;
+  for (const server of serverCandidates()) {
+    try {
+      const response = await fetch(`${server}/${encodeURIComponent(key)}/${pathAndQuery}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+        signal: AbortSignal.timeout(30000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(
+          `Falha ao chamar a Wame (${pathAndQuery}): ${response.status}`
+        );
+        error.status = response.status;
+        error.body = payload;
+        throw error;
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
+      throw error;
+    }
+  }
+  throw lastError || new Error('Falha ao chamar a Wame.');
+}
+
+/**
+ * Pede à Meta o histórico de coexistência (até ~180 dias).
+ * Só funciona 1x por onboarding e em geral dentro de 24h da conexão.
+ */
+async function requestOfficialHistorySync(instanceId, { force = false } = {}) {
+  const path = force
+    ? 'instance/official/sync?force=true'
+    : 'instance/official/sync';
+  return postJson(instanceId, path, {});
+}
+
+async function getOfficialHistorySyncStatus(instanceId) {
+  return requestJson(instanceId, 'instance/official/sync');
+}
+
 module.exports = {
   sendText,
   normalizeRecipient,
@@ -221,4 +267,7 @@ module.exports = {
   rememberEstablishmentInstance,
   isClosedWindowError,
   requestJson,
+  postJson,
+  requestOfficialHistorySync,
+  getOfficialHistorySyncStatus,
 };

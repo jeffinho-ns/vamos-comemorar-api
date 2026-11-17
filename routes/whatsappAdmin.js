@@ -2098,5 +2098,63 @@ module.exports = (pool, app) => {
     }
   });
 
+  /**
+   * Pede à Meta o histórico de coexistência (até ~6 meses).
+   * Precisa ser feito em até ~24h após conectar o número na Wame.
+   * Depois a Meta manda lotes no webhook (field=history) e o painel espelha.
+   */
+  router.post('/wame/official-sync', async (req, res) => {
+    const establishmentId = Number(req.body?.establishment_id);
+    if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+      return res.status(400).json({ message: 'establishment_id inválido' });
+    }
+    try {
+      const scope = await loadUserScope(req.user);
+      if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
+        return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const { findInstanceId } = require('../services/wame/wameHistoryImport');
+      const {
+        requestOfficialHistorySync,
+        getOfficialHistorySyncStatus,
+        rememberEstablishmentInstance,
+      } = require('../services/wame/wameService');
+      const requestedInstance = String(req.body?.instance_id || '').trim();
+      const instanceId = /^[a-z0-9]{8,40}$/i.test(requestedInstance)
+        ? requestedInstance
+        : await findInstanceId(pool, establishmentId);
+      if (!instanceId) {
+        return res.status(400).json({
+          message:
+            'Instância Wame desta casa não encontrada. Passe instance_id (a Key da instância Rooftop).',
+        });
+      }
+      rememberEstablishmentInstance(establishmentId, instanceId);
+      const force = req.body?.force === true;
+      const sync = await requestOfficialHistorySync(instanceId, { force });
+      let status = null;
+      try {
+        status = await getOfficialHistorySyncStatus(instanceId);
+      } catch (_) {
+        /* status é opcional */
+      }
+      return res.json({
+        ok: true,
+        establishment_id: establishmentId,
+        instance_id: instanceId,
+        sync,
+        status,
+        note:
+          'A Meta envia o histórico em lotes no webhook. Em alguns minutos rode de novo o import-history se quiser espelhar o que já entrou no armazenamento da Wame.',
+      });
+    } catch (error) {
+      console.error('[whatsappAdmin] wame official-sync:', error);
+      return res.status(500).json({
+        message: error.message || 'Erro ao pedir o sync oficial de histórico',
+        detail: error.body || null,
+      });
+    }
+  });
+
   return router;
 };

@@ -121,6 +121,21 @@ module.exports = (pool, app) => {
     }
 
     const field = String(firstChange(payload)?.field || '');
+    if (field === 'history') {
+      try {
+        const { persistHistoryPayload } = require('../services/wame/wameCoexistenceHistory');
+        await persistHistoryPayload(pool, payload);
+      } catch (error) {
+        console.error('[Wame webhook] histórico de coexistência não gravado:', error.message);
+      }
+      return res.sendStatus(200);
+    }
+
+    if (field === 'smb_app_state_sync') {
+      console.log('[Wame webhook] sync de contatos recebido (smb_app_state_sync)');
+      return res.sendStatus(200);
+    }
+
     if (field && field !== 'messages') {
       return res.sendStatus(200);
     }
