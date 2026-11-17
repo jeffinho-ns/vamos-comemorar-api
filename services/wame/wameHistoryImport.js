@@ -59,10 +59,10 @@ async function findInstanceId(pool, establishmentId) {
   return getWameApiKey() || null;
 }
 
-async function listChatMessages(instanceId, chatId) {
+async function listChatMessages(instanceId, chatId, maxPages = 5) {
   const messages = [];
   let page = 1;
-  while (page <= 5) {
+  while (page <= maxPages) {
     const payload = await requestJson(
       instanceId,
       `chat/messages?chatId=${encodeURIComponent(chatId)}&page=${page}&limit=50`
@@ -75,7 +75,7 @@ async function listChatMessages(instanceId, chatId) {
   return messages;
 }
 
-async function importChat(pool, { chat, establishmentId, instanceId }) {
+async function importChat(pool, { chat, establishmentId, instanceId, maxPages = 5 }) {
   const phone = customerPhone(chat.chatId);
   if (!phone) return { skipped: true };
   const name = contactName(chat, phone);
@@ -92,7 +92,7 @@ async function importChat(pool, { chat, establishmentId, instanceId }) {
     sourceChannel: 'WHATSAPP',
   });
 
-  const messages = await listChatMessages(instanceId, chat.chatId);
+  const messages = await listChatMessages(instanceId, chat.chatId, maxPages);
   let inserted = 0;
   for (const message of messages) {
     const wameId = message?.id ? String(message.id) : '';
@@ -120,17 +120,18 @@ async function importChat(pool, { chat, establishmentId, instanceId }) {
   return { skipped: false, inserted };
 }
 
-async function runImport(pool, { establishmentId, instanceId }) {
+async function runImport(pool, { establishmentId, instanceId, latestOnly = false }) {
   const job = jobs.get(establishmentId);
   const listed = await requestJson(instanceId, 'chat?provider=whatsapp');
   const chats = Array.isArray(listed.chats) ? listed.chats : [];
   job.total = chats.length;
   let inserted = 0;
   let failed = 0;
+  const maxPages = latestOnly ? 1 : 5;
   for (const chat of chats) {
     if (job.cancelled) break;
     try {
-      const result = await importChat(pool, { chat, establishmentId, instanceId });
+      const result = await importChat(pool, { chat, establishmentId, instanceId, maxPages });
       if (!result.skipped) inserted += result.inserted;
     } catch (error) {
       failed += 1;
@@ -147,7 +148,7 @@ async function runImport(pool, { establishmentId, instanceId }) {
   );
 }
 
-function startWameHistoryImport(pool, { establishmentId, instanceId }) {
+function startWameHistoryImport(pool, { establishmentId, instanceId, latestOnly = false }) {
   const current = jobs.get(establishmentId);
   if (current && current.status === 'running') return current;
   const job = {
@@ -161,10 +162,11 @@ function startWameHistoryImport(pool, { establishmentId, instanceId }) {
     startedAt: new Date().toISOString(),
     finishedAt: null,
     cancelled: false,
+    latestOnly: latestOnly === true,
   };
   jobs.set(establishmentId, job);
   setImmediate(() => {
-    runImport(pool, { establishmentId, instanceId }).catch((error) => {
+    runImport(pool, { establishmentId, instanceId, latestOnly: job.latestOnly }).catch((error) => {
       job.status = 'error';
       job.lastError = error.message;
       job.finishedAt = new Date().toISOString();

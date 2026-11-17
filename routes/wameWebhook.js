@@ -106,7 +106,17 @@ module.exports = (pool, app) => {
       return res.sendStatus(200);
     }
 
-    if (isStatusOnly(payload) || isFromMe(payload)) {
+    if (isStatusOnly(payload)) {
+      return res.sendStatus(200);
+    }
+
+    if (isFromMe(payload) || String(firstChange(payload)?.field || '') === 'smb_message_echoes') {
+      try {
+        const { persistPhoneReply } = require('../services/wame/wamePhoneReply');
+        await persistPhoneReply(pool, app, payload);
+      } catch (error) {
+        console.error('[Wame webhook] resposta do celular não gravada:', error.message);
+      }
       return res.sendStatus(200);
     }
 

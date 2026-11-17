@@ -2063,7 +2063,11 @@ module.exports = (pool, app) => {
       if (!instanceId) {
         return res.status(400).json({ message: 'Instância Wame desta casa não encontrada.' });
       }
-      const job = startWameHistoryImport(pool, { establishmentId, instanceId });
+      const job = startWameHistoryImport(pool, {
+        establishmentId,
+        instanceId,
+        latestOnly: req.body?.latest_only === true,
+      });
       return res.json({ ok: true, job });
     } catch (error) {
       console.error('[whatsappAdmin] wame import:', error);
