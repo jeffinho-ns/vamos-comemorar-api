@@ -8,6 +8,7 @@ const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 const { canonicalizeAdminFaqTopic } = require('../services/agent/faqTopicCanonical');
 const { invalidateFaqCache } = require('../services/agent/faqPrefetchService');
+const { runFaqReadTest } = require('../services/agent/faqSandbox');
 
 function normalizeTopic(topic) {
   const raw = String(topic || '')
@@ -95,6 +96,47 @@ module.exports = (pool) => {
       } catch (error) {
         console.error('[establishment-faqs] list:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao listar FAQs.' });
+      }
+    }
+  );
+
+  router.post(
+    '/establishments/:id/faqs/test',
+    auth,
+    authorize(...ADMIN_ROLES),
+    async (req, res) => {
+      try {
+        const establishmentId = parseEstablishmentId(req.params.id);
+        if (!establishmentId) {
+          return res.status(400).json({ success: false, message: 'ID de estabelecimento inválido.' });
+        }
+        if (!(await establishmentExists(pool, establishmentId))) {
+          return res.status(404).json({ success: false, message: 'Estabelecimento não encontrado.' });
+        }
+        const message = String(req.body?.message || '').trim();
+        if (!message || message.length > 500) {
+          return res.status(400).json({
+            success: false,
+            message: 'Escreva uma pergunta de até 500 caracteres.',
+          });
+        }
+        const data = await runFaqReadTest(pool, {
+          establishmentId,
+          message,
+          simulatedDate: req.body?.simulated_date,
+          focusTopic: req.body?.focus_topic,
+          history: req.body?.history,
+        });
+        return res.json({ success: true, data });
+      } catch (error) {
+        console.error('[establishment-faqs] test:', error.message);
+        const missingKey = /OPENAI_API_KEY/.test(String(error.message || ''));
+        return res.status(missingKey ? 503 : 500).json({
+          success: false,
+          message: missingKey
+            ? 'A IA de teste não está configurada neste ambiente.'
+            : 'Não foi possível testar a informação agora.',
+        });
       }
     }
   );
