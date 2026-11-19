@@ -17,12 +17,23 @@ function formatSandboxDate(isoDate) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
-function buildSandboxQuestion(message, simulatedDate) {
+function formatSandboxTime(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return '';
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return '';
+  return `${match[1]}:${match[2]}`;
+}
+
+function buildSandboxQuestion(message, simulatedDate, simulatedTime) {
   const question = String(message || '').trim();
-  const label = formatSandboxDate(simulatedDate);
   if (!question) return '';
-  if (!label) return question;
-  return `Hoje é ${label}. ${question}`;
+  const dateLabel = formatSandboxDate(simulatedDate);
+  const timeLabel = formatSandboxTime(simulatedTime) || (dateLabel ? '12:00' : '');
+  if (!dateLabel && !formatSandboxTime(simulatedTime)) return question;
+  if (dateLabel && timeLabel) return `Hoje é ${dateLabel}, agora são ${timeLabel}. ${question}`;
+  return `Agora são ${timeLabel}. ${question}`;
 }
 
 function summarizeFaqRead(entries, focusTopic) {
@@ -48,7 +59,7 @@ async function loadEstablishmentName(pool, establishmentId) {
  */
 async function runFaqReadTest(pool, input = {}) {
   const establishmentId = Number(input.establishmentId);
-  const question = buildSandboxQuestion(input.message, input.simulatedDate);
+  const question = buildSandboxQuestion(input.message, input.simulatedDate, input.simulatedTime);
   const focusTopic = String(input.focusTopic || '').trim();
   const history = (Array.isArray(input.history) ? input.history : [])
     .slice(-6)
@@ -118,6 +129,7 @@ async function runFaqReadTest(pool, input = {}) {
 }
 
 module.exports = {
+  formatSandboxTime,
   buildSandboxQuestion,
   summarizeFaqRead,
   runFaqReadTest,

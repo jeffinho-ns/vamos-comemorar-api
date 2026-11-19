@@ -5,9 +5,13 @@ const { buildSandboxQuestion, summarizeFaqRead } = require('../../services/agent
 test('buildSandboxQuestion inclui a data simulada na pergunta lida pela IA', () => {
   assert.equal(
     buildSandboxQuestion('o que tem hoje?', '2026-11-19'),
-    'Hoje é 19/11/2026. o que tem hoje?'
+    'Hoje é 19/11/2026, agora são 12:00. o que tem hoje?'
   );
-  assert.equal(buildSandboxQuestion('tem estacionamento?', ''), 'tem estacionamento?');
+  assert.equal(
+    buildSandboxQuestion('ainda está aberto?', '', '22:30'),
+    'Agora são 22:30. ainda está aberto?'
+  );
+  assert.equal(buildSandboxQuestion('tem estacionamento?', '', ''), 'tem estacionamento?');
 });
 
 test('summarizeFaqRead só considera informação cadastrada, sem texto padrão', () => {

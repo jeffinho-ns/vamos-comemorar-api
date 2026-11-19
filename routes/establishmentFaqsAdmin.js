@@ -124,6 +124,7 @@ module.exports = (pool) => {
           establishmentId,
           message,
           simulatedDate: req.body?.simulated_date,
+          simulatedTime: req.body?.simulated_time,
           focusTopic: req.body?.focus_topic,
           history: req.body?.history,
         });
