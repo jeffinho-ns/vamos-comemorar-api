@@ -10,6 +10,7 @@
 const DISPLAY_PHONE_TO_ESTABLISHMENT = {
   '551123050938': 8, // Pracinha
   '551152003650': 1, // Seu Justino
+  '551130322934': 7, // Highline
   '551142803345': 9, // Reserva Rooftop (mesmo número também atende Pinheiros no Meta;
   // no Agilizaiapp a linha fica na casa Rooftop — uma casa por número)
 };
