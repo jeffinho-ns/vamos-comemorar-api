@@ -155,8 +155,8 @@ module.exports = (pool, app) => {
     try {
       const dedupResult = await messageDedup.claimInboundMessage(pool, wamid, waId);
       if (dedupResult.duplicate) {
-        console.log('[Wame webhook] wamid duplicado ignorado:', wamid);
-        return res.sendStatus(200);
+      console.log(JSON.stringify({ scope: 'wame', event: 'wame_webhook_duplicate' }));
+      return res.sendStatus(200);
       }
     } catch (dedupError) {
       console.warn('[Wame webhook] deduplicação indisponível:', dedupError.message);
@@ -166,6 +166,7 @@ module.exports = (pool, app) => {
       enabled: true,
       instanceId: instanceId ? String(instanceId) : null,
       quotedMessageId: wamid || null,
+      establishmentId: Number.isFinite(hintedEstablishmentId) ? hintedEstablishmentId : null,
     };
     if (instanceId && /[a-z]/i.test(String(instanceId)) && Number.isFinite(hintedEstablishmentId)) {
       const { rememberEstablishmentInstance } = require('../services/wame/wameService');
@@ -192,11 +193,19 @@ module.exports = (pool, app) => {
           });
         }),
       );
-      console.log(
-        `[Wame webhook] turno concluído waId=${waId} wamid=${wamid || 'sem-id'} instance=${instanceId || 'n/a'} ms=${Date.now() - startedAt}`,
-      );
+      const { maskSecret, safeLog } = require('../services/wame/wameService');
+      safeLog('info', 'wame_webhook_turn_ok', {
+        establishmentId: Number.isFinite(hintedEstablishmentId) ? hintedEstablishmentId : null,
+        instanceHint: maskSecret(instanceId),
+        hasWamid: Boolean(wamid),
+        ms: Date.now() - startedAt,
+      });
     } catch (error) {
-      console.error('[Wame webhook] erro no turno:', error.message);
+      const { safeLog } = require('../services/wame/wameService');
+      safeLog('error', 'wame_webhook_turn_error', {
+        establishmentId: Number.isFinite(hintedEstablishmentId) ? hintedEstablishmentId : null,
+        errorName: error?.name || 'Error',
+      });
     }
 
     return res.sendStatus(200);

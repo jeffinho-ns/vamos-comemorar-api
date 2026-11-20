@@ -74,8 +74,21 @@ async function resolveWameEstablishmentId(pool, payload) {
     console.warn('[Wame] lookup da linha falhou:', error.message);
   }
 
+  // Fallback global só quando o telefone da casa não veio no payload.
+  // Com multi-tenant, preferir mapear DISPLAY_PHONE_TO_ESTABLISHMENT / whatsapp_phone_lines.
   const envDefault = Number(process.env.WAME_DEFAULT_ESTABLISHMENT_ID);
-  return Number.isFinite(envDefault) && envDefault > 0 ? envDefault : null;
+  if (Number.isFinite(envDefault) && envDefault > 0) {
+    console.warn(
+      JSON.stringify({
+        scope: 'wame',
+        event: 'wame_house_default_establishment_fallback',
+        establishmentId: envDefault,
+        hasDisplayPhone: Boolean(displayPhone),
+      }),
+    );
+    return envDefault;
+  }
+  return null;
 }
 
 module.exports = {

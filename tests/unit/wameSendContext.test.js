@@ -8,6 +8,8 @@ const { runWithWame } = require('../../services/wame/wameContext');
 
 describe('wameSendContext', () => {
   it('usa a instância da casa e cita a última mensagem do cliente', async () => {
+    const prevMap = process.env.WAME_INSTANCE_BY_ESTABLISHMENT;
+    delete process.env.WAME_INSTANCE_BY_ESTABLISHMENT;
     const pool = {
       query: async () => ({
         rows: [
@@ -22,9 +24,33 @@ describe('wameSendContext', () => {
         ],
       }),
     };
-    const ctx = await loadWameSendContext(pool, { conversationId: 10, establishmentId: 1 });
-    assert.equal(ctx.instanceId, 'justinoKey1');
-    assert.equal(ctx.quotedMessageId, 'wamid.hoje');
+    try {
+      const ctx = await loadWameSendContext(pool, { conversationId: 10, establishmentId: 1 });
+      assert.equal(ctx.instanceId, 'justinoKey1');
+      assert.equal(ctx.quotedMessageId, 'wamid.hoje');
+      assert.equal(ctx.establishmentId, 1);
+    } finally {
+      if (prevMap == null) delete process.env.WAME_INSTANCE_BY_ESTABLISHMENT;
+      else process.env.WAME_INSTANCE_BY_ESTABLISHMENT = prevMap;
+    }
+  });
+
+  it('prioriza o mapa explícito da casa sobre o histórico da conversa', async () => {
+    const prevMap = process.env.WAME_INSTANCE_BY_ESTABLISHMENT;
+    process.env.WAME_INSTANCE_BY_ESTABLISHMENT = JSON.stringify({ 1: 'mappedKey99' });
+    const pool = {
+      query: async () => ({
+        rows: [{ direction: 'outbound', raw_payload: { instance: 'oldKeyFromChat' } }],
+      }),
+    };
+    try {
+      const ctx = await loadWameSendContext(pool, { conversationId: 10, establishmentId: 1 });
+      assert.equal(ctx.instanceId, 'mappedKey99');
+      assert.equal(ctx.source, 'env_map');
+    } finally {
+      if (prevMap == null) delete process.env.WAME_INSTANCE_BY_ESTABLISHMENT;
+      else process.env.WAME_INSTANCE_BY_ESTABLISHMENT = prevMap;
+    }
   });
 
   it('envia citando o id que veio no contexto da conversa', async () => {
