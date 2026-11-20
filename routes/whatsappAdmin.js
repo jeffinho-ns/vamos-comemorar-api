@@ -2057,6 +2057,24 @@ module.exports = (pool, app) => {
       if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
         return res.status(403).json({ message: 'Sem permissão' });
       }
+      const { assertSensitiveOpAllowed } = require('../services/wame/wameCoexistenceGuard');
+      try {
+        assertSensitiveOpAllowed({
+          op: 'import_history',
+          establishmentId,
+          req,
+          actorUserId: req.user?.id,
+        });
+      } catch (guardError) {
+        if (guardError?.code === 'WAME_COEXISTENCE_BLOCKED') {
+          return res.status(403).json({
+            message: guardError.message,
+            code: guardError.code,
+            op: guardError.op,
+          });
+        }
+        throw guardError;
+      }
       const {
         findInstanceId,
         startWameHistoryImport,
@@ -2112,6 +2130,24 @@ module.exports = (pool, app) => {
       const scope = await loadUserScope(req.user);
       if (!scope.isAdmin && !canAccessEstablishment(scope, establishmentId)) {
         return res.status(403).json({ message: 'Sem permissão' });
+      }
+      const { assertSensitiveOpAllowed } = require('../services/wame/wameCoexistenceGuard');
+      try {
+        assertSensitiveOpAllowed({
+          op: 'official_sync',
+          establishmentId,
+          req,
+          actorUserId: req.user?.id,
+        });
+      } catch (guardError) {
+        if (guardError?.code === 'WAME_COEXISTENCE_BLOCKED') {
+          return res.status(403).json({
+            message: guardError.message,
+            code: guardError.code,
+            op: guardError.op,
+          });
+        }
+        throw guardError;
       }
       const { findInstanceId } = require('../services/wame/wameHistoryImport');
       const {

@@ -107,6 +107,23 @@ module.exports = (pool, app) => {
     }
 
     if (isStatusOnly(payload)) {
+      const field = String(firstChange(payload)?.field || '');
+      if (field === 'connection') {
+        try {
+          const {
+            observeConnectionEvent,
+            detectIntegrationTypeFromPayload,
+          } = require('../services/wame/wameCoexistenceGuard');
+          const establishmentId = await resolveWameEstablishmentId(pool, payload);
+          observeConnectionEvent({
+            establishmentId,
+            payload,
+            integrationType: detectIntegrationTypeFromPayload(payload),
+          });
+        } catch (error) {
+          console.warn('[Wame webhook] falha ao auditar connection:', error.message);
+        }
+      }
       return res.sendStatus(200);
     }
 
@@ -166,6 +183,7 @@ module.exports = (pool, app) => {
       enabled: true,
       instanceId: instanceId ? String(instanceId) : null,
       quotedMessageId: wamid || null,
+      establishmentId: Number.isFinite(hintedEstablishmentId) ? hintedEstablishmentId : null,
     };
     if (instanceId && /[a-z]/i.test(String(instanceId)) && Number.isFinite(hintedEstablishmentId)) {
       const { rememberEstablishmentInstance } = require('../services/wame/wameService');
