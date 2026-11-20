@@ -6,8 +6,25 @@ async function sendText(to, text, meta = {}) {
   if (!to || !text) return { delivered: false, reason: 'invalid_payload' };
   const { currentWhatsappLine } = require('../whatsapp/whatsappLineContext');
   const { parseScopedWaId } = require('../whatsapp/whatsappPhoneLineService');
+  const { currentWame } = require('../wame/wameContext');
+  const { shouldSuspendSolOutbound } = require('../wame/wameCoexistenceFlags');
+  const { auditSensitiveOp } = require('../wame/wameSensitiveOpAudit');
   const phoneNumberId =
     currentWhatsappLine()?.phoneNumberId || parseScopedWaId(to)?.phoneNumberId || null;
+  const establishmentId =
+    Number(currentWame()?.establishmentId) ||
+    Number(currentWhatsappLine()?.establishmentId) ||
+    Number(meta?.establishmentId) ||
+    null;
+  if (shouldSuspendSolOutbound(establishmentId)) {
+    auditSensitiveOp({
+      op: 'sol_outbound_suspended',
+      establishmentId,
+      outcome: 'blocked',
+      detail: { channel: 'outboundGateway.sendText' },
+    });
+    return { delivered: false, reason: 'sol_outbound_suspended' };
+  }
 
   if (isQueueEnabled() && process.env.BULLMQ_WHATSAPP_INLINE !== 'true') {
     const result = await enqueueWhatsAppOutbound({
