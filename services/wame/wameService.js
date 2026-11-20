@@ -4,6 +4,10 @@ const {
   getWameApiKey,
   getWameServerUrl,
   isWameConfigured,
+  isLikelyWameInstanceKey,
+  resolveMappedInstanceForEstablishment,
+  resolveMappedServerForInstance,
+  normalizeServerUrl,
 } = require('./wameConfig');
 const { currentWame } = require('./wameContext');
 
@@ -12,6 +16,11 @@ const FALLBACK_SERVERS = [
   'https://server.api-wa.me',
   'https://server.wame.api.br',
 ];
+
+/** Cache em memória: establishment_id → instanceId */
+const establishmentInstanceCache = new Map();
+/** Cache em memória: instanceId → serverUrl que respondeu com sucesso */
+const instanceServerCache = new Map();
 
 function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '');
@@ -28,24 +37,110 @@ function normalizeRecipient(to) {
   return digits;
 }
 
-function resolveApiKey() {
-  const fromContext = String(currentWame()?.instanceId || '').trim();
-  if (fromContext && /[a-z]/i.test(fromContext)) return fromContext;
-  return getWameApiKey();
+function maskSecret(value) {
+  const raw = String(value || '');
+  if (!raw) return null;
+  if (raw.length <= 4) return '••••';
+  return `••••${raw.slice(-4)}`;
 }
 
-function serverCandidates() {
-  const primary = getWameServerUrl();
-  return [...new Set([primary, ...FALLBACK_SERVERS])];
+function safeLog(level, event, fields = {}) {
+  const payload = {
+    scope: 'wame',
+    event,
+    ...fields,
+  };
+  const line = JSON.stringify(payload);
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
 }
 
-function isRetryableSendError(error) {
+function isTransientNetworkError(error) {
   const message = String(error?.message || '');
-  return /fetch failed|enotfound|econnrefused|timed out|network/i.test(message);
+  const code = String(error?.code || error?.cause?.code || '');
+  return (
+    /fetch failed|enotfound|econnrefused|econnreset|etimedout|timed out|network|abort/i.test(
+      message,
+    ) || /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ABORT/i.test(code)
+  );
+}
+
+/** @deprecated use isTransientNetworkError — mantido para testes antigos */
+function isRetryableSendError(error) {
+  return isTransientNetworkError(error);
+}
+
+function isTransientHttpStatus(status) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status) || 0);
+}
+
+function isPermanentHttpStatus(status) {
+  const code = Number(status) || 0;
+  return [400, 401, 403, 404, 409, 410, 422].includes(code);
 }
 
 function isClosedWindowError(error) {
   return Number(error?.status) === 409 || /janela de atendimento de 24h/i.test(String(error?.message || ''));
+}
+
+function shouldRetryOnAnotherServer(error) {
+  if (!error) return false;
+  if (isTransientNetworkError(error)) return true;
+  const status = Number(error?.status || 0);
+  if (!status) return isTransientNetworkError(error);
+  // 401/404 = instância/credencial errada neste servidor — NÃO trocar de host
+  if (isPermanentHttpStatus(status)) return false;
+  return isTransientHttpStatus(status);
+}
+
+function rememberInstanceServer(instanceId, serverUrl) {
+  const key = String(instanceId || '').trim();
+  const server = normalizeServerUrl(serverUrl);
+  if (!key || !server) return;
+  instanceServerCache.set(key, {
+    value: server,
+    expires: Date.now() + 30 * 60 * 1000,
+  });
+}
+
+function rememberedServerForInstance(instanceId) {
+  const key = String(instanceId || '').trim();
+  if (!key) return null;
+  const cached = instanceServerCache.get(key);
+  if (!cached || cached.expires <= Date.now()) return null;
+  return cached.value;
+}
+
+/**
+ * Candidatos de servidor para uma instância.
+ * Se houver mapeamento explícito (env), usa só esse host.
+ * Caso contrário: servidor lembrado → WAME_SERVER_URL → fallbacks (só para erro transitório).
+ */
+function serverCandidates(instanceId) {
+  const key = String(instanceId || '').trim();
+  const explicit = resolveMappedServerForInstance(key);
+  if (explicit) return [explicit];
+
+  const remembered = rememberedServerForInstance(key);
+  const primary = getWameServerUrl();
+  return [...new Set([remembered, primary, ...FALLBACK_SERVERS].filter(Boolean))];
+}
+
+function resolveApiKey() {
+  const ctx = currentWame();
+  const fromContext = String(ctx?.instanceId || '').trim();
+  if (fromContext && /[a-z]/i.test(fromContext)) return fromContext;
+
+  const establishmentId = Number(ctx?.establishmentId);
+  if (Number.isFinite(establishmentId) && establishmentId > 0) {
+    const mapped = resolveMappedInstanceForEstablishment(establishmentId);
+    if (mapped) return mapped;
+    // Com casa pinada: nunca cair na key global de outra casa
+    return null;
+  }
+
+  return getWameApiKey();
 }
 
 function quotedMessageIdFromPayload(raw) {
@@ -85,10 +180,14 @@ async function postText(server, key, recipient, text, quotedMessageId) {
       body: JSON.stringify(payload),
     });
     const body = await response.json().catch(() => ({}));
-    if (response.ok) return body;
+    if (response.ok) {
+      rememberInstanceServer(key, server);
+      return body;
+    }
     const detail = typeof body === 'object' ? JSON.stringify(body) : String(body || '');
     lastError = new Error(`Falha ao enviar via Wame: ${response.status} ${detail}`);
     lastError.status = response.status;
+    // 404 no path com quotedId: tenta path sem quote no MESMO servidor
     if (response.status !== 404 && response.status !== 409) throw lastError;
   }
   throw lastError;
@@ -104,20 +203,46 @@ async function sendText(to, text, options = {}) {
 
   const key = resolveApiKey();
   if (!key) {
-    throw new Error('Wame não configurado (WAME_SERVER_URL / WAME_API_KEY).');
+    throw new Error(
+      'Instância Wame da casa não resolvida (sem fallback cruzado entre estabelecimentos).',
+    );
   }
   const recipient = normalizeRecipient(to);
   const quotedMessageId =
     String(options.quotedMessageId || currentWame()?.quotedMessageId || '').trim() || null;
   let lastError = null;
+  const candidates = serverCandidates(key);
 
-  for (const server of serverCandidates()) {
+  for (let i = 0; i < candidates.length; i += 1) {
+    const server = candidates[i];
     try {
-      return await postText(server, key, recipient, text, quotedMessageId);
+      const result = await postText(server, key, recipient, text, quotedMessageId);
+      if (i > 0) {
+        safeLog('warn', 'wame_send_server_failover', {
+          instanceHint: maskSecret(key),
+          serverHost: new URL(server).host,
+          attempt: i + 1,
+        });
+      }
+      return result;
     } catch (error) {
       lastError = error;
       const status = Number(error?.status || 0);
-      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
+      const retry = shouldRetryOnAnotherServer(error) && i < candidates.length - 1;
+      safeLog(retry ? 'warn' : 'error', 'wame_send_failed', {
+        instanceHint: maskSecret(key),
+        serverHost: (() => {
+          try {
+            return new URL(server).host;
+          } catch (_) {
+            return null;
+          }
+        })(),
+        status: status || null,
+        transient: shouldRetryOnAnotherServer(error),
+        willRetryOtherServer: retry,
+      });
+      if (retry) continue;
       throw error;
     }
   }
@@ -150,8 +275,6 @@ function instanceIdFromStoredPayload(raw) {
   return String(id);
 }
 
-const establishmentInstanceCache = new Map();
-
 function rememberEstablishmentInstance(establishmentId, instanceId) {
   const id = Number(establishmentId);
   if (!Number.isFinite(id) || id <= 0 || !instanceId) return;
@@ -163,9 +286,18 @@ function rememberEstablishmentInstance(establishmentId, instanceId) {
 
 async function findEstablishmentWameInstanceId(pool, establishmentId) {
   const id = Number(establishmentId);
-  if (!pool || !Number.isFinite(id) || id <= 0) return null;
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const mapped = resolveMappedInstanceForEstablishment(id);
+  if (mapped) {
+    rememberEstablishmentInstance(id, mapped);
+    return mapped;
+  }
+
   const cached = establishmentInstanceCache.get(id);
   if (cached && cached.expires > Date.now()) return cached.value;
+
+  if (!pool) return null;
 
   const result = await pool.query(
     `SELECT m.raw_payload
@@ -186,65 +318,106 @@ async function findEstablishmentWameInstanceId(pool, establishmentId) {
   return instanceId;
 }
 
-async function requestJson(key, pathAndQuery) {
-  if (!key) throw new Error('Instância Wame não informada.');
-  let lastError = null;
-  for (const server of serverCandidates()) {
-    try {
-      const response = await fetch(`${server}/${encodeURIComponent(key)}/${pathAndQuery}`, {
-        signal: AbortSignal.timeout(20000),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const error = new Error(`Falha ao consultar a Wame: ${response.status}`);
-        error.status = response.status;
-        throw error;
-      }
-      return body;
-    } catch (error) {
-      lastError = error;
-      const status = Number(error?.status || 0);
-      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
-      throw error;
-    }
+/**
+ * Resolução determinística multi-tenant:
+ * establishment_id → mapa env → cache/histórico da mesma casa → (sem key global cruzada)
+ */
+async function resolveWameRouting(pool, establishmentId) {
+  const id = Number(establishmentId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { establishmentId: null, instanceId: null, serverUrl: null, source: null };
   }
-  throw lastError || new Error('Falha ao consultar a Wame.');
+
+  let instanceId = null;
+  let source = null;
+
+  const mapped = resolveMappedInstanceForEstablishment(id);
+  if (mapped) {
+    instanceId = mapped;
+    source = 'env_map';
+  } else {
+    instanceId = await findEstablishmentWameInstanceId(pool, id);
+    if (instanceId) source = 'establishment_history';
+  }
+
+  if (!instanceId) {
+    return { establishmentId: id, instanceId: null, serverUrl: null, source: null };
+  }
+
+  const explicitServer = resolveMappedServerForInstance(instanceId);
+  const serverUrl =
+    explicitServer || rememberedServerForInstance(instanceId) || getWameServerUrl();
+
+  return {
+    establishmentId: id,
+    instanceId,
+    serverUrl,
+    source,
+    serverSource: explicitServer ? 'env_map' : rememberedServerForInstance(instanceId) ? 'cache' : 'primary_env',
+  };
 }
 
-async function postJson(key, pathAndQuery, body = {}) {
+async function requestWithServers(key, pathAndQuery, { method = 'GET', body } = {}) {
   if (!key) throw new Error('Instância Wame não informada.');
+  if (!isLikelyWameInstanceKey(key) && !/[a-z]/i.test(String(key))) {
+    throw new Error('Instância Wame inválida.');
+  }
+
   let lastError = null;
-  for (const server of serverCandidates()) {
+  const candidates = serverCandidates(key);
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const server = candidates[i];
     try {
       const response = await fetch(`${server}/${encodeURIComponent(key)}/${pathAndQuery}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {}),
-        signal: AbortSignal.timeout(30000),
+        method,
+        headers: method === 'GET' ? undefined : { 'Content-Type': 'application/json' },
+        body: method === 'GET' ? undefined : JSON.stringify(body || {}),
+        signal: AbortSignal.timeout(method === 'GET' ? 20000 : 30000),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error = new Error(
-          `Falha ao chamar a Wame (${pathAndQuery}): ${response.status}`
+          method === 'GET'
+            ? `Falha ao consultar a Wame: ${response.status}`
+            : `Falha ao chamar a Wame (${pathAndQuery}): ${response.status}`,
         );
         error.status = response.status;
         error.body = payload;
         throw error;
       }
+      rememberInstanceServer(key, server);
       return payload;
     } catch (error) {
       lastError = error;
-      const status = Number(error?.status || 0);
-      if (isRetryableSendError(error) || status === 401 || status === 404) continue;
+      const retry = shouldRetryOnAnotherServer(error) && i < candidates.length - 1;
+      safeLog(retry ? 'warn' : 'error', 'wame_http_failed', {
+        instanceHint: maskSecret(key),
+        path: String(pathAndQuery || '').split('?')[0],
+        method,
+        status: Number(error?.status || 0) || null,
+        transient: shouldRetryOnAnotherServer(error),
+        willRetryOtherServer: retry,
+      });
+      if (retry) continue;
       throw error;
     }
   }
   throw lastError || new Error('Falha ao chamar a Wame.');
 }
 
+async function requestJson(key, pathAndQuery) {
+  return requestWithServers(key, pathAndQuery, { method: 'GET' });
+}
+
+async function postJson(key, pathAndQuery, body = {}) {
+  return requestWithServers(key, pathAndQuery, { method: 'POST', body });
+}
+
 /**
  * Pede à Meta o histórico de coexistência (até ~180 dias).
  * Só funciona 1x por onboarding e em geral dentro de 24h da conexão.
+ * ALTO RISCO operacional — não chamar em produção sem aprovação.
  */
 async function requestOfficialHistorySync(instanceId, { force = false } = {}) {
   const path = force
@@ -265,9 +438,19 @@ module.exports = {
   quotedMessageIdFromPayload,
   findEstablishmentWameInstanceId,
   rememberEstablishmentInstance,
+  resolveWameRouting,
   isClosedWindowError,
+  isRetryableSendError,
+  isTransientNetworkError,
+  isTransientHttpStatus,
+  isPermanentHttpStatus,
+  shouldRetryOnAnotherServer,
+  serverCandidates,
+  rememberInstanceServer,
   requestJson,
   postJson,
   requestOfficialHistorySync,
   getOfficialHistorySyncStatus,
+  maskSecret,
+  safeLog,
 };
