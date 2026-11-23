@@ -332,7 +332,7 @@ function isHighlineFaqContext(options = {}) {
 function detectRelevantFaqTopics(userText, messageHistory = [], options = {}) {
   const { funnelActive = false } = options;
   const isHighline = isHighlineFaqContext(options);
-  const topics = detectFaqTopicsFromConversation(messageHistory, userText);
+  const topics = detectFaqTopicsFromConversation(messageHistory, userText, options);
 
   if (funnelActive && isHighline) {
     for (const topic of [
@@ -499,12 +499,14 @@ async function loadRelevantFaqsForEstablishment(
   pool,
   establishmentId,
   topicHints = [],
-  { maxChars = FAQ_MAX_CHARS_PER_TURN, funnelActive = false, userText = '' } = {}
+  { maxChars = FAQ_MAX_CHARS_PER_TURN, funnelActive = false, userText = '', extraTopics = [] } = {}
 ) {
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
 
-  const detectedTopics = [...new Set((topicHints || []).filter(Boolean))];
+  const detectedTopics = [
+    ...new Set([...(topicHints || []), ...(extraTopics || [])].filter(Boolean)),
+  ];
   let topics = detectedTopics;
   if (!topics.length) {
     // Funil de reserva: zero FAQ genérica no prompt (economiza tokens).
@@ -545,6 +547,8 @@ async function loadRelevantFaqsForEstablishment(
   let entries = [...byTopic.values()];
 
   if (!entries.length) {
+    // Com pergunta do cliente, não inventar cover/horário de outro catálogo.
+    if (String(userText || '').trim()) return [];
     const fallbackEntries = topics
       .map((topic) => {
         const answer = getDefaultFaqAnswer(topic);
@@ -609,7 +613,9 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   // que parecem corretas mas contradizem a operação real da casa.
   const header = [
     `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (fonte oficial — prevalece sobre conhecimento geral):`,
-    'Use só os fatos abaixo. Priorize o item cujo título mais corresponde à pergunta (acento/plural à parte).',
+    'Cada ficha abaixo é o cadastro desta casa (título + corpo). Use esse texto; não reescreva o sentido.',
+    'Não acrescente cover, preço, horário ou regra que não esteja na ficha. Não misture catálogo de outra casa.',
+    'Priorize o item cujo título mais corresponde à pergunta (acento/plural à parte).',
     'Não troque uma ficha específica por um tópico genérico parecido (ex.: "entrada com bebidas" não é tabela de cover).',
     'Se a base cobrir o assunto, nunca diga que não encontrou nem que vai confirmar com a equipe.',
     'Só se NENHUM item cobrir o tópico: "Boa, deixa eu confirmar com a equipe e te respondo já."',
@@ -649,7 +655,9 @@ function buildFaqGroundedSystemPrompt({
   return `${personaBlock}
 
 REGRAS FAQ:
-- Use SOMENTE a base abaixo. Se um título corresponder à pergunta, obedeça esse item.
+- Use SOMENTE as fichas abaixo, desta casa. O corpo cadastrado é a verdade: não parafraseie de modo que altere ou contradiga o cadastro.
+- Não complete com cover, preço, dia da semana ou regra que não esteja nessa ficha.
+- Se um título corresponder à pergunta, obedeça esse item.
 - Se a base cobrir o assunto, nunca diga que não encontrou. Se faltar info: "vou confirmar com a equipe e te respondo já".
 - Responda a PERGUNTA ATUAL em uma ou duas frases. O histórico recente é só contexto.
 ${bulletRule}
@@ -672,6 +680,33 @@ async function generateFaqGroundedReply({
   settings = null,
 }) {
   const question = String(userQuestion || '').trim();
+  const {
+    shouldPreferDirectFaqReply,
+    pickBestFaqEntry,
+    formatTrainingReply,
+  } = require('./trainingReplyFormatter');
+  if (
+    shouldPreferDirectFaqReply({
+      userText: question,
+      faqEntries,
+      topicHints: (faqEntries || []).map((entry) => entry.topic),
+    })
+  ) {
+    const best = pickBestFaqEntry(faqEntries, (faqEntries || []).map((entry) => entry.topic));
+    if (best?.answer) {
+      const formatted = formatTrainingReply({
+        answer: best.answer,
+        topic: best.topic,
+        settings,
+        establishmentName,
+        userText: question,
+        messageHistory,
+        options: { appendCta: false, keepCadastro: true },
+      });
+      if (formatted.text) return formatted.text;
+    }
+  }
+
   const faqText = buildFaqKnowledgeBlock(faqEntries, establishmentName);
   if (!faqText || !question) {
     throw new Error('FAQ ou pergunta ausente para resposta fundamentada.');

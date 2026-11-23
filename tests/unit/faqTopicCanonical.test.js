@@ -86,3 +86,15 @@ test('detectFaqTopicsFromUserText detecta áreas disponíveis', () => {
   const topics = detectFaqTopicsFromUserText('quais áreas estão disponíveis no dia 08/08?');
   assert.ok(topics.includes('reserva_areas_operacional_highline'));
 });
+
+test('casa que não é Justino não herda tópicos do catálogo Justino', () => {
+  const topics = detectFaqTopicsFromUserText('como funciona aos sábados?', {
+    establishmentId: 99,
+    establishmentName: 'Reserva Rooftop',
+  });
+  assert.equal(topics.includes('informacoes_sabado'), false);
+  assert.equal(
+    canonicalizeAdminFaqTopic('entrada_com_bebidas', 99),
+    'entrada_com_bebidas'
+  );
+});

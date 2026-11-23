@@ -114,6 +114,18 @@ test('Justino: pergunta de entrada com bebidas lê a ficha certa, não a tabela 
   );
 });
 
+test('pergunta com texto não inventa cover genérico de outra casa', async () => {
+  const pool = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  const entries = await loadRelevantFaqsForEstablishment(pool, 99, ['valores_entrada'], {
+    userText: 'Oi, pode me explicar sobre apresentacao?',
+  });
+  assert.deepEqual(entries, []);
+});
+
 test('ficha REGRA customizada é encontrada mesmo no meio de dezenas de itens', async () => {
   const rows = [];
   for (let index = 0; index < 43; index += 1) {

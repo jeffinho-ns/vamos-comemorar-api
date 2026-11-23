@@ -260,6 +260,16 @@ function formatTrainingReply({
     return { text: '', usedSettings: false };
   }
 
+  if (options.keepCadastro === true) {
+    if (settings?.use_emojis === false) {
+      text = stripEmojis(text);
+    }
+    if (settings && shouldAddGreeting(settings, messageHistory, text)) {
+      text = `${buildGreetingPrefix(settings)}${text}`;
+    }
+    return { text: text.replace(/\n{3,}/g, '\n\n').trim(), usedSettings: Boolean(settings) };
+  }
+
   let usedSettings = false;
 
   if (settings?.use_emojis === false) {
