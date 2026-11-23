@@ -436,24 +436,51 @@ function extractAboutSubjectNeedle(queryText) {
 
 function scoreTitleOverlap(topicNeedle, subjectNeedle) {
   if (!topicNeedle || !subjectNeedle) return 0;
-  if (
-    topicNeedle === subjectNeedle ||
-    topicNeedle.includes(subjectNeedle) ||
-    subjectNeedle.includes(topicNeedle)
-  ) {
-    return 100;
-  }
+  if (topicNeedle === subjectNeedle) return 100;
+
   const topicTokens = significantFaqTokens(topicNeedle);
   const subjectTokens = significantFaqTokens(subjectNeedle);
   if (!topicTokens.length || !subjectTokens.length) return 0;
+
   const topicSet = new Set(topicTokens);
+  const subjectSet = new Set(subjectTokens);
+  if (
+    topicSet.size === subjectSet.size &&
+    [...subjectSet].every((token) => topicSet.has(token))
+  ) {
+    return 100;
+  }
+
   const hits = subjectTokens.filter((token) => topicSet.has(token)).length;
   if (!hits) return 0;
   const unionSize = new Set([...topicTokens, ...subjectTokens]).size;
-  const covered = hits === subjectTokens.length || hits === topicTokens.length;
-  const distinctive = hits >= 2 || subjectTokens.some((token) => token.length >= 8 && topicSet.has(token));
-  if (covered && distinctive) return 100;
   return Math.round((hits / unionSize) * 90);
+}
+
+function collectExactTitleNeedles(queryText) {
+  const needles = [];
+  const subject = extractAboutSubjectNeedle(queryText);
+  if (subject) needles.push(subject);
+  const tokens = significantFaqTokens(queryText);
+  if (tokens.length === 1) needles.push(tokens[0]);
+  return [...new Set(needles.filter(Boolean))];
+}
+
+function findExactTitleMatches(catalog, queryText) {
+  const needles = collectExactTitleNeedles(queryText);
+  if (!needles.length || !catalog?.length) return [];
+
+  const exact = catalog.filter((entry) => {
+    const topic = normalizeFaqNeedle(entry?.topic);
+    return Boolean(topic) && needles.some((needle) => topic === needle);
+  });
+  if (exact.length) return exact;
+
+  return catalog.filter((entry) => {
+    const topic = normalizeFaqNeedle(entry?.topic);
+    if (!topic) return false;
+    return needles.some((needle) => scoreTitleOverlap(topic, needle) >= 100);
+  });
 }
 
 function scoreFaqAgainstText(entry, queryText) {
@@ -468,14 +495,18 @@ function scoreFaqAgainstText(entry, queryText) {
 
   const tokens = significantFaqTokens(subject || query);
   if (!tokens.length) return titleScore;
-  const topicHits = tokens.filter((token) => topic.includes(token)).length;
+  const topicTokenSet = new Set(significantFaqTokens(topic));
+  const topicHits = tokens.filter((token) => topicTokenSet.has(token)).length;
   const answerHits = tokens.filter((token) => answer.includes(token)).length;
   if (!topicHits && !answerHits && !titleScore) return 0;
-  const missingDistinctive = tokens.filter((token) => token.length >= 5 && !topic.includes(token));
+  const missingDistinctive = tokens.filter(
+    (token) => token.length >= 5 && !topicTokenSet.has(token)
+  );
   if (missingDistinctive.length && topicHits < tokens.length) {
     return Math.min(titleScore, 35);
   }
-  const overlap = Math.round((topicHits / tokens.length) * 90 + (answerHits / tokens.length) * 15);
+  const unionSize = new Set([...topicTokenSet, ...tokens]).size || 1;
+  const overlap = Math.round((topicHits / unionSize) * 90 + (answerHits / tokens.length) * 15);
   return Math.min(99, Math.max(titleScore, overlap));
 }
 
@@ -503,6 +534,15 @@ async function loadRelevantFaqsForEstablishment(
 ) {
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
+
+  const userQuestion = String(userText || '').trim();
+  if (userQuestion) {
+    const catalog = await loadActiveFaqCatalog(pool, establishment);
+    const exactMatches = findExactTitleMatches(catalog, userQuestion);
+    if (exactMatches.length) {
+      return filterFaqsForCustomerPrompt(exactMatches);
+    }
+  }
 
   const detectedTopics = [
     ...new Set([...(topicHints || []), ...(extraTopics || [])].filter(Boolean)),
@@ -778,4 +818,5 @@ module.exports = {
   loadFaqsMatchingFreeText,
   loadActiveFaqCatalog,
   scoreFaqAgainstText,
+  findExactTitleMatches,
 };
