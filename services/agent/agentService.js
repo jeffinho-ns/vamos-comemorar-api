@@ -1425,7 +1425,7 @@ async function tryFaqFirstReply({
       establishmentName: context.lockedEstablishmentName || '',
       userText,
       messageHistory,
-      options: { appendCta: false },
+      options: { appendCta: false, keepCadastro: true },
     });
     await recordZeroTokenPath(pool, {
       path: 'faq_direct',

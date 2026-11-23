@@ -417,7 +417,11 @@ function detectSeuJustinoFaqTopics(normalized) {
     add('compras_fornecedor');
   }
   if (/\b(acessib|rampa|cadeirante|banheiro adaptado)\b/.test(text)) add('acessibilidade');
-  if (/\b(entrar com bebida|levar bebida|bebida de fora)\b/.test(text)) add('entrada_bebidas');
+  if (
+    /\b(entrar com bebidas?|levar bebidas?|bebida de fora|entrada com bebidas?)\b/.test(text)
+  ) {
+    add('entrada_bebidas');
+  }
   if (/\b(ar[- ]?condicionado|area para fumar|fumante|cozinha fecha|horario da cozinha)\b/.test(text)) {
     add('estrutura_funcionamento');
   }

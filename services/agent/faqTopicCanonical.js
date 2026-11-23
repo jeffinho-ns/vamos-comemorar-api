@@ -147,11 +147,15 @@ function normalizeTopicKey(topic) {
     .replace(/\s+/g, '_');
 }
 
-function canonicalizeAdminFaqTopic(topic) {
+function canonicalizeAdminFaqTopic(topic, establishmentId) {
   const normalized = normalizeTopicKey(topic);
   if (!normalized) return '';
   if (ADMIN_TOPIC_CANONICAL[normalized]) return ADMIN_TOPIC_CANONICAL[normalized];
-  const { canonicalAliasFor } = require('./seuJustinoFaqCatalog');
+  const { canonicalAliasFor, SEU_JUSTINO_ESTABLISHMENT_ID } = require('./seuJustinoFaqCatalog');
+  const id = Number(establishmentId);
+  if (Number.isFinite(id) && id > 0 && id !== SEU_JUSTINO_ESTABLISHMENT_ID) {
+    return normalized;
+  }
   return canonicalAliasFor(normalized) || normalized;
 }
 
@@ -173,6 +177,13 @@ function looksLikeBirthdayBenefitsQuestion(text) {
 
 function looksLikeEntryPricingQuestion(text) {
   const normalized = normalizeInboundText(text);
+  // "entrada com bebidas" é política de trazer bebida, não tabela de cover.
+  if (
+    /\bentrada com bebidas?\b/.test(normalized) &&
+    !/\b(valor|preco|quanto|cover|ingresso|lista|vip|consumacao)\b/.test(normalized)
+  ) {
+    return false;
+  }
   return /\b(entrada|entradas|vip|consome|consumacao|ingresso|preco|precos|valor|valores|lista)\b/.test(
     normalized
   );
@@ -243,16 +254,38 @@ function extractPartySizeFromText(text) {
   return null;
 }
 
-function detectFaqTopicsFromUserText(text) {
+function houseFaqScopes(options = {}) {
+  const id = Number(options.establishmentId);
+  const hasId = Number.isFinite(id) && id > 0;
+  const { SEU_JUSTINO_ESTABLISHMENT_ID } = require('./seuJustinoFaqCatalog');
+  const { PRACINHA_ESTABLISHMENT_ID } = require('./pracinhaFaqCatalog');
+  let highline = options.highline === true;
+  if (hasId && !highline) {
+    try {
+      highline = require('./highlineReservationAreas').isHighlineEstablishment(id);
+    } catch (_error) {
+      highline = id === 7;
+    }
+  }
+  return {
+    justino: !hasId || id === SEU_JUSTINO_ESTABLISHMENT_ID,
+    pracinha: !hasId || id === PRACINHA_ESTABLISHMENT_ID,
+    highline: !hasId || highline,
+  };
+}
+
+function detectFaqTopicsFromUserText(text, options = {}) {
   const normalized = normalizeInboundText(text);
   if (!normalized) return [];
 
+  const scopes = houseFaqScopes(options);
   const topics = [];
   const partySize = extractPartySizeFromText(text);
-  if (Number.isFinite(partySize) && partySize >= 16) {
+  if (scopes.highline && Number.isFinite(partySize) && partySize >= 16) {
     topics.push('reserva_grupos_grandes_highline');
   }
   if (
+    scopes.highline &&
     /\b(grupo grande|grupos grandes|muita gente|mesa grande|reserva grande)\b/.test(normalized)
   ) {
     topics.push('reserva_grupos_grandes_highline');
@@ -297,6 +330,7 @@ function detectFaqTopicsFromUserText(text) {
     topics.push('areas_mesas_camarotes_diferenca');
   }
   if (
+    scopes.highline &&
     /\b(deck|lista de espera|hostess|mesa disponivel|mesas disponiveis|qual area|quais areas|areas disponiveis|area disponivel|onde sentar|subarea|bistro de espera|rotativo)\b/.test(
       normalized
     )
@@ -310,17 +344,35 @@ function detectFaqTopicsFromUserText(text) {
     topics.push('dress_code');
   }
 
+  const aboutTopic = extractAboutSubjectTopic(text, options);
+  if (aboutTopic) topics.push(aboutTopic);
+
   const { detectSeuJustinoFaqTopics } = require('./seuJustinoFaqCatalog');
   const { detectPracinhaFaqTopics } = require('./pracinhaFaqCatalog');
   const specific = [
-    ...detectSeuJustinoFaqTopics(normalized),
-    ...detectPracinhaFaqTopics(normalized),
+    ...(scopes.justino ? detectSeuJustinoFaqTopics(normalized) : []),
+    ...(scopes.pracinha ? detectPracinhaFaqTopics(normalized) : []),
   ];
   const merged = [];
   for (const topic of [...specific, ...topics]) {
     if (topic && !merged.includes(topic)) merged.push(topic);
   }
   return merged;
+}
+
+function extractAboutSubjectTopic(text, options = {}) {
+  const normalized = normalizeInboundText(text);
+  const match = normalized.match(/\bsobre\s+(.+?)[\s?!.]*$/);
+  if (!match) return '';
+  const slugStop = new Set(['o', 'a', 'os', 'as', 'de', 'da', 'do', 'das', 'dos', 'um', 'uma', 'e']);
+  const tokens = match[1]
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
+    .filter((token) => token.length >= 2 && !slugStop.has(token));
+  if (!tokens.length) return '';
+  if (tokens.length === 1 && /^(isso|isto|aquilo|aqui|ai|la)$/.test(tokens[0])) return '';
+  return canonicalizeAdminFaqTopic(tokens.join('_'), options.establishmentId);
 }
 
 function isInformationalFaqTurn(text) {
@@ -332,7 +384,7 @@ function isInformationalFaqTurn(text) {
   if (detectFaqTopicsFromUserText(text).length > 0) return true;
 
   if (
-    /\b(como funciona|me conta|me fala|quais? sao|o que tem|o que vai ter|o que rola|que vai ter|informac|duvida|programacao)\b/.test(
+    /\b(como funciona|me conta|me fala|me explica|me explicar|explica(?:r)? sobre|falar sobre|quais? sao|o que tem|o que vai ter|o que rola|que vai ter|o que e|informac|duvida|programacao)\b/.test(
       normalized
     )
   ) {
@@ -370,7 +422,7 @@ function looksLikeReservationPushOnly(text) {
 }
 
 /** Une tópicos detectados na mensagem atual e no histórico recente do usuário. */
-function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') {
+function detectFaqTopicsFromConversation(messageHistory = [], currentText = '', options = {}) {
   const texts = [
     String(currentText || '').trim(),
     ...(messageHistory || [])
@@ -381,7 +433,7 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 
   const topics = [];
   for (const text of texts) {
-    for (const topic of detectFaqTopicsFromUserText(text)) {
+    for (const topic of detectFaqTopicsFromUserText(text, options)) {
       if (!topics.includes(topic)) topics.push(topic);
     }
   }
@@ -391,6 +443,7 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 module.exports = {
   canonicalizeAdminFaqTopic,
   expandFaqTopicSeedAliases,
+  extractAboutSubjectTopic,
   extractPartySizeFromText,
   normalizeTopicKey,
   detectFaqTopicsFromUserText,

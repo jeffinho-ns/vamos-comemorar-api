@@ -8,6 +8,11 @@ const {
   invalidateFaqCache,
   loadRelevantFaqsForEstablishment,
 } = require('./faqPrefetchService');
+const {
+  formatTrainingReply,
+  pickBestFaqEntry,
+  shouldPreferDirectFaqReply,
+} = require('./trainingReplyFormatter');
 
 const CONFIRM_LATER = /confirmar com a equipe/i;
 
@@ -87,6 +92,7 @@ async function runFaqReadTest(pool, input = {}) {
   const entries = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
     funnelActive: false,
     userText: question,
+    extraTopics: focusTopic ? [focusTopic] : [],
   });
   const reading = summarizeFaqRead(entries, focusTopic);
   const grounded = entries.filter((entry) => !entry.fallback);
@@ -99,6 +105,7 @@ async function runFaqReadTest(pool, input = {}) {
       readFocus: reading.readFocus,
       informational,
       usedModel: false,
+      verbatim: false,
     };
   }
 
@@ -107,6 +114,35 @@ async function runFaqReadTest(pool, input = {}) {
     settings = await loadActiveSettings(pool, establishmentId);
   } catch (_error) {
     settings = null;
+  }
+
+  if (
+    shouldPreferDirectFaqReply({
+      userText: question,
+      faqEntries: grounded,
+      topicHints: focusTopic ? [focusTopic, ...topicHints] : topicHints,
+    })
+  ) {
+    const best = pickBestFaqEntry(grounded, focusTopic ? [focusTopic, ...topicHints] : topicHints);
+    const formatted = formatTrainingReply({
+      answer: best.answer,
+      topic: best.topic,
+      settings,
+      establishmentName,
+      userText: question,
+      messageHistory: history,
+      options: { appendCta: false, keepCadastro: true },
+    });
+    if (formatted.text) {
+      return {
+        reply: formatted.text,
+        sources: reading.sources,
+        readFocus: reading.readFocus && !CONFIRM_LATER.test(formatted.text),
+        informational,
+        usedModel: false,
+        verbatim: true,
+      };
+    }
   }
 
   const reply = await generateFaqGroundedReply({
@@ -125,6 +161,7 @@ async function runFaqReadTest(pool, input = {}) {
     readFocus: reading.readFocus && !CONFIRM_LATER.test(reply),
     informational,
     usedModel: true,
+    verbatim: false,
   };
 }
 

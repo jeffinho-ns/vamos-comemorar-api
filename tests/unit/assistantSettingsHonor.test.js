@@ -71,6 +71,19 @@ test('sanitizeAssistantReply preserva bullets quando a casa pediu', () => {
   assert.doesNotMatch(stripped.text, /^\s*-\s/m);
 });
 
+test('formatTrainingReply keepCadastro preserva o corpo cadastrado', () => {
+  const result = formatTrainingReply({
+    answer:
+      'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop, e quais informações ele gostaria de saber.',
+    settings: { ...filledSettings, use_greeting: false, use_emojis: false, response_size: 'curta' },
+    messageHistory: [],
+    options: { appendCta: false, keepCadastro: true },
+  });
+  assert.match(result.text, /Reserva Rooftop/);
+  assert.doesNotMatch(result.text, /^REGRA:/i);
+  assert.doesNotMatch(result.text, /Quer que eu veja uma mesa/i);
+});
+
 test('formatTrainingReply preserva bullets quando use_bullets=true', () => {
   const result = formatTrainingReply({
     answer: '- Sem chinelo\n- Sem bermuda rasgada',

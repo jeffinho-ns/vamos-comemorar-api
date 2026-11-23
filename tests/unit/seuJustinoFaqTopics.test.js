@@ -28,6 +28,12 @@ test('réveillon, pagamento e currículo acham o tópico certo', () => {
   assert.ok(detectFaqTopicsFromUserText('quero enviar meu currículo').includes('vagas_emprego'));
 });
 
+test('entrada com bebidas casa no tópico certo do Justino', () => {
+  const topics = detectFaqTopicsFromUserText('Oi, pode me explicar sobre Entrada com bebidas?');
+  assert.ok(topics.includes('entrada_bebidas'));
+  assert.equal(topics.includes('valores_entrada'), false);
+});
+
 test('título do admin volta para o slug do Seu Justino', () => {
   assert.equal(canonicalizeAdminFaqTopic('Informações de sábado'), 'informacoes_sabado');
   assert.equal(canonicalizeAdminFaqTopic('Feriado de 15/11'), 'programacao_15_11');

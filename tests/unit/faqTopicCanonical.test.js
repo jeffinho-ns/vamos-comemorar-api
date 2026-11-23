@@ -44,6 +44,29 @@ test('isInformationalFaqTurn reconhece dúvidas operacionais', () => {
   assert.equal(isInformationalFaqTurn('O que vai ter no dia 08/07?'), true);
   assert.equal(isInformationalFaqTurn('Qual a entrada na véspera de feriado?'), true);
   assert.equal(isInformationalFaqTurn('Quem é o DJ na quarta?'), true);
+  assert.equal(isInformationalFaqTurn('Oi, pode me explicar sobre apresentacao?'), true);
+  assert.equal(isInformationalFaqTurn('Oi, pode me explicar sobre Entrada com bebidas?'), true);
+});
+
+test('detectFaqTopicsFromUserText extrai o sujeito depois de "sobre"', () => {
+  const { extractAboutSubjectTopic } = require('../../services/agent/faqTopicCanonical');
+  assert.equal(
+    extractAboutSubjectTopic('Oi, pode me explicar sobre Entrada com bebidas?'),
+    'entrada_bebidas'
+  );
+  assert.equal(
+    extractAboutSubjectTopic('Oi, pode me explicar sobre apresentacao?'),
+    'apresentacao'
+  );
+});
+
+test('entrada com bebidas não é classificada como preço de cover', () => {
+  const { looksLikeEntryPricingQuestion } = require('../../services/agent/faqTopicCanonical');
+  assert.equal(
+    looksLikeEntryPricingQuestion('Oi, pode me explicar sobre Entrada com bebidas?'),
+    false
+  );
+  assert.equal(looksLikeEntryPricingQuestion('qual o valor da entrada no sábado?'), true);
 });
 
 test('looksLikeAreaAvailabilityQuestion detecta pergunta de áreas no dia', () => {
@@ -62,4 +85,16 @@ test('looksLikeAreaAvailabilityQuestion detecta pergunta de áreas no dia', () =
 test('detectFaqTopicsFromUserText detecta áreas disponíveis', () => {
   const topics = detectFaqTopicsFromUserText('quais áreas estão disponíveis no dia 08/08?');
   assert.ok(topics.includes('reserva_areas_operacional_highline'));
+});
+
+test('casa que não é Justino não herda tópicos do catálogo Justino', () => {
+  const topics = detectFaqTopicsFromUserText('como funciona aos sábados?', {
+    establishmentId: 99,
+    establishmentName: 'Reserva Rooftop',
+  });
+  assert.equal(topics.includes('informacoes_sabado'), false);
+  assert.equal(
+    canonicalizeAdminFaqTopic('entrada_com_bebidas', 99),
+    'entrada_com_bebidas'
+  );
 });

@@ -165,3 +165,24 @@ Acima de 60 pessoas: handoff humano.`);
   assert.doesNotMatch(stripped, /NUNCA diga/i);
   assert.match(stripped, /60 pessoas/i);
 });
+
+test('Informações adicionais com prefixo REGRA: entram no prompt da SOL', () => {
+  const originalEnv = process.env.FAQ_PROMPT_INCLUDE_META;
+  delete process.env.FAQ_PROMPT_INCLUDE_META;
+
+  try {
+    const entry = {
+      topic: 'apresentacao',
+      answer:
+        'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop, e quais informações ele gostaria de saber.',
+    };
+    assert.equal(isCustomerFacingFaqEntry(entry), true);
+    const filtered = filterFaqsForCustomerPrompt([entry]);
+    assert.equal(filtered.length, 1);
+    assert.match(filtered[0].answer, /Reserva Rooftop/i);
+    assert.doesNotMatch(filtered[0].answer, /^REGRA:/i);
+  } finally {
+    if (originalEnv === undefined) delete process.env.FAQ_PROMPT_INCLUDE_META;
+    else process.env.FAQ_PROMPT_INCLUDE_META = originalEnv;
+  }
+});
