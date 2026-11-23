@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildSandboxQuestion, summarizeFaqRead } = require('../../services/agent/faqSandbox');
+const { buildSandboxQuestion, pinFocusedFaq, summarizeFaqRead } = require('../../services/agent/faqSandbox');
 
 test('buildSandboxQuestion inclui a data simulada na pergunta lida pela IA', () => {
   assert.equal(
@@ -24,6 +24,18 @@ test('summarizeFaqRead só considera informação cadastrada, sem texto padrão'
   );
   assert.deepEqual(reading.sources, ['estacionamento']);
   assert.equal(reading.readFocus, true);
+});
+
+test('pinFocusedFaq coloca a ficha citada na frente da leitura', () => {
+  const pinned = pinFocusedFaq(
+    [{ topic: 'dias_horarios_funcionamento', answer: 'Abrimos às 18h.', fallback: false }],
+    {
+      topic: 'aviso_bloqueio_agenda_2026_11_15_area_3',
+      answer: 'Área VIP indisponível em 15/11/2026.',
+    },
+  );
+  assert.equal(pinned[0].topic, 'aviso_bloqueio_agenda_2026_11_15_area_3');
+  assert.equal(pinned.length, 2);
 });
 
 test('summarizeFaqRead marca quando a ficha nova não entrou na leitura', () => {

@@ -5,6 +5,7 @@ const {
   expandFaqTopicSeedAliases,
   extractPartySizeFromText,
   looksLikeEventProgramQuestion,
+  normalizeTopicKey,
 } = require('./faqTopicCanonical');
 const { isHighlineEstablishment } = require('./highlineReservationAreas');
 const { resolveDateFromConversation } = require('../../nlp/dateResolver');
@@ -510,6 +511,57 @@ function scoreFaqAgainstText(entry, queryText) {
   return Math.min(99, Math.max(titleScore, overlap));
 }
 
+/**
+ * Resposta da ficha, do jeito que foi cadastrada na casa.
+ * Não reescreve, não cumprimenta e não mistura com outra informação.
+ */
+function verbatimFaqReply(entries, userText, { focusTopic = '', topicHints = [] } = {}) {
+  const list = (entries || []).filter(
+    (entry) => entry && !entry.fallback && String(entry.answer || '').trim()
+  );
+  if (!list.length) return '';
+
+  const focus = normalizeTopicKey(focusTopic);
+  if (focus) {
+    const pinned = list.find((entry) => normalizeTopicKey(entry.topic) === focus);
+    if (pinned) return String(pinned.answer).trim();
+  }
+
+  const hinted = [];
+  const seen = new Set();
+  for (const hint of topicHints || []) {
+    const key = normalizeTopicKey(hint);
+    if (!key || seen.has(key)) continue;
+    const match = list.find((entry) => normalizeTopicKey(entry.topic) === key);
+    if (!match) continue;
+    seen.add(key);
+    hinted.push(match);
+  }
+
+  const named = hinted.filter((entry) => scoreFaqAgainstText(entry, userText) >= 100);
+  if (named.length) {
+    return named.map((entry) => String(entry.answer).trim()).join('\n\n');
+  }
+  if (hinted.length === 1) return String(hinted[0].answer).trim();
+
+  const ranked = list
+    .map((entry) => ({ entry, score: scoreFaqAgainstText(entry, userText) }))
+    .sort((a, b) => b.score - a.score);
+  const perfect = ranked.filter((item) => item.score >= 100);
+  if (perfect.length) {
+    return perfect.map((item) => String(item.entry.answer).trim()).join('\n\n');
+  }
+  if (
+    ranked[0] &&
+    ranked[0].score >= 55 &&
+    (ranked.length === 1 || ranked[0].score - (ranked[1]?.score || 0) >= 15)
+  ) {
+    return String(ranked[0].entry.answer).trim();
+  }
+  if (list.length === 1) return String(list[0].answer).trim();
+  return '';
+}
+
 async function scoreFaqsAgainstUserText(pool, establishmentId, userText, { limit = 8 } = {}) {
   const query = String(userText || '').trim();
   if (query.length < 3 || !pool) return [];
@@ -812,6 +864,7 @@ module.exports = {
   buildFaqKnowledgeBlock,
   buildFaqGroundedSystemPrompt,
   generateFaqGroundedReply,
+  verbatimFaqReply,
   resolveFaqTopicsForTurn,
   fetchFaqAnswerForTopic,
   invalidateFaqCache,

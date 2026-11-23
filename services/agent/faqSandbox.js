@@ -1,19 +1,12 @@
 'use strict';
 
-const { loadActiveSettings } = require('./assistantSettingsService');
 const { isInformationalFaqTurn } = require('./faqTopicCanonical');
 const {
   detectRelevantFaqTopics,
-  generateFaqGroundedReply,
   invalidateFaqCache,
   loadRelevantFaqsForEstablishment,
+  verbatimFaqReply,
 } = require('./faqPrefetchService');
-const {
-  formatTrainingReply,
-  pickBestFaqEntry,
-  shouldPreferDirectFaqReply,
-} = require('./trainingReplyFormatter');
-
 const CONFIRM_LATER = /confirmar com a equipe/i;
 
 function formatSandboxDate(isoDate) {
@@ -52,15 +45,33 @@ function summarizeFaqRead(entries, focusTopic) {
   };
 }
 
-async function loadEstablishmentName(pool, establishmentId) {
-  const result = await pool.query(`SELECT name FROM places WHERE id = $1 LIMIT 1`, [
-    establishmentId,
-  ]);
-  return String(result.rows[0]?.name || '').trim();
+async function loadActiveFaqByTopic(pool, establishmentId, topic) {
+  const result = await pool.query(
+    `SELECT topic, answer, updated_at
+       FROM establishment_faq
+      WHERE establishment_id = $1
+        AND topic = $2
+        AND is_active = TRUE
+        AND COALESCE(TRIM(answer), '') <> ''
+      LIMIT 1`,
+    [establishmentId, topic],
+  );
+  const row = result.rows[0];
+  if (!row?.answer) return null;
+  return {
+    topic: String(row.topic),
+    answer: String(row.answer).trim(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+  };
+}
+
+function pinFocusedFaq(entries, focused) {
+  if (!focused) return entries;
+  return [focused, ...(entries || []).filter((entry) => entry.topic !== focused.topic)];
 }
 
 /**
- * Responde como o atendimento leria a base, sem WhatsApp e sem criar reserva.
+ * Responde com o texto cadastrado da casa, sem WhatsApp e sem criar reserva.
  */
 async function runFaqReadTest(pool, input = {}) {
   const establishmentId = Number(input.establishmentId);
@@ -82,20 +93,20 @@ async function runFaqReadTest(pool, input = {}) {
   }
 
   invalidateFaqCache(establishmentId);
-  const establishmentName = await loadEstablishmentName(pool, establishmentId);
   const informational = isInformationalFaqTurn(question);
   const topicHints = detectRelevantFaqTopics(question, history, {
     establishmentId,
-    establishmentName,
     funnelActive: false,
   });
-  const entries = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
+  const loaded = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
     funnelActive: false,
     userText: question,
     extraTopics: focusTopic ? [focusTopic] : [],
   });
+  const focused = focusTopic ? await loadActiveFaqByTopic(pool, establishmentId, focusTopic) : null;
+  const entries = pinFocusedFaq(loaded, focused);
   const reading = summarizeFaqRead(entries, focusTopic);
-  const grounded = entries.filter((entry) => !entry.fallback);
+  const grounded = focused ? [focused] : entries.filter((entry) => !entry.fallback);
 
   if (!grounded.length) {
     return {
@@ -109,65 +120,32 @@ async function runFaqReadTest(pool, input = {}) {
     };
   }
 
-  let settings = null;
-  try {
-    settings = await loadActiveSettings(pool, establishmentId);
-  } catch (_error) {
-    settings = null;
+  const reply = verbatimFaqReply(grounded, question, { focusTopic, topicHints });
+  if (!reply) {
+    return {
+      reply:
+        'Não encontrei essa informação na base desta casa. No WhatsApp a Sol diria que vai confirmar com a equipe.',
+      sources: reading.sources,
+      readFocus: false,
+      informational,
+      usedModel: false,
+    };
   }
-
-  if (
-    shouldPreferDirectFaqReply({
-      userText: question,
-      faqEntries: grounded,
-      topicHints: focusTopic ? [focusTopic, ...topicHints] : topicHints,
-    })
-  ) {
-    const best = pickBestFaqEntry(grounded, focusTopic ? [focusTopic, ...topicHints] : topicHints);
-    const formatted = formatTrainingReply({
-      answer: best.answer,
-      topic: best.topic,
-      settings,
-      establishmentName,
-      userText: question,
-      messageHistory: history,
-      options: { appendCta: false, keepCadastro: true },
-    });
-    if (formatted.text) {
-      return {
-        reply: formatted.text,
-        sources: reading.sources,
-        readFocus: reading.readFocus && !CONFIRM_LATER.test(formatted.text),
-        informational,
-        usedModel: false,
-        verbatim: true,
-      };
-    }
-  }
-
-  const reply = await generateFaqGroundedReply({
-    userQuestion: question,
-    faqEntries: grounded,
-    establishmentName,
-    messageHistory: history,
-    pool,
-    establishmentId,
-    settings,
-  });
 
   return {
     reply,
     sources: reading.sources,
     readFocus: reading.readFocus && !CONFIRM_LATER.test(reply),
     informational,
-    usedModel: true,
-    verbatim: false,
+    usedModel: false,
+    verbatim: true,
   };
 }
 
 module.exports = {
   formatSandboxTime,
   buildSandboxQuestion,
+  pinFocusedFaq,
   summarizeFaqRead,
   runFaqReadTest,
 };

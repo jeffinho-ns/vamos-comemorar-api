@@ -9,8 +9,6 @@ const {
   isInformationalFaqTurn,
   looksLikeReservationPushOnly,
   looksLikeEventProgramQuestion,
-  looksLikeEntryPricingQuestion,
-  looksLikeMusicStyleQuestion,
   looksLikeAreaAvailabilityQuestion,
   extractPartySizeFromText,
 } = require('./faqTopicCanonical');
@@ -20,7 +18,7 @@ const {
   loadFaqsMatchingDateMention,
   detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
-  generateFaqGroundedReply,
+  verbatimFaqReply,
 } = require('./faqPrefetchService');
 const { isHighlineEstablishment, suggestHighlineAreaForSlot } = require('./highlineReservationAreas');
 const {
@@ -38,11 +36,6 @@ const {
   loadActiveSettings: loadActiveAssistantSettings,
   loadExternalLinksBlock,
 } = require('./assistantSettingsService');
-const {
-  formatTrainingReply,
-  shouldPreferDirectFaqReply,
-  pickBestFaqEntry,
-} = require('./trainingReplyFormatter');
 const { buildReservationDateHint, looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
@@ -1371,12 +1364,6 @@ async function tryFaqFirstReply({
     if (focused.length) faqEntries = focused;
   }
 
-  const informationalNoReservation =
-    !looksLikeReservationIntent(userText) &&
-    (looksLikeEventProgramQuestion(userText) ||
-      looksLikeEntryPricingQuestion(userText) ||
-      looksLikeMusicStyleQuestion(userText));
-
   if (!faqEntries.length) {
     if (looksLikeEventProgramQuestion(userText) || programQuestion) {
       console.warn(
@@ -1401,71 +1388,36 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const settings = await loadActiveAssistantSettings(pool, establishmentId).catch(() => null);
-  const externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
+  const replyText = verbatimFaqReply(faqEntries, userText, { topicHints });
+  if (!replyText) return null;
 
-  const skipPull = shouldSkipSalesPull(topicHints);
-  const buildFaqToolTrace = (entries, hints) =>
-    (hints.length ? hints : entries.map((entry) => entry.topic)).map((topic) => ({
-      name: 'consultar_faq_estabelecimento',
-      result: {
-        ok: true,
-        topic,
-        answer: entries.find((entry) => entry.topic === topic)?.answer || entries[0]?.answer,
-      },
-    }));
+  const answeredTopic =
+    topicHints.find((topic) =>
+      faqEntries.some((entry) => String(entry.topic) === String(topic))
+    ) || faqEntries[0]?.topic;
 
-  if (shouldPreferDirectFaqReply({ userText, faqEntries, topicHints })) {
-    const best = pickBestFaqEntry(faqEntries, topicHints);
-    const formatted = formatTrainingReply({
-      answer: best.answer,
-      topic: best.topic,
-      settings,
-      externalLinksBlock,
-      establishmentName: context.lockedEstablishmentName || '',
-      userText,
-      messageHistory,
-      options: { appendCta: false, keepCadastro: true },
-    });
-    await recordZeroTokenPath(pool, {
-      path: 'faq_direct',
-      meta: {
-        topic: best.topic,
-        topics: topicHints,
-        establishment_id: establishmentId,
-      },
-    });
-    return {
-      replyText: appendSalesPull(formatted.text, funnelState, { skip: skipPull }),
-      workingState: funnelState,
-      toolTrace: buildFaqToolTrace(faqEntries, topicHints),
-      preReservationResult: null,
-      guestListLink: null,
-      faqFirst: true,
-      faqDirect: true,
-    };
-  }
-
-  // Camada 2: LLM econômico só para fundir/adaptar (2+ fatos ou ambiguidade).
-  const replyText = await generateFaqGroundedReply({
-    userQuestion: userText,
-    faqEntries,
-    establishmentName: context.lockedEstablishmentName || '',
-    messageHistory,
-    eventProgramOnly: informationalNoReservation,
-    pool,
-    establishmentId,
-    settings,
+  await recordZeroTokenPath(pool, {
+    path: 'faq_direct',
+    meta: {
+      topic: answeredTopic,
+      topics: topicHints,
+      establishment_id: establishmentId,
+    },
   });
 
   return {
-    replyText: appendSalesPull(replyText, funnelState, { skip: skipPull }),
+    replyText,
     workingState: funnelState,
-    toolTrace: buildFaqToolTrace(faqEntries, topicHints),
+    toolTrace: [
+      {
+        name: 'consultar_faq_estabelecimento',
+        result: { ok: true, topic: answeredTopic, answer: replyText },
+      },
+    ],
     preReservationResult: null,
     guestListLink: null,
     faqFirst: true,
-    faqEconomy: true,
+    faqDirect: true,
   };
 }
 

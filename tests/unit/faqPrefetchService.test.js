@@ -5,6 +5,7 @@ const {
   invalidateFaqCache,
   loadRelevantFaqsForEstablishment,
   scoreFaqAgainstText,
+  verbatimFaqReply,
 } = require('../../services/agent/faqPrefetchService');
 
 test.beforeEach(() => {
@@ -23,6 +24,25 @@ function makeCatalogPool(rows) {
     },
   };
 }
+
+test('pergunta sobre estacionamento devolve o texto cadastrado da casa', () => {
+  const answer =
+    'A casa não tem estacionamento próprio. Há um estacionamento ao lado, sem vínculo com a casa. O valor é informado no local; a equipe da casa não tem essa tabela.';
+  const reply = verbatimFaqReply(
+    [
+      { topic: 'estacionamento', answer, fallback: false },
+      {
+        topic: 'dias_horarios_funcionamento',
+        answer: 'Sábado das 14h às 5h.',
+        fallback: false,
+      },
+    ],
+    'Oi, pode me explicar sobre Estacionamento?',
+    { topicHints: ['estacionamento'] }
+  );
+
+  assert.equal(reply, answer);
+});
 
 test('detectRelevantFaqTopics detecta estacionamento na pergunta atual', () => {
   const topics = detectRelevantFaqTopics(

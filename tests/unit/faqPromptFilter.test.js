@@ -157,6 +157,34 @@ test('isCustomerFacingFaqEntry exclui roteamento interno no modo offline', () =>
   assert.equal(isCustomerFacingFaqEntry(DRESS_CODE, { forOffline: true }), true);
 });
 
+test('ficha com rótulo REGRA mantém o texto cadastrado depois do rótulo', () => {
+  const filtered = filterFaqsForCustomerPrompt([
+    {
+      topic: 'apresentacao',
+      answer:
+        'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop, e quais informações ele gostaria de saber.',
+    },
+  ]);
+
+  assert.equal(filtered.length, 1);
+  assert.match(filtered[0].answer, /após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop/);
+});
+
+test('ficha de bolo mantém o texto cadastrado', () => {
+  const filtered = filterFaqsForCustomerPrompt([
+    {
+      topic: 'bolo_docinhos_e_baloes',
+      answer:
+        'Regra: Sempre que realizar uma reserva de aniversário, informe que são permitidos bolos de até 2 kg. Docinhos não são permitidos. Balões são permitidos.',
+    },
+  ]);
+
+  assert.equal(filtered.length, 1);
+  assert.match(filtered[0].answer, /são permitidos bolos de até 2 kg/);
+  assert.match(filtered[0].answer, /Docinhos não são permitidos/);
+  assert.match(filtered[0].answer, /Balões são permitidos/);
+});
+
 test('stripMetaInstructionsFromAnswer remove linhas NÃO diga ao cliente', () => {
   const stripped = stripMetaInstructionsFromAnswer(`REGRA EXCLUSIVA — grupos grandes:
 NUNCA diga que a casa está cheia só porque uma mesa única não comporta todo o grupo.

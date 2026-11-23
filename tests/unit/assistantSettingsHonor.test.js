@@ -105,6 +105,28 @@ test('FAQ grounded usa persona preenchida sem exigir is_active', () => {
   assert.match(prompt, /bullets curtos/);
 });
 
+test('título curto da ficha não se perde no "pode me explicar sobre"', () => {
+  assert.ok(
+    scoreFaqAgainstText(
+      {
+        topic: 'apresentacao',
+        answer:
+          'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop.',
+      },
+      'Oi, pode me explicar sobre apresentacao?'
+    ) >= 40
+  );
+  assert.ok(
+    scoreFaqAgainstText(
+      {
+        topic: 'bolo_docinhos_e_baloes',
+        answer: 'Em reserva de aniversário, são permitidos bolos de até 2 kg.',
+      },
+      'Oi, pode me explicar sobre bolo docinhos e baloes?'
+    ) >= 40
+  );
+});
+
 test('FAQ da aba Informações casa por título livre', async () => {
   assert.ok(
     scoreFaqAgainstText(
