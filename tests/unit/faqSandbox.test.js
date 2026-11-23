@@ -33,3 +33,12 @@ test('summarizeFaqRead marca quando a ficha nova não entrou na leitura', () => 
   );
   assert.equal(reading.readFocus, false);
 });
+
+test('summarizeFaqRead reconhece ficha citada no teste da IA', () => {
+  const reading = summarizeFaqRead(
+    [{ topic: 'apresentacao', answer: 'Perguntar se já conhece a casa.', fallback: false }],
+    'apresentacao'
+  );
+  assert.equal(reading.readFocus, true);
+  assert.deepEqual(reading.sources, ['apresentacao']);
+});

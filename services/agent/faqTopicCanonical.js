@@ -173,6 +173,13 @@ function looksLikeBirthdayBenefitsQuestion(text) {
 
 function looksLikeEntryPricingQuestion(text) {
   const normalized = normalizeInboundText(text);
+  // "entrada com bebidas" é política de trazer bebida, não tabela de cover.
+  if (
+    /\bentrada com bebidas?\b/.test(normalized) &&
+    !/\b(valor|preco|quanto|cover|ingresso|lista|vip|consumacao)\b/.test(normalized)
+  ) {
+    return false;
+  }
   return /\b(entrada|entradas|vip|consome|consumacao|ingresso|preco|precos|valor|valores|lista)\b/.test(
     normalized
   );
@@ -310,6 +317,9 @@ function detectFaqTopicsFromUserText(text) {
     topics.push('dress_code');
   }
 
+  const aboutTopic = extractAboutSubjectTopic(text);
+  if (aboutTopic) topics.push(aboutTopic);
+
   const { detectSeuJustinoFaqTopics } = require('./seuJustinoFaqCatalog');
   const { detectPracinhaFaqTopics } = require('./pracinhaFaqCatalog');
   const specific = [
@@ -323,6 +333,21 @@ function detectFaqTopicsFromUserText(text) {
   return merged;
 }
 
+function extractAboutSubjectTopic(text) {
+  const normalized = normalizeInboundText(text);
+  const match = normalized.match(/\bsobre\s+(.+?)[\s?!.]*$/);
+  if (!match) return '';
+  const slugStop = new Set(['o', 'a', 'os', 'as', 'de', 'da', 'do', 'das', 'dos', 'um', 'uma', 'e']);
+  const tokens = match[1]
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]+/g, ''))
+    .filter((token) => token.length >= 2 && !slugStop.has(token));
+  if (!tokens.length) return '';
+  if (tokens.length === 1 && /^(isso|isto|aquilo|aqui|ai|la)$/.test(tokens[0])) return '';
+  return canonicalizeAdminFaqTopic(tokens.join('_'));
+}
+
 function isInformationalFaqTurn(text) {
   const normalized = normalizeInboundText(text);
   if (!normalized) return false;
@@ -332,7 +357,7 @@ function isInformationalFaqTurn(text) {
   if (detectFaqTopicsFromUserText(text).length > 0) return true;
 
   if (
-    /\b(como funciona|me conta|me fala|quais? sao|o que tem|o que vai ter|o que rola|que vai ter|informac|duvida|programacao)\b/.test(
+    /\b(como funciona|me conta|me fala|me explica|me explicar|explica(?:r)? sobre|falar sobre|quais? sao|o que tem|o que vai ter|o que rola|que vai ter|o que e|informac|duvida|programacao)\b/.test(
       normalized
     )
   ) {
@@ -391,6 +416,7 @@ function detectFaqTopicsFromConversation(messageHistory = [], currentText = '') 
 module.exports = {
   canonicalizeAdminFaqTopic,
   expandFaqTopicSeedAliases,
+  extractAboutSubjectTopic,
   extractPartySizeFromText,
   normalizeTopicKey,
   detectFaqTopicsFromUserText,

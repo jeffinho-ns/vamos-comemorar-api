@@ -38,7 +38,9 @@ function shouldIncludeMetaRules() {
 function looksLikeInternalTrainingAnswer(answer) {
   const text = String(answer || '').trim();
   if (!text) return true;
-  if (/^(REGRA|META-REGRA)\b/i.test(text)) return true;
+  // META-REGRA é treino interno da IA. "REGRA:" em ficha customizada (ex.:
+  // Informações adicionais) é conteúdo da casa e precisa chegar no prompt.
+  if (/^META-REGRA\b/i.test(text)) return true;
   if (/REGRAS DO PAINEL DE RESERVAS/i.test(text)) return true;
   if (/override_capacidade\s*=/i.test(text)) return true;
   if (/Hor[aá]rio semanal cadastrado/i.test(text)) return true;
@@ -52,12 +54,20 @@ function containsMetaRegraAsPrimaryContent(answer) {
   return /META-REGRA/i.test(firstBlock);
 }
 
+function restAfterRulePrefix(line) {
+  const trimmed = String(line || '').trim();
+  const match = trimmed.match(/^(?:REGRA(?:\s+EXCLUSIVA)?|META-REGRA)\b[^:]*:\s*(.*)$/i);
+  return match ? String(match[1] || '').trim() : '';
+}
+
 function isMetaInstructionLine(line) {
   const trimmed = String(line || '').trim();
   if (!trimmed) return false;
 
-  if (/^(REGRA|META-REGRA)\b/i.test(trimmed)) return true;
-  if (/^REGRA EXCLUSIVA\b/i.test(trimmed)) return true;
+  if (/^(?:REGRA(?:\s+EXCLUSIVA)?|META-REGRA)\b/i.test(trimmed)) {
+    // Linha só com o rótulo (sem fato depois de ":") sai; o conteúdo da casa fica.
+    return !restAfterRulePrefix(trimmed);
+  }
   if (/^N[AÃ]O\s+(diga|use|confunda|insista|comente|invente|peça|crie|confirme)\b/i.test(trimmed)) {
     return true;
   }

@@ -179,23 +179,24 @@ async function loadAllActiveFaqsFromDb(pool, establishmentId) {
   return entries;
 }
 
-async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxChars = 8000 } = {}) {
+async function loadActiveFaqCatalog(pool, establishmentId) {
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
 
   const now = Date.now();
   const cached = FAQ_ALL_ACTIVE_CACHE.get(establishment);
   if (cached && now - cached.at < FAQ_CACHE_TTL_MS) {
-    return filterFaqsForCustomerPrompt(
-      trimFaqsToMaxChars(cloneFaqEntries(cached.entries), maxChars)
-    );
+    return cloneFaqEntries(cached.entries);
   }
 
   const entries = await loadAllActiveFaqsFromDb(pool, establishment);
   FAQ_ALL_ACTIVE_CACHE.set(establishment, { at: now, entries });
-  return filterFaqsForCustomerPrompt(
-    trimFaqsToMaxChars(cloneFaqEntries(entries), maxChars)
-  );
+  return cloneFaqEntries(entries);
+}
+
+async function loadAllActiveFaqsForEstablishment(pool, establishmentId, { maxChars = 8000 } = {}) {
+  const entries = await loadActiveFaqCatalog(pool, establishmentId);
+  return filterFaqsForCustomerPrompt(trimFaqsToMaxChars(entries, maxChars));
 }
 
 function buildDateSearchPatterns(isoDate) {
@@ -377,28 +378,121 @@ function normalizeFaqNeedle(value) {
     .trim();
 }
 
+const FAQ_QUERY_STOPWORDS = new Set([
+  'oi',
+  'ola',
+  'oie',
+  'opa',
+  'bom',
+  'boa',
+  'dia',
+  'tarde',
+  'noite',
+  'pode',
+  'podia',
+  'me',
+  'te',
+  'nos',
+  'voce',
+  'voces',
+  'explica',
+  'explicar',
+  'explique',
+  'falar',
+  'fala',
+  'contar',
+  'conta',
+  'sobre',
+  'qual',
+  'quais',
+  'como',
+  'tem',
+  'ter',
+  'pra',
+  'para',
+  'por',
+  'com',
+  'que',
+  'uma',
+  'uno',
+  'isso',
+  'isto',
+  'aqui',
+  'ai',
+  'favor',
+]);
+
+function significantFaqTokens(value) {
+  return normalizeFaqNeedle(value)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !FAQ_QUERY_STOPWORDS.has(token));
+}
+
+function extractAboutSubjectNeedle(queryText) {
+  const query = normalizeFaqNeedle(queryText);
+  const match = query.match(/\bsobre\s+(.+)$/);
+  return match ? normalizeFaqNeedle(match[1]) : '';
+}
+
+function scoreTitleOverlap(topicNeedle, subjectNeedle) {
+  if (!topicNeedle || !subjectNeedle) return 0;
+  if (
+    topicNeedle === subjectNeedle ||
+    topicNeedle.includes(subjectNeedle) ||
+    subjectNeedle.includes(topicNeedle)
+  ) {
+    return 100;
+  }
+  const topicTokens = significantFaqTokens(topicNeedle);
+  const subjectTokens = significantFaqTokens(subjectNeedle);
+  if (!topicTokens.length || !subjectTokens.length) return 0;
+  const topicSet = new Set(topicTokens);
+  const hits = subjectTokens.filter((token) => topicSet.has(token)).length;
+  if (!hits) return 0;
+  const unionSize = new Set([...topicTokens, ...subjectTokens]).size;
+  const covered = hits === subjectTokens.length || hits === topicTokens.length;
+  const distinctive = hits >= 2 || subjectTokens.some((token) => token.length >= 8 && topicSet.has(token));
+  if (covered && distinctive) return 100;
+  return Math.round((hits / unionSize) * 90);
+}
+
 function scoreFaqAgainstText(entry, queryText) {
   const query = normalizeFaqNeedle(queryText);
   const topic = normalizeFaqNeedle(entry?.topic);
-  const answer = normalizeFaqNeedle(entry?.answer).slice(0, 240);
+  const answer = normalizeFaqNeedle(entry?.answer).slice(0, 400);
   if (!query || !topic) return 0;
-  if (topic === query || topic.includes(query) || query.includes(topic)) return 100;
-  const tokens = query.split(' ').filter((token) => token.length >= 3);
-  if (!tokens.length) return 0;
-  const hits = tokens.filter((token) => topic.includes(token) || answer.includes(token)).length;
-  return hits === 0 ? 0 : Math.round((hits / tokens.length) * 80);
+
+  const subject = extractAboutSubjectNeedle(queryText);
+  const titleScore = Math.max(scoreTitleOverlap(topic, query), scoreTitleOverlap(topic, subject));
+  if (titleScore >= 100) return 100;
+
+  const tokens = significantFaqTokens(subject || query);
+  if (!tokens.length) return titleScore;
+  const topicHits = tokens.filter((token) => topic.includes(token)).length;
+  const answerHits = tokens.filter((token) => answer.includes(token)).length;
+  if (!topicHits && !answerHits && !titleScore) return 0;
+  const missingDistinctive = tokens.filter((token) => token.length >= 5 && !topic.includes(token));
+  if (missingDistinctive.length && topicHits < tokens.length) {
+    return Math.min(titleScore, 35);
+  }
+  const overlap = Math.round((topicHits / tokens.length) * 90 + (answerHits / tokens.length) * 15);
+  return Math.min(99, Math.max(titleScore, overlap));
 }
 
-async function loadFaqsMatchingFreeText(pool, establishmentId, userText, { limit = 3 } = {}) {
+async function scoreFaqsAgainstUserText(pool, establishmentId, userText, { limit = 8 } = {}) {
   const query = String(userText || '').trim();
   if (query.length < 3 || !pool) return [];
-  const all = await loadAllActiveFaqsForEstablishment(pool, establishmentId);
+  const all = await loadActiveFaqCatalog(pool, establishmentId);
   return all
     .map((entry) => ({ entry, score: scoreFaqAgainstText(entry, query) }))
     .filter((item) => item.score >= 40)
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((item) => item.entry);
+    .slice(0, limit);
+}
+
+async function loadFaqsMatchingFreeText(pool, establishmentId, userText, { limit = 5 } = {}) {
+  const scored = await scoreFaqsAgainstUserText(pool, establishmentId, userText, { limit });
+  return scored.map((item) => item.entry);
 }
 
 async function loadRelevantFaqsForEstablishment(
@@ -410,19 +504,45 @@ async function loadRelevantFaqsForEstablishment(
   const establishment = Number(establishmentId);
   if (!Number.isFinite(establishment) || establishment <= 0 || !pool) return [];
 
-  let topics = [...new Set((topicHints || []).filter(Boolean))];
+  const detectedTopics = [...new Set((topicHints || []).filter(Boolean))];
+  let topics = detectedTopics;
   if (!topics.length) {
     // Funil de reserva: zero FAQ genérica no prompt (economiza tokens).
     if (funnelActive) return [];
-    // Informativo sem match: só o núcleo mínimo, nunca loadAllActiveFaqs.
+    // Informativo sem match: só o núcleo mínimo, nunca dump da base.
     topics = [...FAQ_CORE_FALLBACK_TOPICS];
   }
 
-  let entries = await prefetchEstablishmentFaqs(pool, establishment, topics);
+  const canonicalEntries = await prefetchEstablishmentFaqs(pool, establishment, topics);
+  const scoredMatches =
+    !funnelActive && userText
+      ? await scoreFaqsAgainstUserText(pool, establishment, userText, { limit: 8 })
+      : [];
 
-  if (!entries.length && !funnelActive && userText) {
-    entries = await loadFaqsMatchingFreeText(pool, establishment, userText);
+  const byTopic = new Map();
+  const pushEntry = (entry) => {
+    if (!entry?.topic || byTopic.has(entry.topic)) return;
+    byTopic.set(entry.topic, entry);
+  };
+
+  const STRONG_MATCH = 70;
+  const bestScore = scoredMatches[0]?.score || 0;
+  if (bestScore >= STRONG_MATCH) {
+    for (const { entry, score } of scoredMatches) {
+      if (score >= STRONG_MATCH) pushEntry(entry);
+    }
+    const strongTopics = new Set(
+      scoredMatches.filter((item) => item.score >= STRONG_MATCH).map((item) => item.entry.topic)
+    );
+    for (const entry of canonicalEntries) {
+      if (strongTopics.has(entry.topic)) pushEntry(entry);
+    }
+  } else {
+    for (const entry of canonicalEntries) pushEntry(entry);
+    for (const { entry } of scoredMatches) pushEntry(entry);
   }
+
+  let entries = [...byTopic.values()];
 
   if (!entries.length) {
     const fallbackEntries = topics
@@ -447,7 +567,11 @@ async function loadRelevantFaqsForEstablishment(
       ? Math.min(maxChars, defaultBudget)
       : defaultBudget;
   const topicOrder = new Map(topics.map((t, i) => [t, i]));
+  const scoreByTopic = new Map(scoredMatches.map((item) => [item.entry.topic, item.score]));
   entries.sort((a, b) => {
+    const sa = scoreByTopic.get(a.topic) || 0;
+    const sb = scoreByTopic.get(b.topic) || 0;
+    if (sa !== sb) return sb - sa;
     const ai = topicOrder.has(a.topic) ? topicOrder.get(a.topic) : 999;
     const bi = topicOrder.has(b.topic) ? topicOrder.get(b.topic) : 999;
     if (ai !== bi) return ai - bi;
@@ -485,7 +609,10 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   // que parecem corretas mas contradizem a operação real da casa.
   const header = [
     `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (fonte oficial — prevalece sobre conhecimento geral):`,
-    'Use só os fatos abaixo. Se não cobrir o tópico: "Boa, deixa eu confirmar com a equipe e te respondo já."',
+    'Use só os fatos abaixo. Priorize o item cujo título mais corresponde à pergunta (acento/plural à parte).',
+    'Não troque uma ficha específica por um tópico genérico parecido (ex.: "entrada com bebidas" não é tabela de cover).',
+    'Se a base cobrir o assunto, nunca diga que não encontrou nem que vai confirmar com a equipe.',
+    'Só se NENHUM item cobrir o tópico: "Boa, deixa eu confirmar com a equipe e te respondo já."',
   ].join('\n');
   const body = customerEntries
     .map((entry) => `### ${entry.topic}\n${entry.answer}`)
@@ -522,7 +649,8 @@ function buildFaqGroundedSystemPrompt({
   return `${personaBlock}
 
 REGRAS FAQ:
-- Use SOMENTE a base abaixo. Se faltar info: "vou confirmar com a equipe e te respondo já".
+- Use SOMENTE a base abaixo. Se um título corresponder à pergunta, obedeça esse item.
+- Se a base cobrir o assunto, nunca diga que não encontrou. Se faltar info: "vou confirmar com a equipe e te respondo já".
 - Responda a PERGUNTA ATUAL em uma ou duas frases. O histórico recente é só contexto.
 ${bulletRule}
 - Tom WhatsApp: "Boa noite!", "Show", "Fechado". NUNCA "Caro X", "Atenciosamente", assinatura formal.
@@ -613,5 +741,6 @@ module.exports = {
   fetchFaqAnswerForTopic,
   invalidateFaqCache,
   loadFaqsMatchingFreeText,
+  loadActiveFaqCatalog,
   scoreFaqAgainstText,
 };
