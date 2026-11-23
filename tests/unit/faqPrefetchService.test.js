@@ -152,3 +152,52 @@ test('ficha REGRA customizada é encontrada mesmo no meio de dezenas de itens', 
   assert.ok(entries.some((entry) => entry.topic === 'apresentacao'));
   assert.match(entries.find((entry) => entry.topic === 'apresentacao').answer, /Reserva Rooftop/i);
 });
+
+const APRESENTACAO_BODY =
+  'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Reserva Rooftop, e quais informações ele gostaria de saber.';
+const APRESENTACAO_SUBSTRING_TOPIC =
+  'departamento de compras, fornecedores e apresentacao de produtos';
+
+test('título apresentacao não casa ficha cujo título só contém a substring', () => {
+  const longCard = {
+    topic: APRESENTACAO_SUBSTRING_TOPIC,
+    answer: 'Fluxo interno de compras e apresentação de produtos aos fornecedores.',
+  };
+  const exactCard = { topic: 'apresentacao', answer: APRESENTACAO_BODY };
+  const question = 'Oi, pode me explicar sobre apresentacao?';
+
+  assert.equal(scoreFaqAgainstText(exactCard, question), 100);
+  assert.ok(scoreFaqAgainstText(longCard, question) < 70);
+});
+
+test('pergunta sobre apresentacao lê só a ficha do título exato, sem substring', async () => {
+  const pool = makeCatalogPool([
+    {
+      topic: APRESENTACAO_SUBSTRING_TOPIC,
+      answer: 'Fluxo interno de compras e apresentação de produtos aos fornecedores.',
+      updated_at: new Date('2026-11-22T12:00:00Z'),
+    },
+    {
+      topic: 'apresentacao',
+      answer: APRESENTACAO_BODY,
+      updated_at: new Date('2026-11-19T12:00:00Z'),
+    },
+  ]);
+
+  const question = 'Oi, pode me explicar sobre apresentacao?';
+  const topics = detectRelevantFaqTopics(question, []);
+  const entries = await loadRelevantFaqsForEstablishment(pool, 99, topics, {
+    userText: question,
+    extraTopics: ['apresentacao'],
+  });
+
+  assert.deepEqual(
+    entries.map((entry) => entry.topic),
+    ['apresentacao']
+  );
+  assert.match(entries[0].answer, /já conhece o Reserva Rooftop/i);
+  assert.equal(
+    entries.some((entry) => entry.topic === APRESENTACAO_SUBSTRING_TOPIC),
+    false
+  );
+});
