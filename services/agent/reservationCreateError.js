@@ -37,6 +37,10 @@ function areaUnlockQuestion(workingState = {}) {
   const id = Number(workingState.establishment_id);
   if (id === 1) return 'Prefere área coberta ou área descoberta?';
   if (id === 8) return 'Prefere Balcão ou Praça?';
+  if (id === 9) return 'Prefere área interna, área externa ou o salão?';
+  if (id === 7) {
+    return 'Qual área combina melhor pra você? Deck - Mesas, Deck - Mesas Redondas ou Bar Central?';
+  }
   return 'Qual área você prefere?';
 }
 

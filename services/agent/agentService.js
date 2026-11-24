@@ -882,7 +882,9 @@ function forbiddenAreaPatterns(establishmentId) {
     return FORBIDDEN_AREA_NAMES.filter((pattern) => !/balc/i.test(pattern.source));
   }
   if (id === 9) {
-    return FORBIDDEN_AREA_NAMES.filter((pattern) => !/coberta|descoberta/.test(pattern.source));
+    return FORBIDDEN_AREA_NAMES.filter(
+      (pattern) => !/coberta|descoberta|balc/i.test(pattern.source)
+    );
   }
   return FORBIDDEN_AREA_NAMES;
 }
@@ -892,7 +894,10 @@ function recoveryAfterForbiddenArea(workingState = {}) {
   const hasArea = String(workingState.area_label || workingState.area_preferida || '').trim();
   if (id === 8 && !hasArea) return 'No Pracinha, prefere o Balcão ou a Praça?';
   if (id === 1 && !hasArea) return 'Você prefere a área coberta ou a área descoberta?';
-  if (id === 9 && !hasArea) return 'Você prefere área interna ou área externa?';
+  if (id === 9 && !hasArea) return 'Você prefere área interna, área externa ou o salão?';
+  if (id === 7 && !hasArea) {
+    return 'Qual área combina melhor pra você: Deck - Mesas, Deck - Mesas Redondas ou Bar Central?';
+  }
   return buildSafeFollowupQuestion(workingState);
 }
 

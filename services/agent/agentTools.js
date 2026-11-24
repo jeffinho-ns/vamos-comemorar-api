@@ -34,6 +34,13 @@ const {
   guestZoneLabel,
   pickJustinoReservationSlot,
 } = require('./seuJustinoReservationAreas');
+const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
+const {
+  isReservaRooftopEstablishment,
+  resolveReservaRooftopGuestZone,
+  resolveReservaRooftopPublicAreaId,
+  guestAreaPromptForClient: rooftopGuestAreaPrompt,
+} = require('./reservaRooftopReservationAreas');
 const {
   buildNotesFromReservationArgs,
   buildNotesFromWaitlistArgs,
@@ -1022,10 +1029,44 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     justinoPanelLabel = slot.internalLabel;
   }
 
-  if (!areaId) {
-    areaId = await resolveAreaId(pool, establishmentId, args.area);
+  if (!areaId && Number(establishmentId) === 8) {
+    const pracinha =
+      resolvePracinhaGuestArea(args.area || areaLabel) ||
+      resolvePracinhaGuestArea(areaLabel);
+    if (!pracinha) {
+      return {
+        ok: false,
+        error: 'No Pracinha, pergunte se o cliente prefere o Balcão ou a Praça e só então crie a reserva.',
+      };
+    }
+    areaLabel = pracinha.label;
+    areaId = await resolveAreaId(pool, establishmentId, pracinha.label);
   }
+
+  if (!areaId && isReservaRooftopEstablishment(establishmentId)) {
+    const rooftop =
+      resolveReservaRooftopGuestZone(args.area || areaLabel) ||
+      resolveReservaRooftopGuestZone(areaLabel);
+    if (!rooftop) {
+      return {
+        ok: false,
+        error: `${rooftopGuestAreaPrompt()} Depois crie a reserva com area="Área Interna", area="Área Externa" ou area="Salão".`,
+      };
+    }
+    areaLabel = rooftop.label;
+    const areas = await loadActiveAreas(pool, establishmentId);
+    areaId = resolveReservaRooftopPublicAreaId(rooftop.key, areas);
+  }
+
   if (!areaId) {
+    areaId = await resolveAreaId(pool, establishmentId, args.area || areaLabel);
+  }
+  if (
+    !areaId &&
+    !isSeuJustinoEstablishment(establishmentId) &&
+    Number(establishmentId) !== 8 &&
+    !isReservaRooftopEstablishment(establishmentId)
+  ) {
     const defaultSlot = await resolveDefaultReservationSlot(
       pool,
       establishmentId,
@@ -1043,7 +1084,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
     return {
       ok: false,
       error:
-        'Área inválida ou sem mesa disponível. Confirme a área com o cliente ou use consultar_areas_mesa_reserva / lista de espera.',
+        'Área inválida ou sem mesa disponível. Confirme a área com o cliente usando só as opções do painel desta casa.',
     };
   }
 

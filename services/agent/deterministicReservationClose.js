@@ -11,6 +11,12 @@ const {
   guestZoneLabel,
 } = require('./seuJustinoReservationAreas');
 const { getReservationMissingFields, buildOccasionNotes, resolvePracinhaGuestArea } = require('./reservationFunnel');
+const {
+  isReservaRooftopEstablishment,
+  resolveReservaRooftopGuestZone,
+  isCreatableRooftopAreaLabel,
+  guestAreaPromptForClient: rooftopGuestAreaPrompt,
+} = require('./reservaRooftopReservationAreas');
 const { mergeWorkingState, extractWorkingStatePatchFromToolResult } = require('./agentMemoryService');
 const { recordZeroTokenPath } = require('./aiUsageRepository');
 
@@ -78,8 +84,8 @@ function isCreatableAreaLabel(area, establishmentId) {
   if (normalized === 'padrao' || normalized === 'area padrao') return false;
 
   if (isSeuJustinoEstablishment(establishmentId)) {
-    const zone = resolveJustinoGuestZone(label) || (label === 'qualquer' ? 'qualquer' : null);
-    return zone === 'coberta' || zone === 'descoberta' || zone === 'qualquer';
+    const zone = resolveJustinoGuestZone(label);
+    return zone === 'coberta' || zone === 'descoberta';
   }
   if (Number(establishmentId) === 8) {
     return Boolean(resolvePracinhaGuestArea(label));
@@ -87,7 +93,10 @@ function isCreatableAreaLabel(area, establishmentId) {
   if (isHighlineEstablishment(establishmentId)) {
     return Boolean(resolveHighlineSubarea(label));
   }
-  return true;
+  if (isReservaRooftopEstablishment(establishmentId)) {
+    return isCreatableRooftopAreaLabel(label);
+  }
+  return false;
 }
 
 function snapshotConfirmsVacancyForCreate(snapshot) {
@@ -142,8 +151,10 @@ function resolveLabelFromHighlineSnapshot(snapshot, preferred = '') {
 function areaChoiceReply(establishmentId) {
   const id = Number(establishmentId);
   if (id === 8) return 'No Pracinha, prefere o Balcão ou a Praça?';
-  if (id === 9) return 'Você prefere área interna ou área externa?';
-  if (id === 7) return 'Qual área combina melhor pra você?';
+  if (id === 9) return rooftopGuestAreaPrompt();
+  if (id === 7) {
+    return 'Qual área combina melhor pra você: Deck - Mesas, Deck - Mesas Redondas ou Bar Central?';
+  }
   return 'Você prefere a área coberta ou a área descoberta?';
 }
 
@@ -213,14 +224,16 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     const pending = String(workingState.pending_justino_zone || '').trim();
     const zone =
       resolveJustinoGuestZone(userText) ||
-      (pending === 'coberta' || pending === 'descoberta' || pending === 'qualquer' ? pending : '') ||
+      (pending === 'coberta' || pending === 'descoberta' ? pending : '') ||
       resolveJustinoGuestZone(preferred) ||
-      workingState.justino_zone ||
+      (workingState.justino_zone === 'coberta' || workingState.justino_zone === 'descoberta'
+        ? workingState.justino_zone
+        : '') ||
       resolveJustinoGuestZone(String(workingState.area_label || ''));
-    if (!zone) {
+    if (!zone || zone === 'qualquer') {
       return { needsChoice: true, label: '', snapshot: null };
     }
-    const label = zone === 'qualquer' ? 'qualquer' : guestZoneLabel(zone);
+    const label = guestZoneLabel(zone);
     if (!isCreatableAreaLabel(label, establishmentId)) {
       return { needsChoice: true, label: '', snapshot: null };
     }
@@ -229,6 +242,15 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
 
   if (establishmentId === 8) {
     const area = resolvePracinhaGuestArea(userText) || resolvePracinhaGuestArea(preferred);
+    if (!area || !isCreatableAreaLabel(area.label, establishmentId)) {
+      return { needsChoice: true, label: '', snapshot: null };
+    }
+    return { label: area.label, snapshot: null };
+  }
+
+  if (isReservaRooftopEstablishment(establishmentId)) {
+    const area =
+      resolveReservaRooftopGuestZone(userText) || resolveReservaRooftopGuestZone(preferred);
     if (!area || !isCreatableAreaLabel(area.label, establishmentId)) {
       return { needsChoice: true, label: '', snapshot: null };
     }

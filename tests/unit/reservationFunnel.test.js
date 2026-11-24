@@ -803,15 +803,16 @@ test('buildNextFieldQuestion no Pracinha sem área pede só Balcão ou Praça', 
   assert.equal(q, 'No Pracinha, prefere o Balcão ou a Praça?');
 });
 
-test('buildNextFieldQuestion no Highline sem área pede uma área, sem grade', () => {
+test('buildNextFieldQuestion no Highline sem área pede as opções do painel', () => {
   const q = buildNextFieldQuestion({
     establishment_id: 7,
     reservation_date: '2026-05-24',
     reservation_time: '20:00',
     quantidade_convidados: 2,
   });
-  assert.equal(q, 'Qual área combina melhor pra você?');
-  assert.doesNotMatch(q, /deck|rooftop|bar central|terraço/i);
+  assert.match(q, /Deck - Mesas/i);
+  assert.match(q, /Bar Central/i);
+  assert.doesNotMatch(q, /terra[cç]o|área coberta|área descoberta/i);
 });
 
 test('buildNextFieldQuestion com operacional completo pede nome, e-mail e nascimento juntos', () => {
@@ -968,6 +969,49 @@ test('parseReservationFieldsFromUserText mapeia descoberta no Reserva Rooftop', 
   });
   assert.equal(patch.area_label, 'Área Externa');
   assert.equal(patch.area_preferida, 'Área Externa');
+});
+
+test('salão no Reserva Rooftop não vira área interna', () => {
+  const patch = parseReservationFieldsFromUserText('salão', {
+    establishment_id: 9,
+    reservation_date: '2026-11-29',
+    reservation_time: '19:00',
+    quantidade_convidados: 10,
+  });
+  assert.equal(patch.area_label, 'Salão');
+  assert.equal(patch.area_preferida, 'Salão');
+});
+
+test('Highline não vaza Deck/Bar para Pracinha ou Rooftop', () => {
+  const pracinha = parseReservationFieldsFromUserText('Balcão', {
+    establishment_id: 8,
+    reservation_date: '2026-11-29',
+    reservation_time: '19:00',
+    quantidade_convidados: 4,
+  });
+  assert.equal(pracinha.area_label, 'Balcão');
+  assert.notEqual(pracinha.area_label, 'Deck - Mesas');
+
+  const rooftop = parseReservationFieldsFromUserText('lounge', {
+    establishment_id: 9,
+    reservation_date: '2026-11-29',
+    reservation_time: '19:00',
+    quantidade_convidados: 4,
+  });
+  assert.equal(rooftop.area_label, undefined);
+  assert.equal(rooftop.area_preferida, undefined);
+});
+
+test('buildNextFieldQuestion no Rooftop pede interna, externa ou salão', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 9,
+    reservation_date: '2026-11-29',
+    reservation_time: '19:00',
+    quantidade_convidados: 8,
+  });
+  assert.match(q, /interna/i);
+  assert.match(q, /externa/i);
+  assert.match(q, /sal[aã]o/i);
 });
 
 test('pergunta de Ano-Novo não sobrescreve data já confirmada', () => {

@@ -16,6 +16,10 @@ const {
 } = require('./seuJustinoReservationAreas');
 const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
 const {
+  resolveReservaRooftopGuestZone,
+  guestAreaPromptForClient: rooftopGuestAreaPrompt,
+} = require('./reservaRooftopReservationAreas');
+const {
   looksLikeCorporateEvent,
   isCorporateEventState,
   parseCorporateEventPatch,
@@ -440,26 +444,10 @@ function getReservationMissingFields(workingState = {}) {
 
 const AREA_QUESTION_BY_ESTABLISHMENT = {
   1: guestZonePromptForClient(),
-  7: 'Qual área combina melhor pra você?',
+  7: 'Qual área combina melhor pra você: Deck - Mesas, Deck - Mesas Redondas ou Bar Central?',
   8: 'No Pracinha, prefere o Balcão ou a Praça?',
-  9: 'Você prefere área interna ou área externa?',
+  9: rooftopGuestAreaPrompt(),
 };
-
-function resolveReservaRooftopGuestZone(text) {
-  const normalized = String(text || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-  if (!normalized) return null;
-  const externa = /\b(externa|externo|descoberta|descoberto|ar livre|ao ar livre)\b/.test(
-    normalized
-  );
-  const interna = /\b(interna|interno|coberta|coberto|salao|salão)\b/.test(normalized);
-  if (externa && !interna) return { key: 'externa', label: 'Área Externa' };
-  if (interna && !externa) return { key: 'interna', label: 'Área Interna' };
-  return null;
-}
 
 const OPERATIONAL_ASK_ORDER = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
 const IDENTITY_ASK_ORDER = ['client_name', 'client_email', 'client_phone', 'data_nascimento'];
@@ -1005,15 +993,18 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
 
   Object.assign(patch, parseOccasionFromUserText(text, workingState, messageHistory));
 
-  const subarea = justinoHouse ? null : resolveHighlineSubarea(text);
-  if (subarea?.label) {
-    const current = resolveHighlineSubarea(
-      workingState.area_label || workingState.area_preferida || ''
-    );
-    if (!current || current.key !== subarea.key) {
-      patch.area_preferida = subarea.label;
-      patch.area_label = subarea.label;
-      if (subarea.area_id) patch.area_id = subarea.area_id;
+  // Highline only — never leak Deck/Bar/Rooftop labels into Justino/Pracinha/Rooftop.
+  if (Number(workingState.establishment_id) === 7) {
+    const subarea = resolveHighlineSubarea(text);
+    if (subarea?.label) {
+      const current = resolveHighlineSubarea(
+        workingState.area_label || workingState.area_preferida || ''
+      );
+      if (!current || current.key !== subarea.key) {
+        patch.area_preferida = subarea.label;
+        patch.area_label = subarea.label;
+        if (subarea.area_id) patch.area_id = subarea.area_id;
+      }
     }
   }
 
