@@ -815,6 +815,20 @@ test('buildNextFieldQuestion no Highline sem área pede as opções do painel', 
   assert.doesNotMatch(q, /terra[cç]o|área coberta|área descoberta/i);
 });
 
+test('com identidade completa e sem área ainda pergunta a área', () => {
+  const q = buildNextFieldQuestion({
+    establishment_id: 1,
+    reservation_date: '2026-12-09',
+    reservation_time: '20:00',
+    quantidade_convidados: 12,
+    client_name: 'Maria Teste',
+    client_email: 'maria@teste.com',
+    data_nascimento: '1990-01-15',
+  });
+  assert.equal(q, 'Você prefere a área coberta ou a área descoberta?');
+  assert.doesNotMatch(q, /observa/i);
+});
+
 test('buildNextFieldQuestion com operacional completo pede nome, e-mail e nascimento juntos', () => {
   const q = buildNextFieldQuestion({
     establishment_id: 1,

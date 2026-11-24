@@ -522,9 +522,6 @@ function buildNextFieldQuestion(workingState = {}) {
     const label = state.pending_reservation_date_label || state.pending_reservation_date_iso;
     return `Só confirmando: é para ${label}? (sim/não)`;
   }
-  if (missing.length === 0) {
-    return getStepPrompt(OBSERVATIONS_STEP);
-  }
   if (state.pending_birth_md && missing.includes('data_nascimento')) {
     return buildBirthYearQuestion(state.pending_birth_md);
   }
@@ -537,11 +534,17 @@ function buildNextFieldQuestion(workingState = {}) {
   const operationalMissing = OPERATIONAL_ASK_ORDER.filter((key) => missing.includes(key));
   if (operationalMissing.length > 0) return buildOperationalBundleQuestion(missing);
 
+  // Área vem depois do slot operacional e ANTES de observação/fechamento —
+  // senão, com nome/e-mail/nascimento já preenchidos, a Sol pula a área e trava.
   const areaQuestion = AREA_QUESTION_BY_ESTABLISHMENT[Number(state.establishment_id)];
   if (areaQuestion && !hasReservationArea(state)) return areaQuestion;
 
   const identityMissing = IDENTITY_ASK_ORDER.filter((key) => missing.includes(key));
   if (identityMissing.length > 0) return buildIdentityBundleQuestion(missing, state);
+
+  if (missing.length === 0) {
+    return getStepPrompt(OBSERVATIONS_STEP);
+  }
 
   return MISSING_FIELD_PROMPTS[missing[0]] || '';
 }
