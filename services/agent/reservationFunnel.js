@@ -386,6 +386,14 @@ function isReservationFunnelInProgress(workingState = {}, messageHistory = []) {
   return false;
 }
 
+function hasOperationalReservationSlot(workingState = {}) {
+  return (
+    hasFieldValue(workingState, 'reservation_date') &&
+    hasFieldValue(workingState, 'reservation_time') &&
+    hasFieldValue(workingState, 'quantidade_convidados')
+  );
+}
+
 function shouldSkipFaqFirst(workingState = {}, messageHistory = [], userText = '') {
   const text = String(userText || '');
   const partyMatch = text.match(/\b(\d{1,3})\s*(pessoas?|convidados?|pax)\b/i);
@@ -397,7 +405,7 @@ function shouldSkipFaqFirst(workingState = {}, messageHistory = [], userText = '
   if (bookingDataTurn) return true;
 
   if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) {
-    return false;
+    return hasOperationalReservationSlot(workingState);
   }
   if (isReservationFunnelInProgress(workingState, messageHistory)) return true;
   if (looksLikeReservationIntent(userText) && getReservationMissingFields(workingState).length < 7) {
@@ -426,7 +434,24 @@ const AREA_QUESTION_BY_ESTABLISHMENT = {
   1: guestZonePromptForClient(),
   7: 'Qual área combina melhor pra você?',
   8: 'No Pracinha, prefere o Balcão ou a Praça?',
+  9: 'Você prefere área interna ou área externa?',
 };
+
+function resolveReservaRooftopGuestZone(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  if (!normalized) return null;
+  const externa = /\b(externa|externo|descoberta|descoberto|ar livre|ao ar livre)\b/.test(
+    normalized
+  );
+  const interna = /\b(interna|interno|coberta|coberto|salao|salão)\b/.test(normalized);
+  if (externa && !interna) return { key: 'externa', label: 'Área Externa' };
+  if (interna && !externa) return { key: 'interna', label: 'Área Interna' };
+  return null;
+}
 
 const OPERATIONAL_ASK_ORDER = ['reservation_date', 'reservation_time', 'quantidade_convidados'];
 const IDENTITY_ASK_ORDER = ['client_name', 'client_email', 'client_phone', 'data_nascimento'];
@@ -711,7 +736,9 @@ function assistantAskedForReservationTime(messageHistory = []) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
   if (!normalized) return false;
-  return /\b(horario|horarios|qual hora|que horas|fica melhor|prefere as)\b/.test(normalized);
+  return /\b(horario|horarios|qual hora|que horas|fica melhor|prefere (as|outro horario)|dentro dessa janela)\b/.test(
+    normalized
+  );
 }
 
 function normalizeTimeHHmm(text, options = {}) {
@@ -741,7 +768,12 @@ function normalizeTimeHHmm(text, options = {}) {
     const m = Math.min(59, Number(match[2]));
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
-  match = raw.match(/\b(\d{1,2})\s*h\b/i);
+  match = raw.match(/\b(?:as|a[s]?)\s+(\d{1,2})\s*h(?:s|rs|oras)?\b/i);
+  if (match) {
+    const h = Math.min(23, Number(match[1]));
+    return `${String(h).padStart(2, '0')}:00`;
+  }
+  match = raw.match(/\b(\d{1,2})\s*h(?:s|rs|oras)?\b/i);
   if (match) {
     const h = Math.min(23, Number(match[1]));
     return `${String(h).padStart(2, '0')}:00`;
@@ -901,7 +933,11 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     patch.pending_contact_birth_iso = null;
     patch.pending_contact_birth_label = null;
     patch.pending_birth_from_age = null;
-  } else if (isAffirmativeConfirmation(text) && workingState.pending_reservation_date_iso) {
+  } else if (
+    isAffirmativeConfirmation(text) &&
+    workingState.pending_reservation_date_iso &&
+    workingState.reservation_date_confirmed !== true
+  ) {
     patch.reservation_date = workingState.pending_reservation_date_iso;
     patch.reservation_date_confirmed = true;
     patch.pending_reservation_date_iso = null;
@@ -922,6 +958,12 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     if (pracinhaArea) {
       patch.area_preferida = pracinhaArea.label;
       patch.area_label = pracinhaArea.label;
+    }
+  } else if (Number(workingState.establishment_id) === 9) {
+    const rooftopZone = resolveReservaRooftopGuestZone(text);
+    if (rooftopZone) {
+      patch.area_preferida = rooftopZone.label;
+      patch.area_label = rooftopZone.label;
     }
   } else if (justinoHouse) {
     const justinoZone = resolveJustinoGuestZone(text);
@@ -1184,6 +1226,7 @@ function tryAdvanceFunnelFromUserMessage(workingState = {}, userText = '', messa
 module.exports = {
   isReservationFunnelInProgress,
   shouldSkipFaqFirst,
+  hasOperationalReservationSlot,
   getReservationMissingFields,
   buildReservationFunnelPromptBlock,
   buildNextFieldQuestion,

@@ -2,15 +2,17 @@ const outboundGateway = require('../messaging/outboundGateway');
 const inbox = require('../whatsappInboxRepository');
 const { runAgentTurn, getReferenceDateIso } = require('../agent/agentService');
 const { buildReservationDateHint } = require('../agent/reservationDateHint');
-const {
-  parseReservationFieldsFromUserText,
-  mergeContactHintsIntoWorkingState,
-  prefixReplyWithContactName,
-  resetReservationSlotOnHouseChange,
-  dropAvailabilityIfSlotChanged,
-  shouldHandoffLargeGroup,
-  LARGE_GROUP_HANDOFF_REPLY,
-} = require('../agent/reservationFunnel');
+  const {
+    parseReservationFieldsFromUserText,
+    mergeContactHintsIntoWorkingState,
+    prefixReplyWithContactName,
+    resetReservationSlotOnHouseChange,
+    dropAvailabilityIfSlotChanged,
+    shouldHandoffLargeGroup,
+    LARGE_GROUP_HANDOFF_REPLY,
+  } = require('../agent/reservationFunnel');
+const { looksLikeReservationIntent } = require('../agent/reservationDateHint');
+const { isInformationalFaqTurn } = require('../agent/faqTopicCanonical');
 const { evaluateWorkingStateSlot } = require('../agent/reservationSlotGuard');
 const {
   shouldRefuseSecondCreate,
@@ -122,8 +124,18 @@ function emitInbox(app, payload) {
   }
 }
 
-async function activateHumanTakeover(pool, waId, hours = 48) {
+async function activateHumanTakeover(pool, waId, hours = 48, conversationId = null) {
   const safeHours = Number.isFinite(Number(hours)) && Number(hours) > 0 ? Number(hours) : 48;
+  if (conversationId) {
+    await pool.query(
+      `UPDATE whatsapp_conversations
+          SET human_takeover_until = NOW() + (($2::text || ' hours')::interval),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [conversationId, String(safeHours)]
+    );
+    return;
+  }
   await pool.query(
     `UPDATE whatsapp_conversations
         SET human_takeover_until = NOW() + (($2::text || ' hours')::interval),
@@ -144,6 +156,7 @@ async function sendOfflineKnowledgeFallback({
   meta = {},
   takeoverOnSuccess = false,
   handoffOnFailure = true,
+  conversationId = null,
 }) {
   const offlineResult = await tryOfflineKnowledgeReply(pool, {
     establishmentId,
@@ -155,7 +168,7 @@ async function sendOfflineKnowledgeFallback({
   if (offlineResult.ok) {
     await outboundGateway.sendText(waId, offlineResult.text);
     if (takeoverOnSuccess) {
-      await activateHumanTakeover(pool, waId, 48);
+      await activateHumanTakeover(pool, waId, 48, conversationId);
     }
     await persistOutbound(offlineResult.text, 'OFFLINE_KNOWLEDGE', {
       source: 'offline_knowledge',
@@ -172,7 +185,7 @@ async function sendOfflineKnowledgeFallback({
 
   if (handoffOnFailure) {
     await outboundGateway.sendText(waId, NEUTRAL_HANDOFF_REPLY);
-    await activateHumanTakeover(pool, waId, 48);
+    await activateHumanTakeover(pool, waId, 48, conversationId);
     await persistOutbound(NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
       source: 'offline_handoff',
       offlineReason: offlineResult.reason,
@@ -253,7 +266,10 @@ async function processAgentInboundTurn({
     body: incomingText,
   });
 
-  if (await inbox.isHumanTakeoverActive(pool, waId)) {
+  if (
+    conversation?.human_takeover_until &&
+    new Date(conversation.human_takeover_until) > new Date()
+  ) {
     console.log('[agentEngine] Atendimento humano ativo — IA não responde até "Retornar para IA".');
     return;
   }
@@ -270,9 +286,9 @@ async function processAgentInboundTurn({
         `UPDATE whatsapp_conversations
             SET human_takeover_until = NOW() + interval '48 hours',
                 updated_at = NOW()
-          WHERE wa_id = $1
+          WHERE id = $1
           RETURNING id`,
-        [waId]
+        [conversation.id]
       );
       console.log(
         `[agentEngine] takeover humano ativado por pedido explícito waId=${waId} conv=${result.rows[0]?.id || '?'}`
@@ -489,7 +505,11 @@ async function processAgentInboundTurn({
     workingState: workingStateForTurn,
   };
 
-  const slotGuard = evaluateWorkingStateSlot(workingStateForTurn);
+  const informationalSlotSkip =
+    isInformationalFaqTurn(incomingText) && !looksLikeReservationIntent(incomingText);
+  const slotGuard = informationalSlotSkip
+    ? { ok: true, skipped: true }
+    : evaluateWorkingStateSlot(workingStateForTurn);
   if (!slotGuard.ok) {
     await persistMemory(pool, conversation.id, {
       workingState: workingStateForTurn,
@@ -522,7 +542,7 @@ async function processAgentInboundTurn({
         contextSummary: memory.contextSummary || null,
       }).catch(() => {});
       await outboundGateway.sendText(waId, LARGE_GROUP_HANDOFF_REPLY);
-      await activateHumanTakeover(pool, waId, 48);
+      await activateHumanTakeover(pool, waId, 48, conversation.id);
       await persistOutbound(LARGE_GROUP_HANDOFF_REPLY, 'LARGE_GROUP_HANDOFF');
       console.log(
         `[agentEngine] handoff grupo grande waId=${waId} qty=${workingStateForTurn.quantidade_convidados}`
@@ -563,7 +583,7 @@ async function processAgentInboundTurn({
       }).catch(() => {});
       await outboundGateway.sendText(waId, behavior.replyText);
       if (behavior.action === 'handoff') {
-        await activateHumanTakeover(pool, waId, 48);
+        await activateHumanTakeover(pool, waId, 48, conversation.id);
       }
       await persistOutbound(
         behavior.replyText,
@@ -615,6 +635,7 @@ async function processAgentInboundTurn({
         meta: { circuitOpen: true },
         takeoverOnSuccess: false,
         handoffOnFailure: true,
+        conversationId: conversation.id,
       });
     } catch (circuitFallbackError) {
       console.error('[agentEngine] falha no fallback offline (circuit open):', circuitFallbackError.message);
@@ -868,6 +889,7 @@ async function processAgentInboundTurn({
         },
         takeoverOnSuccess: true,
         handoffOnFailure: errorHandoffOnFailure,
+        conversationId: conversation.id,
       });
 
       if (offlineResult.ok) {
@@ -886,7 +908,7 @@ async function processAgentInboundTurn({
 
       if (shouldEscalateToHuman) {
         await outboundGateway.sendText(waId, customHandoff || NEUTRAL_HANDOFF_REPLY);
-        await activateHumanTakeover(pool, waId, 48);
+        await activateHumanTakeover(pool, waId, 48, conversation.id);
         await persistOutbound(customHandoff || NEUTRAL_HANDOFF_REPLY, 'HUMAN_REQUESTED', {
           source: 'agent_error_guard',
           recentAgentErrors,

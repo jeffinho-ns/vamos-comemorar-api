@@ -157,7 +157,9 @@ function weekdayFromIso(iso) {
 
 function evaluateWorkingStateSlot(workingState = {}, weeklyHours) {
   const dateIso = String(
-    workingState.reservation_date || workingState.pending_reservation_date_iso || ''
+    workingState.reservation_date_confirmed === false
+      ? workingState.pending_reservation_date_iso || workingState.reservation_date || ''
+      : workingState.reservation_date || workingState.pending_reservation_date_iso || ''
   ).slice(0, 10);
   const timeHHmm = String(workingState.reservation_time || '').slice(0, 5);
   const establishmentId = Number(workingState.establishment_id);

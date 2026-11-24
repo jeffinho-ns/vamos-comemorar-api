@@ -305,7 +305,11 @@ async function processInboundTurn(args) {
     let messageHistory = [];
 
     try {
-      conversation = await inbox.getConversationByWaId(pool, waId);
+      conversation = await inbox.getConversationByWaId(
+        pool,
+        waId,
+        args.pinnedEstablishmentId || args.hintedEstablishmentId || null
+      );
       if (conversation?.id) {
         const recent = await inbox.getRecentMessagesForContext(pool, conversation.id);
         messageHistory = mapRowsToOpenAIHistory(recent);

@@ -4,6 +4,7 @@ const {
   formatReservationDateLabels,
   buildTodayCalendarLabels,
 } = require('../../nlp/dateResolver');
+const { isInformationalFaqTurn } = require('./faqTopicCanonical');
 
 function looksLikeReservationIntent(text) {
   const normalized = String(text || '')
@@ -98,6 +99,25 @@ function buildReservationDateHint({
   const text = String(userText || '').trim();
   const state = workingState && typeof workingState === 'object' ? workingState : {};
   const calendarBase = buildCalendarFactsBlock(referenceDateIso);
+
+  const namesBookingDay = /\b(domingo|segunda|terca|quarta|quinta|sexta|sabado|hoje|amanha)\b/.test(
+    String(text || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  ) || /\b\d{1,2}[\/\-]\d{1,2}\b/.test(text);
+
+  if (isInformationalFaqTurn(text) && !looksLikeReservationIntent(text) && !namesBookingDay) {
+    if (state.reservation_date_confirmed && state.reservation_date) {
+      const labels = formatReservationDateLabels(state.reservation_date);
+      return {
+        patch: {},
+        promptBlock: `${calendarBase}\n\nData já confirmada nesta conversa: ${labels.confirmationPhrase || state.reservation_date} (${state.reservation_date}). Não troque a data por causa desta pergunta informativa.`,
+        confirmed: true,
+      };
+    }
+    return { patch: {}, promptBlock: calendarBase, confirmed: false };
+  }
 
   if (
     isAffirmativeConfirmation(text) &&

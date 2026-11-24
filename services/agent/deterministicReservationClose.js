@@ -140,9 +140,11 @@ function resolveLabelFromHighlineSnapshot(snapshot, preferred = '') {
 }
 
 function areaChoiceReply(establishmentId) {
-  return Number(establishmentId) === 8
-    ? 'No Pracinha, prefere o Balcão ou a Praça?'
-    : 'Você prefere área coberta ou área descoberta?';
+  const id = Number(establishmentId);
+  if (id === 8) return 'No Pracinha, prefere o Balcão ou a Praça?';
+  if (id === 9) return 'Você prefere área interna ou área externa?';
+  if (id === 7) return 'Qual área combina melhor pra você?';
+  return 'Você prefere a área coberta ou a área descoberta?';
 }
 
 function buildCreatePreReservaArgs(workingState = {}, context = {}, areaLabel = '') {

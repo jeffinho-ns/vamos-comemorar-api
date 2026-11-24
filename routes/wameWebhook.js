@@ -180,7 +180,7 @@ module.exports = (pool, app) => {
 
       const startedAt = Date.now();
       await runWithWame(wameCtx, () =>
-        withConversationLock(pool, waId, async () => {
+        withConversationLock(pool, `${waId}:${hintedEstablishmentId || ''}`, async () => {
           await processInboundTurn({
             pool,
             app,

@@ -108,6 +108,19 @@ warmOperationalProfileIds(pool)
     console.warn('[startup] operational profile IDs warm falhou:', err.message);
   });
 
+try {
+  const { ensureConversationHouseScope } = require('./services/whatsapp/conversationHouseScope');
+  ensureConversationHouseScope(pool)
+    .then(() => {
+      console.log('[startup] inbox isolado por casa (wa_id + establishment_id)');
+    })
+    .catch((err) => {
+      console.warn('[startup] isolamento de conversa por casa falhou:', err.message);
+    });
+} catch (err) {
+  console.warn('[startup] isolamento de conversa por casa indisponível:', err.message);
+}
+
 if (process.env.NODE_ENV === 'production') {
   const missingWhatsAppEnv = [];
   if (!process.env.WHATSAPP_VERIFY_TOKEN) missingWhatsAppEnv.push('WHATSAPP_VERIFY_TOKEN');

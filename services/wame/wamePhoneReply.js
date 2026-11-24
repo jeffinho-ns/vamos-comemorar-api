@@ -118,7 +118,11 @@ async function persistPhoneReply(pool, app, payload) {
     rawPayload: payload,
     messageType: reply.messageType,
   });
-  const updated = await inbox.setHumanTakeoverUntilManualResume(pool, reply.waId);
+  const updated = await inbox.setHumanTakeoverUntilManualResume(
+    pool,
+    reply.waId,
+    Number.isFinite(establishmentId) ? establishmentId : null
+  );
   emitInbox(app, reply.waId);
   return { stored: true, message: saved, conversation: updated };
 }

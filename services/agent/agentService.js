@@ -39,6 +39,7 @@ const {
 const { buildReservationDateHint, looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
 const {
   shouldSkipFaqFirst,
+  hasOperationalReservationSlot,
   isReservationFunnelInProgress,
   buildReservationFunnelPromptBlock,
   buildNextFieldQuestion,
@@ -860,6 +861,9 @@ function forbiddenAreaPatterns(establishmentId) {
   if (id === 8) {
     return FORBIDDEN_AREA_NAMES.filter((pattern) => !/balc/i.test(pattern.source));
   }
+  if (id === 9) {
+    return FORBIDDEN_AREA_NAMES.filter((pattern) => !/coberta|descoberta/.test(pattern.source));
+  }
   return FORBIDDEN_AREA_NAMES;
 }
 
@@ -868,6 +872,7 @@ function recoveryAfterForbiddenArea(workingState = {}) {
   const hasArea = String(workingState.area_label || workingState.area_preferida || '').trim();
   if (id === 8 && !hasArea) return 'No Pracinha, prefere o Balcão ou a Praça?';
   if (id === 1 && !hasArea) return 'Você prefere a área coberta ou a área descoberta?';
+  if (id === 9 && !hasArea) return 'Você prefere área interna ou área externa?';
   return buildSafeFollowupQuestion(workingState);
 }
 
@@ -1618,6 +1623,7 @@ async function runAgentTurn({
   const areaAvailabilityQuestion = looksLikeAreaAvailabilityQuestion(userText);
   const informationalOnly =
     currentTurnIsFaq &&
+    !hasOperationalReservationSlot(workingState) &&
     !looksLikeReservationIntent(userText) &&
     !areaAvailabilityQuestion &&
     !textFieldPatch.area_label &&

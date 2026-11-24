@@ -2,6 +2,16 @@
  * Persistência da Central WhatsApp (conversas + mensagens).
  */
 
+const {
+  ensureConversationHouseScope,
+  toHouseId,
+} = require('./whatsapp/conversationHouseScope');
+
+const CONVERSATION_SELECT = `c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
+            c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
+            c.human_takeover_until, c.updated_at, c.created_at, c.organization_id,
+            CASE WHEN c.wa_id LIKE 'ig:%' THEN 'INSTAGRAM' ELSE 'WHATSAPP' END AS source_channel`;
+
 async function resolveOrganizationIdForEstablishment(pool, establishmentId) {
   const placeId = Number(establishmentId);
   if (!Number.isFinite(placeId) || placeId <= 0) return null;
@@ -17,100 +27,188 @@ async function resolveOrganizationIdForEstablishment(pool, establishmentId) {
   return Number.isFinite(org) && org > 0 ? org : null;
 }
 
+function conversationJoinSql() {
+  return `FROM whatsapp_conversations c
+     LEFT JOIN places p ON p.id = c.establishment_id
+     LEFT JOIN users u ON u.id = c.assigned_user_id`;
+}
+
 async function upsertConversation(
   pool,
   { waId, contactName, establishmentId = null, touchUpdatedAt = true },
 ) {
+  await ensureConversationHouseScope(pool).catch((error) => {
+    console.warn('[inbox] house-scope ainda não aplicado:', error.message);
+  });
   const name = contactName || null;
-  const orgId = await resolveOrganizationIdForEstablishment(pool, establishmentId);
-  // Histórico Wame: não pode jogar updated_at=NOW() em massa, senão conversas
-  // antigas sobem no inbox e o painel trata tudo como fora da janela de 24h.
-  const r = await pool.query(
+  const houseId = toHouseId(establishmentId);
+  const orgId = await resolveOrganizationIdForEstablishment(pool, houseId);
+  const touch = touchUpdatedAt !== false;
+
+  if (houseId) {
+    const existing = await pool.query(
+      `SELECT id FROM whatsapp_conversations
+        WHERE wa_id = $1 AND establishment_id = $2
+        LIMIT 1`,
+      [waId, houseId]
+    );
+    if (existing.rows[0]?.id) {
+      const r = await pool.query(
+        `UPDATE whatsapp_conversations
+            SET contact_name = COALESCE($2, contact_name),
+                organization_id = COALESCE(organization_id, $3),
+                updated_at = CASE WHEN $4::boolean THEN NOW() ELSE updated_at END
+          WHERE id = $1
+          RETURNING id, wa_id, contact_name, establishment_id, organization_id, status,
+                    assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
+        [existing.rows[0].id, name, orgId, touch]
+      );
+      return r.rows[0];
+    }
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO whatsapp_conversations (wa_id, contact_name, establishment_id, organization_id, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         RETURNING id, wa_id, contact_name, establishment_id, organization_id, status,
+                   assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
+        [waId, name, houseId, orgId]
+      );
+      return inserted.rows[0];
+    } catch (error) {
+      if (error?.code === '23505') {
+        const scoped = await getConversationByWaId(pool, waId, houseId);
+        if (scoped) return scoped;
+        const any = await getConversationByWaId(pool, waId);
+        if (any?.id && !toHouseId(any.establishment_id)) {
+          return setConversationEstablishment(pool, waId, houseId);
+        }
+        console.warn(
+          `[inbox] unique wa_id ainda impede fio por casa waId=${waId} house=${houseId}`
+        );
+        return any;
+      }
+      throw error;
+    }
+  }
+
+  const latest = await getConversationByWaId(pool, waId);
+  if (latest?.id) {
+    const r = await pool.query(
+      `UPDATE whatsapp_conversations
+          SET contact_name = COALESCE($2, contact_name),
+              updated_at = CASE WHEN $3::boolean THEN NOW() ELSE updated_at END
+        WHERE id = $1
+        RETURNING id, wa_id, contact_name, establishment_id, organization_id, status,
+                  assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
+      [latest.id, name, touch]
+    );
+    return r.rows[0];
+  }
+
+  const inserted = await pool.query(
     `INSERT INTO whatsapp_conversations (wa_id, contact_name, establishment_id, organization_id, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (wa_id) DO UPDATE SET
-       contact_name = COALESCE(EXCLUDED.contact_name, whatsapp_conversations.contact_name),
-       -- Preserva a casa já vinculada (ex.: Highline). Campanhas/outbound não devem
-       -- reatribuir conversas existentes para outro estabelecimento.
-       establishment_id = COALESCE(whatsapp_conversations.establishment_id, EXCLUDED.establishment_id),
-       organization_id = COALESCE(
-         whatsapp_conversations.organization_id,
-         EXCLUDED.organization_id
-       ),
-       updated_at = CASE
-         WHEN $5::boolean THEN NOW()
-         ELSE whatsapp_conversations.updated_at
-       END
-     RETURNING id, wa_id, contact_name, establishment_id, organization_id, status, assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
-    [waId, name, establishmentId, orgId, touchUpdatedAt !== false]
+     VALUES ($1, $2, NULL, $3, NOW())
+     RETURNING id, wa_id, contact_name, establishment_id, organization_id, status,
+               assigned_user_id, assigned_at, human_takeover_until, updated_at, created_at`,
+    [waId, name, orgId]
   );
-  return r.rows[0];
+  return inserted.rows[0];
 }
 
-async function getConversationByWaId(pool, waId) {
-  const r = await pool.query(
-    `SELECT c.id, c.wa_id, c.contact_name, c.establishment_id, p.name AS establishment_name,
-            c.status, c.assigned_user_id, u.name AS assigned_user_name, c.assigned_at,
-            c.human_takeover_until, c.updated_at, c.created_at,
-            CASE WHEN c.wa_id LIKE 'ig:%' THEN 'INSTAGRAM' ELSE 'WHATSAPP' END AS source_channel
-     FROM whatsapp_conversations c
-     LEFT JOIN places p ON p.id = c.establishment_id
-     LEFT JOIN users u ON u.id = c.assigned_user_id
-     WHERE c.wa_id = $1`,
-    [waId]
-  );
+async function getConversationByWaId(pool, waId, establishmentId = null) {
+  const houseId = toHouseId(establishmentId);
+  const r = houseId
+    ? await pool.query(
+        `SELECT ${CONVERSATION_SELECT}
+         ${conversationJoinSql()}
+         WHERE c.wa_id = $1 AND c.establishment_id = $2
+         LIMIT 1`,
+        [waId, houseId]
+      )
+    : await pool.query(
+        `SELECT ${CONVERSATION_SELECT}
+         ${conversationJoinSql()}
+         WHERE c.wa_id = $1
+         ORDER BY c.updated_at DESC NULLS LAST, c.id DESC
+         LIMIT 1`,
+        [waId]
+      );
   return r.rows[0] || null;
 }
 
-async function isHumanTakeoverActive(pool, waId) {
-  const r = await pool.query(
-    `SELECT human_takeover_until FROM whatsapp_conversations WHERE wa_id = $1`,
-    [waId]
-  );
-  const row = r.rows[0];
-  if (!row || !row.human_takeover_until) return false;
-  return new Date(row.human_takeover_until) > new Date();
+function isTakeoverTimestampActive(value) {
+  if (!value) return false;
+  return new Date(value) > new Date();
 }
 
-async function setHumanTakeoverHours(pool, waId, hours = 24) {
-  await pool.query(
-    `UPDATE whatsapp_conversations
-     SET human_takeover_until = NOW() + ($2::int * interval '1 hour'),
-         updated_at = NOW()
-     WHERE wa_id = $1`,
-    [waId, hours]
-  );
-  return getConversationByWaId(pool, waId);
+async function isHumanTakeoverActive(pool, waId, establishmentId = null) {
+  const conversation = await getConversationByWaId(pool, waId, establishmentId);
+  return isTakeoverTimestampActive(conversation?.human_takeover_until);
+}
+
+function takeoverWhere(waId, establishmentId) {
+  const houseId = toHouseId(establishmentId);
+  if (houseId) {
+    return { sql: 'WHERE wa_id = $1 AND establishment_id = $2', params: [waId, houseId] };
+  }
+  return { sql: 'WHERE wa_id = $1', params: [waId] };
+}
+
+async function setHumanTakeoverHours(pool, waId, hours = 24, establishmentId = null) {
+  const houseId = toHouseId(establishmentId);
+  if (houseId) {
+    await pool.query(
+      `UPDATE whatsapp_conversations
+       SET human_takeover_until = NOW() + ($3::int * interval '1 hour'),
+           updated_at = NOW()
+       WHERE wa_id = $1 AND establishment_id = $2`,
+      [waId, houseId, hours]
+    );
+  } else {
+    await pool.query(
+      `UPDATE whatsapp_conversations
+       SET human_takeover_until = NOW() + ($2::int * interval '1 hour'),
+           updated_at = NOW()
+       WHERE wa_id = $1`,
+      [waId, hours]
+    );
+  }
+  return getConversationByWaId(pool, waId, establishmentId);
 }
 
 /** Pausa a IA até o operador clicar em "Retornar para IA" no painel. */
-async function setHumanTakeoverUntilManualResume(pool, waId) {
+async function setHumanTakeoverUntilManualResume(pool, waId, establishmentId = null) {
+  const where = takeoverWhere(waId, establishmentId);
   await pool.query(
     `UPDATE whatsapp_conversations
      SET human_takeover_until = '2099-12-31 23:59:59+00'::timestamptz,
          updated_at = NOW()
-     WHERE wa_id = $1`,
-    [waId]
+     ${where.sql}`,
+    where.params
   );
-  return getConversationByWaId(pool, waId);
+  return getConversationByWaId(pool, waId, establishmentId);
 }
 
-async function clearHumanTakeover(pool, waId) {
+async function clearHumanTakeover(pool, waId, establishmentId = null) {
+  const where = takeoverWhere(waId, establishmentId);
   await pool.query(
     `UPDATE whatsapp_conversations
      SET human_takeover_until = NULL,
          updated_at = NOW()
-     WHERE wa_id = $1`,
-    [waId]
+     ${where.sql}`,
+    where.params
   );
-  return getConversationByWaId(pool, waId);
+  return getConversationByWaId(pool, waId, establishmentId);
 }
 
 async function setConversationEstablishment(pool, waId, establishmentId) {
-  const normalizedId = Number(establishmentId);
-  if (!Number.isFinite(normalizedId) || normalizedId <= 0) {
+  const normalizedId = toHouseId(establishmentId);
+  if (!normalizedId) {
     return getConversationByWaId(pool, waId);
   }
+
+  const current = await getConversationByWaId(pool, waId, normalizedId);
+  if (current?.establishment_id === normalizedId) return current;
 
   const orgId = await resolveOrganizationIdForEstablishment(pool, normalizedId);
   await pool.query(
@@ -118,35 +216,40 @@ async function setConversationEstablishment(pool, waId, establishmentId) {
      SET establishment_id = $2,
          organization_id = COALESCE($3, organization_id),
          updated_at = NOW()
-     WHERE wa_id = $1`,
+     WHERE wa_id = $1
+       AND establishment_id IS NULL`,
     [waId, normalizedId, orgId]
   );
-  return getConversationByWaId(pool, waId);
+  return getConversationByWaId(pool, waId, normalizedId) || getConversationByWaId(pool, waId);
 }
 
 async function updateConversationStatus(pool, waId, status) {
+  const current = await getConversationByWaId(pool, waId);
+  if (!current?.id) return null;
   await pool.query(
     `UPDATE whatsapp_conversations
      SET status = $2,
          updated_at = NOW()
-     WHERE wa_id = $1`,
-    [waId, status]
+     WHERE id = $1`,
+    [current.id, status]
   );
-  return getConversationByWaId(pool, waId);
+  return getConversationByWaId(pool, waId, current.establishment_id);
 }
 
 async function assignConversation(pool, waId, userId) {
+  const current = await getConversationByWaId(pool, waId);
   const normalizedUserId = Number(userId);
   const hasAssignee = Number.isFinite(normalizedUserId) && normalizedUserId > 0;
+  if (!current?.id) return null;
   await pool.query(
     `UPDATE whatsapp_conversations
      SET assigned_user_id = $2,
          assigned_at = CASE WHEN $2 IS NULL THEN NULL ELSE NOW() END,
          updated_at = NOW()
-     WHERE wa_id = $1`,
-    [waId, hasAssignee ? normalizedUserId : null]
+     WHERE id = $1`,
+    [current.id, hasAssignee ? normalizedUserId : null]
   );
-  return getConversationByWaId(pool, waId);
+  return getConversationByWaId(pool, waId, current.establishment_id);
 }
 
 async function resolveOrganizationIdForConversation(pool, conversationId) {

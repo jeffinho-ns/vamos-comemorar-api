@@ -930,3 +930,56 @@ test('buildSalesPullQuestion no Pracinha com hora e pessoas pede Balcão ou Pra�
     'No Pracinha, prefere o Balcão ou a Praça?'
   );
 });
+
+test('FAQ pura não derruba funil quando data, hora e pessoas já existem', () => {
+  assert.equal(
+    shouldSkipFaqFirst(
+      {
+        establishment_id: 1,
+        reservation_date: '2026-11-28',
+        reservation_time: '17:00',
+        quantidade_convidados: 20,
+      },
+      [{ role: 'user', content: 'quero reservar mesa' }],
+      'tem estacionamento?'
+    ),
+    true
+  );
+});
+
+test('parseReservationFieldsFromUserText atualiza 18hs depois da trava de horário', () => {
+  const patch = parseReservationFieldsFromUserText('Ok as 18hs então', {
+    establishment_id: 9,
+    reservation_date: '2026-12-17',
+    reservation_time: '17:30',
+    quantidade_convidados: 40,
+  }, [
+    { role: 'assistant', content: 'Quinta o Reserva Rooftop abre às 18h. Prefere outro horário dentro dessa janela?' },
+  ]);
+  assert.equal(patch.reservation_time, '18:00');
+});
+
+test('parseReservationFieldsFromUserText mapeia descoberta no Reserva Rooftop', () => {
+  const patch = parseReservationFieldsFromUserText('área descoberta', {
+    establishment_id: 9,
+    reservation_date: '2026-11-29',
+    reservation_time: '19:00',
+    quantidade_convidados: 15,
+  });
+  assert.equal(patch.area_label, 'Área Externa');
+  assert.equal(patch.area_preferida, 'Área Externa');
+});
+
+test('pergunta de Ano-Novo não sobrescreve data já confirmada', () => {
+  const hint = buildReservationDateHint({
+    userText: 'Vai ter ano novo aí?',
+    referenceDateIso: '2026-11-24',
+    workingState: {
+      establishment_id: 8,
+      reservation_date: '2026-11-28',
+      reservation_date_confirmed: true,
+    },
+  });
+  assert.deepEqual(hint.patch, {});
+  assert.equal(hint.confirmed, true);
+});
