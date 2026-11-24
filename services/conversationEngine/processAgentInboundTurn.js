@@ -775,7 +775,7 @@ async function processAgentInboundTurn({
       }
     }
 
-    if (agentResult.handoffToEvents) {
+    if (agentResult.handoffToEvents || agentResult.workingState?.needs_human_handoff) {
       await activateHumanTakeover(pool, waId, 48, conversation.id);
     }
     await persistOutbound(

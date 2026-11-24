@@ -19,6 +19,7 @@ const {
   resolveReservaRooftopGuestZone,
   guestAreaPromptForClient: rooftopGuestAreaPrompt,
 } = require('./reservaRooftopReservationAreas');
+const { parseOrdinalAreaChoice } = require('./funnelAntiLoop');
 const {
   looksLikeCorporateEvent,
   isCorporateEventState,
@@ -671,10 +672,14 @@ function shouldAskOccasion(workingState = {}) {
 function parseOccasionFromUserText(userText, workingState = {}, messageHistory = []) {
   if (workingState.occasion_declined === true) return {};
   const corporateDetected = parseCorporateEventPatch(userText, workingState, messageHistory);
-  const packageFields = parseCorporatePackageFields(userText, {
-    ...workingState,
-    ...corporateDetected,
-  });
+  const packageFields = parseCorporatePackageFields(
+    userText,
+    {
+      ...workingState,
+      ...corporateDetected,
+    },
+    messageHistory
+  );
   const corporatePatch = { ...corporateDetected, ...packageFields };
   if (corporatePatch.event_type === 'corporativo' || corporatePatch.event_mode || packageFields.company_name) {
     return corporatePatch;
@@ -995,6 +1000,7 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   Object.assign(patch, parseOccasionFromUserText(text, workingState, messageHistory));
+  Object.assign(patch, parseOrdinalAreaChoice(text, workingState, messageHistory));
 
   // Highline only — never leak Deck/Bar/Rooftop labels into Justino/Pracinha/Rooftop.
   if (Number(workingState.establishment_id) === 7) {

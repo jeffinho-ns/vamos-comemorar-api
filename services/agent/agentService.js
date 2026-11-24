@@ -71,6 +71,7 @@ const {
   shouldCreateNormalReservationForEvent,
   buildCorporateEventQuestion,
 } = require('./corporateEventFunnel');
+const { breakRepeatedFunnelQuestion } = require('./funnelAntiLoop');
 const { evaluateWorkingStateSlot } = require('./reservationSlotGuard');
 const { humanizeCreateError } = require('./reservationCreateError');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
@@ -191,8 +192,16 @@ async function maybeReplyFromFunnelData({
       : '';
   const question = buildSalesPullQuestion(state) || buildNextFieldQuestion(state);
   if (!lead && !question) return { workingState: state, toolTrace, replyText: null };
+  const combined = [lead, question].filter(Boolean).join(' ');
+  const anti = breakRepeatedFunnelQuestion({
+    nextQuestion: combined,
+    messageHistory: [],
+    workingState: state,
+    buildNextQuestion: buildNextFieldQuestion,
+  });
+  // Sem histórico aqui: só devolve a pergunta normal (anti-loop age nos caminhos com messageHistory).
   return {
-    replyText: [lead, question].filter(Boolean).join(' '),
+    replyText: anti.replyText || combined,
     workingState: state,
     toolTrace,
     preReservationResult: null,
@@ -1715,12 +1724,19 @@ async function runAgentTurn({
     workingState = funnelAdvance.workingState;
   }
   if (funnelAdvance?.replyText && !reservationFunnelIsComplete(workingState)) {
-    return {
-      replyText: funnelAdvance.replyText,
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: funnelAdvance.replyText,
+      messageHistory,
       workingState,
+      buildNextQuestion: buildNextFieldQuestion,
+    });
+    return {
+      replyText: anti.replyText,
+      workingState: anti.workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
+      handoffToEvents: Boolean(anti.handoff),
     };
   }
 
@@ -1732,12 +1748,20 @@ async function runAgentTurn({
     isReservationFunnelInProgress(workingState, messageHistory) &&
     !reservationFunnelIsComplete(workingState)
   ) {
-    return {
-      replyText: buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState),
+    const nextQ = buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState);
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: nextQ,
+      messageHistory,
       workingState,
+      buildNextQuestion: buildNextFieldQuestion,
+    });
+    return {
+      replyText: anti.replyText,
+      workingState: anti.workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
+      handoffToEvents: Boolean(anti.handoff),
     };
   }
 
@@ -1748,15 +1772,23 @@ async function runAgentTurn({
     (shouldAskCorporateMode(workingState) || shouldCollectCorporatePackage(workingState))
   ) {
     const corporateReply = buildCorporateEventQuestion(workingState);
-    return {
-      replyText: corporateReply,
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: corporateReply,
+      messageHistory,
       workingState,
+      buildNextQuestion: buildCorporateEventQuestion,
+    });
+    return {
+      replyText: anti.replyText,
+      workingState: anti.workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
-      handoffToEvents: shouldCollectCorporatePackage(workingState) &&
-        Boolean(workingState.company_name) &&
-        Boolean(workingState.event_expectations),
+      handoffToEvents:
+        Boolean(anti.handoff) ||
+        (shouldCollectCorporatePackage(anti.workingState) &&
+          Boolean(anti.workingState.company_name) &&
+          Boolean(anti.workingState.event_expectations)),
     };
   }
 
@@ -1766,14 +1798,21 @@ async function runAgentTurn({
     reservationFunnelIsComplete(workingState) &&
     shouldAskOccasion(workingState)
   ) {
-    return {
-      replyText:
-        buildSalesPullQuestion(workingState) ||
-        'É alguma data especial, tipo aniversário?',
+    const occasionQ =
+      buildSalesPullQuestion(workingState) || 'É alguma data especial, tipo aniversário?';
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: occasionQ,
+      messageHistory,
       workingState,
+      buildNextQuestion: () => occasionQ,
+    });
+    return {
+      replyText: anti.replyText,
+      workingState: anti.workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
+      handoffToEvents: Boolean(anti.handoff),
     };
   }
 
@@ -1809,13 +1848,20 @@ async function runAgentTurn({
   }
 
   if (funnelActive && looksLikeIdentityPayload(userText) && !reservationFunnelIsComplete(workingState)) {
-    return {
-      replyText:
-        buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState),
+    const nextQ = buildSalesPullQuestion(workingState) || buildNextFieldQuestion(workingState);
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: nextQ,
+      messageHistory,
       workingState,
+      buildNextQuestion: buildNextFieldQuestion,
+    });
+    return {
+      replyText: anti.replyText,
+      workingState: anti.workingState,
       toolTrace: [],
       preReservationResult: null,
       guestListLink: null,
+      handoffToEvents: Boolean(anti.handoff),
     };
   }
 
@@ -2127,7 +2173,26 @@ async function runAgentTurn({
     workingState,
     assistantSettings,
   });
-  const replyText = sanitized.text;
+  let replyText = sanitized.text;
+  let handoffToEvents = false;
+
+  // Anti-loop final: se a resposta do LLM/fallback for a mesma pergunta do funil, quebra.
+  if (
+    !preReservationResult?.ok &&
+    funnelActive &&
+    !reservationFunnelIsComplete(workingState) &&
+    replyText
+  ) {
+    const anti = breakRepeatedFunnelQuestion({
+      nextQuestion: replyText,
+      messageHistory,
+      workingState,
+      buildNextQuestion: buildNextFieldQuestion,
+    });
+    replyText = anti.replyText;
+    workingState = anti.workingState;
+    handoffToEvents = Boolean(anti.handoff);
+  }
 
   return {
     replyText,
@@ -2136,6 +2201,7 @@ async function runAgentTurn({
     preReservationResult,
     guestListLink,
     artsToSend: collectArtsFromToolTrace(toolTraceFinal),
+    handoffToEvents,
   };
     }
   );

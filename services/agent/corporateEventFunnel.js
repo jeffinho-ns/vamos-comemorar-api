@@ -6,8 +6,10 @@ const CORPORATE_RE =
   /\b(evento\s+(da\s+)?empresa|evento\s+corporativo|corporativ[oa]|confraterniz|pacote fechado|festa da empresa|happy hour (da )?empresa|workshop|congresso|formatura)\b/i;
 const EVENTO_ALONE_RE = /^(evento|um evento|e um evento|eh um evento|é um evento)(\s|$|[!.?,])/i;
 const PACKAGE_RE = /\b(pacotes? fechados?|evento fechado|casa fechada|alugar a casa|locacao|loca[cç][aã]o)\b/i;
+const PACKAGE_SHORT_RE = /^(fechado|pacote|o pacote|pacote fechado)(\s|$|[!.?,])/i;
 const SIMPLE_MESA_RE =
   /\b(reserva simples|comandas?\s+individuais?|so (a )?mesa|só (a )?mesa|mesa normal|nao (e|é) pacote)\b/i;
+const BOTH_OPTIONS_RE = /\b(os dois|as duas|ambos|quero (ver )?os dois|com valores)\b/i;
 
 function normalizeLoose(text) {
   return String(text || '')
@@ -65,7 +67,7 @@ function parseCorporateEventPatch(userText, workingState = {}, messageHistory = 
     patch.is_birthday = false;
   }
 
-  if (PACKAGE_RE.test(text)) {
+  if (PACKAGE_RE.test(text) || PACKAGE_SHORT_RE.test(text)) {
     patch.event_mode = 'pacote_fechado';
     patch.event_type = patch.event_type || 'corporativo';
     patch.is_corporate_event = true;
@@ -84,8 +86,17 @@ function parseCorporateEventPatch(userText, workingState = {}, messageHistory = 
   const askedMode = assistantAskedCorporateMode(messageHistory);
   if (askedMode && SIMPLE_MESA_RE.test(text)) {
     patch.event_mode = 'mesa';
-  } else if (askedMode && (PACKAGE_RE.test(text) || isAffirmativeConfirmation(text))) {
+  } else if (
+    askedMode &&
+    (PACKAGE_RE.test(text) || PACKAGE_SHORT_RE.test(text) || isAffirmativeConfirmation(text))
+  ) {
     patch.event_mode = 'pacote_fechado';
+  } else if (askedMode && BOTH_OPTIONS_RE.test(text)) {
+    // Cliente quer ver os dois: começa pelo pacote fechado (equipe de eventos).
+    patch.event_mode = 'pacote_fechado';
+    patch.event_type = patch.event_type || 'corporativo';
+    patch.is_corporate_event = true;
+    patch.wants_both_event_options = true;
   }
 
   return patch;
@@ -150,12 +161,33 @@ function buildCorporateEventQuestion(workingState = {}) {
   return '';
 }
 
-function parseCorporatePackageFields(userText, workingState = {}) {
+function assistantAskedCompanyName(messageHistory = []) {
+  const normalized = normalizeLoose(lastAssistantCue(messageHistory));
+  return normalized.includes('nome da empresa') || normalized.includes('manda o nome da empresa');
+}
+
+function assistantAskedExpectations(messageHistory = []) {
+  const normalized = normalizeLoose(lastAssistantCue(messageHistory));
+  return (
+    normalized.includes('esperam do evento') ||
+    normalized.includes('expectativas') ||
+    normalized.includes('o que voces esperam')
+  );
+}
+
+function lastAssistantCue(messageHistory = []) {
+  const lastAssistant = [...(messageHistory || [])]
+    .reverse()
+    .find((msg) => msg?.role === 'assistant');
+  return String(lastAssistant?.content || '');
+}
+
+function parseCorporatePackageFields(userText, workingState = {}, messageHistory = []) {
   if (!shouldCollectCorporatePackage(workingState) && !PACKAGE_RE.test(userText || '')) {
     return {};
   }
   const text = String(userText || '').trim();
-  if (!text || text.length < 3) return {};
+  if (!text || text.length < 2) return {};
   const patch = {};
   const pref = normalizeLoose(text);
   if (/\b(whats?|zap|ligacao|liga[cç]ao|e-?mail|email)\b/.test(pref) && !workingState.contact_preference) {
@@ -163,14 +195,35 @@ function parseCorporatePackageFields(userText, workingState = {}) {
     else if (/e-?mail|email/.test(pref)) patch.contact_preference = 'email';
     else patch.contact_preference = 'whatsapp';
   }
-  if (!workingState.company_name && text.length <= 80 && !looksLikeCorporateEvent(text) && !PACKAGE_RE.test(text)) {
+
+  if (!workingState.company_name) {
     const companyLine = text.split('\n').find((line) =>
       /\b(empresa|club|ltda|s\.?a\.?)\b/i.test(line)
     );
-    if (companyLine) patch.company_name = companyLine.replace(/empresa\s*:?\s*/i, '').trim();
+    if (companyLine) {
+      patch.company_name = companyLine.replace(/^.*empresa\s*:?\s*/i, '').trim();
+    } else if (
+      assistantAskedCompanyName(messageHistory) &&
+      text.length <= 80 &&
+      !looksLikeCorporateEvent(text) &&
+      !PACKAGE_RE.test(text) &&
+      !PACKAGE_SHORT_RE.test(text) &&
+      !isAffirmativeConfirmation(text)
+    ) {
+      // Cliente mandou só o nome (ex.: "RECICLABR") depois da pergunta da empresa.
+      patch.company_name = text.replace(/^empresa\s*:?\s*/i, '').trim();
+    }
   }
-  if (!workingState.event_expectations && text.length >= 12 && !EVENTO_ALONE_RE.test(normalizeLoose(text))) {
-    if (!isAffirmativeConfirmation(text)) {
+
+  if (!workingState.event_expectations && !EVENTO_ALONE_RE.test(normalizeLoose(text))) {
+    if (
+      assistantAskedExpectations(messageHistory) &&
+      text.length >= 3 &&
+      !isAffirmativeConfirmation(text) &&
+      !PACKAGE_SHORT_RE.test(text)
+    ) {
+      patch.event_expectations = text.slice(0, 400);
+    } else if (text.length >= 12 && !isAffirmativeConfirmation(text) && !assistantAskedCompanyName(messageHistory)) {
       patch.event_expectations = text.slice(0, 400);
     }
   }

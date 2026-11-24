@@ -65,14 +65,16 @@ function resolveReservaRooftopGuestZone(text) {
   const normalized = normalizeRooftopText(text);
   if (!normalized) return null;
 
-  const salao = /\b(salao|redario)\b/.test(normalized);
+  const salao = /\b(salao|redario|privativ[ao])\b/.test(normalized);
   const externa =
     /\b(externa|externo|descoberta|descoberto|ar livre|ao ar livre|gramado|corredor|parrilha)\b/.test(
       normalized
-    );
+    ) || normalized === 'externa';
   const interna =
-    /\b(interna|interno|coberta|coberto|lg\b|pq\b)\b/.test(normalized) &&
-    !/\bsalao\b/.test(normalized);
+    (/\b(interna|interno|coberta|coberto|lg\b|pq\b)\b/.test(normalized) ||
+      normalized === 'interna' ||
+      normalized === 'coberta') &&
+    !/\bsalao|privativ/.test(normalized);
 
   if (salao && !externa && !interna) return { key: 'salao', label: 'Salão' };
   if (externa && !interna && !salao) return { key: 'externa', label: 'Área Externa' };
