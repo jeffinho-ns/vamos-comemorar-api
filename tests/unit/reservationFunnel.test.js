@@ -983,3 +983,60 @@ test('pergunta de Ano-Novo não sobrescreve data já confirmada', () => {
   assert.deepEqual(hint.patch, {});
   assert.equal(hint.confirmed, true);
 });
+
+test('evento da empresa não vira aniversário nem pede niver de novo', () => {
+  const state = {
+    establishment_id: 1,
+    reservation_date: '2026-12-09',
+    reservation_time: '18:30',
+    quantidade_convidados: 40,
+    client_name: 'Igor Baschenis',
+    client_email: 'igor@csmd.com.br',
+    data_nascimento: '1963-11-09',
+  };
+  const history = [
+    { role: 'assistant', content: 'É alguma data especial, tipo aniversário?' },
+  ];
+  const patch = parseOccasionFromUserText(
+    'Evento empresa. Você tem pacotes fechados?',
+    state,
+    history
+  );
+  assert.equal(patch.event_type, 'corporativo');
+  assert.equal(patch.event_mode, 'pacote_fechado');
+  assert.equal(patch.is_birthday, false);
+  assert.equal(shouldAskOccasion({ ...state, ...patch }), false);
+});
+
+test('sim depois de evento da empresa não grava aniversário', () => {
+  const patch = parseOccasionFromUserText(
+    'Sim',
+    {
+      establishment_id: 1,
+      quantidade_convidados: 40,
+    },
+    [
+      { role: 'user', content: 'Evento empresa. Você tem pacotes fechados?' },
+      { role: 'assistant', content: 'É alguma data especial, tipo aniversário?' },
+      { role: 'user', content: 'Evento' },
+      { role: 'assistant', content: 'É alguma data especial, tipo aniversário?' },
+    ]
+  );
+  assert.equal(patch.event_type, 'corporativo');
+  assert.notEqual(patch.event_type, 'aniversario');
+});
+
+test('sim na oferta da área descoberta grava a zona', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Pode',
+    { establishment_id: 1, justino_zone: 'coberta', area_id: 1 },
+    [
+      {
+        role: 'assistant',
+        content: 'A área coberta não comporta 40 pessoas. Na área descoberta ainda tem vaga — posso colocar vocês lá?',
+      },
+    ]
+  );
+  assert.equal(patch.justino_zone, 'descoberta');
+  assert.equal(patch.area_id, 2);
+});

@@ -13,6 +13,12 @@ const {
   guestZonePromptForClient,
 } = require('./seuJustinoReservationAreas');
 const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
+const {
+  looksLikeCorporateEvent,
+  isCorporateEventState,
+  parseCorporateEventPatch,
+  parseCorporatePackageFields,
+} = require('./corporateEventFunnel');
 const { isInstagramWaId, parseBrPhoneFromText, normalizeBrPhone } = require('../instagram/instagramIdentity');
 
 /**
@@ -664,13 +670,28 @@ function shouldAskOccasion(workingState = {}) {
   const party = Number(workingState.quantidade_convidados);
   if (!Number.isFinite(party) || party <= 4) return false;
   if (workingState.occasion_declined === true) return false;
+  if (isCorporateEventState(workingState)) return false;
   if (String(workingState.event_type || '').trim()) return false;
   return true;
 }
 
 function parseOccasionFromUserText(userText, workingState = {}, messageHistory = []) {
-  if (workingState.event_type || workingState.occasion_declined === true) return {};
-  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) return {};
+  if (workingState.occasion_declined === true) return {};
+  const corporateDetected = parseCorporateEventPatch(userText, workingState, messageHistory);
+  const packageFields = parseCorporatePackageFields(userText, {
+    ...workingState,
+    ...corporateDetected,
+  });
+  const corporatePatch = { ...corporateDetected, ...packageFields };
+  if (corporatePatch.event_type === 'corporativo' || corporatePatch.event_mode || packageFields.company_name) {
+    return corporatePatch;
+  }
+  if (workingState.event_type || isCorporateEventState(workingState)) {
+    return Object.keys(corporatePatch).length ? corporatePatch : {};
+  }
+  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText) && !looksLikeCorporateEvent(userText)) {
+    return {};
+  }
   const normalized = String(userText || '')
     .toLowerCase()
     .normalize('NFD')
@@ -977,6 +998,23 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
       patch.justino_zone = 'qualquer';
       patch.area_preferida = 'qualquer';
       patch.area_label = 'qualquer';
+    }
+  }
+
+  if (justinoHouse && isAffirmativeConfirmation(text) && !patch.justino_zone) {
+    const lastAssistant = [...(messageHistory || [])]
+      .reverse()
+      .find((msg) => msg?.role === 'assistant');
+    const offered = String(lastAssistant?.content || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (/\bdescoberta\b/.test(offered) && /\b(posso colocar|ainda tem vaga|colocar voces)\b/.test(offered)) {
+      const label = guestZoneLabel('descoberta');
+      patch.justino_zone = 'descoberta';
+      patch.area_preferida = label;
+      patch.area_label = label;
+      patch.area_id = 2;
     }
   }
 

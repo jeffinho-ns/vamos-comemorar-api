@@ -61,6 +61,14 @@ const {
   prefixReplyWithContactName,
   shouldAskOccasion,
 } = require('./reservationFunnel');
+const {
+  isCorporateEventState,
+  looksLikeCorporateEvent,
+  shouldAskCorporateMode,
+  shouldCollectCorporatePackage,
+  shouldCreateNormalReservationForEvent,
+  buildCorporateEventQuestion,
+} = require('./corporateEventFunnel');
 const { evaluateWorkingStateSlot } = require('./reservationSlotGuard');
 const { humanizeCreateError } = require('./reservationCreateError');
 const { buildGuestListSecondMessage } = require('../whatsappReservationService');
@@ -112,6 +120,12 @@ async function maybeReplyFromFunnelData({
   informationalOnly,
 }) {
   if (informationalOnly) return null;
+  if (
+    isCorporateEventState(workingState) &&
+    (shouldAskCorporateMode(workingState) || shouldCollectCorporatePackage(workingState))
+  ) {
+    return null;
+  }
   const advanced = Boolean(
     textFieldPatch?.reservation_time ||
     textFieldPatch?.quantidade_convidados ||
@@ -758,6 +772,9 @@ async function forceCreatePreReservaIfReady({
 }) {
   if (!pool) return { workingState, toolTrace, replyText: null };
   if (reservationAlreadyCreated(workingState)) {
+    return { workingState, toolTrace, replyText: null };
+  }
+  if (!shouldCreateNormalReservationForEvent(workingState)) {
     return { workingState, toolTrace, replyText: null };
   }
   const slotGuard = evaluateWorkingStateSlot(workingState);
@@ -1666,7 +1683,9 @@ async function runAgentTurn({
     looksLikeIdentityPayload(userText) ||
     Boolean(textFieldPatch.area_label) ||
     shouldSkipFaqFirst(workingState, messageHistory, userText) ||
-    looksLikeBookingDataTurn(userText);
+    looksLikeBookingDataTurn(userText) ||
+    isCorporateEventState(workingState) ||
+    looksLikeCorporateEvent(userText);
 
   if (!skipFaq && process.env.OPENAI_API_KEY) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
@@ -1717,6 +1736,25 @@ async function runAgentTurn({
   if (
     !informationalOnly &&
     !areaAvailabilityQuestion &&
+    isCorporateEventState(workingState) &&
+    (shouldAskCorporateMode(workingState) || shouldCollectCorporatePackage(workingState))
+  ) {
+    const corporateReply = buildCorporateEventQuestion(workingState);
+    return {
+      replyText: corporateReply,
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+      handoffToEvents: shouldCollectCorporatePackage(workingState) &&
+        Boolean(workingState.company_name) &&
+        Boolean(workingState.event_expectations),
+    };
+  }
+
+  if (
+    !informationalOnly &&
+    !areaAvailabilityQuestion &&
     reservationFunnelIsComplete(workingState) &&
     shouldAskOccasion(workingState)
   ) {
@@ -1736,7 +1774,8 @@ async function runAgentTurn({
     !informationalOnly &&
     !areaAvailabilityQuestion &&
     reservationFunnelIsComplete(workingState) &&
-    !reservationAlreadyCreated(workingState)
+    !reservationAlreadyCreated(workingState) &&
+    shouldCreateNormalReservationForEvent(workingState)
   ) {
     const closedEarly = await forceCreatePreReservaIfReady({
       pool,
@@ -1897,7 +1936,8 @@ async function runAgentTurn({
   const initialToolChoice =
     !informationalOnly &&
     reservationFunnelIsComplete(workingState) &&
-    !reservationAlreadyCreated(workingState)
+    !reservationAlreadyCreated(workingState) &&
+    shouldCreateNormalReservationForEvent(workingState)
       ? { type: 'function', function: { name: 'criar_pre_reserva' } }
       : 'auto';
 

@@ -730,6 +730,9 @@ async function processAgentInboundTurn({
     }
 
     await outboundGateway.sendText(waId, agentResult.replyText);
+    if (agentResult.handoffToEvents) {
+      await activateHumanTakeover(pool, waId, 48, conversation.id);
+    }
     await persistOutbound(
       agentResult.replyText,
       agentResult.preReservationResult ? 'PROCESS_RESERVATION' : 'AGENT_REPLY'

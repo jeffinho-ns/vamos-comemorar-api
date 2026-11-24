@@ -278,6 +278,8 @@ async function tryDeterministicReservationClose({
   if (!pool) return null;
   if (reservationAlreadyExists(workingState)) return null;
   if (!reservationFunnelIsComplete(workingState)) return null;
+  const { shouldCreateNormalReservationForEvent } = require('./corporateEventFunnel');
+  if (!shouldCreateNormalReservationForEvent(workingState)) return null;
 
   const alreadyCreated = (toolTrace || []).some(
     (entry) => entry?.name === 'criar_pre_reserva' && entry?.result?.ok
