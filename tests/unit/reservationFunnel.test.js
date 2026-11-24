@@ -1040,3 +1040,19 @@ test('sim na oferta da área descoberta grava a zona', () => {
   assert.equal(patch.justino_zone, 'descoberta');
   assert.equal(patch.area_id, 2);
 });
+
+test('Pode usa a área sugerida mesmo sem reler a última mensagem', () => {
+  const patch = parseReservationFieldsFromUserText(
+    'Pode',
+    {
+      establishment_id: 1,
+      justino_zone: 'coberta',
+      area_id: 1,
+      pending_justino_zone: 'descoberta',
+    },
+    []
+  );
+  assert.equal(patch.justino_zone, 'descoberta');
+  assert.equal(patch.area_id, 2);
+  assert.equal(patch.pending_justino_zone, null);
+});

@@ -11,6 +11,8 @@ const {
   resolveJustinoSubarea,
   guestZoneLabel,
   guestZonePromptForClient,
+  applyJustinoZonePatch,
+  zoneOfferedInAssistantText,
 } = require('./seuJustinoReservationAreas');
 const { resolvePracinhaGuestArea } = require('./pracinhaReservationAreas');
 const {
@@ -969,11 +971,8 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const justinoHouse = Number(workingState.establishment_id) === 1;
   const justinoSubarea = justinoHouse ? resolveJustinoSubarea(text) : null;
   if (justinoSubarea) {
-    patch.area_preferida = guestZoneLabel(justinoSubarea.zone);
-    patch.area_label = guestZoneLabel(justinoSubarea.zone);
-    patch.area_id = justinoSubarea.area_id;
-    patch.justino_subarea_key = justinoSubarea.key;
-    patch.justino_zone = justinoSubarea.zone;
+    Object.assign(patch, applyJustinoZonePatch(justinoSubarea.zone));
+    if (justinoSubarea.key) patch.justino_subarea_key = justinoSubarea.key;
   } else if (Number(workingState.establishment_id) === 8) {
     const pracinhaArea = resolvePracinhaGuestArea(text);
     if (pracinhaArea) {
@@ -988,33 +987,19 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     }
   } else if (justinoHouse) {
     const justinoZone = resolveJustinoGuestZone(text);
-    if (justinoZone && justinoZone !== 'qualquer') {
-      const label = guestZoneLabel(justinoZone);
-      patch.justino_zone = justinoZone;
-      patch.area_preferida = label;
-      patch.area_label = label;
-      patch.area_id = justinoZone === 'coberta' ? 1 : 2;
-    } else if (justinoZone === 'qualquer') {
-      patch.justino_zone = 'qualquer';
-      patch.area_preferida = 'qualquer';
-      patch.area_label = 'qualquer';
-    }
+    if (justinoZone) Object.assign(patch, applyJustinoZonePatch(justinoZone));
   }
 
   if (justinoHouse && isAffirmativeConfirmation(text) && !patch.justino_zone) {
-    const lastAssistant = [...(messageHistory || [])]
-      .reverse()
-      .find((msg) => msg?.role === 'assistant');
-    const offered = String(lastAssistant?.content || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
-    if (/\bdescoberta\b/.test(offered) && /\b(posso colocar|ainda tem vaga|colocar voces)\b/.test(offered)) {
-      const label = guestZoneLabel('descoberta');
-      patch.justino_zone = 'descoberta';
-      patch.area_preferida = label;
-      patch.area_label = label;
-      patch.area_id = 2;
+    const pending = String(workingState.pending_justino_zone || '').trim();
+    if (pending === 'coberta' || pending === 'descoberta' || pending === 'qualquer') {
+      Object.assign(patch, applyJustinoZonePatch(pending));
+    } else {
+      const lastAssistant = [...(messageHistory || [])]
+        .reverse()
+        .find((msg) => msg?.role === 'assistant');
+      const offeredZone = zoneOfferedInAssistantText(lastAssistant?.content);
+      if (offeredZone) Object.assign(patch, applyJustinoZonePatch(offeredZone));
     }
   }
 

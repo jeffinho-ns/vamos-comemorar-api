@@ -18,12 +18,26 @@ function emitInbox(app, payload) {
 
 async function loadActiveFlyers(pool, establishmentId, event) {
   const r = await pool.query(
-    `SELECT id, caption, media_url, delay_hours
+    `SELECT id, caption, media_url, delay_hours, asset_kind, usage_hint, title
        FROM ai_flyers
       WHERE establishment_id = $1 AND trigger_event = $2 AND is_active = TRUE AND media_url <> ''
       ORDER BY sort_order ASC, id ASC`,
     [Number(establishmentId), event]
   );
+  return r.rows;
+}
+
+async function loadActiveAssets(pool, establishmentId, kind = null) {
+  const params = [Number(establishmentId)];
+  let sql = `SELECT id, asset_kind, trigger_event, title, caption, usage_hint, media_url, delay_hours, is_active
+       FROM ai_flyers
+      WHERE establishment_id = $1 AND is_active = TRUE AND media_url <> ''`;
+  if (kind) {
+    params.push(kind);
+    sql += ` AND asset_kind = $2`;
+  }
+  sql += ' ORDER BY sort_order ASC, id ASC';
+  const r = await pool.query(sql, params);
   return r.rows;
 }
 
@@ -80,15 +94,17 @@ async function sendFlyersForEvent(pool, app, { establishmentId, waId, event, res
 }
 
 /** Envia um único flyer (usado pelo worker pós-visita, que respeita o delay por flyer). */
-async function sendOneFlyer(pool, { flyer, conversation, digits, event, reservationId }) {
+async function sendOneFlyer(pool, { flyer, conversation, digits, event, reservationId, skipClaim = false }) {
   try {
-    const claimed = await claimSend(pool, {
-      flyerId: flyer.id,
-      reservationId,
-      waId: digits,
-      event,
-    });
-    if (!claimed) return false;
+    if (!skipClaim) {
+      const claimed = await claimSend(pool, {
+        flyerId: flyer.id,
+        reservationId,
+        waId: digits,
+        event,
+      });
+      if (!claimed) return false;
+    }
 
     await outboundGateway.sendImage(digits, { link: flyer.media_url, caption: flyer.caption });
 
@@ -129,8 +145,41 @@ async function dispatchSingleFlyer(pool, app, { flyer, waId, reservationId, even
   return ok;
 }
 
+/**
+ * Envia artes escolhidas pela Sol (sob demanda). Não usa a idempotência de reserva.
+ */
+async function sendSelectedFlyers(pool, app, { flyers, waId, conversation = null, event = 'sob_demanda' }) {
+  const digits = String(waId || '').replace(/\D/g, '');
+  const list = Array.isArray(flyers) ? flyers.filter((item) => item?.media_url) : [];
+  if (!digits || !list.length) return { sent: 0 };
+  let convo = conversation;
+  if (!convo) {
+    try {
+      convo = await inbox.getConversationByWaId(pool, digits);
+    } catch (_) {
+      convo = null;
+    }
+  }
+  let sent = 0;
+  for (const flyer of list) {
+    const ok = await sendOneFlyer(pool, {
+      flyer,
+      conversation: convo,
+      digits,
+      event,
+      reservationId: null,
+      skipClaim: true,
+    });
+    if (ok) sent += 1;
+  }
+  if (sent && app) emitInbox(app, { type: 'outbound', wa_id: digits });
+  return { sent };
+}
+
 module.exports = {
   loadActiveFlyers,
+  loadActiveAssets,
   sendFlyersForEvent,
   dispatchSingleFlyer,
+  sendSelectedFlyers,
 };

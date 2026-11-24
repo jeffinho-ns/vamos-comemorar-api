@@ -78,8 +78,8 @@ function isCreatableAreaLabel(area, establishmentId) {
   if (normalized === 'padrao' || normalized === 'area padrao') return false;
 
   if (isSeuJustinoEstablishment(establishmentId)) {
-    const zone = resolveJustinoGuestZone(label);
-    return zone === 'coberta' || zone === 'descoberta';
+    const zone = resolveJustinoGuestZone(label) || (label === 'qualquer' ? 'qualquer' : null);
+    return zone === 'coberta' || zone === 'descoberta' || zone === 'qualquer';
   }
   if (Number(establishmentId) === 8) {
     return Boolean(resolvePracinhaGuestArea(label));
@@ -210,15 +210,17 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
     String(workingState.area_label || workingState.area_preferida || '').trim();
 
   if (isSeuJustinoEstablishment(establishmentId)) {
+    const pending = String(workingState.pending_justino_zone || '').trim();
     const zone =
       resolveJustinoGuestZone(userText) ||
+      (pending === 'coberta' || pending === 'descoberta' || pending === 'qualquer' ? pending : '') ||
       resolveJustinoGuestZone(preferred) ||
       workingState.justino_zone ||
       resolveJustinoGuestZone(String(workingState.area_label || ''));
-    if (!zone || zone === 'qualquer') {
+    if (!zone) {
       return { needsChoice: true, label: '', snapshot: null };
     }
-    const label = guestZoneLabel(zone);
+    const label = zone === 'qualquer' ? 'qualquer' : guestZoneLabel(zone);
     if (!isCreatableAreaLabel(label, establishmentId)) {
       return { needsChoice: true, label: '', snapshot: null };
     }

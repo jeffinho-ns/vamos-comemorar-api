@@ -1,16 +1,19 @@
 /**
- * CRUD de Flyers por estabelecimento (aba "Flyers" em Configurações de IA).
- * Cada flyer tem uma imagem (hospedada no Cloudinary, pasta whatsapp-flyers),
- * um evento de disparo e uma legenda. Enviados automaticamente pelo flyerService.
+ * CRUD de artes por estabelecimento (aba Flyers): informação, datas e imagens da casa.
  */
 const express = require('express');
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const cloudinaryService = require('../services/cloudinaryService');
+const {
+  ASSET_KINDS,
+  normalizeKindOrDefault,
+  normalizeEvent,
+} = require('../services/flyer/flyerAssetCatalog');
+const { ensureFlyerAssetColumns } = require('../services/flyer/flyerAssetSchema');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
-const TRIGGER_EVENTS = new Set(['reserva_criada', 'reserva_cancelada', 'pos_visita']);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -28,27 +31,68 @@ function str(value, max) {
   return max ? s.slice(0, max) : s;
 }
 
-function normalizeEvent(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return TRIGGER_EVENTS.has(v) ? v : 'reserva_criada';
+function filesFromRequest(req) {
+  const list = [];
+  if (Array.isArray(req.files)) list.push(...req.files);
+  else if (req.files && typeof req.files === 'object') {
+    Object.values(req.files).forEach((group) => {
+      if (Array.isArray(group)) list.push(...group);
+      else if (group) list.push(group);
+    });
+  }
+  if (req.file) list.push(req.file);
+  return list.filter((file) => file && (file.mimetype || '').startsWith('image/'));
 }
 
 function mapRow(row) {
   return {
     id: row.id,
+    asset_kind: normalizeKindOrDefault(row.asset_kind),
     trigger_event: row.trigger_event,
     title: row.title,
     caption: row.caption,
+    usage_hint: row.usage_hint || '',
     media_url: row.media_url,
     delay_hours: Number(row.delay_hours) || 0,
     is_active: Boolean(row.is_active),
   };
 }
 
+async function insertFlyer(pool, { establishmentId, file, body }) {
+  const ext = ((file.mimetype || 'image/jpeg').split('/')[1] || 'jpg').split(';')[0];
+  const fileName = `flyer_${establishmentId}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}.${ext}`;
+  const uploaded = await cloudinaryService.uploadFile(fileName, file.buffer, {
+    folder: 'whatsapp-flyers',
+  });
+  const kind = normalizeKindOrDefault(body?.asset_kind);
+  const usageHint = str(body?.usage_hint, 2000);
+  const result = await pool.query(
+    `INSERT INTO ai_flyers
+       (establishment_id, asset_kind, trigger_event, title, caption, usage_hint,
+        media_url, media_public_id, delay_hours, is_active, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+       COALESCE((SELECT MAX(sort_order) + 1 FROM ai_flyers WHERE establishment_id = $1), 0))
+     RETURNING id, asset_kind, trigger_event, title, caption, usage_hint, media_url, delay_hours, is_active`,
+    [
+      establishmentId,
+      kind,
+      normalizeEvent(body?.trigger_event, kind, usageHint),
+      str(body?.title, 120) ||
+        str(String(file.originalname || '').replace(/\.[^.]+$/, ''), 120),
+      str(body?.caption, 2000),
+      usageHint,
+      uploaded.secureUrl,
+      uploaded.publicId || '',
+      Math.max(0, Number(body?.delay_hours) || 0),
+      body?.is_active === undefined ? true : String(body.is_active) !== 'false',
+    ]
+  );
+  return mapRow(result.rows[0]);
+}
+
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
 
-  // Listar flyers da casa
   router.get(
     '/establishments/:id/ai-flyers',
     auth,
@@ -59,14 +103,19 @@ module.exports = (pool) => {
         return res.status(400).json({ success: false, message: 'ID de estabelecimento inválido.' });
       }
       try {
-        const result = await pool.query(
-          `SELECT id, trigger_event, title, caption, media_url, delay_hours, is_active
+        await ensureFlyerAssetColumns(pool);
+        const kind = req.query?.kind ? normalizeKindOrDefault(req.query.kind) : null;
+        const params = [establishmentId];
+        let sql = `SELECT id, asset_kind, trigger_event, title, caption, usage_hint, media_url, delay_hours, is_active
              FROM ai_flyers
-            WHERE establishment_id = $1
-            ORDER BY sort_order ASC, id ASC`,
-          [establishmentId]
-        );
-        return res.json({ success: true, data: result.rows.map(mapRow) });
+            WHERE establishment_id = $1`;
+        if (req.query?.kind) {
+          params.push(kind);
+          sql += ' AND asset_kind = $2';
+        }
+        sql += ' ORDER BY sort_order ASC, id ASC';
+        const result = await pool.query(sql, params);
+        return res.json({ success: true, kinds: ASSET_KINDS, data: result.rows.map(mapRow) });
       } catch (error) {
         console.error('[ai-flyers] list:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao carregar flyers.' });
@@ -74,49 +123,30 @@ module.exports = (pool) => {
     }
   );
 
-  // Criar flyer (com imagem)
   router.post(
     '/establishments/:id/ai-flyers',
     auth,
     authorize(...ADMIN_ROLES),
-    upload.single('image'),
+    upload.fields([
+      { name: 'images', maxCount: 12 },
+      { name: 'image', maxCount: 1 },
+    ]),
     async (req, res) => {
       const establishmentId = parseEstablishmentId(req.params.id);
       if (!establishmentId) {
         return res.status(400).json({ success: false, message: 'ID de estabelecimento inválido.' });
       }
-      const file = req.file;
-      if (!file) {
-        return res.status(400).json({ success: false, message: 'Imagem do flyer é obrigatória (campo "image").' });
-      }
-      if (!(file.mimetype || '').startsWith('image/')) {
-        return res.status(400).json({ success: false, message: 'Apenas arquivos de imagem são permitidos.' });
+      const files = filesFromRequest(req);
+      if (!files.length) {
+        return res.status(400).json({ success: false, message: 'Selecione ao menos uma imagem.' });
       }
       try {
-        const ext = ((file.mimetype || 'image/jpeg').split('/')[1] || 'jpg').split(';')[0];
-        const fileName = `flyer_${establishmentId}_${Date.now()}.${ext}`;
-        const uploaded = await cloudinaryService.uploadFile(fileName, file.buffer, {
-          folder: 'whatsapp-flyers',
-        });
-
-        const result = await pool.query(
-          `INSERT INTO ai_flyers
-             (establishment_id, trigger_event, title, caption, media_url, media_public_id, delay_hours, is_active, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-             COALESCE((SELECT MAX(sort_order) + 1 FROM ai_flyers WHERE establishment_id = $1), 0))
-           RETURNING id, trigger_event, title, caption, media_url, delay_hours, is_active`,
-          [
-            establishmentId,
-            normalizeEvent(req.body?.trigger_event),
-            str(req.body?.title, 120),
-            str(req.body?.caption, 2000),
-            uploaded.secureUrl,
-            uploaded.publicId || '',
-            Math.max(0, Number(req.body?.delay_hours) || 0),
-            req.body?.is_active === undefined ? true : String(req.body.is_active) !== 'false',
-          ]
-        );
-        return res.json({ success: true, data: mapRow(result.rows[0]) });
+        await ensureFlyerAssetColumns(pool);
+        const created = [];
+        for (const file of files) {
+          created.push(await insertFlyer(pool, { establishmentId, file, body: req.body }));
+        }
+        return res.json({ success: true, data: created.length === 1 ? created[0] : created });
       } catch (error) {
         console.error('[ai-flyers] create:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao criar flyer.' });
@@ -124,7 +154,6 @@ module.exports = (pool) => {
     }
   );
 
-  // Atualizar metadados (e opcionalmente trocar a imagem)
   router.put(
     '/establishments/:id/ai-flyers/:flyerId',
     auth,
@@ -140,10 +169,22 @@ module.exports = (pool) => {
         const fields = [];
         const params = [];
         let idx = 1;
+        const kind = req.body?.asset_kind !== undefined ? normalizeKindOrDefault(req.body.asset_kind) : null;
+        const usageHint = req.body?.usage_hint !== undefined ? str(req.body.usage_hint, 2000) : null;
 
-        if (req.body?.trigger_event !== undefined) {
+        if (kind) {
+          fields.push(`asset_kind = $${idx++}`);
+          params.push(kind);
+        }
+        if (req.body?.trigger_event !== undefined || usageHint !== null || kind) {
           fields.push(`trigger_event = $${idx++}`);
-          params.push(normalizeEvent(req.body.trigger_event));
+          params.push(
+            normalizeEvent(
+              req.body?.trigger_event,
+              kind || 'informacao',
+              usageHint || ''
+            )
+          );
         }
         if (req.body?.title !== undefined) {
           fields.push(`title = $${idx++}`);
@@ -152,6 +193,10 @@ module.exports = (pool) => {
         if (req.body?.caption !== undefined) {
           fields.push(`caption = $${idx++}`);
           params.push(str(req.body.caption, 2000));
+        }
+        if (usageHint !== null) {
+          fields.push(`usage_hint = $${idx++}`);
+          params.push(usageHint);
         }
         if (req.body?.delay_hours !== undefined) {
           fields.push(`delay_hours = $${idx++}`);
@@ -187,7 +232,7 @@ module.exports = (pool) => {
         const result = await pool.query(
           `UPDATE ai_flyers SET ${fields.join(', ')}
             WHERE id = $${idx++} AND establishment_id = $${idx}
-            RETURNING id, trigger_event, title, caption, media_url, delay_hours, is_active`,
+            RETURNING id, asset_kind, trigger_event, title, caption, usage_hint, media_url, delay_hours, is_active`,
           params
         );
         if (result.rows.length === 0) {
@@ -201,7 +246,6 @@ module.exports = (pool) => {
     }
   );
 
-  // Remover flyer (e apagar a imagem do Cloudinary)
   router.delete(
     '/establishments/:id/ai-flyers/:flyerId',
     auth,

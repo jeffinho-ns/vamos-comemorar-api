@@ -14,6 +14,9 @@ test('descoberta não é lida como coberta', () => {
   assert.equal(resolveJustinoGuestZone('prefiro a coberta'), 'coberta');
   assert.equal(resolveJustinoGuestZone('pode ser coberta ou descoberta'), null);
   assert.equal(resolveJustinoGuestZone('tanto faz'), 'qualquer');
+  assert.equal(resolveJustinoGuestZone('interna'), 'coberta');
+  assert.equal(resolveJustinoGuestZone('externa'), 'descoberta');
+  assert.equal(resolveJustinoGuestZone('parte interna'), 'coberta');
 });
 
 test('área descoberta cai numa mesa livre do quintal', async () => {

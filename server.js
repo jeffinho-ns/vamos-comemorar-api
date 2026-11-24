@@ -121,6 +121,19 @@ try {
   console.warn('[startup] isolamento de conversa por casa indisponível:', err.message);
 }
 
+try {
+  const { ensureFlyerAssetColumns } = require('./services/flyer/flyerAssetSchema');
+  ensureFlyerAssetColumns(pool)
+    .then(() => {
+      console.log('[startup] colunas de artes (asset_kind, usage_hint) ok');
+    })
+    .catch((err) => {
+      console.warn('[startup] colunas de artes falharam:', err.message);
+    });
+} catch (err) {
+  console.warn('[startup] schema de artes indisponível:', err.message);
+}
+
 if (process.env.NODE_ENV === 'production') {
   const missingWhatsAppEnv = [];
   if (!process.env.WHATSAPP_VERIFY_TOKEN) missingWhatsAppEnv.push('WHATSAPP_VERIFY_TOKEN');

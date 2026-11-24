@@ -36,7 +36,12 @@ function mergeWorkingState(current = {}, ...patches) {
   for (const patch of patches) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) continue;
     for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined || value === null || value === '') continue;
+      if (value === undefined) continue;
+      if (value === null && String(key).startsWith('pending_')) {
+        delete next[key];
+        continue;
+      }
+      if (value === null || value === '') continue;
       next[key] = value;
     }
   }
@@ -104,6 +109,13 @@ async function persistMemory(pool, conversationId, { workingState = {}, contextS
 }
 
 function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
+  if (
+    toolName === 'criar_pre_reserva' &&
+    toolResult?.needs_area_switch &&
+    (toolResult.suggested_zone === 'coberta' || toolResult.suggested_zone === 'descoberta')
+  ) {
+    return { pending_justino_zone: toolResult.suggested_zone };
+  }
   if (!toolResult || toolResult.ok === false) return {};
 
   if (toolName === 'verificar_disponibilidade') {
@@ -141,6 +153,7 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
       data_nascimento: pre.cliente?.data_nascimento,
       reservation_id: pre.reservation_id || null,
       reservation_created: true,
+      pending_justino_zone: null,
     };
   }
 

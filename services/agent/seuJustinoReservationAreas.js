@@ -55,14 +55,67 @@ function normalizeZoneText(text) {
 function resolveJustinoGuestZone(text) {
   const normalized = normalizeZoneText(text);
   if (!normalized) return null;
-  if (/\b(tanto faz|sem preferencia|qualquer uma|qualquer area|tanto coberta quanto)\b/.test(normalized)) {
+  if (
+    normalized === 'qualquer' ||
+    /\b(tanto faz|sem preferencia|qualquer uma|qualquer area|qualquer uma das duas|tanto coberta quanto)\b/.test(
+      normalized
+    )
+  ) {
     return 'qualquer';
   }
-  const descoberta = /\b(descoberta|descoberto|quintal|area externa)\b/.test(normalized);
-  const coberta = /\b(coberta|coberto|area interna|salao|lounge)\b/.test(normalized);
+  const descoberta =
+    /\b(descoberta|descoberto|quintal|area externa|parte externa|lado de fora|ar livre)\b/.test(
+      normalized
+    ) ||
+    (/\b(externa|externo)\b/.test(normalized) && !/\b(interna|interno|coberta)\b/.test(normalized));
+  const coberta =
+    /\b(coberta|coberto|area interna|parte interna|salao|lounge|lado de dentro)\b/.test(normalized) ||
+    (/\b(interna|interno)\b/.test(normalized) && !/\b(externa|externo|descoberta|quintal)\b/.test(normalized));
   if (descoberta && coberta) return null;
   if (descoberta) return 'descoberta';
   if (coberta) return 'coberta';
+  return null;
+}
+
+function applyJustinoZonePatch(zone) {
+  if (zone === 'coberta' || zone === 'descoberta') {
+    return {
+      justino_zone: zone,
+      area_preferida: guestZoneLabel(zone),
+      area_label: guestZoneLabel(zone),
+      area_id: zone === 'coberta' ? 1 : 2,
+      pending_justino_zone: null,
+    };
+  }
+  if (zone === 'qualquer') {
+    return {
+      justino_zone: 'qualquer',
+      area_preferida: 'qualquer',
+      area_label: 'qualquer',
+      pending_justino_zone: null,
+    };
+  }
+  return {};
+}
+
+function zoneOfferedInAssistantText(text) {
+  const offered = normalizeZoneText(text);
+  if (!offered) return null;
+  const isSwitchOffer =
+    /\b(posso colocar|ainda tem vaga|colocar voces|pode ser (na |a )?(area )?descoberta|pode ser (na |a )?(area )?coberta)\b/.test(
+      offered
+    );
+  if (!isSwitchOffer) return null;
+  if (/nao comporta[\s\S]{0,120}descoberta/.test(offered) || /descoberta[\s\S]{0,80}(ainda tem vaga|posso colocar)/.test(offered)) {
+    return 'descoberta';
+  }
+  if (/nao comporta[\s\S]{0,120}coberta/.test(offered) || /coberta[\s\S]{0,80}(ainda tem vaga|posso colocar)/.test(offered)) {
+    return 'coberta';
+  }
+  const descoberta = /\bdescoberta\b/.test(offered);
+  const coberta = /\bcoberta\b/.test(offered);
+  if (descoberta && !coberta) return 'descoberta';
+  if (coberta && !descoberta) return 'coberta';
   return null;
 }
 
@@ -249,6 +302,8 @@ module.exports = {
   GUEST_ZONES,
   isSeuJustinoEstablishment,
   resolveJustinoGuestZone,
+  applyJustinoZonePatch,
+  zoneOfferedInAssistantText,
   resolveJustinoSubarea,
   guestZonePromptForClient,
   listJustinoAreaQuestion,

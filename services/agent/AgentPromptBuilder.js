@@ -47,6 +47,7 @@ class AgentPromptBuilder {
       this.buildRuntimeBlock(context),
       this.buildMemoryBlock(context),
       this.buildCatalogBlock(context),
+      this.buildFlyerAssetsBlock(context),
       this.buildLockedEstablishmentBlock(context),
     ];
     return blocks.filter(Boolean).join('\n\n');
@@ -311,6 +312,10 @@ ${lines.join('\n')}`;
   buildCatalogBlock(context) {
     if (!context.establishmentsBlock) return '';
     return `ESTABELECIMENTOS:\n${context.establishmentsBlock}`;
+  }
+
+  buildFlyerAssetsBlock(context) {
+    return String(context.flyerAssetsBlock || '').trim();
   }
 
   buildLockedEstablishmentBlock(context) {

@@ -16,6 +16,8 @@ const {
 const { getCardapioUrlByEstablishmentId, loadActiveRestaurantAreas } = require('../conversationEngine/helpers');
 const { isInstagramWaId, resolveReservationPhone } = require('../instagram/instagramIdentity');
 const { resolveOrganizationIdForEstablishment } = require('../../tenancy/resolveOrganizationId');
+const { loadActiveAssets } = require('../flyer/flyerService');
+const { selectAssets, mapArtForSend } = require('../flyer/flyerAssetCatalog');
 const {
   isHighlineEstablishment,
   resolveHighlineSubarea,
@@ -371,6 +373,36 @@ function getAgentToolDefinitions() {
             'area',
             'quantidade_pessoas',
           ],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'enviar_arte',
+        description:
+          'Envia flyer ou foto da casa no WhatsApp. Use ids da lista ARTES DA CASA. Informação = etiqueta/regras; datas = programação; casa = ambiente (interna, externa, bar).',
+        parameters: {
+          type: 'object',
+          properties: {
+            estabelecimento_id: { type: 'integer' },
+            ids: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: 'IDs das artes (#123 no prompt). Prefira isto.',
+            },
+            tipo: {
+              type: 'string',
+              enum: ['informacao', 'datas', 'casa'],
+              description: 'Se não souber o id, filtre pelo tipo.',
+            },
+            consulta: {
+              type: 'string',
+              description: 'Ex.: área externa, bar, etiqueta, sábado.',
+            },
+          },
+          required: ['estabelecimento_id'],
           additionalProperties: false,
         },
       },
@@ -977,6 +1009,7 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
       return {
         ok: false,
         needs_area_switch: Boolean(otherSlot),
+        suggested_zone: other || null,
         error: otherSlot
           ? `A ${asked} não comporta ${partySize} pessoas nesse horário. Na ${otherSlot.guestLabel} ainda tem vaga — posso colocar vocês lá?`
           : 'Poxa, a área coberta e a área descoberta estão sem mesa livre pra esse grupo nesse horário. Quer tentar outro horário?',
@@ -1280,8 +1313,46 @@ async function executeAgentToolCall(pool, toolCall, runtimeContext = {}) {
   if (toolName === 'criar_lista_espera') {
     return criarListaEspera(pool, args, runtimeContext);
   }
+  if (toolName === 'enviar_arte') {
+    return enviarArte(pool, args, runtimeContext);
+  }
 
   return { ok: false, error: `Tool desconhecida: ${toolName}` };
+}
+
+async function enviarArte(pool, args = {}, runtimeContext = {}) {
+  const establishmentId = Number(
+    args.estabelecimento_id || runtimeContext.lockedEstablishmentId || 0
+  );
+  if (!Number.isFinite(establishmentId) || establishmentId <= 0) {
+    return { ok: false, error: 'estabelecimento_id é obrigatório.' };
+  }
+  let assets = [];
+  try {
+    assets = await loadActiveAssets(pool, establishmentId);
+  } catch (error) {
+    return { ok: false, error: error.message || 'Falha ao carregar artes.' };
+  }
+  const selected = selectAssets({
+    assets,
+    ids: args.ids,
+    kind: args.tipo,
+    query: args.consulta,
+    limit: 3,
+  });
+  if (!selected.length) {
+    return { ok: false, error: 'Nenhuma arte cadastrada combina com esse pedido.' };
+  }
+  return {
+    ok: true,
+    artes: selected.map((asset) => ({
+      id: Number(asset.id),
+      tipo: asset.asset_kind,
+      titulo: asset.title || '',
+      dica: asset.usage_hint || '',
+    })),
+    artes_para_enviar: selected.map(mapArtForSend),
+  };
 }
 
 module.exports = {

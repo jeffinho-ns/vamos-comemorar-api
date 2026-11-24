@@ -69,7 +69,14 @@ const { loadIceBreakers, shouldOfferIceBreakers, appendIceBreakers } = require('
 const { isHouseOpenNow } = require('../agent/reservationOperatingContext');
 const { channelFromWaId, isInstagramWaId } = require('../instagram/instagramIdentity');
 const { extractInstagramInbound } = require('../instagram/instagramWebhookParse');
-const { sendFlyersForEvent } = require('../flyer/flyerService');
+const { sendFlyersForEvent, sendSelectedFlyers, loadActiveAssets } = require('../flyer/flyerService');
+const {
+  collectArtsFromToolTrace,
+  looksLikeHousePhotoAsk,
+  looksLikeDateFlyerAsk,
+  selectAssets,
+  mapArtForSend,
+} = require('../flyer/flyerAssetCatalog');
 const { isExplicitHumanRequest } = require('../aiService');
 const { isOpenAiCircuitOpen, tripOpenAiCircuit } = require('../agent/openaiCircuitBreaker');
 const { tryOfflineKnowledgeReply } = require('../agent/offlineKnowledgeService');
@@ -684,6 +691,7 @@ async function processAgentInboundTurn({
       runtimeContext: {
         waId,
         conversationId: conversation.id,
+        lockedEstablishmentId,
         contactName:
           whatsappContact?.contact_name ||
           conversation?.contact_name ||
@@ -730,6 +738,43 @@ async function processAgentInboundTurn({
     }
 
     await outboundGateway.sendText(waId, agentResult.replyText);
+
+    let artsToSend = agentResult.artsToSend || collectArtsFromToolTrace(agentResult.toolTrace);
+    if (!artsToSend.length && lockedEstablishmentId && !isInstagramWaId(waId)) {
+      try {
+        const assets = await loadActiveAssets(pool, lockedEstablishmentId);
+        if (looksLikeHousePhotoAsk(incomingText)) {
+          artsToSend = selectAssets({
+            assets,
+            kind: 'casa',
+            query: incomingText,
+            limit: 3,
+          }).map(mapArtForSend);
+        } else if (looksLikeDateFlyerAsk(incomingText)) {
+          artsToSend = selectAssets({
+            assets,
+            kind: 'datas',
+            query: incomingText,
+            limit: 2,
+          }).map(mapArtForSend);
+        }
+      } catch (artPickError) {
+        console.warn('[agentEngine] seleção de artes falhou:', artPickError.message);
+      }
+    }
+    if (artsToSend.length) {
+      try {
+        await sendSelectedFlyers(pool, app, {
+          flyers: artsToSend,
+          waId,
+          conversation,
+          event: 'sob_demanda',
+        });
+      } catch (artSendError) {
+        console.warn('[agentEngine] envio de artes falhou:', artSendError.message);
+      }
+    }
+
     if (agentResult.handoffToEvents) {
       await activateHumanTakeover(pool, waId, 48, conversation.id);
     }

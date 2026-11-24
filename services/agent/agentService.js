@@ -32,6 +32,8 @@ const {
   normalizeReasoningEffort,
 } = require('./responsesToolClient');
 const { looksLikeFreshReservationStart } = require('../conversationEngine/helpers');
+const { loadActiveAssets } = require('../flyer/flyerService');
+const { buildPromptBlock: buildFlyerPromptBlock, collectArtsFromToolTrace } = require('../flyer/flyerAssetCatalog');
 const {
   loadActiveSettings: loadActiveAssistantSettings,
   loadExternalLinksBlock,
@@ -281,6 +283,7 @@ function sanitizeToolResultForModel(toolResult = {}) {
   if (!toolResult || typeof toolResult !== 'object') return toolResult;
   const copy = { ...toolResult };
   delete copy.painel_resumo;
+  delete copy.artes_para_enviar;
   return copy;
 }
 
@@ -1905,6 +1908,12 @@ async function runAgentTurn({
     eventProgramBlock = formatEventProgramPromptBlock(dayProgram);
   }
 
+  let flyerAssetsBlock = '';
+  if (pool && establishmentId > 0) {
+    const flyerAssets = await loadActiveAssets(pool, establishmentId).catch(() => []);
+    flyerAssetsBlock = buildFlyerPromptBlock(flyerAssets);
+  }
+
   const staticPromptContext = promptBuilder.pickStaticPromptContext({
     assistantSettings,
     lockedEstablishmentId: context.lockedEstablishmentId,
@@ -1918,6 +1927,7 @@ async function runAgentTurn({
     eventProgramBlock,
     reservationDateBlock: dateHint.promptBlock,
     reservationFunnelBlock,
+    flyerAssetsBlock,
     referenceDate: referenceDateIso,
   };
   const staticSystemPrompt = promptBuilder.buildStatic(staticPromptContext);
@@ -2120,6 +2130,7 @@ async function runAgentTurn({
     toolTrace: toolTraceFinal,
     preReservationResult,
     guestListLink,
+    artsToSend: collectArtsFromToolTrace(toolTraceFinal),
   };
     }
   );
