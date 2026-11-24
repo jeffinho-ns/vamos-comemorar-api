@@ -24,16 +24,19 @@ async function main() {
   }
 
   const faqColumns = await tableColumns('establishment_faq');
-  const placeColumns = await tableColumns('places');
   const hasCategory = faqColumns.has('category');
-  const hasOrg = faqColumns.has('organization_id') && placeColumns.has('organization_id');
+  const hasOrg = faqColumns.has('organization_id');
   let organizationId = null;
   if (hasOrg) {
-    const org = await pool.query(
-      'SELECT organization_id FROM places WHERE id = $1 LIMIT 1',
-      [SEU_JUSTINO_ESTABLISHMENT_ID]
-    );
-    organizationId = org.rows[0]?.organization_id || null;
+    const { resolveOrganizationIdForEstablishment } = require('../tenancy/resolveOrganizationId');
+    organizationId = await resolveOrganizationIdForEstablishment(pool, SEU_JUSTINO_ESTABLISHMENT_ID);
+    if (!organizationId) {
+      const org = await pool.query(
+        'SELECT organization_id FROM places WHERE id = $1 LIMIT 1',
+        [SEU_JUSTINO_ESTABLISHMENT_ID]
+      );
+      organizationId = org.rows[0]?.organization_id || null;
+    }
   }
 
   let written = 0;
@@ -48,6 +51,7 @@ async function main() {
            answer = EXCLUDED.answer,
            category = EXCLUDED.category,
            is_active = TRUE,
+           organization_id = COALESCE(establishment_faq.organization_id, EXCLUDED.organization_id),
            updated_at = NOW()`,
         [SEU_JUSTINO_ESTABLISHMENT_ID, faq.topic, faq.answer, faq.category, organizationId]
       );

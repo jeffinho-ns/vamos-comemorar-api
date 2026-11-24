@@ -79,9 +79,10 @@ const STEPS = [
       UPDATE establishment_faq ef
          SET organization_id = est.organization_id
         FROM establishments est
-       WHERE ef.organization_id IS NULL
-         AND ef.establishment_id IS NOT NULL
+       WHERE ef.establishment_id IS NOT NULL
+         AND est.organization_id IS NOT NULL
          AND est.legacy_place_id = ef.establishment_id
+         AND ef.organization_id IS DISTINCT FROM est.organization_id
     `,
   },
   {

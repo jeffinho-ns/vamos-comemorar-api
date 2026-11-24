@@ -4,6 +4,7 @@ const authorize = require('../middleware/authorize');
 const { queryWithRlsContext } = require('../tenancy/scopedQuery');
 const { resolveOrganizationIdForEstablishment, resolveOrganizationIdForUser } = require('../tenancy/resolveOrganizationId');
 const { rlsContextFromRequest } = require('../tenancy/rlsRequestContext');
+const { loadUserScope, canAccessEstablishment } = require('../tenancy/tenantScope');
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 const { canonicalizeAdminFaqTopic } = require('../services/agent/faqTopicCanonical');
@@ -67,6 +68,26 @@ async function resolveOrgForEstablishment(pool, establishmentId) {
   return fromEst;
 }
 
+/**
+ * Depois de validar acesso à casa, lista/edita FAQs com bypass de RLS.
+ * Evita esconder linhas com organization_id NULL (legado) das contas da casa.
+ */
+async function assertCanAccessFaqEstablishment(pool, req, establishmentId) {
+  if (req.user?.is_super_admin === true || req.tenant?.isAdmin === true) {
+    return { ok: true, isAdmin: true };
+  }
+  const scope = await loadUserScope(pool, req.user);
+  if (scope.isAdmin || canAccessEstablishment(scope, establishmentId)) {
+    return { ok: true, isAdmin: Boolean(scope.isAdmin) };
+  }
+  return { ok: false, isAdmin: false };
+}
+
+function faqReadRlsContext(access) {
+  // Acesso à casa já validado: lê todas as FAQs daquele establishment_id.
+  return { isAdmin: true, grantedByEstablishmentAccess: !access.isAdmin };
+}
+
 module.exports = (pool) => {
   const router = express.Router({ mergeParams: true });
 
@@ -84,7 +105,14 @@ module.exports = (pool) => {
           return res.status(404).json({ success: false, message: 'Estabelecimento não encontrado.' });
         }
 
-        const result = await pool.query(
+        const access = await assertCanAccessFaqEstablishment(pool, req, establishmentId);
+        if (!access.ok) {
+          return res.status(403).json({ success: false, message: 'Acesso negado a este estabelecimento.' });
+        }
+
+        const result = await queryWithRlsContext(
+          pool,
+          faqReadRlsContext(access),
           `SELECT id, establishment_id, topic, answer, category, is_active, updated_at, created_at
              FROM establishment_faq
             WHERE establishment_id = $1
@@ -225,7 +253,14 @@ module.exports = (pool) => {
           return res.status(400).json({ success: false, message: 'Resposta inválida.' });
         }
 
-        const existing = await pool.query(
+        const access = await assertCanAccessFaqEstablishment(pool, req, establishmentId);
+        if (!access.ok) {
+          return res.status(403).json({ success: false, message: 'Acesso negado a este estabelecimento.' });
+        }
+
+        const existing = await queryWithRlsContext(
+          pool,
+          faqReadRlsContext(access),
           `SELECT id, establishment_id, organization_id, topic, answer, category, is_active
              FROM establishment_faq
             WHERE id = $1 AND establishment_id = $2
@@ -245,13 +280,7 @@ module.exports = (pool) => {
         const organizationId =
           existing.rows[0].organization_id ??
           (await resolveOrgForEstablishment(pool, establishmentId));
-        const rlsCtx = rlsContextFromRequest(req, organizationId);
-        if (!rlsCtx) {
-          return res.status(503).json({
-            success: false,
-            message: 'Organização indisponível para atualizar FAQ.',
-          });
-        }
+        const rlsCtx = rlsContextFromRequest(req, organizationId) || faqReadRlsContext(access);
 
         const result = await queryWithRlsContext(
           pool,
@@ -261,10 +290,11 @@ module.exports = (pool) => {
                   answer = $2,
                   category = $3,
                   is_active = $4,
+                  organization_id = COALESCE(organization_id, $7),
                   updated_at = NOW()
             WHERE id = $5 AND establishment_id = $6
             RETURNING id, establishment_id, topic, answer, category, is_active, updated_at, created_at`,
-          [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId],
+          [nextTopic, nextAnswer, nextCategory, nextActive, faqId, establishmentId, organizationId],
         );
 
         invalidateFaqCache(establishmentId);
@@ -291,7 +321,14 @@ module.exports = (pool) => {
           return res.status(400).json({ success: false, message: 'Parâmetros inválidos.' });
         }
 
-        const result = await pool.query(
+        const access = await assertCanAccessFaqEstablishment(pool, req, establishmentId);
+        if (!access.ok) {
+          return res.status(403).json({ success: false, message: 'Acesso negado a este estabelecimento.' });
+        }
+
+        const result = await queryWithRlsContext(
+          pool,
+          faqReadRlsContext(access),
           `DELETE FROM establishment_faq
             WHERE id = $1 AND establishment_id = $2
             RETURNING id`,
