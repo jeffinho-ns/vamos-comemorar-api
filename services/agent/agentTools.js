@@ -1013,12 +1013,21 @@ async function criarPreReserva(pool, args = {}, runtimeContext = {}) {
           })
         : null;
       const asked = guestZoneLabel(justinoZone) || 'área coberta e área descoberta';
+      const { maxCapacityForJustinoZone } = require('./seuJustinoReservationAreas');
+      const zoneMax = maxCapacityForJustinoZone(justinoZone);
+      const structuralOverflow =
+        Number.isFinite(zoneMax) && Number.isFinite(partySize) && partySize > zoneMax;
       return {
         ok: false,
         needs_area_switch: Boolean(otherSlot),
         suggested_zone: other || null,
+        requested_zone: justinoZone || null,
+        structural_overflow: Boolean(structuralOverflow),
+        zone_max_capacity: Number.isFinite(zoneMax) ? zoneMax : null,
         error: otherSlot
-          ? `A ${asked} não comporta ${partySize} pessoas nesse horário. Na ${otherSlot.guestLabel} ainda tem vaga — posso colocar vocês lá?`
+          ? structuralOverflow
+            ? `A ${asked} comporta no máximo ${zoneMax} pessoas juntando mesas. Pra ${partySize}, o caminho é a ${otherSlot.guestLabel} — posso fechar vocês lá?`
+            : `A ${asked} não comporta ${partySize} pessoas nesse horário. Na ${otherSlot.guestLabel} ainda tem vaga — posso colocar vocês lá?`
           : 'Poxa, a área coberta e a área descoberta estão sem mesa livre pra esse grupo nesse horário. Quer tentar outro horário?',
       };
     }

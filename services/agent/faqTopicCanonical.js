@@ -206,6 +206,20 @@ function looksLikeMusicStyleQuestion(text) {
   return /\b(musica|dj|house|open format|brasilidades|programacao)\b/.test(normalized);
 }
 
+/** Pergunta de ingresso/réveillon/valor de evento — não deve abrir funil de reserva. */
+function looksLikeEventTicketQuestion(text) {
+  const normalized = normalizeInboundText(text);
+  if (!normalized) return false;
+  const eventCue =
+    /\b(reveillon|ano novo|virada|ingresso|ingressos|ingresse|sympla|bilheteria)\b/.test(
+      normalized
+    );
+  if (!eventCue) return false;
+  return /\b(valor|preco|quanto|custa|comprar|comprando|compra|vende|tem|link|onde)\b/.test(
+    normalized
+  );
+}
+
 /** Pergunta sobre programação/evento de um dia — sem intenção de reservar. */
 function looksLikeEventProgramQuestion(text) {
   const normalized = normalizeInboundText(text);
@@ -297,6 +311,10 @@ function detectFaqTopicsFromUserText(text, options = {}) {
   if (looksLikeEventProgramQuestion(text)) {
     topics.push('evento');
   }
+  if (looksLikeEventTicketQuestion(text) || /\b(reveillon|ano novo|virada)\b/.test(normalized)) {
+    topics.push('reveillon');
+    topics.push('valores_entrada');
+  }
   if (/\b(vespera|véspera|pre[- ]?feriado|feriado|feriados)\b/.test(normalized)) {
     topics.push('evento');
     topics.push('valores_entrada');
@@ -380,6 +398,7 @@ function isInformationalFaqTurn(text) {
   if (!normalized) return false;
 
   if (looksLikeEventProgramQuestion(text)) return true;
+  if (looksLikeEventTicketQuestion(text)) return true;
 
   if (detectFaqTopicsFromUserText(text).length > 0) return true;
 
@@ -454,6 +473,7 @@ module.exports = {
   looksLikeOperatingHoursQuestion,
   looksLikeReservationPushOnly,
   looksLikeEventProgramQuestion,
+  looksLikeEventTicketQuestion,
   looksLikeSaturdayQuestion,
   looksLikeEntryPricingQuestion,
   looksLikeMusicStyleQuestion,

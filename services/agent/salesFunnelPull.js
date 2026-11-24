@@ -66,7 +66,12 @@ function keepFunnelState(memoryState, establishmentId, dayProgram) {
 }
 
 function shouldSkipSalesPull(topicHints = []) {
-  return (topicHints || []).includes('eventos_corporativos');
+  const topics = topicHints || [];
+  return (
+    topics.includes('eventos_corporativos') ||
+    topics.includes('reveillon') ||
+    topics.includes('valores_entrada')
+  );
 }
 
 module.exports = {

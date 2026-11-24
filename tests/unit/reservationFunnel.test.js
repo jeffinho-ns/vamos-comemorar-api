@@ -541,6 +541,18 @@ test('15/09 após pergunta de nascimento não vira data da reserva', () => {
   assert.equal(patch.pending_birth_md, '15/09');
 });
 
+test('18/12/98 após pergunta de nascimento vira 1998 e não 2098', () => {
+  const patch = parseReservationFieldsFromUserText('18/12/98', identityReadyState, birthAskHistory);
+  assert.equal(patch.data_nascimento, '1998-12-18');
+  assert.equal(patch.reservation_date, undefined);
+});
+
+test('18/12/10 menor de idade não grava nascimento nem reserva', () => {
+  const patch = parseReservationFieldsFromUserText('18/12/10', identityReadyState, birthAskHistory);
+  assert.equal(patch.data_nascimento, undefined);
+  assert.equal(patch.reservation_date, undefined);
+});
+
 test('15-09 após nascimento também fica pendente sem ano', () => {
   const patch = parseReservationFieldsFromUserText('15-09', identityReadyState, birthAskHistory);
   assert.equal(patch.reservation_date, undefined);

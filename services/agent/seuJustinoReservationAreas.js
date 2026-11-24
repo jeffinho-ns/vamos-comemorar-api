@@ -297,6 +297,18 @@ async function pickJustinoReservationSlot(
   return pickSlotInZone(zone, reserved, size, excludeTableNumbers);
 }
 
+/** Capacidade máxima juntando mesas dentro de uma subárea da zona. */
+function maxCapacityForJustinoZone(zoneKey) {
+  const zone = GUEST_ZONES[zoneKey];
+  if (!zone) return null;
+  let max = 0;
+  for (const subarea of zone.subareas || []) {
+    const sum = (subarea.tables || []).reduce((acc, table) => acc + Number(table.capacity || 0), 0);
+    if (sum > max) max = sum;
+  }
+  return max > 0 ? max : null;
+}
+
 module.exports = {
   SEU_JUSTINO_ESTABLISHMENT_ID,
   GUEST_ZONES,
@@ -309,4 +321,5 @@ module.exports = {
   listJustinoAreaQuestion,
   guestZoneLabel,
   pickJustinoReservationSlot,
+  maxCapacityForJustinoZone,
 };

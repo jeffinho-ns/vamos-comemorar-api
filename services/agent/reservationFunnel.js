@@ -163,6 +163,39 @@ function parseCompactBirthIso(text) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/**
+ * Parse de nascimento com DD/MM/AA ou DD/MM/AAAA.
+ * Ano de 2 dígitos usa janela de idade adulta (ex.: 98 → 1998, não 2098).
+ */
+function parseBirthDateFromText(text) {
+  const raw = String(text || '').trim();
+  const match = raw.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+  if (!match) return '';
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  let year = Number(match[3]);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return '';
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  if (year < 100) {
+    const currentYear = new Date().getFullYear();
+    const pivot = currentYear % 100;
+    // yy maior que o ano atual em 2 dígitos → século passado (98 em 2026 → 1998).
+    year += year > pivot ? 1900 : 2000;
+  }
+  const currentYear = new Date().getFullYear();
+  if (year < 1900 || year > currentYear) return '';
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return '';
+  }
+  const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return isAdultBirthIso(iso) ? iso : '';
+}
+
 function extractFullNameBeforeEmail(text) {
   const source = String(text || '');
   const email = source.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
@@ -366,7 +399,18 @@ function buildBirthFromAgeQuestion() {
 
 function composeBirthIsoFromMdAndYear(pendingMd, yearText) {
   const md = String(pendingMd || '').match(/^(\d{1,2})[\/\-](\d{1,2})$/);
-  const yearMatch = String(yearText || '').trim().match(/\b(19\d{2}|20\d{2})\b/);
+  const rawYear = String(yearText || '').trim();
+  let yearMatch = rawYear.match(/\b(19\d{2}|20\d{2})\b/);
+  if (!yearMatch) {
+    const short = rawYear.match(/\b(\d{2})\b/);
+    if (short) {
+      const currentYear = new Date().getFullYear();
+      const pivot = currentYear % 100;
+      let year = Number(short[1]);
+      year += year > pivot ? 1900 : 2000;
+      yearMatch = [String(year), String(year)];
+    }
+  }
   if (!md || !yearMatch) return '';
   const day = Number(md[1]);
   const month = Number(md[2]);
@@ -888,6 +932,18 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     }
   }
 
+  const birthContext = /\bnasc/i.test(text) || Boolean(emailMatch) || askedBirth;
+  const birthFromTwoDigit = birthContext ? parseBirthDateFromText(text) : '';
+  if (
+    birthFromTwoDigit &&
+    !hasFieldValue(workingState, 'data_nascimento') &&
+    !hasFieldValue(patch, 'data_nascimento')
+  ) {
+    patch.data_nascimento = birthFromTwoDigit;
+    patch.pending_birth_from_age = null;
+    patch.pending_birth_md = null;
+  }
+
   const dateParsed = parsePtBrDateFromText(text);
   const informationalDateQuestion =
     (isInformationalFaqTurn(text) || looksLikeEventProgramQuestion(text)) &&
@@ -896,6 +952,10 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   const birthCalendarDate =
     Number.isFinite(parsedYear) && parsedYear < new Date().getFullYear();
   const skipDateAsBirthMonthDay = Boolean(askedBirth && birthMdOnly);
+  // Depois de pedir nascimento, DD/MM/AA nunca vira data da reserva (caso 18/12/98 → 2098).
+  const skipDateAsBirthAnswer = Boolean(
+    askedBirth && (birthFromTwoDigit || /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b/.test(text))
+  );
   const currentDate = String(workingState.reservation_date || '').slice(0, 10);
   if (
     dateParsed?.iso &&
@@ -903,6 +963,7 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
     !emailMatch &&
     !birthCalendarDate &&
     !skipDateAsBirthMonthDay &&
+    !skipDateAsBirthAnswer &&
     (!hasFieldValue(workingState, 'reservation_date') || currentDate !== dateParsed.iso)
   ) {
     patch.reservation_date = dateParsed.iso;
@@ -912,8 +973,8 @@ function parseReservationFieldsFromUserText(userText, workingState = {}, message
   }
 
   const birthParsed = parsePtBrDateFromText(text);
-  const birthContext = /\bnasc/i.test(text) || Boolean(emailMatch) || askedBirth;
   if (
+    !birthFromTwoDigit &&
     birthParsed?.iso &&
     isAdultBirthIso(birthParsed.iso) &&
     birthContext &&
@@ -1198,6 +1259,8 @@ function dropAvailabilityIfSlotChanged(previous = {}, next = {}) {
   const cleaned = { ...next };
   delete cleaned.availability_checked_for;
   delete cleaned.availability_time_checked_for;
+  // Troca de horário/data/pessoas invalida a oferta de troca de área do slot anterior.
+  delete cleaned.pending_justino_zone;
   return cleaned;
 }
 
@@ -1288,4 +1351,5 @@ module.exports = {
   assistantAskedForOccasion,
   looksLikeAgeOnly,
   buildBirthFromAgeQuestion,
+  parseBirthDateFromText,
 };

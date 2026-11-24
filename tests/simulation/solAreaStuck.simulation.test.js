@@ -86,11 +86,14 @@ function runAreaStuckScenarios() {
         ok: false,
         needs_area_switch: true,
         suggested_zone: 'descoberta',
+        requested_zone: 'coberta',
         error:
           'A área coberta não comporta 40 pessoas nesse horário. Na área descoberta ainda tem vaga — posso colocar vocês lá?',
       };
       state = mergeWorkingState(state, extractWorkingStatePatchFromToolResult('criar_pre_reserva', fail));
       assert.equal(state.pending_justino_zone, 'descoberta');
+      assert.equal(state.justino_zone, 'coberta');
+      assert.equal(wouldAskAreaAgain(state), false);
 
       const history = [{ role: 'assistant', content: fail.error }];
       const human = humanizeCreateError(fail, state);
@@ -103,6 +106,36 @@ function runAreaStuckScenarios() {
       assert.equal(isCreatableAreaLabel(areaOf(state), 1), true);
       assert.equal(wouldAskAreaAgain(state), false);
       assert.notEqual(buildNextFieldQuestion(state), 'Você prefere a área coberta ou a área descoberta?');
+    }),
+
+    scenario('justino-19h-nao-repergunta', 'Justino: troca horário não reabre pergunta de área', () => {
+      const { dropAvailabilityIfSlotChanged } = require('../../services/agent/reservationFunnel');
+      let state = baseState(1, {
+        justino_zone: 'coberta',
+        area_id: 1,
+        area_label: 'área coberta',
+        area_preferida: 'área coberta',
+        quantidade_convidados: 30,
+        reservation_time: '20:00',
+        pending_justino_zone: 'descoberta',
+        availability_checked_for: '1|2026-12-09|30',
+      });
+      state = applyUser(state, 'E para 19h?');
+      assert.equal(state.reservation_time, '19:00');
+      state = dropAvailabilityIfSlotChanged(
+        {
+          establishment_id: 1,
+          reservation_date: '2026-12-09',
+          reservation_time: '20:00',
+          quantidade_convidados: 30,
+          pending_justino_zone: 'descoberta',
+          availability_checked_for: '1|2026-12-09|30',
+        },
+        state
+      );
+      assert.equal(state.pending_justino_zone, undefined);
+      assert.equal(state.justino_zone, 'coberta');
+      assert.equal(wouldAskAreaAgain(state), false);
     }),
 
     scenario('justino-descoberta-literal', 'Justino: cliente digita "Descoberta" após a oferta', () => {

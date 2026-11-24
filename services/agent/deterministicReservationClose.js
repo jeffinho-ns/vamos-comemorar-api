@@ -222,14 +222,16 @@ async function resolveAreaLabelForCreate(pool, workingState, context, userText =
 
   if (isSeuJustinoEstablishment(establishmentId)) {
     const pending = String(workingState.pending_justino_zone || '').trim();
+    const fromState =
+      workingState.justino_zone === 'coberta' || workingState.justino_zone === 'descoberta'
+        ? workingState.justino_zone
+        : resolveJustinoGuestZone(preferred) ||
+          resolveJustinoGuestZone(String(workingState.area_label || ''));
+    // Texto do turno e zona já gravada vencem o pending de troca do slot anterior.
     const zone =
       resolveJustinoGuestZone(userText) ||
-      (pending === 'coberta' || pending === 'descoberta' ? pending : '') ||
-      resolveJustinoGuestZone(preferred) ||
-      (workingState.justino_zone === 'coberta' || workingState.justino_zone === 'descoberta'
-        ? workingState.justino_zone
-        : '') ||
-      resolveJustinoGuestZone(String(workingState.area_label || ''));
+      fromState ||
+      (pending === 'coberta' || pending === 'descoberta' ? pending : '');
     if (!zone || zone === 'qualquer') {
       return { needsChoice: true, label: '', snapshot: null };
     }

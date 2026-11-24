@@ -9,6 +9,7 @@ const {
   isInformationalFaqTurn,
   looksLikeReservationPushOnly,
   looksLikeEventProgramQuestion,
+  looksLikeEventTicketQuestion,
   looksLikeAreaAvailabilityQuestion,
   extractPartySizeFromText,
 } = require('./faqTopicCanonical');
@@ -1403,7 +1404,41 @@ async function tryFaqFirstReply({
     if (focused.length) faqEntries = focused;
   }
 
+  // Fallback do catálogo estático (Justino/Pracinha) quando o DB ainda não tem o tópico.
+  if (!faqEntries.length && topicHints.includes('reveillon')) {
+    try {
+      const { SEU_JUSTINO_ESTABLISHMENT_ID, SEU_JUSTINO_FAQS } = require('./seuJustinoFaqCatalog');
+      const { PRACINHA_ESTABLISHMENT_ID, PRACINHA_FAQS } = require('./pracinhaFaqCatalog');
+      const catalog =
+        establishmentId === SEU_JUSTINO_ESTABLISHMENT_ID
+          ? SEU_JUSTINO_FAQS
+          : establishmentId === PRACINHA_ESTABLISHMENT_ID
+            ? PRACINHA_FAQS
+            : [];
+      const entry = (catalog || []).find((item) => String(item.topic) === 'reveillon');
+      if (entry?.answer) {
+        faqEntries = [{ topic: 'reveillon', answer: entry.answer, title: entry.label || 'Réveillon' }];
+      }
+    } catch (_error) {
+      // catálogo opcional
+    }
+  }
+
   if (!faqEntries.length) {
+    if (looksLikeEventTicketQuestion(userText)) {
+      console.warn(
+        `[agentService] FAQ-first ingresso/réveillon sem registros establishment_id=${establishmentId}`
+      );
+      return {
+        replyText:
+          'Boa pergunta! Vou confirmar com a equipe o valor e o link certo pra comprar o ingresso e já te retorno por aqui — sem inventar preço, tá?',
+        workingState: funnelState,
+        toolTrace: [],
+        preReservationResult: null,
+        guestListLink: null,
+        faqFirst: true,
+      };
+    }
     if (looksLikeEventProgramQuestion(userText) || programQuestion) {
       console.warn(
         `[agentService] FAQ-first evento sem registros establishment_id=${establishmentId}`
@@ -1444,8 +1479,13 @@ async function tryFaqFirstReply({
     },
   });
 
+  const skipPull =
+    shouldSkipSalesPull(topicHints) ||
+    looksLikeEventTicketQuestion(userText) ||
+    String(answeredTopic || '') === 'reveillon';
+
   return {
-    replyText,
+    replyText: appendSalesPull(replyText, funnelState, { skip: skipPull }),
     workingState: funnelState,
     toolTrace: [
       {
@@ -1704,7 +1744,8 @@ async function runAgentTurn({
     isCorporateEventState(workingState) ||
     looksLikeCorporateEvent(userText);
 
-  if (!skipFaq && process.env.OPENAI_API_KEY) {
+  // FAQ-first é verbatim/DB — não depende de OpenAI.
+  if (!skipFaq) {
     const faqFirst = await tryFaqFirstReply({ pool, messageHistory, context, memory }).catch(
       (error) => {
         console.warn('[agentService] FAQ-first indisponível:', error.message);
@@ -1717,6 +1758,19 @@ async function runAgentTurn({
         workingState: mergeWorkingState(workingState, faqFirst.workingState || {}),
       };
     }
+  }
+
+  // Ingresso/réveillon nunca abre funil de reserva vazia (mesmo sem casa travada).
+  if (looksLikeEventTicketQuestion(userText) && !looksLikeReservationIntent(userText)) {
+    return {
+      replyText:
+        'Boa pergunta sobre o ingresso! Me confirma rapidinho em qual casa você quer — Seu Justino, Pracinha ou outra — que eu te passo o link certo e o que a equipe já liberou de valor.',
+      workingState,
+      toolTrace: [],
+      preReservationResult: null,
+      guestListLink: null,
+      faqFirst: true,
+    };
   }
 
   const funnelAdvance = tryAdvanceFunnelFromUserMessage(workingState, userText, messageHistory);

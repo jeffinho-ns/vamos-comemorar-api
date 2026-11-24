@@ -46,6 +46,21 @@ test('isInformationalFaqTurn reconhece dúvidas operacionais', () => {
   assert.equal(isInformationalFaqTurn('Quem é o DJ na quarta?'), true);
   assert.equal(isInformationalFaqTurn('Oi, pode me explicar sobre apresentacao?'), true);
   assert.equal(isInformationalFaqTurn('Oi, pode me explicar sobre Entrada com bebidas?'), true);
+  assert.equal(
+    isInformationalFaqTurn(
+      'Boa tarde, tudo bem? O reveillon qual valor do ingresso comprando com vocês aqui?'
+    ),
+    true
+  );
+});
+
+test('réveillon/ingresso detecta tópico e não é só funil de reserva', () => {
+  const { looksLikeEventTicketQuestion } = require('../../services/agent/faqTopicCanonical');
+  const text =
+    'Boa tarde, tudo bem? O reveillon qual valor do ingresso comprando com vocês aqui?';
+  assert.equal(looksLikeEventTicketQuestion(text), true);
+  const topics = detectFaqTopicsFromUserText(text);
+  assert.ok(topics.includes('reveillon'));
 });
 
 test('detectFaqTopicsFromUserText extrai o sujeito depois de "sobre"', () => {

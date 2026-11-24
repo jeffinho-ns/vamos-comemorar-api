@@ -114,7 +114,18 @@ function extractWorkingStatePatchFromToolResult(toolName, toolResult = {}) {
     toolResult?.needs_area_switch &&
     (toolResult.suggested_zone === 'coberta' || toolResult.suggested_zone === 'descoberta')
   ) {
-    return { pending_justino_zone: toolResult.suggested_zone };
+    const { applyJustinoZonePatch } = require('./seuJustinoReservationAreas');
+    const requested = String(toolResult.requested_zone || '').trim();
+    const requestedPatch =
+      requested === 'coberta' || requested === 'descoberta'
+        ? applyJustinoZonePatch(requested)
+        : {};
+    // Mantém a zona que o cliente pediu no estado (pra não reperguntar),
+    // e deixa pending com a alternativa oferecida.
+    return {
+      ...requestedPatch,
+      pending_justino_zone: toolResult.suggested_zone,
+    };
   }
   if (!toolResult || toolResult.ok === false) return {};
 
