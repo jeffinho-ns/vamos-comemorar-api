@@ -19,6 +19,10 @@ const {
 const { recordOpenAiUsageSafe } = require('./aiUsageRepository');
 const { filterFaqsForCustomerPrompt } = require('./faqPromptFilter');
 const { AgentPromptBuilder } = require('./AgentPromptBuilder');
+const {
+  customerFacingFaqText,
+  shouldExecuteAsInstruction,
+} = require('./faqAnswerRole');
 
 const faqPersonaBuilder = new AgentPromptBuilder();
 
@@ -511,20 +515,31 @@ function scoreFaqAgainstText(entry, queryText) {
   return Math.min(99, Math.max(titleScore, overlap));
 }
 
+function speechFromEntries(selected) {
+  if (!selected.length) return '';
+  if (selected.every((entry) => shouldExecuteAsInstruction(entry.answer))) return '';
+  return selected
+    .filter((entry) => !shouldExecuteAsInstruction(entry.answer))
+    .map((entry) => customerFacingFaqText(entry.answer))
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 /**
- * Resposta da ficha, do jeito que foi cadastrada na casa.
- * Não reescreve, não cumprimenta e não mistura com outra informação.
+ * Fichas que respondem esta pergunta.
+ * Resposta pronta sai no texto cadastrado. Orientação volta vazia daqui
+ * para ser executada, não copiada.
  */
-function verbatimFaqReply(entries, userText, { focusTopic = '', topicHints = [] } = {}) {
+function selectDirectFaqEntries(entries, userText, { focusTopic = '', topicHints = [] } = {}) {
   const list = (entries || []).filter(
     (entry) => entry && !entry.fallback && String(entry.answer || '').trim()
   );
-  if (!list.length) return '';
+  if (!list.length) return [];
 
   const focus = normalizeTopicKey(focusTopic);
   if (focus) {
     const pinned = list.find((entry) => normalizeTopicKey(entry.topic) === focus);
-    if (pinned) return String(pinned.answer).trim();
+    if (pinned) return [pinned];
   }
 
   const hinted = [];
@@ -539,27 +554,27 @@ function verbatimFaqReply(entries, userText, { focusTopic = '', topicHints = [] 
   }
 
   const named = hinted.filter((entry) => scoreFaqAgainstText(entry, userText) >= 100);
-  if (named.length) {
-    return named.map((entry) => String(entry.answer).trim()).join('\n\n');
-  }
-  if (hinted.length === 1) return String(hinted[0].answer).trim();
+  if (named.length) return named;
+  if (hinted.length === 1) return hinted;
 
   const ranked = list
     .map((entry) => ({ entry, score: scoreFaqAgainstText(entry, userText) }))
     .sort((a, b) => b.score - a.score);
   const perfect = ranked.filter((item) => item.score >= 100);
-  if (perfect.length) {
-    return perfect.map((item) => String(item.entry.answer).trim()).join('\n\n');
-  }
+  if (perfect.length) return perfect.map((item) => item.entry);
   if (
     ranked[0] &&
     ranked[0].score >= 55 &&
     (ranked.length === 1 || ranked[0].score - (ranked[1]?.score || 0) >= 15)
   ) {
-    return String(ranked[0].entry.answer).trim();
+    return [ranked[0].entry];
   }
-  if (list.length === 1) return String(list[0].answer).trim();
-  return '';
+  if (list.length === 1) return list;
+  return [];
+}
+
+function verbatimFaqReply(entries, userText, options = {}) {
+  return speechFromEntries(selectDirectFaqEntries(entries, userText, options));
 }
 
 async function scoreFaqsAgainstUserText(pool, establishmentId, userText, { limit = 8 } = {}) {
@@ -705,7 +720,10 @@ function buildFaqKnowledgeBlock(entries = [], establishmentName = '') {
   // que parecem corretas mas contradizem a operação real da casa.
   const header = [
     `TREINAMENTO DA IA — REGRAS DA CASA${houseLabel} (fonte oficial — prevalece sobre conhecimento geral):`,
-    'Cada ficha abaixo é o cadastro desta casa (título + corpo). Use esse texto; não reescreva o sentido.',
+    'Cada ficha é cadastro desta casa. Leia o corpo antes de falar:',
+    '- Resposta pronta (fato, preço, horário, endereço, link): entregue esse conteúdo, sem inventar dado e sem mudar número, horário ou link.',
+    '- Orientação para você (se pedirem, pergunte, ofereça, não envie, só depois, sempre perguntar): isso não é fala. Execute o próximo passo em prosa, uma pergunta por vez, sem citar a orientação.',
+    '- Se misturar os dois, fale os fatos e cumpra a orientação sem recitá-la.',
     'Não acrescente cover, preço, horário ou regra que não esteja na ficha. Não misture catálogo de outra casa.',
     'Priorize o item cujo título mais corresponde à pergunta (acento/plural à parte).',
     'Não troque uma ficha específica por um tópico genérico parecido (ex.: "entrada com bebidas" não é tabela de cover).',
@@ -747,7 +765,9 @@ function buildFaqGroundedSystemPrompt({
   return `${personaBlock}
 
 REGRAS FAQ:
-- Use SOMENTE as fichas abaixo, desta casa. O corpo cadastrado é a verdade: não parafraseie de modo que altere ou contradiga o cadastro.
+- Use SOMENTE as fichas abaixo, desta casa.
+- Se o corpo for resposta pronta, entregue os fatos sem alterar preço, horário, link ou regra.
+- Se o corpo for orientação (pergunte, ofereça, não envie, só depois), execute o próximo passo. Não copie a orientação para o cliente.
 - Não complete com cover, preço, dia da semana ou regra que não esteja nessa ficha.
 - Se um título corresponder à pergunta, obedeça esse item.
 - Se a base cobrir o assunto, nunca diga que não encontrou. Se faltar info: "vou confirmar com a equipe e te respondo já".
@@ -865,6 +885,7 @@ module.exports = {
   buildFaqGroundedSystemPrompt,
   generateFaqGroundedReply,
   verbatimFaqReply,
+  selectDirectFaqEntries,
   resolveFaqTopicsForTurn,
   fetchFaqAnswerForTopic,
   invalidateFaqCache,

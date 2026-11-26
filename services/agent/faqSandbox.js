@@ -5,8 +5,13 @@ const {
   detectRelevantFaqTopics,
   invalidateFaqCache,
   loadRelevantFaqsForEstablishment,
-  verbatimFaqReply,
+  selectDirectFaqEntries,
 } = require('./faqPrefetchService');
+const { executeFaqInstruction } = require('./faqInstructionReply');
+const {
+  customerFacingFaqText,
+  shouldExecuteAsInstruction,
+} = require('./faqAnswerRole');
 const CONFIRM_LATER = /confirmar com a equipe/i;
 
 function formatSandboxDate(isoDate) {
@@ -120,7 +125,27 @@ async function runFaqReadTest(pool, input = {}) {
     };
   }
 
-  const reply = verbatimFaqReply(grounded, question, { focusTopic, topicHints });
+  const selected = selectDirectFaqEntries(grounded, question, { focusTopic, topicHints });
+  const instructionCards = selected.filter((entry) => shouldExecuteAsInstruction(entry.answer));
+  const instructionOnly = selected.length > 0 && instructionCards.length === selected.length;
+  const composed = instructionOnly
+    ? await executeFaqInstruction({
+        cards: instructionCards,
+        userText: question,
+        history,
+        establishmentName: '',
+        pool,
+        establishmentId,
+      })
+    : {
+        text: selected
+          .filter((entry) => !shouldExecuteAsInstruction(entry.answer))
+          .map((entry) => customerFacingFaqText(entry.answer))
+          .filter(Boolean)
+          .join('\n\n'),
+        usedModel: false,
+      };
+  const reply = String(composed.text || '').trim();
   if (!reply) {
     return {
       reply:
@@ -129,6 +154,8 @@ async function runFaqReadTest(pool, input = {}) {
       readFocus: false,
       informational,
       usedModel: false,
+      verbatim: false,
+      instruction: false,
     };
   }
 
@@ -137,8 +164,9 @@ async function runFaqReadTest(pool, input = {}) {
     sources: reading.sources,
     readFocus: reading.readFocus && !CONFIRM_LATER.test(reply),
     informational,
-    usedModel: false,
-    verbatim: true,
+    usedModel: composed.usedModel,
+    verbatim: !instructionOnly,
+    instruction: instructionOnly,
   };
 }
 

@@ -10,6 +10,7 @@ const {
   normalizeTopicKey,
 } = require('./faqTopicCanonical');
 const { looksLikeReservationIntent } = require('./reservationDateHint');
+const { shouldExecuteAsInstruction } = require('./faqAnswerRole');
 
 const CURTA_MAX_CHARS = 280;
 const LONGA_MAX_CHARS = 900;
@@ -364,6 +365,7 @@ function shouldPreferDirectFaqReply({ userText, faqEntries = [], topicHints = []
   const best = pickBestFaqEntry(uniqueFacing, topicHints);
   if (!best?.answer) return false;
   if (looksLikeMultiStepInstructions(best.answer)) return false;
+  if (shouldExecuteAsInstruction(best.answer)) return false;
   if (/override_capacidade|Hor[aá]rio semanal cadastrado|REGRAS DO PAINEL/i.test(best.answer)) {
     return false;
   }

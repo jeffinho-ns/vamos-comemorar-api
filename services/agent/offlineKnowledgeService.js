@@ -267,8 +267,34 @@ async function tryOfflineKnowledgeReply(pool, {
       : Promise.resolve(''),
   ]);
 
+  const { customerFacingFaqText, fallbackInstructionReply, shouldExecuteAsInstruction } = require('./faqAnswerRole');
+  if (shouldExecuteAsInstruction(best.answer)) {
+    const guided = fallbackInstructionReply(best.answer, question, messageHistory);
+    if (!guided) return { ok: false, reason: 'empty_answer' };
+    await recordZeroTokenPath(pool, {
+      path: 'offline',
+      meta: {
+        topic: best.topic,
+        topics: topicHints,
+        establishment_id: establishment,
+        source: best.fromFile ? 'file' : source,
+        zero_token: true,
+        instruction: true,
+      },
+    }).catch(() => {});
+    return {
+      ok: true,
+      text: guided,
+      topic: best.topic,
+      source: best.fromFile ? 'file' : source,
+      usedSettings: false,
+      instruction: true,
+    };
+  }
+
+  const spoken = customerFacingFaqText(best.answer) || best.answer;
   const formatted = formatTrainingReply({
-    answer: best.answer,
+    answer: spoken,
     topic: best.topic,
     settings,
     externalLinksBlock,

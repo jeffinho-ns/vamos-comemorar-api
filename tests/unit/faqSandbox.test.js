@@ -83,15 +83,17 @@ test('runFaqReadTest devolve o corpo cadastrado da casa, sem fallback genérico'
     focusTopic: 'apresentacao',
   });
 
-  assert.equal(result.verbatim, true);
+  assert.equal(result.verbatim, false);
+  assert.equal(result.instruction, true);
   assert.equal(result.usedModel, false);
-  assert.match(result.reply, /Reserva Rooftop/);
+  assert.match(result.reply, /já conhece/i);
+  assert.doesNotMatch(result.reply, /sempre perguntar/i);
   assert.doesNotMatch(result.reply, /não encontrei/i);
   assert.doesNotMatch(result.reply, /cover|R\$\s*25/i);
   assert.deepEqual(result.sources, ['apresentacao']);
 });
 
-test('runFaqReadTest com título exato ignora ficha de substring e responde verbatim', async () => {
+test('runFaqReadTest com título exato ignora ficha de substring e executa a orientação', async () => {
   const { invalidateFaqCache } = require('../../services/agent/faqPrefetchService');
   const { runFaqReadTest } = require('../../services/agent/faqSandbox');
   invalidateFaqCache();
@@ -130,10 +132,12 @@ test('runFaqReadTest com título exato ignora ficha de substring e responde verb
     focusTopic: 'apresentacao',
   });
 
-  assert.equal(result.verbatim, true);
+  assert.equal(result.verbatim, false);
+  assert.equal(result.instruction, true);
   assert.equal(result.usedModel, false);
   assert.deepEqual(result.sources, ['apresentacao']);
-  assert.match(result.reply, /já conhece o Reserva Rooftop/i);
+  assert.match(result.reply, /já conhece/i);
+  assert.doesNotMatch(result.reply, /sempre perguntar/i);
   assert.doesNotMatch(result.reply, /compras|fornecedores/i);
   assert.doesNotMatch(result.reply, /programação|programacao/i);
 });

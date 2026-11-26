@@ -562,11 +562,26 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
     };
   }
 
+  let uso = 'responder';
+  try {
+    const { shouldExecuteAsInstruction } = require('./faqAnswerRole');
+    if (shouldExecuteAsInstruction(answer)) uso = 'executar';
+  } catch (_error) {
+    uso = 'responder';
+  }
+
   return {
     ok: true,
     establishment_id: establishmentId,
     topic: matchedTopic,
     answer,
+    uso,
+    ...(uso === 'executar'
+      ? {
+          orientacao:
+            'Execute o próximo passo em prosa. Não copie este texto para o cliente.',
+        }
+      : {}),
   };
 }
 

@@ -19,8 +19,14 @@ const {
   loadFaqsMatchingDateMention,
   detectRelevantFaqTopics,
   buildFaqKnowledgeBlock,
-  verbatimFaqReply,
+  selectDirectFaqEntries,
 } = require('./faqPrefetchService');
+const { executeFaqInstruction } = require('./faqInstructionReply');
+const {
+  customerFacingFaqText,
+  fallbackInstructionReply,
+  shouldExecuteAsInstruction,
+} = require('./faqAnswerRole');
 const { isHighlineEstablishment, suggestHighlineAreaForSlot } = require('./highlineReservationAreas');
 const {
   applyOutputLimit,
@@ -436,7 +442,12 @@ function synthesizeReplyFromToolTrace(toolTrace = [], workingState = {}) {
     if (result.ok === false) continue;
 
     if (entry.name === 'consultar_faq_estabelecimento' && result.answer) {
-      return String(result.answer).trim();
+      if (shouldExecuteAsInstruction(result.answer)) {
+        return fallbackInstructionReply(result.answer);
+      }
+      const speech = customerFacingFaqText(result.answer);
+      if (speech) return speech;
+      continue;
     }
 
     if (entry.name === 'verificar_disponibilidade') {
@@ -1462,22 +1473,44 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const replyText = verbatimFaqReply(faqEntries, userText, { topicHints });
+  const selectedFaqs = selectDirectFaqEntries(faqEntries, userText, { topicHints });
+  const instructionCards = selectedFaqs.filter((entry) => shouldExecuteAsInstruction(entry.answer));
+  const instructionOnly = selectedFaqs.length > 0 && instructionCards.length === selectedFaqs.length;
+  const composed = instructionOnly
+    ? await executeFaqInstruction({
+        cards: instructionCards,
+        userText,
+        history: messageHistory,
+        establishmentName: context.lockedEstablishmentName,
+        pool,
+        establishmentId,
+      })
+    : {
+        text: selectedFaqs
+          .filter((entry) => !shouldExecuteAsInstruction(entry.answer))
+          .map((entry) => customerFacingFaqText(entry.answer))
+          .filter(Boolean)
+          .join('\n\n'),
+        usedModel: false,
+      };
+  const replyText = String(composed.text || '').trim();
   if (!replyText) return null;
 
   const answeredTopic =
     topicHints.find((topic) =>
       faqEntries.some((entry) => String(entry.topic) === String(topic))
-    ) || faqEntries[0]?.topic;
+    ) || selectedFaqs[0]?.topic || faqEntries[0]?.topic;
 
-  await recordZeroTokenPath(pool, {
-    path: 'faq_direct',
-    meta: {
-      topic: answeredTopic,
-      topics: topicHints,
-      establishment_id: establishmentId,
-    },
-  });
+  if (!composed.usedModel) {
+    await recordZeroTokenPath(pool, {
+      path: instructionOnly ? 'faq_instruction' : 'faq_direct',
+      meta: {
+        topic: answeredTopic,
+        topics: topicHints,
+        establishment_id: establishmentId,
+      },
+    });
+  }
 
   const skipPull =
     shouldSkipSalesPull(topicHints) ||
@@ -1497,6 +1530,7 @@ async function tryFaqFirstReply({
     guestListLink: null,
     faqFirst: true,
     faqDirect: true,
+    faqInstruction: instructionOnly,
   };
 }
 
