@@ -107,6 +107,7 @@ const {
 const { sanitizeListOrGridReply } = require('./replyListSanitize');
 const { sanitizeToOneQuestion } = require('./oneQuestionSanitize');
 const { shouldUseTimeoutFallback } = require('./solTimeoutFallback');
+const { buildSaturdaySeatingConfirmationNotice } = require('./saturdaySeatingNotice');
 
 function looksLikeBookingDataTurn(text) {
   const raw = String(text || '');
@@ -392,7 +393,7 @@ function synthesizeAvailabilityFromToolResult(result = {}) {
 // testes), mas entre clientes diferentes varia naturalmente.
 const RESERVATION_CLOSING_VARIANTS = [
   'Qualquer coisa, é só chamar.',
-  'Te espero aqui — qualquer coisa me chama.',
+  'Te espero aqui, qualquer coisa me chama.',
   'Qualquer dúvida, me dá um toque por aqui.',
 ];
 
@@ -416,12 +417,25 @@ function synthesizeReplyFromToolTrace(toolTrace = [], workingState = {}) {
     if (entry.name === 'criar_pre_reserva') {
       if (result.pre_reserva) {
         const pre = result.pre_reserva;
+        const houseId = Number(
+          pre.establishment_id ||
+            workingState?.establishment_id ||
+            workingState?.estabelecimento_id
+        );
         const dateLabel = formatReservationDateLabel(pre.reservation_date);
         const areaBit = pre.area_label ? ` na ${pre.area_label}` : '';
+        const opener = houseId === 1 ? 'Fechado!' : 'Fechado! 🎉';
         const lines = [
-          `Fechado! 🎉 Sua reserva ficou pra ${dateLabel} às ${pre.reservation_time}${areaBit}.`,
+          `${opener} Sua reserva ficou pra ${dateLabel} às ${pre.reservation_time}${areaBit}.`,
         ];
-        if (pre.mesas_combinadas?.mesas_count) {
+        const saturdayNotice = buildSaturdaySeatingConfirmationNotice({
+          establishmentId: houseId,
+          reservationDate: pre.reservation_date,
+          reservationTime: pre.reservation_time,
+        });
+        if (saturdayNotice) {
+          lines.push(saturdayNotice);
+        } else if (pre.mesas_combinadas?.mesas_count) {
           lines.push(
             `Separei ${pre.mesas_combinadas.mesas_count} mesas juntas pra caber todo mundo.`
           );
@@ -1030,7 +1044,10 @@ function sanitizeAssistantReply(
   // mesmo quando a tool foi chamada corretamente. Só permitimos fallback ao
   // texto do LLM se a síntese falhar.
   if (successPre) {
-    const synthetic = synthesizeReplyFromToolTrace(toolTrace);
+    const synthetic = synthesizeReplyFromToolTrace(toolTrace, {
+      ...workingState,
+      establishment_id: houseId || workingState?.establishment_id,
+    });
     if (synthetic) {
       const llmAddedRisk =
         looksLikeFormalToneViolation(text) || containsForbiddenAreaName(text, houseId);

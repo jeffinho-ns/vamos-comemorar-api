@@ -46,7 +46,13 @@ const PRACINHA_FAQS = [
     topic: 'informacoes_sabado',
     category: 'geral',
     answer:
-      'Aos sábados a casa abre às 14h e fecha às 3h30, com comanda individual. O pagode vai das 17h às 20h30 e das 21h à 0h. Da 0h às 3h30 entra o DJ. A entrada é VIP até as 16h. Depois das 16h, R$ 15 seco ou R$ 100 que consome tudo. O sábado é Amor e Pagode com Gustavo Balta, e o after segue com DJ. Cite só o que foi perguntado. Valores e programação podem mudar.',
+      'Aos sábados a casa abre às 14h e fecha às 3h30, com comanda individual. O pagode vai das 17h às 20h30 e das 21h à 0h, e da 0h às 3h30 entra o DJ. A entrada é VIP até as 16h; depois das 16h, R$ 15 seco ou R$ 100 que consome tudo. O sábado é Amor e Pagode com Gustavo Balta, e o after segue com DJ. Nas reservas das 14h às 17h você terá uma mesa com 10 assentos e dois bistrôs de suporte; após as 17h terá uma mesa com 6 assentos (com mesa bistrô caso a mesa ainda não esteja pronta na chegada). Cite só o que foi perguntado. Valores e programação podem mudar.',
+  },
+  {
+    topic: 'reservas_assentos_sabado',
+    category: 'reserva',
+    answer:
+      'Nas reservas de sábado das 14h às 17h, você terá uma mesa com 10 assentos e dois bistrôs de suporte, e conforme os convidados forem chegando vamos acomodando todos na sua reserva de acordo com a disponibilidade da casa. Nas reservas após as 17h até o final do dia, você terá uma reserva de mesa com 6 assentos; se ao chegar à casa sua mesa não estiver disponível, disponibilizamos uma mesa bistrô até que sua mesa fique pronta. Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme houver mesas disponíveis a casa vai acomodando todos na sua reserva.',
   },
   {
     topic: 'informacoes_domingo',
@@ -82,7 +88,7 @@ const PRACINHA_FAQS = [
     topic: 'como_funciona_reserva',
     category: 'reserva',
     answer:
-      'A reserva de mesa na Pracinha é gratuita. Informe data, horário e quantidade de pessoas e escolha entre Balcão ou Praça. A tolerância de atraso é de 15 minutos e trabalhamos com comandas individuais. Somos bar e balada: as mesas acomodam de 4 a 12 pessoas conforme disponibilidade e servem de apoio, sem garantir todos os convidados sentados.',
+      'A reserva de mesa na Pracinha é gratuita. Informe data, horário e quantidade de pessoas e escolha entre Balcão ou Praça. A tolerância de atraso é de 15 minutos e trabalhamos com comandas individuais. Aos sábados das 14h às 17h você terá uma mesa com 10 assentos e dois bistrôs de suporte; após as 17h terá uma mesa com 6 assentos (com mesa bistrô até sua mesa ficar pronta, se necessário). Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme os convidados chegam e há disponibilidade a casa vai acomodando todos na reserva.',
   },
   {
     topic: 'dress_code',
@@ -111,7 +117,7 @@ const PRACINHA_FAQS = [
     topic: 'mesas_assentos',
     category: 'reserva',
     answer:
-      'A reserva de mesa não tem custo. Não reservamos ambientes e não cobramos taxa para reservar. Para ver a disponibilidade, peça a data. As mesas acomodam de 4 a 12 pessoas, conforme o espaço na hora da reserva. Não dá para garantir uma quantidade específica de lugares. Somos bar e balada e não funcionamos com o público 100% sentado.',
+      'A reserva de mesa não tem custo. Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme os convidados forem chegando e houver mesas disponíveis, a casa vai acomodando todos na sua reserva. Aos sábados das 14h às 17h você terá uma mesa com 10 assentos e dois bistrôs de suporte; após as 17h terá uma reserva de mesa com 6 assentos (e, se ao chegar sua mesa ainda não estiver disponível, disponibilizamos uma mesa bistrô até ficar pronta).',
   },
   {
     topic: 'areas_mesas_camarotes_diferenca',
@@ -292,6 +298,15 @@ function detectPracinhaFaqTopics(normalized) {
   };
 
   if (/\b27\s*[/\-]\s*11\b/.test(text)) add('programacao_27_11');
+  if (!topics.length && /\bsabad[oa]s?\b/.test(text)) {
+    add('informacoes_sabado');
+    if (/\b(mesa|mesas|bistro|assent|sentad|em pe|lugar|lugares|reserv\w*)\b/.test(text)) {
+      add('reservas_assentos_sabado');
+    }
+  }
+  if (/\b(mesa|mesas|assento|sentar|sentado|em pe|bistro)\b/.test(text) && !/\bsabad/.test(text)) {
+    add('mesas_assentos');
+  }
   if (/\b(ape|andar de cima|andar superior)\b/.test(text)) add('reserva_ape');
   if (/\brolha\b/.test(text)) add('taxa_rolha');
   if (/\bparceria\b/.test(text)) add('parcerias');

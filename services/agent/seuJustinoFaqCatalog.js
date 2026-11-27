@@ -54,14 +54,14 @@ const SEU_JUSTINO_FAQS = [
     category: 'geral',
     label: 'Informações de sábado',
     answer:
-      'Aos sábados a casa funciona das 14h às 5h, com comanda individual. Das 14h às 17h é som ambiente, das 17h às 21h pagode no Quintal, das 22h às 2h pagode na área interna e das 2h às 5h DJ na área interna. A entrada é gratuita das 14h às 15h. Depois das 15h custa R$ 30 seco ou R$ 160 de consumação. Reservas até as 17h são em mesa. Depois das 17h há um bistrô de apoio até liberar uma mesa, conforme a casa. O Seu Justino é bar e balada: mesa e bistrô são apoio, e o público costuma ficar em pé. Cite só o detalhe perguntado. Valores e programação podem mudar sem aviso.',
+      'Aos sábados a casa funciona das 14h às 5h, com comanda individual. Das 14h às 17h é som ambiente, das 17h às 21h pagode no Quintal, das 22h às 2h pagode na área interna e das 2h às 5h DJ na área interna. A entrada é gratuita das 14h às 15h; depois das 15h custa R$ 30 seco ou R$ 160 de consumação. Nas reservas das 14h às 17h, você terá uma mesa com 8 assentos e dois bistrôs de suporte. Nas reservas após as 17h, terá uma mesa com 6 assentos (com mesa bistrô de espera caso a mesa ainda não esteja pronta na chegada). Cite só o detalhe perguntado. Valores e programação podem mudar sem aviso.',
   },
   {
     topic: 'reservas_assentos_sabado',
     category: 'reserva',
     label: 'Reservas e assentos aos sábados',
     answer:
-      'Aos sábados, reserva até as 17h é feita direto em mesa. Depois das 17h a casa oferece um bistrô de apoio até liberar uma mesa, conforme a ocupação. O Seu Justino é bar e balada e não funciona 100% sentado: mesa e bistrô são apoio, e as pessoas costumam ficar em pé para curtir as atrações.',
+      'Nas reservas de sábado das 14h às 17h, você terá uma mesa com 8 assentos e dois bistrôs de suporte, e conforme os convidados forem chegando vamos acomodando todos na sua reserva de acordo com a disponibilidade da casa. Nas reservas após as 17h até o final do dia, você terá uma reserva de mesa com 6 assentos; se ao chegar à casa sua mesa não estiver disponível, disponibilizamos uma mesa bistrô até que sua mesa fique pronta. Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme houver mesas disponíveis a casa vai acomodando todos na sua reserva.',
   },
   {
     topic: 'informacoes_domingo',
@@ -124,14 +124,14 @@ const SEU_JUSTINO_FAQS = [
     category: 'reserva',
     label: 'Como funciona a reserva',
     answer:
-      'Para reservar, informe data, horário e quantas pessoas. Depois escolha só entre área coberta (parte interna) ou área descoberta (quintal). A casa encaixa a mesa naquele lado. A reserva tolera 15 minutos de atraso; o horário marcado é o limite de chegada. O Seu Justino é bar e balada e não garante lugar sentado a noite inteira: mesa e bistrô são apoio. Aos sábados, reserva até as 17h é em mesa; depois das 17h há bistrô de apoio até liberar mesa, conforme a ocupação.',
+      'Para reservar, informe data, horário e quantas pessoas, e escolha entre área coberta (parte interna) ou área descoberta (quintal). A reserva tolera 15 minutos de atraso. Aos sábados das 14h às 17h você terá uma mesa com 8 assentos e dois bistrôs de suporte; após as 17h terá uma mesa com 6 assentos (e uma mesa bistrô caso sua mesa ainda não esteja pronta ao chegar). Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme os convidados chegam e há disponibilidade a casa vai acomodando todos na reserva.',
   },
   {
     topic: 'mesas_assentos',
     category: 'reserva',
     label: 'Mesas, lugares e assentos',
     answer:
-      'Na reserva o cliente escolhe só entre área coberta e área descoberta. A casa encaixa a mesa naquele lado. O Seu Justino é um bar e balada e não garante lugar sentado a noite inteira: mesa e bistrô são apoio, e o público costuma ficar em pé.',
+      'Na reserva o cliente escolhe entre área coberta e área descoberta. Como somos um bar-balada, não trabalhamos com o público 100% sentado, mas conforme os convidados forem chegando e houver mesas disponíveis, a casa vai acomodando todos na sua reserva. Aos sábados das 14h às 17h a reserva conta com mesa de 8 assentos e dois bistrôs de suporte; após as 17h, mesa de 6 assentos (com mesa bistrô de apoio caso a mesa ainda não esteja pronta na chegada).',
   },
   {
     topic: 'tempo_permanencia',
@@ -402,7 +402,7 @@ function detectSeuJustinoFaqTopics(normalized) {
   if (!hasSpecificDate && /\bdomingos?\b/.test(text)) add('informacoes_domingo');
   if (!hasSpecificDate && /\bsabad[oa]s?\b/.test(text)) {
     add('informacoes_sabado');
-    if (/\b(mesa|mesas|bistro|assent|sentad|em pe|lugar|lugares)\b/.test(text)) {
+    if (/\b(mesa|mesas|bistro|assent|sentad|em pe|lugar|lugares|reserv\w*)\b/.test(text)) {
       add('reservas_assentos_sabado');
     }
   }
