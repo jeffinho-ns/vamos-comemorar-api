@@ -4,6 +4,7 @@ const {
   detectFaqTopicsFromConversation,
   expandFaqTopicSeedAliases,
   extractPartySizeFromText,
+  looksLikeCustomerQuestion,
   looksLikeEventProgramQuestion,
   normalizeTopicKey,
 } = require('./faqTopicCanonical');
@@ -69,6 +70,29 @@ function getOpenAI() {
 async function fetchFaqAnswerForTopicFromDb(pool, establishmentId, topicHint) {
   const candidates = buildFaqTopicCandidates(topicHint);
   if (!candidates.length) return null;
+
+  // Ficha com o nome exato vence a rota por palavra-chave: "estrutura_funcionamento"
+  // não pode virar a de horários, nem "area_kids" a de áreas.
+  const exactTopic = normalizeTopicKey(topicHint);
+  if (exactTopic && !candidates.includes(exactTopic)) {
+    const exact = await pool.query(
+      `SELECT topic, answer, updated_at
+         FROM establishment_faq
+        WHERE establishment_id = $1
+          AND topic = $2
+          AND is_active = TRUE
+        LIMIT 1`,
+      [establishmentId, exactTopic]
+    );
+    const row = exact.rows[0];
+    if (row?.answer) {
+      return {
+        topic: row.topic,
+        answer: String(row.answer).trim(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+      };
+    }
+  }
 
   let best = null;
   for (const candidate of candidates) {
@@ -425,12 +449,26 @@ const FAQ_QUERY_STOPWORDS = new Set([
   'aqui',
   'ai',
   'favor',
+  'sao',
+  'vcs',
 ]);
+
+/** Ficha que só cita a palavra no corpo: entra no prompt (>= 40), nunca vira resposta direta (< 55). */
+const BODY_ONLY_MATCH_SCORE = 50;
+/** Ordenação: ficha do assunto detectado fica acima de citação no corpo e abaixo de título exato. */
+const DETECTED_TOPIC_RANK = 75;
 
 function significantFaqTokens(value) {
   return normalizeFaqNeedle(value)
     .split(' ')
     .filter((token) => token.length >= 3 && !FAQ_QUERY_STOPWORDS.has(token));
+}
+
+/** Plural simples: atracoes → atracao, beneficios → beneficio. */
+function stemFaqToken(token) {
+  return String(token || '')
+    .replace(/(oes|aes)$/, 'ao')
+    .replace(/s$/, '');
 }
 
 function extractAboutSubjectNeedle(queryText) {
@@ -491,7 +529,7 @@ function findExactTitleMatches(catalog, queryText) {
 function scoreFaqAgainstText(entry, queryText) {
   const query = normalizeFaqNeedle(queryText);
   const topic = normalizeFaqNeedle(entry?.topic);
-  const answer = normalizeFaqNeedle(entry?.answer).slice(0, 400);
+  const answer = normalizeFaqNeedle(entry?.answer);
   if (!query || !topic) return 0;
 
   const subject = extractAboutSubjectNeedle(queryText);
@@ -501,14 +539,16 @@ function scoreFaqAgainstText(entry, queryText) {
   const tokens = significantFaqTokens(subject || query);
   if (!tokens.length) return titleScore;
   const topicTokenSet = new Set(significantFaqTokens(topic));
-  const topicHits = tokens.filter((token) => topicTokenSet.has(token)).length;
-  const answerHits = tokens.filter((token) => answer.includes(token)).length;
+  const topicStemSet = new Set([...topicTokenSet].map(stemFaqToken));
+  const inTopic = (token) => topicStemSet.has(stemFaqToken(token));
+  const inAnswer = (token) => answer.includes(stemFaqToken(token));
+  const topicHits = tokens.filter(inTopic).length;
+  const answerHits = tokens.filter(inAnswer).length;
   if (!topicHits && !answerHits && !titleScore) return 0;
-  const missingDistinctive = tokens.filter(
-    (token) => token.length >= 5 && !topicTokenSet.has(token)
-  );
+  const missingDistinctive = tokens.filter((token) => token.length >= 5 && !inTopic(token));
   if (missingDistinctive.length && topicHits < tokens.length) {
-    return Math.min(titleScore, 35);
+    const capped = Math.min(titleScore, 35);
+    return missingDistinctive.every(inAnswer) ? Math.max(capped, BODY_ONLY_MATCH_SCORE) : capped;
   }
   const unionSize = new Set([...topicTokenSet, ...tokens]).size || 1;
   const overlap = Math.round((topicHits / unionSize) * 90 + (answerHits / tokens.length) * 15);
@@ -569,7 +609,9 @@ function selectDirectFaqEntries(entries, userText, { focusTopic = '', topicHints
   ) {
     return [ranked[0].entry];
   }
-  if (list.length === 1) return list;
+  // Ficha única só sai copiada se o título casar com a pergunta (senão vira horário
+  // para "qual seu nome?"); citação só no corpo fica para o agente montar a frase.
+  if (list.length === 1 && (ranked[0]?.score || 0) >= 55) return list;
   return [];
 }
 
@@ -614,19 +656,22 @@ async function loadRelevantFaqsForEstablishment(
   const detectedTopics = [
     ...new Set([...(topicHints || []), ...(extraTopics || [])].filter(Boolean)),
   ];
+  // No funil a busca livre só roda quando o cliente pergunta algo — senão a Sol
+  // fica sem a base no meio da reserva e responde "vou confirmar com a equipe".
+  const searchFreeText = Boolean(userQuestion) && (!funnelActive || looksLikeCustomerQuestion(userQuestion));
   let topics = detectedTopics;
   if (!topics.length) {
-    // Funil de reserva: zero FAQ genérica no prompt (economiza tokens).
-    if (funnelActive) return [];
+    if (funnelActive && !searchFreeText) return [];
     // Informativo sem match: só o núcleo mínimo, nunca dump da base.
-    topics = [...FAQ_CORE_FALLBACK_TOPICS];
+    if (!funnelActive) topics = [...FAQ_CORE_FALLBACK_TOPICS];
   }
 
   const canonicalEntries = await prefetchEstablishmentFaqs(pool, establishment, topics);
-  const scoredMatches =
-    !funnelActive && userText
-      ? await scoreFaqsAgainstUserText(pool, establishment, userText, { limit: 8 })
-      : [];
+  const scoredMatches = searchFreeText
+    ? await scoreFaqsAgainstUserText(pool, establishment, userQuestion, {
+        limit: funnelActive ? 3 : 8,
+      })
+    : [];
 
   const byTopic = new Map();
   const pushEntry = (entry) => {
@@ -679,9 +724,13 @@ async function loadRelevantFaqsForEstablishment(
       : defaultBudget;
   const topicOrder = new Map(topics.map((t, i) => [t, i]));
   const scoreByTopic = new Map(scoredMatches.map((item) => [item.entry.topic, item.score]));
+  const canonicalTopics = new Set(canonicalEntries.map((entry) => entry.topic));
+  // Ficha do assunto detectado vem antes de ficha que só cita a palavra no corpo.
+  const rankOf = (topic) =>
+    Math.max(scoreByTopic.get(topic) || 0, canonicalTopics.has(topic) ? DETECTED_TOPIC_RANK : 0);
   entries.sort((a, b) => {
-    const sa = scoreByTopic.get(a.topic) || 0;
-    const sb = scoreByTopic.get(b.topic) || 0;
+    const sa = rankOf(a.topic);
+    const sb = rankOf(b.topic);
     if (sa !== sb) return sb - sa;
     const ai = topicOrder.has(a.topic) ? topicOrder.get(a.topic) : 999;
     const bi = topicOrder.has(b.topic) ? topicOrder.get(b.topic) : 999;

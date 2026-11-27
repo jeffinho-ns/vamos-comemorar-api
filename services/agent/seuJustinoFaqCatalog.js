@@ -71,27 +71,6 @@ const SEU_JUSTINO_FAQS = [
       'Aos domingos a casa funciona das 12h às 22h, com comanda individual, samba e sertanejo. A entrada é gratuita. O couvert artístico, se perguntarem, é R$ 30 e pode mudar. No Seu Domingo a feijoada é R$ 89,90 até as 17h, opcional: o cardápio da casa segue normal. Crianças de 6 a 10 anos pagam metade da feijoada e menores de 5 anos não pagam. A roda de samba é das 15h às 18h. Cite só o que foi perguntado. Valores e programação podem mudar.',
   },
   {
-    topic: 'programacao_15_11',
-    category: 'geral',
-    label: 'Feriado de 15/11',
-    answer:
-      'No feriado de 15/11 a casa funciona das 12h às 22h, com comanda individual, samba e sertanejo, sem cobrança de entrada. O couvert artístico, se perguntarem, é R$ 30 e pode mudar. A partir das 16h tem open chopp por R$ 62,90. Cite só o que foi perguntado. Valores e programação podem mudar sem aviso.',
-  },
-  {
-    topic: 'programacao_02_11',
-    category: 'geral',
-    label: 'Feriado de 02/11',
-    answer:
-      'Em 02/11 a casa abre às 14h e funciona até as 21h, com comanda individual, pagode e DJ. A entrada é gratuita até as 16h. Depois disso custa R$ 30 e pode mudar. Tem open chopp até as 18h por R$ 62,90. Cite só o que foi perguntado e fique nesses dados. Valores e programação podem mudar.',
-  },
-  {
-    topic: 'programacao_01_11',
-    category: 'geral',
-    label: '01/11 véspera de feriado',
-    answer:
-      'Em 01/11 a casa funciona das 12h às 3h30, com comanda individual. A entrada custa R$ 25 até as 15h e R$ 30 depois. A consumação é R$ 160. Tem feijoada por R$ 89,90 das 12h às 16h e open chopp até as 18h. Cite só o que foi perguntado. Valores e condições podem mudar.',
-  },
-  {
     topic: 'reveillon',
     category: 'geral',
     label: 'Réveillon',
@@ -127,11 +106,32 @@ const SEU_JUSTINO_FAQS = [
       'Em reserva de aniversário pode levar bolo de até 2 kg, com nota fiscal ou recibo, para a equipe guardar. Sem o comprovante, o bolo fica na mesa do cliente. A casa fornece pratinhos e talheres descartáveis para o bolo. Docinhos não entram. Balões podem, desde que fiquem na mesa e não tenham logomarca.',
   },
   {
+    topic: 'sobre_a_casa',
+    category: 'geral',
+    label: 'Sobre a casa e estilo',
+    answer:
+      'O Seu Justino é um bar e balada na Vila Madalena, na Rua Harmonia, 77. Tem área coberta (parte interna) e área descoberta (quintal). O clima é de boteco animado: petiscos, drinks, chopp e programação musical que muda conforme o dia. À noite o público costuma ficar em pé para curtir as atrações; mesa e bistrô são apoio. Cite só o que o cliente perguntou.',
+  },
+  {
+    topic: 'cardapio',
+    category: 'cardapio',
+    label: 'Cardápio e pratos',
+    answer:
+      'O cardápio digital da casa está em https://www.agilizaiapp.com.br/cardapio/justino . A cozinha serve petiscos de boteco, pratos e drinks. Aos domingos, no Seu Domingo, tem feijoada por R$ 89,90 até as 17h, opcional: o cardápio da casa segue normal. Crianças de 6 a 10 anos pagam metade da feijoada e menores de 5 anos não pagam. Fora do que estiver nas fichas do dia, confirme prato ou preço com a equipe. Cite só o que foi perguntado. Valores podem mudar.',
+  },
+  {
+    topic: 'como_funciona_reserva',
+    category: 'reserva',
+    label: 'Como funciona a reserva',
+    answer:
+      'Para reservar, informe data, horário e quantas pessoas. Depois escolha só entre área coberta (parte interna) ou área descoberta (quintal). A casa encaixa a mesa naquele lado. A reserva tolera 15 minutos de atraso; o horário marcado é o limite de chegada. O Seu Justino é bar e balada e não garante lugar sentado a noite inteira: mesa e bistrô são apoio. Aos sábados, reserva até as 17h é em mesa; depois das 17h há bistrô de apoio até liberar mesa, conforme a ocupação.',
+  },
+  {
     topic: 'mesas_assentos',
     category: 'reserva',
     label: 'Mesas, lugares e assentos',
     answer:
-      'Na reserva o cliente escolhe só entre área coberta e área descoberta. A casa encaixa a mesa numa subárea livre daquele lado. O Seu Justino é um bar e balada e não garante lugar sentado a noite inteira: mesa e bistrô são apoio, e o público costuma ficar em pé.',
+      'Na reserva o cliente escolhe só entre área coberta e área descoberta. A casa encaixa a mesa naquele lado. O Seu Justino é um bar e balada e não garante lugar sentado a noite inteira: mesa e bistrô são apoio, e o público costuma ficar em pé.',
   },
   {
     topic: 'tempo_permanencia',
@@ -159,7 +159,7 @@ const SEU_JUSTINO_FAQS = [
     category: 'reserva',
     label: 'Áreas da casa',
     answer:
-      'Para reservar, o cliente escolhe somente área coberta ou área descoberta. Área coberta é a parte interna. Área descoberta é o quintal. Depois da escolha, a reserva entra numa subárea livre daquele lado no painel. Não ofereça Praça, Apê, lounge nem os nomes internos do quintal.',
+      'Para reservar, o cliente escolhe somente área coberta ou área descoberta. Área coberta é a parte interna. Área descoberta é o quintal. Depois da escolha, a casa encaixa a mesa naquele lado. Não ofereça Praça, Apê, lounge nem os nomes internos do quintal.',
   },
   {
     topic: 'acessibilidade',
@@ -265,9 +265,9 @@ const SEU_JUSTINO_FAQS = [
   {
     topic: 'musica',
     category: 'geral',
-    label: 'Música e programação',
+    label: 'Música, programação e atrações',
     answer:
-      'A programação muda por dia. Terça e quarta têm som ambiente. Quinta tem pagode das 20h às 23h. Sexta tem sertanejo, pagode e DJ nos intervalos. Sábado tem som ambiente das 14h às 17h, pagode no Quintal das 17h às 21h, pagode na área interna das 22h às 2h e DJ das 2h às 5h. Domingo tem samba, sertanejo e roda de samba das 15h às 18h. Cite só o dia perguntado.',
+      'A atração e a programação mudam por dia. Terça e quarta têm som ambiente. Quinta tem pagode das 20h às 23h. Sexta tem sertanejo, pagode e DJ nos intervalos. Sábado tem som ambiente das 14h às 17h, pagode no Quintal das 17h às 21h, pagode na área interna das 22h às 2h e DJ das 2h às 5h. Domingo tem samba, sertanejo e roda de samba das 15h às 18h. Cite só o dia perguntado. Se pedirem artista ou horário de uma data específica sem ficha do dia, confirme com a equipe.',
   },
 ];
 
@@ -305,6 +305,18 @@ const ALIAS_TO_TOPIC = {
   flyer_convite_de_aniversario: 'flyer_aniversario',
   bolo_de_aniversario_docinhos_e_baloes: 'regras_bolo',
   descartaveis_pratinhos_de_bolo: 'regras_bolo',
+  sobre_a_casa_estilo: 'sobre_a_casa',
+  sobre_a_casa_e_estilo: 'sobre_a_casa',
+  estilo_da_casa: 'sobre_a_casa',
+  cardapio_e_pratos: 'cardapio',
+  cardapio_pratos: 'cardapio',
+  como_funciona_a_reserva: 'como_funciona_reserva',
+  como_funciona_reserva_de_mesa: 'como_funciona_reserva',
+  reserva_de_mesa: 'como_funciona_reserva',
+  atracoes: 'musica',
+  atracao: 'musica',
+  musica_e_programacao: 'musica',
+  musica_programacao_e_atracoes: 'musica',
   mesas_lugares_e_assentos: 'mesas_assentos',
   tempo_de_permanencia: 'tempo_permanencia',
   atraso_tolerancia: 'atraso_tolerancia',
@@ -342,6 +354,10 @@ const LEGACY_TOPICS_TO_RETIRE = [
   'areas',
   'area',
   'horario_funcionamento',
+  // Datas passadas: confundem feijoada/programação atual se ficarem ativas.
+  'programacao_01_11',
+  'programacao_02_11',
+  'programacao_15_11',
 ];
 
 function canonicalAliasFor(topic) {
@@ -424,6 +440,28 @@ function detectSeuJustinoFaqTopics(normalized) {
   }
   if (/\b(ar[- ]?condicionado|area para fumar|fumante|cozinha fecha|horario da cozinha)\b/.test(text)) {
     add('estrutura_funcionamento');
+  }
+  if (
+    /\b(estilo|conceito|proposta|vibe|perfil) (da|do|de) (casa|bar|lugar|local)\b|\btipo de (casa|bar|lugar|local)\b|\bcomo (e|funciona) (a|o) (casa|bar|lugar|local)\b|\bsobre a casa\b/.test(
+      text
+    )
+  ) {
+    add('sobre_a_casa');
+    add('estrutura_funcionamento');
+    add('mesas_assentos');
+  }
+  if (
+    /\bcomo funciona (a )?reserva\b|\bcomo reservar\b|\breserva de mesa\b|\breservar mesa\b/.test(text)
+  ) {
+    add('como_funciona_reserva');
+    add('mesas_assentos');
+    add('areas_mesas_camarotes_diferenca');
+  }
+  if (/\b(cardapio|pratos?|petisco|petiscos|feijoada|comida|menu)\b/.test(text)) {
+    add('cardapio');
+  }
+  if (/\b(atracao|atracoes|line[- ]?up|quem toca|programacao musical)\b/.test(text)) {
+    add('musica');
   }
   if (/\b(delivery|ifood|entrega|retirada)\b/.test(text)) add('delivery');
   if (/\b(menor de idade|menores|crianca|criancas|eca)\b/.test(text)) add('menores_criancas');

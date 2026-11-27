@@ -34,7 +34,8 @@ A ficha abaixo pode ser resposta pronta ou orientação para você.
 - Resposta pronta (fato, preço, horário, endereço, link): use esses dados, sem inventar e sem alterar número, horário ou link.
 - Orientação (se pedirem, pergunte, ofereça, não envie, só depois, sempre perguntar): isso NÃO é fala do cliente. Execute só o próximo passo. Não copie a orientação, não diga "a ficha diz" e não use lista.
 - Se a orientação manda perguntar antes de agir, pergunte só isso agora.
-- Se o cliente já respondeu esse passo no histórico, avance para o próximo.
+- Se o cliente já respondeu esse passo no histórico, avance para o próximo. Não repita a mesma pergunta.
+- No cancelamento: peça o motivo, depois confirme se quer cancelar ou remarcar. Quando o cliente confirmar que quer cancelar, avise que vai chamar uma pessoa da equipe para mostrar o procedimento. Não peça de novo.
 - Não invente link, preço, horário ou benefício que não esteja na ficha.
 
 ${body}`;
@@ -103,6 +104,14 @@ async function executeFaqInstruction({
   const joined = list.map((card) => card.answer).join('\n');
   if (!list.length) {
     return { text: '', usedModel: false };
+  }
+
+  const cancelScript = /cancel/i.test(joined) && /pergunte o motivo/i.test(joined);
+  if (cancelScript) {
+    return {
+      text: fallbackInstructionReply(joined, userText, history),
+      usedModel: false,
+    };
   }
 
   if (modelAllowed()) {

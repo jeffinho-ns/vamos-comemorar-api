@@ -481,8 +481,13 @@ function getAgentToolDefinitions() {
 
 async function consultarFaqEstabelecimento(pool, args = {}) {
   const establishmentId = Number(normalizeCanonicalEstablishmentId(args.estabelecimento_id));
-  const topicCandidates = buildFaqTopicCandidates(args.topico);
-  const topic = topicCandidates[0] || null;
+  const routedCandidates = buildFaqTopicCandidates(args.topico);
+  // Nome exato da ficha primeiro (ex.: area_kids), antes da rota por palavra-chave.
+  const exactTopic = normalizeTopic(args.topico);
+  const exactFirst =
+    Boolean(exactTopic) && routedCandidates.length > 0 && !routedCandidates.includes(exactTopic);
+  const topicCandidates = exactFirst ? [exactTopic, ...routedCandidates] : routedCandidates;
+  const topic = routedCandidates[0] || null;
   if (!Number.isFinite(establishmentId) || establishmentId <= 0 || !topic) {
     return { ok: false, error: 'estabelecimento_id e topico são obrigatórios.' };
   }
@@ -504,6 +509,10 @@ async function consultarFaqEstabelecimento(pool, args = {}) {
       const row = result.rows[0];
       if (!row?.answer) continue;
       const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      if (exactFirst && candidate === exactTopic) {
+        bestRow = { answer: row.answer, topic: row.topic || candidate, updatedAt };
+        break;
+      }
       if (!bestRow || updatedAt > bestRow.updatedAt) {
         bestRow = {
           answer: row.answer,

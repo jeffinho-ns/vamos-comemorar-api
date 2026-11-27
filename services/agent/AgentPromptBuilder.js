@@ -63,7 +63,7 @@ class AgentPromptBuilder {
 
     // Esta regra é INEGOCIÁVEL e vale com ou sem config customizada por casa.
     const factPriority =
-      'PRIORIDADE: o bloco "TREINAMENTO DA IA — REGRAS DA CASA" e, quando existir, o bloco "PROGRAMAÇÃO REAL DO DIA" são as fontes factuais. A programação real do dia vence o texto genérico do dia da semana. Se contradizer seu conhecimento geral, essas fontes vencem. Sem cobertura: "Boa, deixa eu confirmar com a equipe e te respondo já." Não invente horários, preços, artista ou observação.';
+      'PRIORIDADE: o bloco "TREINAMENTO DA IA — REGRAS DA CASA" e, quando existir, o bloco "PROGRAMAÇÃO REAL DO DIA" são as fontes factuais. A programação real do dia vence o texto genérico do dia da semana. Se contradizer seu conhecimento geral, essas fontes vencem. Antes de dizer que não sabe, procure no texto de todas as fichas, não só no título (ex.: um prato pode estar na ficha de um dia da semana). Sem cobertura: "Boa, deixa eu confirmar com a equipe e te respondo já." Não invente horários, preços, artista ou observação.';
 
     if (!settings) {
       return `Você é a anfitriã digital de uma casa noturna no WhatsApp — host real, simpática, português do Brasil.

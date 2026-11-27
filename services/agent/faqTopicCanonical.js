@@ -206,6 +206,43 @@ function looksLikeMusicStyleQuestion(text) {
   return /\b(musica|dj|house|open format|brasilidades|programacao)\b/.test(normalized);
 }
 
+const HOUSE_PROFILE_RE =
+  /\b(estilo|conceito|proposta|vibe|perfil) (da|do|de) (casa|bar|lugar|local)\b|\btipo de (casa|bar|lugar|local)\b|\bcomo (e|funciona) (a|o) (casa|bar|lugar|local)\b/;
+
+function looksLikeHouseProfileQuestion(text) {
+  return HOUSE_PROFILE_RE.test(normalizeInboundText(text));
+}
+
+function looksLikeFoodQuestion(text) {
+  return /\b(comida|comidas|prato|pratos|petisco|petiscos|porcao|porcoes|feijoada|cozinha serve|o que tem (pra|para) comer)\b/.test(
+    normalizeInboundText(text)
+  );
+}
+
+const QUESTION_OPENER_RE =
+  /^(e\s+)?(ai\s+)?(tem|teria|tera|vai ter|voces tem|vcs tem|vc tem|rola|serve|servem|aceita|aceitam|qual|quais|como e|como sao|como funciona|o que e|o que tem)\b/;
+
+/** Dado de reserva ou pedido de vaga: precisa de funil/tools, não de ficha. */
+const BOOKING_OR_AVAILABILITY_CUE_RE =
+  /\d|\b(vaga|vagas|disponib\w*|livre|reserv\w*|pessoas?|convidados?|hoje|amanha)\b/;
+
+/** Mensagem em forma de pergunta (ponto de interrogação ou abertura interrogativa). */
+function looksLikeCustomerQuestion(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (raw.includes('?')) return true;
+  return QUESTION_OPENER_RE.test(normalizeInboundText(raw));
+}
+
+/** "Tem feijoada?", "Qual o estilo da casa?" — pergunta sobre a casa sem dado de reserva. */
+function looksLikeGenericHouseQuestion(text) {
+  const normalized = normalizeInboundText(text).trim();
+  if (!normalized || BOOKING_OR_AVAILABILITY_CUE_RE.test(normalized)) return false;
+  if (!QUESTION_OPENER_RE.test(normalized)) return false;
+  const rest = normalized.replace(QUESTION_OPENER_RE, '');
+  return /[a-z]{4,}/.test(rest);
+}
+
 /** Pergunta de ingresso/réveillon/valor de evento — não deve abrir funil de reserva. */
 function looksLikeEventTicketQuestion(text) {
   const normalized = normalizeInboundText(text);
@@ -310,6 +347,14 @@ function detectFaqTopicsFromUserText(text, options = {}) {
   }
   if (looksLikeEventProgramQuestion(text)) {
     topics.push('evento');
+    topics.push('musica');
+  }
+  if (looksLikeHouseProfileQuestion(text)) {
+    topics.push('sobre_a_casa');
+    topics.push('musica');
+  }
+  if (looksLikeFoodQuestion(text)) {
+    topics.push('cardapio');
   }
   if (looksLikeEventTicketQuestion(text) || /\b(reveillon|ano novo|virada)\b/.test(normalized)) {
     topics.push('reveillon');
@@ -410,7 +455,7 @@ function isInformationalFaqTurn(text) {
     return true;
   }
   if (looksLikeSaturdayQuestion(text)) return true;
-  return false;
+  return looksLikeGenericHouseQuestion(text);
 }
 
 /**
@@ -468,6 +513,9 @@ module.exports = {
   detectFaqTopicsFromUserText,
   detectFaqTopicsFromConversation,
   isInformationalFaqTurn,
+  looksLikeCustomerQuestion,
+  looksLikeGenericHouseQuestion,
+  looksLikeHouseProfileQuestion,
   looksLikeAreaAvailabilityQuestion,
   looksLikeBirthdayBenefitsQuestion,
   looksLikeOperatingHoursQuestion,

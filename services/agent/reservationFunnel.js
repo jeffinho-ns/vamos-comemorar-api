@@ -2,7 +2,9 @@ const { parsePtBrDateFromText } = require('../conversationEngine/helpers');
 const { looksLikeReservationIntent, isAffirmativeConfirmation } = require('./reservationDateHint');
 const {
   isInformationalFaqTurn,
+  looksLikeCustomerQuestion,
   looksLikeEventProgramQuestion,
+  looksLikeReservationPushOnly,
 } = require('./faqTopicCanonical');
 const { OBSERVATIONS_STEP, getStepPrompt } = require('../stateManager/conversationSteps');
 const { resolveHighlineSubarea } = require('./highlineReservationAreas');
@@ -461,8 +463,14 @@ function shouldSkipFaqFirst(workingState = {}, messageHistory = [], userText = '
       /\b\d{1,2}[\/\-]\d{1,2}\b/.test(text));
   if (bookingDataTurn) return true;
 
-  if (isInformationalFaqTurn(userText) && !looksLikeReservationIntent(userText)) {
-    return hasOperationalReservationSlot(workingState);
+  // Pergunta do cliente ("qual o benefício de aniversário?", "tem feijoada?") é
+  // respondida pela ficha e o funil segue na mesma mensagem. Só pula a FAQ direta
+  // quando a reserva já pode fechar — aí o agente fecha e responde junto.
+  const informational = isInformationalFaqTurn(userText);
+  const customerQuestion =
+    informational && looksLikeCustomerQuestion(userText) && !looksLikeReservationPushOnly(userText);
+  if (customerQuestion || (informational && !looksLikeReservationIntent(userText))) {
+    return getReservationMissingFields(workingState).length === 0;
   }
   if (isReservationFunnelInProgress(workingState, messageHistory)) return true;
   if (looksLikeReservationIntent(userText) && getReservationMissingFields(workingState).length < 7) {
@@ -613,6 +621,9 @@ function buildReservationFunnelPromptBlock(workingState = {}, messageHistory = [
   // Bloco curto: estado + 1 missão. Fatos estáticos não entram aqui (FAQ já foi filtrada).
   const paragraph =
     'FUNIL ATIVO: avance a reserva neste turno, em prosa curta. ' +
+    'Se o cliente fez uma pergunta, responda primeiro com o TREINAMENTO DA IA (procure também no texto das fichas, como a do dia da semana) e só depois puxe o próximo dado. ' +
+    'Se nenhuma ficha cobrir e você disser que vai confirmar com a equipe, não peça dado pessoal na mesma mensagem. ' +
+    'Não pergunte se o cliente já conhece a casa no meio da reserva. ' +
     'Peça data, horário e pessoas na mesma frase. Depois nome, e-mail e nascimento na mesma frase. ' +
     (isInstagramSource(workingState)
       ? 'Esta conversa é Instagram Direct: peça também o WhatsApp com DDD e nunca use o IGSID como telefone. '

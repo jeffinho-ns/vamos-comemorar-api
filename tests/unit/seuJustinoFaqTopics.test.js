@@ -37,6 +37,16 @@ test('entrada com bebidas casa no tópico certo do Justino', () => {
 test('título do admin volta para o slug do Seu Justino', () => {
   assert.equal(canonicalizeAdminFaqTopic('Informações de sábado'), 'informacoes_sabado');
   assert.equal(canonicalizeAdminFaqTopic('Feriado de 15/11'), 'programacao_15_11');
+  assert.equal(canonicalizeAdminFaqTopic('Sobre a casa e estilo'), 'sobre_a_casa');
+  assert.equal(canonicalizeAdminFaqTopic('Como funciona a reserva'), 'como_funciona_reserva');
+});
+
+test('estilo, cardápio e reserva de mesa acham as fichas novas', () => {
+  assert.ok(detectFaqTopicsFromUserText('Qual o estilo da casa?').includes('sobre_a_casa'));
+  assert.ok(detectFaqTopicsFromUserText('Tem feijoada na casa?').includes('cardapio'));
+  assert.ok(
+    detectFaqTopicsFromUserText('Como funciona reserva de mesa?').includes('como_funciona_reserva')
+  );
 });
 
 test('textos do Seu Justino sobrevivem ao filtro do prompt', () => {

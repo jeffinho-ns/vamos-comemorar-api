@@ -12,6 +12,8 @@ const {
   looksLikeEventTicketQuestion,
   looksLikeAreaAvailabilityQuestion,
   extractPartySizeFromText,
+  detectFaqTopicsFromUserText,
+  expandFaqTopicSeedAliases,
 } = require('./faqTopicCanonical');
 const {
   prefetchEstablishmentFaqs,
@@ -1289,6 +1291,15 @@ async function ensureAvailabilityChecked({
   return { workingState: nextState, toolTrace: nextTrace, forcedReply };
 }
 
+/** Data da programação: a citada na conversa ou, sem ela, a da reserva em curso. */
+function programDateIso(dayProgram, workingState = {}) {
+  const state = workingState && typeof workingState === 'object' ? workingState : {};
+  return (
+    dayProgram?.iso ||
+    String(state.reservation_date || state.pending_reservation_date_iso || '').slice(0, 10)
+  );
+}
+
 async function tryFaqFirstReply({
   pool,
   messageHistory,
@@ -1353,14 +1364,23 @@ async function tryFaqFirstReply({
     establishmentId: context.lockedEstablishmentId,
     establishmentName: context.lockedEstablishmentName,
   });
+  const programIso = programQuestion ? programDateIso(dayProgram, memory.workingState) : '';
   const weekdayTopic =
-    programQuestion && dayProgram?.iso && !detectedTopics.some((topic) => topic.startsWith('programacao_'))
-      ? weekdayFaqTopicForIso(dayProgram.iso)
+    programIso && !detectedTopics.some((topic) => topic.startsWith('programacao_'))
+      ? weekdayFaqTopicForIso(programIso)
       : '';
   const topicHints =
     weekdayTopic && !detectedTopics.includes(weekdayTopic)
       ? [...detectedTopics, weekdayTopic]
       : detectedTopics;
+  // Assunto de pergunta antiga não escolhe a ficha desta resposta.
+  const currentTurnTopics = expandFaqTopicSeedAliases(
+    detectFaqTopicsFromUserText(userText, { establishmentId: context.lockedEstablishmentId })
+  );
+  const selectionTopics =
+    weekdayTopic && !currentTurnTopics.includes(weekdayTopic)
+      ? [...currentTurnTopics, weekdayTopic]
+      : currentTurnTopics;
 
   let faqEntries = [];
   try {
@@ -1406,11 +1426,15 @@ async function tryFaqFirstReply({
         entry.topic !== 'dias_horarios_funcionamento' && entry.topic !== 'horario_funcionamento'
     );
   }
-  if (programQuestion && dayProgram?.iso) {
-    const dayTopic = weekdayFaqTopicForIso(dayProgram.iso);
+  if (programIso) {
+    const dayTopic = weekdayFaqTopicForIso(programIso);
     const focused = faqEntries.filter((entry) => {
       const topic = String(entry.topic || '');
-      return topic === dayTopic || topic.startsWith('programacao_') || topic === 'reveillon';
+      return (
+        topic === dayTopic ||
+        topic.startsWith('programacao_') ||
+        (topic === 'reveillon' && topicHints.includes('reveillon'))
+      );
     });
     if (focused.length) faqEntries = focused;
   }
@@ -1473,7 +1497,9 @@ async function tryFaqFirstReply({
     return null;
   }
 
-  const selectedFaqs = selectDirectFaqEntries(faqEntries, userText, { topicHints });
+  const selectedFaqs = selectDirectFaqEntries(faqEntries, userText, {
+    topicHints: selectionTopics,
+  });
   const instructionCards = selectedFaqs.filter((entry) => shouldExecuteAsInstruction(entry.answer));
   const instructionOnly = selectedFaqs.length > 0 && instructionCards.length === selectedFaqs.length;
   const composed = instructionOnly
@@ -1959,20 +1985,44 @@ async function runAgentTurn({
     establishmentName: context.lockedEstablishmentName,
   });
   const focusedDay = workingState.reservation_date || workingState.pending_reservation_date_iso;
-  const focusedTopicHints = focusedDay
-    ? topicHints.filter(
-        (topic) => topic !== 'dias_horarios_funcionamento' && topic !== 'horario_funcionamento'
-      )
-    : topicHints;
-  let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
   const establishmentId = Number(context.lockedEstablishmentId);
+
+  let eventProgramBlock = '';
+  let programWeekdayTopic = '';
+  if (pool && establishmentId > 0 && looksLikeDayProgramQuestion(userText)) {
+    const dayProgram = await resolveDayProgram({
+      pool,
+      establishmentId,
+      establishmentName: context.lockedEstablishmentName,
+      userText,
+      messageHistory,
+    }).catch((error) => {
+      console.warn(
+        `[agentService] programação do dia falhou establishment_id=${establishmentId}:`,
+        error.message
+      );
+      return null;
+    });
+    eventProgramBlock = formatEventProgramPromptBlock(dayProgram);
+    const programIso = programDateIso(dayProgram, workingState);
+    programWeekdayTopic = programIso ? weekdayFaqTopicForIso(programIso) : '';
+  }
+
+  const focusedTopicHints = [
+    ...(focusedDay
+      ? topicHints.filter(
+          (topic) => topic !== 'dias_horarios_funcionamento' && topic !== 'horario_funcionamento'
+        )
+      : topicHints),
+    ...(programWeekdayTopic && !topicHints.includes(programWeekdayTopic) ? [programWeekdayTopic] : []),
+  ];
+  let faqKnowledgeBlock = String(context.faqKnowledgeBlock || '').trim();
 
   if (!faqKnowledgeBlock && pool && establishmentId > 0) {
     try {
-      // Funil: orçamento menor; só tópicos detectados (sem dump da base).
+      // Funil: orçamento menor; tópicos detectados + busca livre quando o cliente pergunta.
       const relevant = await loadRelevantFaqsForEstablishment(pool, establishmentId, focusedTopicHints, {
         funnelActive,
-        maxChars: funnelActive ? 800 : undefined,
         userText,
       });
       if (relevant.length > 0) {
@@ -2027,24 +2077,6 @@ async function runAgentTurn({
   let externalLinksBlock = String(context.externalLinksBlock || '').trim();
   if (!externalLinksBlock && pool && establishmentId > 0) {
     externalLinksBlock = await loadExternalLinksBlock(pool, establishmentId).catch(() => '');
-  }
-
-  let eventProgramBlock = '';
-  if (pool && establishmentId > 0 && looksLikeDayProgramQuestion(userText)) {
-    const dayProgram = await resolveDayProgram({
-      pool,
-      establishmentId,
-      establishmentName: context.lockedEstablishmentName,
-      userText,
-      messageHistory,
-    }).catch((error) => {
-      console.warn(
-        `[agentService] programação do dia falhou establishment_id=${establishmentId}:`,
-        error.message
-      );
-      return null;
-    });
-    eventProgramBlock = formatEventProgramPromptBlock(dayProgram);
   }
 
   let flyerAssetsBlock = '';

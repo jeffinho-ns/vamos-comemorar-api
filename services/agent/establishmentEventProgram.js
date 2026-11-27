@@ -286,7 +286,8 @@ function formatEventProgramPromptBlock(program) {
     return [
       'PROGRAMAÇÃO REAL DO DIA:',
       `Não há evento cadastrado em Funcionamento para ${when}.`,
-      'Não invente artista, preço ou observação. Diga que vai confirmar com a equipe.',
+      'Responda com a programação do dia da semana ou de música do TREINAMENTO DA IA, se houver. Só se nenhuma ficha cobrir, diga que vai confirmar com a equipe.',
+      'Não invente artista, preço ou observação.',
     ].join('\n');
   }
   const lines = program.events.map((event, index) => formatEventSentence(event, index)).filter(Boolean);

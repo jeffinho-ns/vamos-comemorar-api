@@ -106,11 +106,29 @@ function clientAlreadyExplained(userText, history) {
   return userLines(userText, history).some((line) => !looksLikePolicyQuestion(line) && line.length > 18);
 }
 
-function clientConfirmedCancel(userText, history) {
-  const blob = userLines(userText, history).join('\n');
-  return /quero cancelar de vez|pode cancelar|confirma o cancelamento|sim,?\s*(eu )?quero cancelar|cancela de vez/i.test(
-    blob
+function assistantAlreadyAskedToConfirm(history) {
+  return (history || []).some(
+    (item) =>
+      item?.role === 'assistant' &&
+      /quer mesmo cancelar|remarcar/i.test(String(item.content || ''))
   );
+}
+
+function isCancelConfirmation(line) {
+  const text = String(line || '').trim();
+  if (!text || looksLikePolicyQuestion(text)) return false;
+  if (/^(n[aã]o|nao)\b/i.test(text)) return false;
+  if (/remarcar|outro dia|adiar/i.test(text) && !/cancel/i.test(text)) return false;
+  if (/^(sim|ok|isso|confirma|confirmo|pode|quero)$/i.test(text)) return true;
+  if (/^(cancela|cancelar)$/i.test(text)) return true;
+  return /\b(quero cancelar|pode cancelar|cancela de vez|cancelar de vez|confirmo o cancelamento)\b/i.test(
+    text
+  );
+}
+
+function clientConfirmedCancel(userText, history) {
+  if (!assistantAlreadyAskedToConfirm(history)) return false;
+  return isCancelConfirmation(userText);
 }
 
 /**
@@ -128,10 +146,20 @@ function fallbackInstructionReply(answer, userText = '', history = []) {
     if (!clientConfirmedCancel(userText, history)) {
       return 'Entendi. Você quer mesmo cancelar, ou prefere que eu veja outro dia pra remarcar?';
     }
-    return 'Combinado. Vou pedir pra equipe te passar o caminho do cancelamento por aqui.';
+    return 'Combinado. Vou chamar uma pessoa da equipe para te mostrar o procedimento do cancelamento.';
   }
 
   if (/já conhece/i.test(text) && /pergunt/i.test(text)) {
+    // Só na abertura. No meio da conversa/reserva isso trava o fechamento.
+    const alreadyTalking = (history || []).some((item) => item?.role === 'assistant');
+    const midReservation = userLines(userText, history).some((line) =>
+      /\b(reserv\w*|data|horario|horário|pessoas|convidados|anivers[aá]rio|mesa|coberta|descoberta)\b/i.test(
+        line
+      )
+    );
+    if (alreadyTalking || midReservation) {
+      return 'Me conta o que você quer saber, que eu te oriento por aqui.';
+    }
     return 'Oi! Você já conhece a casa?';
   }
 

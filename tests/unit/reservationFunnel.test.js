@@ -958,7 +958,7 @@ test('buildSalesPullQuestion no Pracinha com hora e pessoas pede Balcão ou Pra�
   );
 });
 
-test('FAQ pura não derruba funil quando data, hora e pessoas já existem', () => {
+test('pergunta no meio da reserva ainda lê a ficha (funil segue no pull)', () => {
   assert.equal(
     shouldSkipFaqFirst(
       {
@@ -970,8 +970,40 @@ test('FAQ pura não derruba funil quando data, hora e pessoas já existem', () =
       [{ role: 'user', content: 'quero reservar mesa' }],
       'tem estacionamento?'
     ),
+    false
+  );
+});
+
+test('pergunta com a reserva pronta para fechar vai para o agente fechar', () => {
+  assert.equal(
+    shouldSkipFaqFirst(
+      {
+        establishment_id: 1,
+        reservation_date: '2026-11-28',
+        reservation_time: '17:00',
+        quantidade_convidados: 20,
+        client_name: 'Ana Souza',
+        client_email: 'ana@example.com',
+        data_nascimento: '1990-05-10',
+      },
+      [{ role: 'user', content: 'quero reservar mesa' }],
+      'tem estacionamento?'
+    ),
     true
   );
+});
+
+test('pergunta com palavra de reserva (aniversário, mesa) também lê a ficha', () => {
+  const midFunnel = {
+    establishment_id: 1,
+    reservation_date: '2026-11-27',
+    reservation_time: '21:00',
+    quantidade_convidados: 8,
+  };
+  const history = [{ role: 'user', content: 'Seria para 27/11' }];
+  assert.equal(shouldSkipFaqFirst(midFunnel, history, 'Qual o benefício de aniversário?'), false);
+  assert.equal(shouldSkipFaqFirst(midFunnel, history, 'Como funciona reserva de mesa?'), false);
+  assert.equal(shouldSkipFaqFirst(midFunnel, history, 'quero reservar para sábado'), true);
 });
 
 test('parseReservationFieldsFromUserText atualiza 18hs depois da trava de horário', () => {

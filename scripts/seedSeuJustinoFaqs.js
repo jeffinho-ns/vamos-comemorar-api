@@ -1,5 +1,7 @@
 /**
  * Grava as Informações adicionais do Seu Justino (places.id = 1).
+ * Também desativa tópicos legados e fichas de datas vencidas
+ * (programacao_01_11, programacao_02_11, programacao_15_11).
  * Uso: node scripts/seedSeuJustinoFaqs.js
  */
 require('dotenv').config();

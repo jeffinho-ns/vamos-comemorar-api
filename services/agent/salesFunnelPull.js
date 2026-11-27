@@ -40,9 +40,16 @@ function alreadyAsks(replyText, question) {
   return false;
 }
 
+const DEFERRED_TO_TEAM_RE = /\b(confirmar|confirmo|verificar|verifico|checar|checo)\b[^.?!]*\bcom a equipe\b/i;
+
+/** "Vou confirmar com a equipe" + pedido de e-mail na mesma mensagem soa como robô. */
+function repliesLaterWithTeam(replyText) {
+  return DEFERRED_TO_TEAM_RE.test(String(replyText || ''));
+}
+
 function appendSalesPull(replyText, workingState, { skip = false } = {}) {
   const reply = String(replyText || '').trim();
-  if (skip) return reply;
+  if (skip || repliesLaterWithTeam(reply)) return reply;
   const question = buildSalesPullQuestion(workingState);
   if (!question || alreadyAsks(reply, question)) return reply;
   if (!reply) return question;
@@ -77,6 +84,7 @@ function shouldSkipSalesPull(topicHints = []) {
 module.exports = {
   buildSalesPullQuestion,
   appendSalesPull,
+  repliesLaterWithTeam,
   keepFunnelState,
   shouldSkipSalesPull,
 };

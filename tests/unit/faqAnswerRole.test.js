@@ -31,6 +31,29 @@ test('depois do motivo, a orientação pede confirmação antes do link', () => 
   );
   assert.match(reply, /remarcar|mesmo cancelar/i);
   assert.doesNotMatch(reply, /se pedirem/i);
+  assert.doesNotMatch(reply, /chamar uma pessoa/i);
+});
+
+test('depois de confirmar o cancelamento, avisa que vai chamar alguém para o procedimento', () => {
+  const history = [
+    { role: 'user', content: 'Oi, pode me explicar sobre Cancelamento de reserva?' },
+    {
+      role: 'assistant',
+      content: 'Claro. Me conta o motivo, com calma? Quero entender o que aconteceu antes de seguir.',
+    },
+    { role: 'user', content: 'Não vou conseguir estar na cidade no dia' },
+    {
+      role: 'assistant',
+      content: 'Entendi. Você quer mesmo cancelar, ou prefere que eu veja outro dia pra remarcar?',
+    },
+  ];
+
+  for (const message of ['quero cancelar', 'Cancelar', 'sim']) {
+    const reply = fallbackInstructionReply(CANCELAMENTO, message, history);
+    assert.match(reply, /chamar uma pessoa/i);
+    assert.match(reply, /procedimento/i);
+    assert.doesNotMatch(reply, /quer mesmo cancelar/i);
+  }
 });
 
 test('endereço continua resposta pronta', () => {
@@ -58,4 +81,16 @@ test('apresentação com prefixo REGRA vira pergunta, não o texto da regra', ()
   const reply = fallbackInstructionReply(answer, 'Oi, pode me explicar sobre apresentacao?');
   assert.match(reply, /já conhece/i);
   assert.doesNotMatch(reply, /sempre perguntar/i);
+});
+
+test('regra "já conhece" não interrompe reserva em andamento', () => {
+  const answer =
+    'REGRA: após se apresentar sempre perguntar se o cliente já conhece o Seu Justino.';
+  const history = [
+    { role: 'user', content: 'Quero reservar para sexta' },
+    { role: 'assistant', content: 'Perfeito. Que horas e para quantas pessoas?' },
+  ];
+  const reply = fallbackInstructionReply(answer, 'Como funciona a casa?', history);
+  assert.doesNotMatch(reply, /já conhece/i);
+  assert.match(reply, /quer saber|oriento/i);
 });

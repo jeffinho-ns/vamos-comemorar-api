@@ -3,6 +3,7 @@
 const { isInformationalFaqTurn } = require('./faqTopicCanonical');
 const {
   detectRelevantFaqTopics,
+  generateFaqGroundedReply,
   invalidateFaqCache,
   loadRelevantFaqsForEstablishment,
   selectDirectFaqEntries,
@@ -98,14 +99,17 @@ async function runFaqReadTest(pool, input = {}) {
   }
 
   invalidateFaqCache(establishmentId);
-  const informational = isInformationalFaqTurn(question);
-  const topicHints = detectRelevantFaqTopics(question, history, {
+  // Busca e escolha usam a pergunta crua: o prefixo de data/hora simulada não é assunto.
+  const customerText = String(input.message || '').trim();
+  const informational = isInformationalFaqTurn(customerText);
+  // Mesmo caminho do WhatsApp com reserva em andamento (o mais restrito).
+  const topicHints = detectRelevantFaqTopics(customerText, history, {
     establishmentId,
-    funnelActive: false,
+    funnelActive: true,
   });
   const loaded = await loadRelevantFaqsForEstablishment(pool, establishmentId, topicHints, {
-    funnelActive: false,
-    userText: question,
+    funnelActive: true,
+    userText: customerText,
     extraTopics: focusTopic ? [focusTopic] : [],
   });
   const focused = focusTopic ? await loadActiveFaqByTopic(pool, establishmentId, focusTopic) : null;
@@ -125,26 +129,33 @@ async function runFaqReadTest(pool, input = {}) {
     };
   }
 
-  const selected = selectDirectFaqEntries(grounded, question, { focusTopic, topicHints });
+  const selected = selectDirectFaqEntries(grounded, customerText, { focusTopic, topicHints });
   const instructionCards = selected.filter((entry) => shouldExecuteAsInstruction(entry.answer));
   const instructionOnly = selected.length > 0 && instructionCards.length === selected.length;
-  const composed = instructionOnly
-    ? await executeFaqInstruction({
-        cards: instructionCards,
-        userText: question,
-        history,
-        establishmentName: '',
-        pool,
-        establishmentId,
-      })
-    : {
-        text: selected
-          .filter((entry) => !shouldExecuteAsInstruction(entry.answer))
-          .map((entry) => customerFacingFaqText(entry.answer))
-          .filter(Boolean)
-          .join('\n\n'),
-        usedModel: false,
-      };
+  let composed;
+  if (instructionOnly) {
+    composed = await executeFaqInstruction({
+      cards: instructionCards,
+      userText: question,
+      history,
+      establishmentName: '',
+      pool,
+      establishmentId,
+    });
+  } else if (selected.length) {
+    composed = {
+      text: selected
+        .filter((entry) => !shouldExecuteAsInstruction(entry.answer))
+        .map((entry) => customerFacingFaqText(entry.answer))
+        .filter(Boolean)
+        .join('\n\n'),
+      usedModel: false,
+    };
+  } else {
+    // Assunto só no corpo da ficha (ex.: feijoada dentro de "Informações de domingo"):
+    // no WhatsApp a Sol monta a frase com a IA a partir dessas fichas.
+    composed = await composeFromFaqBody({ question, grounded, history, pool, establishmentId });
+  }
   const reply = String(composed.text || '').trim();
   if (!reply) {
     return {
@@ -165,9 +176,25 @@ async function runFaqReadTest(pool, input = {}) {
     readFocus: reading.readFocus && !CONFIRM_LATER.test(reply),
     informational,
     usedModel: composed.usedModel,
-    verbatim: !instructionOnly,
+    verbatim: !instructionOnly && !composed.usedModel,
     instruction: instructionOnly,
   };
+}
+
+async function composeFromFaqBody({ question, grounded, history, pool, establishmentId }) {
+  try {
+    const text = await generateFaqGroundedReply({
+      userQuestion: question,
+      faqEntries: grounded,
+      messageHistory: history,
+      pool,
+      establishmentId,
+    });
+    return { text, usedModel: true };
+  } catch (error) {
+    console.warn('[faqSandbox] resposta pelo corpo da ficha indisponível:', error.message);
+    return { text: '', usedModel: false };
+  }
 }
 
 module.exports = {

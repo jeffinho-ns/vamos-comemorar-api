@@ -72,8 +72,8 @@ const MODEL_ECONOMY = sanitizeOpenAiModelName(
 const MAX_CONTEXT_MESSAGES = Number(process.env.MAX_CONTEXT_MESSAGES || 8);
 const FAQ_MAX_TOKENS_PER_TURN = Number(process.env.FAQ_MAX_TOKENS_PER_TURN || 400);
 const FAQ_MAX_CHARS_PER_TURN = FAQ_MAX_TOKENS_PER_TURN * 4;
-/** No funil de reserva, injeta ainda menos FAQ no prompt do agente. */
-const FAQ_MAX_CHARS_FUNNEL = Number(process.env.FAQ_MAX_CHARS_FUNNEL || 800);
+/** No funil de reserva, injeta menos FAQ no prompt do agente (cabe 2–3 fichas). */
+const FAQ_MAX_CHARS_FUNNEL = Number(process.env.FAQ_MAX_CHARS_FUNNEL || 1600);
 
 const AGENT_MAX_TOOL_ROUNDS = Number(process.env.AGENT_MAX_TOOL_ROUNDS || 2);
 const AGENT_MAX_TOOL_ROUNDS_FUNNEL = Number(process.env.AGENT_MAX_TOOL_ROUNDS_FUNNEL || 2);
