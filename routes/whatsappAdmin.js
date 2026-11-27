@@ -623,6 +623,7 @@ module.exports = (pool, app) => {
               enabled: true,
               instanceId: wameSend.instanceId,
               quotedMessageId: wameSend.quotedMessageId,
+              establishmentId,
             },
             () =>
             processInboundTurn({
@@ -888,6 +889,7 @@ module.exports = (pool, app) => {
             enabled: sentViaWame,
             instanceId,
             quotedMessageId: wameSend.quotedMessageId,
+            establishmentId: conv.establishment_id,
           },
           () =>
             runWithWhatsappLine(lineContext, () =>

@@ -1,7 +1,6 @@
 'use strict';
 
 const inbox = require('../whatsappInboxRepository');
-const { getWameApiKey } = require('./wameConfig');
 const { isHouseDisplayPhone } = require('./wameHouse');
 const { requestJson } = require('./wameService');
 
@@ -53,24 +52,13 @@ function customerPhone(chatId) {
 }
 
 async function findInstanceId(pool, establishmentId) {
-  const { findEstablishmentWameInstanceId } = require('./wameService');
-  const remembered = await findEstablishmentWameInstanceId(pool, establishmentId);
-  if (remembered) return remembered;
+  const { resolveWameRouting } = require('./wameService');
+  const routing = await resolveWameRouting(pool, establishmentId);
+  if (routing.instanceId) return routing.instanceId;
 
-  const byEstEnv = String(process.env.WAME_INSTANCE_BY_ESTABLISHMENT || '').trim();
-  if (byEstEnv) {
-    try {
-      const map = JSON.parse(byEstEnv);
-      const keyed = map?.[String(establishmentId)] || map?.[establishmentId];
-      if (keyed && /^[a-z0-9]{8,40}$/i.test(String(keyed))) return String(keyed);
-    } catch (_) {
-      /* ignore JSON inválido */
-    }
-  }
-
-  // Fallback só quando há uma única instância no Render.
-  // Com várias casas Wame, passe instance_id no POST /wame/import-history.
-  return getWameApiKey() || null;
+  // Sem fallback para WAME_API_KEY global: evita cruzar casas multi-tenant.
+  // Passe instance_id no POST /wame/import-history quando a casa ainda não tem histórico.
+  return null;
 }
 
 async function listChatMessages(instanceId, chatId, maxPages = 5) {
