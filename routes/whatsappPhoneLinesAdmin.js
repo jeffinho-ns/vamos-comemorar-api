@@ -7,6 +7,18 @@ const {
   upsertLine,
   disconnectLine,
 } = require('../services/whatsapp/whatsappPhoneLineService');
+const { assertSensitiveOpAllowed } = require('../services/wame/wameCoexistenceGuard');
+
+function coexistenceBlockedResponse(res, error) {
+  if (error?.code !== 'WAME_COEXISTENCE_BLOCKED') return false;
+  res.status(403).json({
+    success: false,
+    message: error.message,
+    code: error.code,
+    op: error.op,
+  });
+  return true;
+}
 
 const ADMIN_ROLES = ['admin', 'gerente', 'administrador', 'recepção'];
 
@@ -72,9 +84,16 @@ module.exports = (pool) => {
         if (!(await establishmentExists(pool, establishmentId))) {
           return res.status(404).json({ success: false, message: 'Estabelecimento não encontrado.' });
         }
+        assertSensitiveOpAllowed({
+          op: 'phone_line_upsert',
+          establishmentId,
+          req,
+          actorUserId: req.user?.id,
+        });
         const row = await upsertLine(pool, establishmentId, req.body || {});
         return res.json({ success: true, data: toPublicLine(row) });
       } catch (error) {
+        if (coexistenceBlockedResponse(res, error)) return undefined;
         const status = Number(error.statusCode) || 500;
         if (status >= 500) console.error('[whatsapp-line] put:', error.message);
         return res.status(status).json({
@@ -95,9 +114,16 @@ module.exports = (pool) => {
         if (!establishmentId) {
           return res.status(400).json({ success: false, message: 'ID de estabelecimento inválido.' });
         }
+        assertSensitiveOpAllowed({
+          op: 'phone_line_disconnect',
+          establishmentId,
+          req,
+          actorUserId: req.user?.id,
+        });
         await disconnectLine(pool, establishmentId);
         return res.json({ success: true, data: { disconnected: true } });
       } catch (error) {
+        if (coexistenceBlockedResponse(res, error)) return undefined;
         console.error('[whatsapp-line] delete:', error.message);
         return res.status(500).json({ success: false, message: 'Falha ao desconectar o número.' });
       }
