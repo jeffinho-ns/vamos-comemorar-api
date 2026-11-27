@@ -119,6 +119,8 @@ const FAQ_SEED_TOPIC_ALIASES = {
   dress_code: ['dress_code', 'traje', 'vestimenta'],
   estacionamento: ['estacionamento', 'valet'],
   musica: ['musica'],
+  menores_criancas: ['menores_criancas', 'menores_de_idade', 'area_kids'],
+  menores_de_idade: ['menores_de_idade', 'menores_criancas', 'area_kids'],
 };
 
 function expandFaqTopicSeedAliases(topics = []) {
@@ -400,11 +402,73 @@ function detectFaqTopicsFromUserText(text, options = {}) {
   ) {
     topics.push('reserva_areas_operacional_highline');
   }
-  if (/\b(instagram|fotos?|ambiente)\b/.test(normalized)) {
+  if (/\b(instagram|fotos?|ambiente|tour 360|tour virtual)\b/.test(normalized)) {
     topics.push('redes_sociais_fotos');
   }
-  if (/\b(dress|traje|vestimenta)\b/.test(normalized)) {
+  if (/\b(dress|traje|vestimenta|bermuda|chinelo)\b/.test(normalized)) {
     topics.push('dress_code');
+  }
+  if (
+    /\bcomo funciona (a )?reserva\b|\bcomo reservar\b|\breserva de mesa\b|\btem taxa de reserva\b|\bcobra (alguma )?taxa (de |para )?reserva\b|\bcusto da reserva\b/.test(
+      normalized
+    )
+  ) {
+    topics.push('como_funciona_reserva');
+    topics.push('areas_mesas_camarotes_diferenca');
+  }
+  if (
+    /\b(pagamento|formas? de pagamento|cartao|pix|vale[- ]?refeicao|alelo|sodexo|pluxee|\bvr\b|dinheiro em especie)\b/.test(
+      normalized
+    )
+  ) {
+    topics.push('formas_pagamento');
+  }
+  if (/\b(endereco|como chegar|onde fica|localizacao)\b/.test(normalized)) {
+    topics.push('como_chegar');
+  }
+  if (/\b(menor de idade|menores|crianca|criancas|eca|recreacao|area kids|espaco kids)\b/.test(normalized)) {
+    topics.push('menores_criancas');
+  }
+  if (/\b(acessib|rampa|cadeirante|elevador|banheiro adaptado)\b/.test(normalized)) {
+    topics.push('acessibilidade');
+  }
+  if (/\b(rolha|levar vinho|trazer vinho)\b/.test(normalized)) {
+    topics.push('taxa_rolha');
+  }
+  if (/\b(promocao de vinho|garrafa de vinho|taca de vinho)\b/.test(normalized)) {
+    topics.push('promocao_vinho');
+  }
+  if (/\b(prime gourmet|duo gourmet|mastercard surpreenda|surpreenda)\b/.test(normalized)) {
+    topics.push('beneficios_programas');
+  }
+  if (/\b(natal|ceia de natal|24\s*[/\-]\s*12|25\s*[/\-]\s*12)\b/.test(normalized)) {
+    topics.push('natal');
+  }
+  if (
+    /\b(qual unidade|quais unidades|outra unidade|unidades|reserva pinheiros|perdizes ou pinheiros|pinheiros ou perdizes|unidade (em |de )?(pinheiros|perdizes))\b/.test(
+      normalized
+    )
+  ) {
+    topics.push('unidades');
+  }
+  if (/\b(aquecedor|aquecedores|cobertor|cobertores|dias? de frio)\b/.test(normalized)) {
+    topics.push('dias_frio');
+  }
+  if (
+    /\b(evento corporativo|confraterniz|pacote fechado|pacote de comidas|pacotes? para evento|formatos? de evento|festa da empresa|fazer um evento|realizar um evento)\b/.test(
+      normalized
+    )
+  ) {
+    topics.push('eventos_corporativos');
+  }
+  if (/\b(curriculo|freelancer|vaga de emprego|trabalhar ai|trabalhar aqui)\b/.test(normalized)) {
+    topics.push('vagas_emprego');
+  }
+  if (/\b(fornecedor|comprador|proposta comercial|contratar banda|e[- ]?shows)\b/.test(normalized)) {
+    topics.push('compras_fornecedor');
+  }
+  if (/\b(parceria|parcerias|permuta|influenciador)\b/.test(normalized)) {
+    topics.push('parcerias');
   }
 
   const aboutTopic = extractAboutSubjectTopic(text, options);

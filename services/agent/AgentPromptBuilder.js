@@ -161,7 +161,7 @@ TOM: mensagens curtas (1-3 frases), prosa corrida. Peça data+horário+pessoas j
       return 'ESCOPO: Pracinha do Seu Justino (id=8). Áreas de reserva: só Balcão ou Praça. Balcão é nome válido nesta casa. Não ofereça Área Coberta, Descoberta, VIP, Terraço nem Apê. Se dia, horário e pessoas já foram ditos, pergunte só Balcão ou Praça. Uma pergunta por vez.';
     }
     if (id === 9) {
-      return 'ESCOPO: Reserva Rooftop (id=9). Áreas de reserva do cliente: só Área Interna, Área Externa ou Salão — iguais ao formulário /reservar e ao painel. Em criar_pre_reserva envie area="Área Interna", area="Área Externa" ou area="Salão". Não invente Deck, Bar Central, coberta/descoberta nem subáreas LG/Gramado/PQ na conversa. Uma pergunta por vez.';
+      return 'ESCOPO: Reserva Rooftop (id=9). Se o cliente ainda não informou qual unidade deseja, pergunte antes se prefere o Restaurante Reserva Rooftop (Perdizes) ou o Restaurante Reserva Pinheiros (inauguração prevista, ainda sem data confirmada). Para reservas em Perdizes, as áreas do cliente são só Área Interna, Área Externa ou Salão — iguais ao formulário /reservar e ao painel. Em criar_pre_reserva envie area="Área Interna", area="Área Externa" ou area="Salão". Não envie formulário em lista e não invente Deck, Bar Central, coberta/descoberta nem subáreas LG/Gramado/PQ na conversa. Uma pergunta por vez.';
     }
     return `ESCOPO: "${name || 'estabelecimento'}" (id=${id}). Ignore menções a Highline se não forem desta casa.`;
   }

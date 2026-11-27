@@ -160,7 +160,11 @@ const RICH_FAQ_TOPIC_ROUTES = [
       '50 pessoas',
       'mesa grande',
     ],
-    fallbacks: ['reserva_grupos_grandes_highline'],
+    fallbacks: [
+      'reserva_grupos_grandes_highline',
+      'como_funciona_reserva',
+      'areas_mesas_camarotes_diferenca',
+    ],
   },
   {
     slug: 'reserva_areas_operacional_highline',
@@ -177,7 +181,11 @@ const RICH_FAQ_TOPIC_ROUTES = [
       'bistro',
       'vista',
     ],
-    fallbacks: ['reserva_areas_operacional_highline'],
+    fallbacks: [
+      'reserva_areas_operacional_highline',
+      'areas_mesas_camarotes_diferenca',
+      'como_funciona_reserva',
+    ],
   },
 ];
 
@@ -187,8 +195,8 @@ const LEGACY_FAQ_ALIASES = {
   musica: ['musica'],
   cardapio: ['cardapio', 'menu'],
   menu: ['cardapio', 'menu'],
-  crianca: ['crianca', 'criancas', 'menor', 'menores'],
-  criancas: ['crianca', 'criancas', 'menor', 'menores'],
+  crianca: ['menores_criancas', 'menores_de_idade', 'area_kids', 'crianca', 'criancas', 'menor', 'menores'],
+  criancas: ['menores_criancas', 'menores_de_idade', 'area_kids', 'crianca', 'criancas', 'menor', 'menores'],
   horario: [
     'dias_horarios_funcionamento',
     'horario_funcionamento',

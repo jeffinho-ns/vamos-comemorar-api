@@ -55,48 +55,6 @@ const PRACINHA_FAQS = [
       'Aos domingos a casa abre às 14h e fecha à 0h, com comanda individual. O pagode é das 15h às 18h30. A entrada é VIP unissex até as 16h. Depois, R$ 20 seco ou R$ 120 que consome tudo. Open chopp das 14h às 16h por R$ 62,90. Cite só o que foi perguntado. Valores e programação podem mudar.',
   },
   {
-    topic: 'programacao_19_11',
-    category: 'evento',
-    answer:
-      'Em 19/11, sexta e véspera de feriado, a Praça é Nossa em Pinheiros, com samba, pagode e funk. As atrações são Grupo Mais Que Nosso e DJ Funk. A casa abre às 17h, as reservas são a partir das 21h e o fechamento é às 3h30. Até as 20h a entrada VIP é R$ 25 e a consumação é R$ 140. A comanda é individual. Valores e programação podem mudar.',
-  },
-  {
-    topic: 'programacao_01_11',
-    category: 'evento',
-    answer:
-      'Em 01/11, véspera de feriado, a casa funciona das 14h às 3h30, com comanda individual. Open chopp das 14h às 18h por R$ 62,90. A entrada é VIP até as 16h. Depois das 16h, R$ 15 seco ou R$ 100 que consome tudo. Valores sujeitos a alteração.',
-  },
-  {
-    topic: 'programacao_02_11',
-    category: 'evento',
-    answer:
-      'No feriado de 02/11 a casa funciona das 14h às 21h, com comandas individuais. Das 14h às 15h a entrada é VIP. Das 15h às 16h, R$ 20 ou R$ 120 de consumação, sujeito a alteração. Open chopp das 14h às 18h por R$ 62,90.',
-  },
-  {
-    topic: 'programacao_15_11',
-    category: 'evento',
-    answer:
-      'No feriado de 15/11, domingo, a casa abre às 14h e fecha à 0h. O pagode é das 15h às 18h30. A entrada é VIP unissex até as 16h. Depois, R$ 20 seco ou R$ 120 que consome tudo. Open chopp das 14h às 18h por R$ 62,90. A comanda é individual. Valores e informações podem mudar.',
-  },
-  {
-    topic: 'programacao_20_11',
-    category: 'evento',
-    answer:
-      'Em 20/11, feriado e sexta, é Amor e Pagode com Gustavo Balta e DJ no after, em Pinheiros. A casa abre às 14h e fecha às 3h30. Das 16h às 19h é DJ, das 19h às 23h é pagode e das 23h às 3h é DJ. Até as 16h a entrada VIP é R$ 20 e a consumação é R$ 120, sujeito a alteração. Open chopp das 14h às 18h por R$ 62,90. A comanda é individual.',
-  },
-  {
-    topic: 'programacao_21_11',
-    category: 'evento',
-    answer:
-      'Em 21/11 o open chopp é R$ 62,90, das 14h às 16h. Informe isso quando perguntarem dessa data. O valor pode mudar.',
-  },
-  {
-    topic: 'programacao_22_11',
-    category: 'evento',
-    answer:
-      'Em 22/11 o open chopp é R$ 62,90, das 14h às 18h. Informe isso quando perguntarem dessa data. O valor pode mudar.',
-  },
-  {
     topic: 'programacao_27_11',
     category: 'evento',
     answer:
@@ -107,6 +65,35 @@ const PRACINHA_FAQS = [
     category: 'evento',
     answer:
       'Em 31/12/2026 o Pracinha abre o Réveillon Pracinha, celebrando 2027. O acesso é só por ingresso, em https://www.ingresse.com/super-reveillon-harmonia-seu-justino-pracinha/ . Não ofereça reserva comum nessa data. O Réveillon tem open food e open bar premium a celebração inteira, com ceia, finger foods, sobremesas, opções da madrugada, bebidas, drinks e cervejas. O cardápio completo está no link de compra. Não invente valor, horário, atração ou item que não esteja neste texto.',
+  },
+  {
+    topic: 'sobre_a_casa',
+    category: 'geral',
+    answer:
+      'A Pracinha do Seu Justino fica na Rua Harmonia, 117, na Vila Madalena, com clima de praça ao ar livre, paisagismo, drinks autorais, petiscos e música ao vivo. Para reserva comum o cliente escolhe entre Balcão ou Praça, e no andar de cima fica o Apê com clima de balada. Somos bar e balada e o público costuma ficar em pé.',
+  },
+  {
+    topic: 'cardapio',
+    category: 'cardapio',
+    answer:
+      'O cardápio digital da Pracinha está em https://www.agilizaiapp.com.br/cardapio/pracinha . A casa serve comidas tradicionais de boteco com toque autoral, porções, chopp e drinks. Trabalhamos com comandas individuais.',
+  },
+  {
+    topic: 'como_funciona_reserva',
+    category: 'reserva',
+    answer:
+      'A reserva de mesa na Pracinha é gratuita. Informe data, horário e quantidade de pessoas e escolha entre Balcão ou Praça. A tolerância de atraso é de 15 minutos e trabalhamos com comandas individuais. Somos bar e balada: as mesas acomodam de 4 a 12 pessoas conforme disponibilidade e servem de apoio, sem garantir todos os convidados sentados.',
+  },
+  {
+    topic: 'dress_code',
+    category: 'geral',
+    answer:
+      'O dress code é casual elegante. Evitamos chinelos e bermudas rasgadas.',
+  },
+  {
+    topic: 'comanda',
+    category: 'geral',
+    answer: 'Trabalhamos com comandas individuais.',
   },
   {
     topic: 'eventos_corporativos',
@@ -183,7 +170,7 @@ const PRACINHA_FAQS = [
     topic: 'promocoes_chopp',
     category: 'geral',
     answer:
-      'Quarta o chopp sai por R$ 7,45 no Amstel e R$ 8,45 na Heineken, e também por 50% do preço. Quinta tem open chopp Amstel por R$ 62,90 até as 22h, e em feriado até as 17h. Domingo o open chopp é das 14h às 16h por R$ 62,90. Em 01/11 e 20/11 o open chopp vai das 14h às 18h por R$ 62,90. Em 21/11, das 14h às 16h. Em 22/11, das 14h às 18h. Cite só o dia perguntado. Valores podem mudar.',
+      'Quarta o chopp sai por R$ 7,45 no Amstel e R$ 8,45 na Heineken, e também por 50% do preço. Quinta tem open chopp Amstel por R$ 62,90 até as 22h, e em feriado até as 17h. Domingo o open chopp é das 14h às 16h por R$ 62,90. Cite só o dia perguntado. Valores podem mudar.',
   },
   {
     topic: 'flyer_aniversario',
@@ -213,12 +200,6 @@ const PRACINHA_FAQS = [
     category: 'geral',
     answer:
       'Quarta é som ambiente. Quinta é Ao Vivo na Praça, com pagode, brasilidades e funk. Sexta é De Volta ao Mundo do Funk, com Grupo Mais Que Nosso e DJ Funk. Sábado é Amor e Pagode com Gustavo Balta e DJ no after. Domingo tem pagode das 15h às 18h30. Os estilos da casa incluem pop, MPB, samba, pagode, funk e sertanejo. Música ao vivo entra quinta, sexta, sábado e domingo. Cite só o dia perguntado.',
-  },
-  {
-    topic: 'mencao_story',
-    category: 'geral',
-    answer:
-      'Quando a pessoa marcar a casa no story do Instagram, responda: Amei sua menção. Me conta tudo: como foi sua experiência e o que você mais gostou? Estou ansiosa para saber.',
   },
   {
     topic: 'acessibilidade',
@@ -290,7 +271,17 @@ const PRACINHA_FAQS = [
   },
 ];
 
-const LEGACY_TOPICS_TO_RETIRE = ['flyer_de_aniversario_convite_de_aniversario'];
+const LEGACY_TOPICS_TO_RETIRE = [
+  'flyer_de_aniversario_convite_de_aniversario',
+  'mencao_story',
+  'programacao_01_11',
+  'programacao_02_11',
+  'programacao_15_11',
+  'programacao_19_11',
+  'programacao_20_11',
+  'programacao_21_11',
+  'programacao_22_11',
+];
 
 function detectPracinhaFaqTopics(normalized) {
   const text = String(normalized || '');
@@ -300,16 +291,22 @@ function detectPracinhaFaqTopics(normalized) {
     if (topic && !topics.includes(topic)) topics.push(topic);
   };
 
-  if (/\b19\s*[/\-]\s*11\b/.test(text)) add('programacao_19_11');
-  if (/\b20\s*[/\-]\s*11\b/.test(text)) add('programacao_20_11');
-  if (/\b21\s*[/\-]\s*11\b/.test(text)) add('programacao_21_11');
-  if (/\b22\s*[/\-]\s*11\b/.test(text)) add('programacao_22_11');
   if (/\b27\s*[/\-]\s*11\b/.test(text)) add('programacao_27_11');
   if (/\b(ape|andar de cima|andar superior)\b/.test(text)) add('reserva_ape');
   if (/\brolha\b/.test(text)) add('taxa_rolha');
   if (/\bparceria\b/.test(text)) add('parcerias');
-  if (/\b(historia da casa|como e a casa|sobre a pracinha)\b/.test(text)) add('historia');
-  if (/\b(story|stories|mencao|marquei voces)\b/.test(text)) add('mencao_story');
+  if (
+    /\b(historia da casa|como e a casa|como funciona a casa|sobre a pracinha|sobre a casa|estilo da casa)\b/.test(
+      text
+    )
+  ) {
+    add('sobre_a_casa');
+    add('historia');
+  }
+  if (/\bcomo funciona (a )?reserva\b|\bcomo reservar\b|\breserva de mesa\b/.test(text)) {
+    add('como_funciona_reserva');
+    add('mesas_assentos');
+  }
   if (/\b(despedida|pos[- ]?casamento|cha de lingerie)\b/.test(text)) add('beneficios_despedida');
   if (/\bhappy hour\b/.test(text)) add('happy_hour');
   if (/\b(open chopp|double drink|chopp pela metade)\b/.test(text)) add('promocoes_chopp');

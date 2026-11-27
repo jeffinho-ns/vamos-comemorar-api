@@ -110,12 +110,14 @@ module.exports = (pool) => {
           return res.status(403).json({ success: false, message: 'Acesso negado a este estabelecimento.' });
         }
 
+        const includeInactive = String(req.query?.include_inactive || '').toLowerCase() === 'true';
         const result = await queryWithRlsContext(
           pool,
           faqReadRlsContext(access),
           `SELECT id, establishment_id, topic, answer, category, is_active, updated_at, created_at
              FROM establishment_faq
             WHERE establishment_id = $1
+              ${includeInactive ? '' : 'AND is_active = TRUE'}
             ORDER BY topic ASC`,
           [establishmentId]
         );
